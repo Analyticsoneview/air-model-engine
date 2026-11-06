@@ -13,12 +13,16 @@ class ExecutionPolicy:
 
 
 class ExecutionService:
-    """Single guarded route for every strategy- or user-originated order intent."""
+    """Single guarded route; risk policy and idempotency are isolated per account."""
 
-    def __init__(self, registry: BrokerRegistry, policies: dict[str, ExecutionPolicy]) -> None:
+    def __init__(
+        self,
+        registry: BrokerRegistry,
+        policies: dict[tuple[str, str], ExecutionPolicy],
+    ) -> None:
         self.registry = registry
         self.policies = policies
-        self._idempotency: dict[tuple[str, str], BrokerOrder] = {}
+        self._idempotency: dict[tuple[str, str, str], BrokerOrder] = {}
 
     async def submit(
         self,
@@ -29,6 +33,10 @@ class ExecutionService:
         paper: bool = True,
         estimated_order_value: Decimal | None = None,
     ) -> BrokerOrder:
+        broker = broker_code.strip().lower()
+        account = order.account_id.strip()
+        if not broker or not account:
+            raise ValueError("Broker and account identifiers are required")
         if not confirmed_by_user:
             raise PermissionError("Explicit user confirmation is required")
         if order.quantity <= 0:
@@ -36,11 +44,11 @@ class ExecutionService:
         if not order.idempotency_key.strip():
             raise ValueError("An idempotency key is required")
 
-        key = (broker_code.lower(), order.idempotency_key)
+        key = (broker, account, order.idempotency_key)
         if key in self._idempotency:
             return self._idempotency[key]
 
-        policy = self.policies.get(broker_code.lower(), ExecutionPolicy())
+        policy = self.policies.get((broker, account), ExecutionPolicy())
         if not paper:
             if not policy.live_enabled:
                 raise PermissionError("Live execution is disabled for this broker account")
@@ -57,14 +65,14 @@ class ExecutionService:
 
         if paper:
             result = BrokerOrder(
-                broker=broker_code.lower(),
-                account_id=order.account_id,
-                broker_order_id=f"PAPER-{order.idempotency_key}",
+                broker=broker,
+                account_id=account,
+                broker_order_id=f"PAPER-{account}-{order.idempotency_key}",
                 status="PAPER_ACCEPTED",
                 raw={"mode": "paper", "not_sent_to_broker": True},
             )
         else:
-            result = await self.registry.get(broker_code).place_order(order)
+            result = await self.registry.get(broker, account).place_order(order)
 
         self._idempotency[key] = result
         return result
