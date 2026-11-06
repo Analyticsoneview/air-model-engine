@@ -114,3 +114,23 @@ def test_reentry_without_verification_is_rejected():
     else:
         raise AssertionError("Unverified RE-ENTRY must be rejected")
     ledger.close()
+
+
+def test_wait_requires_explicit_verification_and_is_persisted():
+    ledger = ModelEngineLedger(":memory:")
+    try:
+        try:
+            ledger.upsert("customer-a", record(classification="WAIT"))
+        except ValueError as exc:
+            assert "wait_verified" in str(exc)
+        else:
+            raise AssertionError("Unverified WAIT must be rejected")
+        ledger.upsert("customer-a", record(
+            classification="WAIT",
+            evidence={"wait_verified": True, "strategy_memberships": ["EXPIRY78"]},
+        ))
+        row = ledger.list_signals("customer-a")[0]
+        assert row["classification"] == "WAIT"
+        assert row["position_status"] == "WAIT"
+    finally:
+        ledger.close()
