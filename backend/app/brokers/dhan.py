@@ -92,6 +92,60 @@ class DhanHQClient:
         }
         return await self._request("POST", "/charts/intraday", json=payload)
 
+    async def option_expiry_list(self, *, underlying_scrip: int, underlying_segment: str) -> list[str]:
+        if underlying_scrip <= 0 or not underlying_segment.strip():
+            raise ValueError("A positive underlying_scrip and underlying_segment are required")
+        data = await self._request("POST", "/optionchain/expirylist", json={
+            "UnderlyingScrip": underlying_scrip,
+            "UnderlyingSeg": underlying_segment,
+        })
+        values = data.get("data") if isinstance(data, dict) else None
+        if not isinstance(values, list) or any(not isinstance(item, str) for item in values):
+            raise DhanAPIError(502, "Unexpected option expiry-list response")
+        return values
+
+    async def option_chain(self, *, underlying_scrip: int, underlying_segment: str,
+                           expiry: str) -> dict[str, Any]:
+        if underlying_scrip <= 0 or not underlying_segment.strip() or not expiry.strip():
+            raise ValueError("Underlying, segment and expiry are required")
+        data = await self._request("POST", "/optionchain", json={
+            "UnderlyingScrip": underlying_scrip,
+            "UnderlyingSeg": underlying_segment,
+            "Expiry": expiry,
+        })
+        if not isinstance(data, dict) or data.get("status") != "success" or not isinstance(data.get("data"), dict):
+            raise DhanAPIError(502, "Unexpected option-chain response")
+        return data["data"]
+
+    async def expired_options(self, *, underlying_scrip: int, interval: int,
+                              instrument: str, expiry_flag: str, expiry_code: int,
+                              strike: str, option_type: str, from_date: str,
+                              to_date: str,
+                              required_data: list[str] | None = None) -> dict[str, Any]:
+        """Fetch rolling expired-option history; Dhan supports max 30 calendar days per call."""
+        if underlying_scrip <= 0 or interval not in {1, 5, 15, 25, 60}:
+            raise ValueError("Invalid underlying_scrip or interval")
+        if instrument not in {"OPTIDX", "OPTSTK"}:
+            raise ValueError("instrument must be OPTIDX or OPTSTK")
+        if expiry_flag not in {"WEEK", "MONTH"} or expiry_code not in {1, 2, 3}:
+            raise ValueError("Invalid expiry_flag or expiry_code")
+        if option_type not in {"CALL", "PUT"}:
+            raise ValueError("option_type must be CALL or PUT")
+        if not strike or not from_date or not to_date:
+            raise ValueError("strike and date range are required")
+        fields = required_data or ["open", "high", "low", "close", "iv", "volume", "strike", "oi", "spot"]
+        allowed = {"open", "high", "low", "close", "iv", "volume", "strike", "oi", "spot"}
+        if not fields or set(fields) - allowed:
+            raise ValueError("Unsupported required_data field")
+        payload = {
+            "exchangeSegment": "NSE_FNO", "interval": str(interval),
+            "securityId": underlying_scrip, "instrument": instrument,
+            "expiryFlag": expiry_flag, "expiryCode": expiry_code,
+            "strike": strike, "drvOptionType": option_type,
+            "requiredData": fields, "fromDate": from_date, "toDate": to_date,
+        }
+        return await self._request("POST", "/charts/rollingoption", json=payload)
+
     async def order_book(self) -> list[dict[str, Any]]:
         data = await self._request("GET", "/orders")
         if not isinstance(data, list):
