@@ -67,3 +67,18 @@ The directory stores account identifiers and permissions only. It does not store
 - `ExecutionService` can be constructed with this ledger so a completed result is returned after an application restart rather than being forgotten in process memory.
 - This protects retries after a completed submission. It does **not** yet provide an atomic pre-submit reservation, broker-timeout ambiguity resolution, event-sourced audit history, or automated broker reconciliation. A timeout must be treated as unknown and checked against the broker order book; never blindly retry a possibly accepted live order.
 - Keep live execution disabled until atomic intent reservation, durable audit events, provider-specific reconciliation and fault-injection tests are complete. The ledger database must be included in encrypted backups and protected persistent storage.
+
+
+## Agreed broker integration scope
+
+The initial supported-provider catalog is Angel One SmartAPI, DhanHQ, Zerodha Kite Connect, Upstox API and FYERS API v3. The authenticated `GET /api/v1/brokers/catalog` endpoint exposes the provider-specific authorization and feed modes to the app. Account registration rejects providers outside this list.
+
+Provider-specific authorization cannot be treated as one generic username/password form:
+
+- Angel One uses client code, PIN and TOTP; its session returns JWT, refresh token and feed token. Historical candles use the SmartAPI candle endpoint and live ticks use Smart Stream.
+- DhanHQ uses an access token (or its TOTP-enabled token-generation flow); historical candles use `/charts/historical` and `/charts/intraday`; live data uses its authenticated binary WebSocket feed. Data API entitlement is separate from trading API access.
+- Zerodha requires a browser login redirect, a short-lived request token and a server-side SHA-256 checksum exchange using the API secret. The API secret must never be placed in Flutter.
+- Upstox uses OAuth 2.0 authorization-code login and a server-side code exchange; market feed v3 requires the broker-authorized WebSocket URI and Protobuf decoding.
+- FYERS uses an authorization-code redirect and server-side app-id hash exchange; the API exposes separate data and general WebSockets.
+
+The catalog is not an integration. All five currently report `authorization_ready=false`. Provider adapters, callback/state validation, token lifecycle, feed decoding, order/position normalization, broker-specific rate-limit handling and sandbox/live verification remain required. Dhan data entitlement and static-IP restrictions for order APIs, plus each broker's commercial/API terms, must be confirmed before enabling production features.
