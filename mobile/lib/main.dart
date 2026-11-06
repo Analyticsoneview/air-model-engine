@@ -178,6 +178,8 @@ class AirDashboard extends StatelessWidget {
         const WeeklyLowRespectDashboardShortcut(),
         const SizedBox(height: 10),
         const SurvivorDashboardShortcut(),
+        const SizedBox(height: 10),
+        const DashboardOrderPlacementShortcut(),
         const SizedBox(height: 20),
         const SectionHeader(title: 'AIR RESEARCH LIBRARY', caption: 'CHAT LOGIC → MODULES'),
         const SizedBox(height: 10),
@@ -758,6 +760,170 @@ class SurvivorDashboardShortcut extends StatelessWidget {
             ])),
             const AirTag('PRIORITY 1', color: Color(0xFFE5B85C)),
             const SizedBox(width: 7),
+            Icon(Icons.arrow_forward_ios_rounded, size: 14, color: cs.primary),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+
+class DashboardOrderPlacementShortcut extends StatefulWidget {
+  const DashboardOrderPlacementShortcut({super.key});
+
+  @override
+  State<DashboardOrderPlacementShortcut> createState() => _DashboardOrderPlacementShortcutState();
+}
+
+class _DashboardOrderPlacementShortcutState extends State<DashboardOrderPlacementShortcut> {
+  String signalClass = 'NEW SURVIVOR · ≤7 DTE';
+  String side = 'BUY';
+  String orderType = 'LIMIT';
+  int lots = 1;
+  final symbolController = TextEditingController();
+  final priceController = TextEditingController();
+
+  @override
+  void dispose() {
+    symbolController.dispose();
+    priceController.dispose();
+    super.dispose();
+  }
+
+  void _openTicket(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).cardColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(18, 18, 18, MediaQuery.of(context).viewInsets.bottom + 22),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(children: [
+                    const Expanded(child: Text('AIR ORDER PLACEMENT', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, letterSpacing: .7))),
+                    AirTag('DASHBOARD', color: cs.primary),
+                  ]),
+                  const SizedBox(height: 6),
+                  Text('Prepare one order for distribution across your active broker accounts.', style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant)),
+                  const SizedBox(height: 14),
+                  DropdownButtonFormField<String>(
+                    value: signalClass,
+                    decoration: const InputDecoration(labelText: 'Signal category', border: OutlineInputBorder(), isDense: true),
+                    items: const [
+                      DropdownMenuItem(value: 'NEW SURVIVOR · ≤7 DTE', child: Text('NEW SURVIVOR · ≤7 DTE')),
+                      DropdownMenuItem(value: 'SURVIVOR WATCH', child: Text('SURVIVOR WATCH')),
+                      DropdownMenuItem(value: 'OTHER QUALIFIED SETUP', child: Text('OTHER QUALIFIED SETUP')),
+                    ],
+                    onChanged: (v) => setSheetState(() => signalClass = v ?? signalClass),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: symbolController,
+                    textCapitalization: TextCapitalization.characters,
+                    decoration: const InputDecoration(labelText: 'Trading symbol / option contract', hintText: 'Resolve from verified broker instrument master', border: OutlineInputBorder(), isDense: true),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(children: [
+                    Expanded(child: DropdownButtonFormField<String>(
+                      value: side,
+                      decoration: const InputDecoration(labelText: 'Side', border: OutlineInputBorder(), isDense: true),
+                      items: const [DropdownMenuItem(value: 'BUY', child: Text('BUY')), DropdownMenuItem(value: 'SELL', child: Text('SELL'))],
+                      onChanged: (v) => setSheetState(() => side = v ?? side),
+                    )),
+                    const SizedBox(width: 9),
+                    Expanded(child: DropdownButtonFormField<String>(
+                      value: orderType,
+                      decoration: const InputDecoration(labelText: 'Order type', border: OutlineInputBorder(), isDense: true),
+                      items: const [DropdownMenuItem(value: 'LIMIT', child: Text('LIMIT')), DropdownMenuItem(value: 'MARKET', child: Text('MARKET'))],
+                      onChanged: (v) => setSheetState(() => orderType = v ?? orderType),
+                    )),
+                  ]),
+                  const SizedBox(height: 10),
+                  Row(children: [
+                    const Expanded(child: Text('Lots per account', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800))),
+                    IconButton(onPressed: lots > 1 ? () => setSheetState(() => lots--) : null, icon: const Icon(Icons.remove_circle_outline)),
+                    Text('$lots', style: const TextStyle(fontWeight: FontWeight.w900)),
+                    IconButton(onPressed: () => setSheetState(() => lots++), icon: const Icon(Icons.add_circle_outline)),
+                  ]),
+                  if (orderType == 'LIMIT') ...[
+                    const SizedBox(height: 4),
+                    TextField(
+                      controller: priceController,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(labelText: 'Limit price (₹)', border: OutlineInputBorder(), isDense: true),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: cs.surfaceContainerHighest.withValues(alpha: .4),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      const Text('ACCOUNT DISTRIBUTION', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: .7)),
+                      const SizedBox(height: 5),
+                      Text('No broker accounts are connected yet. Once adapters and secure broker login are enabled, this area will list every active account with individual lot allocation and risk checks.', style: TextStyle(fontSize: 10, height: 1.4, color: cs.onSurfaceVariant)),
+                    ]),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: null,
+                      icon: const Icon(Icons.lock_outline_rounded),
+                      label: const Text('LIVE ORDER ROUTING NOT CONNECTED'),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text('This ticket is a dashboard UI preview only. It does not send orders or imply that a Survivor contract is a qualified entry. Expiry, instrument token, lot size, funds and per-account risk checks must be verified before live routing.', style: TextStyle(fontSize: 9, height: 1.4, color: cs.onSurfaceVariant)),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Material(
+      color: Theme.of(context).cardColor,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => _openTicket(context),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFF20A879).withValues(alpha: .65), width: 1.2),
+          ),
+          child: Row(children: [
+            Container(
+              width: 40, height: 40,
+              decoration: BoxDecoration(color: const Color(0xFF20A879).withValues(alpha: .13), borderRadius: BorderRadius.circular(12)),
+              child: const Icon(Icons.playlist_add_check_circle_rounded, color: Color(0xFF20A879), size: 22),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('ONE-CLICK ORDER PLACEMENT', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: .45)),
+              SizedBox(height: 4),
+              Text('Survivor · New Survivor ≤7 DTE · All active accounts', style: TextStyle(fontSize: 10, color: Colors.grey)),
+            ])),
             Icon(Icons.arrow_forward_ios_rounded, size: 14, color: cs.primary),
           ]),
         ),
