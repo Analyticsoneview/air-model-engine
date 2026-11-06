@@ -44,7 +44,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     if (!_api.isAuthenticated) return;
     setState(() { _loading = true; _error = null; });
     try {
-      final result = await _api.modelEngineLedger();
+      final result = await _api.modelEngineMaster();
       Map<String, dynamic>? expiryResult;
       try { expiryResult = await _api.expiryScan(); }
       catch (e) { _expiryNote = 'EXPIRYSCAN unavailable: $e'; }
@@ -150,11 +150,11 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
           Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(
             crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
-                const Expanded(child: Text('SIGNAL & POSITION LIFECYCLE', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12))),
+                const Expanded(child: Text('AIR MASTER • SIGNAL & POSITION LIFECYCLE', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12))),
                 Text(_dataStatus, style: TextStyle(fontSize: 9, color: cs.primary, fontWeight: FontWeight.w800)),
               ]),
               const SizedBox(height: 5),
-              Text('Updated: ${_updatedAt ?? 'No verified records yet'} • auto-refresh 5 min',
+              Text('Updated: ${_updatedAt ?? 'No verified records yet'} • shared AIR session • auto-refresh 5 min',
                 style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
               const SizedBox(height: 10),
               Wrap(spacing: 7, runSpacing: 7, children: _sections.map((s) => ChoiceChip(
@@ -165,7 +165,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
             ],
           ))),
           const SizedBox(height: 10),
-          if (expirySelected && _expiryNote != null) Padding(padding: const EdgeInsets.all(8), child: Text(_expiryNote!, style: const TextStyle(fontSize: 11))),
+          if (_sections[_selected] == 'WAIT') Padding(padding: const EdgeInsets.all(8), child: Text('WAIT is reserved for candidates explicitly marked pending by a verified signal workflow. No WAIT records are inferred from missing data.', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant))),\n          if (expirySelected && _expiryNote != null) Padding(padding: const EdgeInsets.all(8), child: Text(_expiryNote!, style: const TextStyle(fontSize: 11))),
           if (expirySelected && _expiryRows.isNotEmpty) Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal,
             child: DataTable(columns: const [
               DataColumn(label: Text('PRIORITY')), DataColumn(label: Text('UNDERLYING ID')),
@@ -191,7 +191,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
               const SizedBox(height: 8),
               Text('No verified ${_sections[_selected]} records', style: const TextStyle(fontWeight: FontWeight.w800)),
               const SizedBox(height: 5),
-              Text('This section populates when the validated signal engine writes records. No invented sample trades are displayed.',
+              Text('This section populates only from persisted verified records. No invented sample trades are displayed.',
                 textAlign: TextAlign.center, style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
             ]),
           )) else if (!expirySelected) Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal,
@@ -203,7 +203,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
         if (_error != null) Padding(padding: const EdgeInsets.only(top: 10),
           child: Text(_error!, style: TextStyle(color: cs.error, fontSize: 11))),
         const SizedBox(height: 12),
-        Text('★ SURVIVOR highlight: every contract with 0–7 calendar days to expiry is highlighted in every tab and listed in the priority SURVIVOR tab. Original lifecycle classification is retained. Shelf life is separate from contract DTE. This is a watch flag, not an automatic trade signal. Order placement is not part of this ledger.',
+        Text('AIR MASTER uses one canonical contract ledger. OPEN = NEW + HOLD. REENTRY, SLHIT, TARGETS and EXPIRED remain separate lifecycle outcomes. SURVIVOR is a cross-cutting watch flag for 0–7 calendar DTE; original classification is retained. WAIT is populated only by an explicit pending-state source. EXPIRYSCAN is evidence-only, not a qualified signal. No automatic order placement.',
           style: TextStyle(fontSize: 10, height: 1.4, color: cs.onSurfaceVariant)),
       ]),
     );
