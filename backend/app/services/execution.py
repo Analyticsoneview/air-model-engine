@@ -5,6 +5,7 @@ from typing import Any
 
 from app.brokers.base import OrderRequest, BrokerOrder
 from app.brokers.registry import BrokerRegistry
+from app.brokers.customer_accounts import CustomerAccountDirectory
 
 
 @dataclass(frozen=True)
@@ -30,9 +31,11 @@ class ExecutionService:
         self,
         registry: BrokerRegistry,
         policies: dict[tuple[str, str], ExecutionPolicy],
+        account_directory: CustomerAccountDirectory,
     ) -> None:
         self.registry = registry
         self.policies = policies
+        self.account_directory = account_directory
         self._idempotency: dict[tuple[str, str, str], BrokerOrder] = {}
 
     def _validate(
@@ -71,6 +74,7 @@ class ExecutionService:
         broker_code: str,
         order: OrderRequest,
         *,
+        customer_id: str,
         confirmed_by_user: bool,
         paper: bool = True,
         estimated_order_value: Decimal | None = None,
@@ -81,6 +85,7 @@ class ExecutionService:
             raise ValueError("Broker and account identifiers are required")
         if not confirmed_by_user:
             raise PermissionError("Explicit user confirmation is required")
+        self.account_directory.authorize_order_target(customer_id, broker, account)
         self._validate(broker, order, paper=paper, estimated_order_value=estimated_order_value)
         key = (broker, account, order.idempotency_key)
         if key in self._idempotency:
@@ -101,6 +106,7 @@ class ExecutionService:
         self,
         orders: dict[tuple[str, str], OrderRequest],
         *,
+        customer_id: str,
         confirmed_by_user: bool,
         paper: bool = True,
         estimated_values: dict[tuple[str, str], Decimal] | None = None,
@@ -132,6 +138,7 @@ class ExecutionService:
                 raise PermissionError(f"Account is not active: {broker}/{account}")
             if order.account_id != account:
                 raise ValueError(f"Order account_id mismatch for {broker}/{account}")
+            self.account_directory.authorize_order_target(customer_id, broker, account)
             self.registry.get(broker, account)
             self._validate(
                 broker, order, paper=paper,
@@ -146,7 +153,7 @@ class ExecutionService:
                     idempotency_key=f"{order.idempotency_key}:{broker}:{account}",
                 )
                 result = await self.submit(
-                    broker, routed, confirmed_by_user=True, paper=paper,
+                    broker, routed, customer_id=customer_id, confirmed_by_user=True, paper=paper,
                     estimated_order_value=values.get((broker, account)),
                 )
                 return AccountOrderResult(
