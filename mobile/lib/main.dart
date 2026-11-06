@@ -174,6 +174,8 @@ class AirDashboard extends StatelessWidget {
         const ModelEngineQuickTabs(),
         const SizedBox(height: 10),
         const WeeklyLowRespectDashboardShortcut(),
+        const SizedBox(height: 10),
+        const SurvivorDashboardShortcut(),
         const SizedBox(height: 20),
         const SectionHeader(title: 'AIR RESEARCH LIBRARY', caption: 'CHAT LOGIC → MODULES'),
         const SizedBox(height: 10),
@@ -682,6 +684,79 @@ class WeeklyLowRespectDashboardShortcut extends StatelessWidget {
               Text('One-tap reversal strategy', style: TextStyle(fontSize: 10, color: Colors.grey)),
             ])),
             Icon(Icons.arrow_forward_ios_rounded, size: 15, color: cs.primary),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+
+class SurvivorDashboardShortcut extends StatelessWidget {
+  const SurvivorDashboardShortcut({super.key});
+
+  void _openSurvivor(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).cardColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Icon(Icons.shield_rounded, color: cs.primary, size: 23),
+              const SizedBox(width: 9),
+              const Expanded(child: Text('SURVIVOR', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: .8))),
+              AirTag('HIGH PRIORITY', color: const Color(0xFFE5B85C)),
+            ]),
+            const SizedBox(height: 12),
+            Text('AIR Survivor research workspace', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: cs.onSurface)),
+            const SizedBox(height: 6),
+            Text('A dedicated high-priority workspace for identifying resilient stocks and tracking their strength through market weakness. The exact screening rules and thresholds must be confirmed before signals are generated.', style: TextStyle(fontSize: 11, height: 1.45, color: cs.onSurfaceVariant)),
+            const SizedBox(height: 14),
+            Container(width: double.infinity, padding: const EdgeInsets.all(11),
+              decoration: BoxDecoration(color: cs.surfaceContainerHighest.withValues(alpha: .45), borderRadius: BorderRadius.circular(12)),
+              child: Text('Status: priority shortcut and workspace shell added. Screening criteria, data feed and validated survivor results are not connected yet.', style: TextStyle(fontSize: 10, height: 1.4, color: cs.onSurfaceVariant))),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Material(
+      color: Theme.of(context).cardColor,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => _openSurvivor(context),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE5B85C).withValues(alpha: .75), width: 1.4),
+            boxShadow: [BoxShadow(color: const Color(0xFFE5B85C).withValues(alpha: .08), blurRadius: 15)],
+          ),
+          child: Row(children: [
+            Container(width: 40, height: 40,
+              decoration: BoxDecoration(color: const Color(0xFFE5B85C).withValues(alpha: .16), borderRadius: BorderRadius.circular(12)),
+              child: const Icon(Icons.shield_rounded, color: Color(0xFFE5B85C), size: 22)),
+            const SizedBox(width: 12),
+            const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('SURVIVOR', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: .7)),
+              SizedBox(height: 4),
+              Text('High-priority stock strength scanner', style: TextStyle(fontSize: 10, color: Colors.grey)),
+            ])),
+            const AirTag('PRIORITY 1', color: Color(0xFFE5B85C)),
+            const SizedBox(width: 7),
+            Icon(Icons.arrow_forward_ios_rounded, size: 14, color: cs.primary),
           ]),
         ),
       ),
