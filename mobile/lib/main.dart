@@ -301,15 +301,6 @@ class AirTag extends StatelessWidget {
     decoration: BoxDecoration(color: color.withValues(alpha: .13), borderRadius: BorderRadius.circular(30), border: Border.all(color: color.withValues(alpha: .3))),
     child: Text(text, style: TextStyle(fontSize: 9, color: color, fontWeight: FontWeight.w800, letterSpacing: 1)));
 }
-class _Metric extends StatelessWidget {
-  const _Metric({required this.value, required this.label, required this.accent});
-  final String value, label; final Color accent;
-  @override
-  Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-    Text(value, style: TextStyle(fontSize: 21, color: accent, fontWeight: FontWeight.w900)),
-    Text(label, style: TextStyle(fontSize: 8, color: Theme.of(context).colorScheme.onSurfaceVariant, letterSpacing: .8)),
-  ]);
-}
 class SectionHeader extends StatelessWidget {
   const SectionHeader({super.key, required this.title, required this.caption});
   final String title, caption;
@@ -899,7 +890,7 @@ class _DashboardOrderPlacementShortcutState extends State<DashboardOrderPlacemen
                   Text('Prepare one order for distribution across your active broker accounts.', style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant)),
                   const SizedBox(height: 14),
                   DropdownButtonFormField<String>(
-                    value: signalClass,
+                    initialValue: signalClass,
                     decoration: const InputDecoration(labelText: 'Signal category', border: OutlineInputBorder(), isDense: true),
                     items: const [
                       DropdownMenuItem(value: 'NEW SURVIVOR · ≤7 DTE', child: Text('NEW SURVIVOR · ≤7 DTE')),
@@ -917,14 +908,14 @@ class _DashboardOrderPlacementShortcutState extends State<DashboardOrderPlacemen
                   const SizedBox(height: 10),
                   Row(children: [
                     Expanded(child: DropdownButtonFormField<String>(
-                      value: side,
+                      initialValue: side,
                       decoration: const InputDecoration(labelText: 'Side', border: OutlineInputBorder(), isDense: true),
                       items: const [DropdownMenuItem(value: 'BUY', child: Text('BUY')), DropdownMenuItem(value: 'SELL', child: Text('SELL'))],
                       onChanged: (v) => setSheetState(() => side = v ?? side),
                     )),
                     const SizedBox(width: 9),
                     Expanded(child: DropdownButtonFormField<String>(
-                      value: orderType,
+                      initialValue: orderType,
                       decoration: const InputDecoration(labelText: 'Order type', border: OutlineInputBorder(), isDense: true),
                       items: const [DropdownMenuItem(value: 'LIMIT', child: Text('LIMIT')), DropdownMenuItem(value: 'MARKET', child: Text('MARKET'))],
                       onChanged: (v) => setSheetState(() => orderType = v ?? orderType),
