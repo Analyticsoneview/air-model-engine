@@ -121,6 +121,17 @@ class _AirQocScreenState extends State<AirQocScreen> {
     });
   });
 
+  Future<void> _runEodCapture() => _run(() async {
+    final result = await _api.runQocEodCapture();
+    if (!mounted) return;
+    setState(() => _status =
+        'EOD capture: ${result['status'] ?? 'unknown'} · '
+        'Underlying count: ${result['underlyings'] ?? 0} · '
+        'Expiry chains: ${result['expiry_chains'] ?? 0} · '
+        'Saved contract observations: ${result['contract_observations'] ?? 0}. '
+        'This is data capture only, not a QOC signal.');
+  });
+
   Future<void> _loadSaved() => _run(() async {
     final id = _accountId;
     if (id == null) throw const AirApiException('Select a Dhan account first.');
@@ -187,6 +198,12 @@ class _AirQocScreenState extends State<AirQocScreen> {
                   OutlinedButton.icon(onPressed: _loading ? null : _checkStatus,
                       icon: const Icon(Icons.verified_user_outlined),
                       label: const Text('CHECK DATA API ACCESS')),
+                  const SizedBox(height: 8),
+                  FilledButton.tonalIcon(
+                    onPressed: _loading ? null : _runEodCapture,
+                    icon: const Icon(Icons.schedule_send_rounded),
+                    label: const Text('RUN EOD SNAPSHOT CAPTURE'),
+                  ),
                 ],
               ]),
             ),
