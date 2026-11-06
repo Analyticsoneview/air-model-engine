@@ -85,8 +85,8 @@ class DhanMarketDataAdapter:
             "last_error_type": self._last_feed_error,
         }
 
-    async def search_instruments(self, query: str) -> list[MarketInstrument]:
-        rows = await self._master.search(query, limit=100)
+    async def search_instruments(self, query: str, limit: int = 100, exchange_segment: str | None = None) -> list[MarketInstrument]:
+        rows = await self._master.search(query, limit=limit, exchange_segment=exchange_segment)
         return [
             MarketInstrument(
                 exchange=row["exchange"], symbol=row["symbol"], token=row["token"],
