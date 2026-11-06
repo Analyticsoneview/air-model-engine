@@ -87,3 +87,17 @@ The catalog is not an integration. All five currently report `authorization_read
 ## AIR operator scope for the global Main Account
 
 The Main Account is an app-wide data-source decision, not a per-customer preference. Only customer IDs explicitly listed in `AIR_OPERATOR_CUSTOMER_IDS` (comma-separated UUIDs) can read global feed status, switch the Main Account or disconnect it. Regular customers can manage only their own execution accounts and credentials. Provision operator IDs out of band; never expose this setting as a customer-editable field. Until a provider adapter is registered and authenticated, Main Account selection correctly remains unavailable.
+
+
+## DhanHQ v2 REST integration milestone
+
+`app/brokers/dhan.py` now provides an async HTTPX client for Dhan profile verification, LTP/OHLC/quote snapshots, daily and intraday historical candles, order-book reads, and order place/modify/cancel request construction. Customer-facing backend routes expose profile verification and market-data retrieval. Market-data routes are operator-only and reject any account that is not the one configured as the single AIR Main Account.
+
+Dhan integration constraints:
+- Save `client_id` and a user-authorized `access_token` in the encrypted credential vault. The profile check verifies that the returned Dhan client ID matches the configured account.
+- Dhan documents access tokens as short-lived (24 hours for the documented individual token flow); renewability differs by token-generation method. Do not assume a permanent refresh token.
+- Data API entitlement is separate from trading API access. Verify the account's `dataPlan` and `dataValidity` before relying on historical or quote APIs.
+- Dhan requires a whitelisted static IP for order placement, modification and cancellation. The current AIR client includes request methods but AIR does not expose live order routes or enable order permission.
+- The binary Dhan live market WebSocket and normalized packet decoder are not yet connected to the AIR MarketDataHub. Therefore this milestone is **REST integration only**, not a completed live streaming integration.
+
+References: DhanHQ official Authentication, Market Quote, Historical Data, Live Market Feed and Orders documentation.
