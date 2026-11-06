@@ -26,6 +26,25 @@ class DurableOrderLedgerTests(unittest.TestCase):
             self.assertEqual(events[0]["status"], "ACCEPTED")
             second.close()
 
+
+    def test_atomic_reservation_is_unique_and_persisted_as_pending(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = str(Path(tmp) / "orders.sqlite3")
+            first = DurableOrderLedger(path)
+            self.assertTrue(first.reserve("dhan", "acct-1", "intent-1", {"symbol":"TEST"}))
+            self.assertFalse(first.reserve("dhan", "acct-1", "intent-1", {"symbol":"TEST"}))
+            pending = first.get("dhan", "acct-1", "intent-1")
+            self.assertEqual(pending.status, "PENDING")
+            first.record(BrokerOrder("dhan", "acct-1", "", "UNKNOWN",
+                                     {"reconcile_before_retry": True}), "intent-1")
+            first.close()
+            second = DurableOrderLedger(path)
+            unknown = second.get("dhan", "acct-1", "intent-1")
+            self.assertEqual(unknown.status, "UNKNOWN")
+            self.assertEqual([e["status"] for e in second.list_events("dhan", "acct-1")],
+                             ["PENDING", "UNKNOWN"])
+            second.close()
+
     def test_list_orders_is_bounded_and_filtered(self):
         with tempfile.TemporaryDirectory() as tmp:
             ledger = DurableOrderLedger(str(Path(tmp) / "orders.sqlite3"))
