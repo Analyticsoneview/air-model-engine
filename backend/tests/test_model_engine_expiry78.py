@@ -155,3 +155,14 @@ def test_expiry78_strategy_tab_uses_engine_replay_results():
     assert views["EXPIRY78"]["counts"]["NEW"] == 1
     assert views["EXPIRY78"]["counts"]["OPEN"] == 1
     assert views["EXPIRY78"]["groups"]["NEW"][0]["entry_price"] == 8.0
+
+
+def test_dhan_optstk_instrument_type_obeys_stock_premium_cap():
+    stock_bars = [
+        bar("2026-11-03", 20, 22, 18, 19),
+        bar("2026-11-04", 18, 30, 17, 25),
+        bar("2026-11-05", 13, 15, 11, 12),
+    ]
+    item = contract(instrument="OPTSTK", bars=stock_bars)
+    result = evaluate_expiry78_contract(item, as_of="2026-11-05")
+    assert result["trade_count"] == 0
