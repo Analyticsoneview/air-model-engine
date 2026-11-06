@@ -12,6 +12,7 @@ from app.brokers.dhan import DhanHQClient, DhanAPIError
 from app.brokers.zerodha import KiteConnectClient, KiteAPIError, kite_login_url
 from app.brokers.upstox import UpstoxClient, UpstoxAPIError, upstox_login_url
 from app.brokers.fyers import FyersClient, FyersAPIError, fyers_login_url
+from app.brokers.angel import AngelSmartAPI, AngelAPIError
 from app.credential_vault import CredentialVault
 from app.market_data.hub import MarketDataHub
 from app.market_data.router import MarketDataRouter
@@ -88,6 +89,10 @@ class UpstoxTokenExchangeRequest(BaseModel):
 class FyersTokenExchangeRequest(BaseModel):
     auth_code: str = Field(min_length=8, max_length=2048)
     state: str = Field(min_length=8, max_length=256)
+
+
+class AngelLoginRequest(BaseModel):
+    totp: str = Field(min_length=6, max_length=8)
 
 
 class DhanMarketFeedRequest(BaseModel):
@@ -224,6 +229,43 @@ def get_owned_account(customer_id: str, broker: str, account_id: str) -> None:
     if (broker.lower(), account_id) not in owned:
         raise HTTPException(status_code=404, detail="Broker account not found")
 
+
+
+
+@app.post("/api/v1/customer/accounts/angel-one/{account_id}/login")
+async def angel_login(account_id: str, body: AngelLoginRequest,
+                      customer_id: str = Depends(require_customer)) -> dict:
+    get_owned_account(customer_id, "angel_one", account_id)
+    try:
+        credentials = get_vault().get(customer_id, "angel_one", account_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=409, detail="Save Angel API key and PIN first") from exc
+    api_key, pin = credentials.get("api_key"), credentials.get("pin")
+    network = {
+        "client_local_ip": os.getenv("AIR_CLIENT_LOCAL_IP", ""),
+        "client_public_ip": os.getenv("AIR_CLIENT_PUBLIC_IP", ""),
+        "mac_address": os.getenv("AIR_CLIENT_MAC_ADDRESS", ""),
+    }
+    if not api_key or not pin or not all(network.values()):
+        raise HTTPException(status_code=503, detail="Angel API credentials or required server network identity headers are not configured")
+    client = AngelSmartAPI(api_key, account_id, **network)
+    try:
+        session = await client.login(pin, body.totp)
+        profile = await client.profile()
+        if str(profile.get("clientcode", "")).upper() != account_id.upper():
+            raise HTTPException(status_code=409, detail="Angel profile client code does not match registered account")
+        credentials["jwt_token"] = session["jwtToken"]
+        credentials["refresh_token"] = session.get("refreshToken", "")
+        credentials["feed_token"] = session.get("feedToken", "")
+        get_vault().put(customer_id, "angel_one", account_id, credentials)
+        return {"broker": "angel_one", "account_id": account_id, "verified": True,
+                "feed_token_saved": bool(session.get("feedToken")),
+                "note": "Angel session verified and tokens stored encrypted. Session normally expires at midnight; TOTP was not stored. Live order permission remains disabled."}
+    except AngelAPIError as exc:
+        raise HTTPException(status_code=502 if exc.status_code >= 500 else 401,
+                            detail="Angel SmartAPI login or profile verification failed") from exc
+    finally:
+        await client.close()
 
 
 @app.get("/api/v1/customer/accounts/fyers/{account_id}/login-url")
