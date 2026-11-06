@@ -324,6 +324,13 @@ async def market_data_stream(websocket: WebSocket) -> None:
         customer_id = payload.get("sub")
         if not customer_id or not auth_store.is_active(customer_id):
             raise ValueError("Inactive customer")
+        allowed_operators = {
+            value.strip() for value in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",")
+            if value.strip()
+        }
+        if customer_id not in allowed_operators:
+            await websocket.close(code=4403)
+            return
     except Exception:
         await websocket.close(code=4401)
         return
