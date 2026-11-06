@@ -29,10 +29,13 @@ def scan_expiries(store: AirQocStore, *, account_id: str, today: date | None = N
     for raw in observations:
         row = dict(raw)
         try:
-            dte = (date.fromisoformat(row["expiry"]) - today).days
+            expiry_date = date.fromisoformat(str(row["expiry"]))
         except (TypeError, ValueError):
+            # Invalid or missing expiry cannot be safely labelled EXPIRED.
             continue
-        if not 0 <= dte <= max_dte:
+        dte = (expiry_date - today).days
+        is_expired = dte < 0
+        if not is_expired and dte > max_dte:
             continue
         bid, ask = row["bid_price"], row["ask_price"]
         volume, oi = row["volume"], row["open_interest"]
@@ -58,7 +61,9 @@ def scan_expiries(store: AirQocStore, *, account_id: str, today: date | None = N
             "expiry": row["expiry"],
             "strike": row["strike"],
             "days_to_expiry": dte,
-            "survivor": dte <= 7,
+            "expiry_date_valid": True,
+            "expired": is_expired,
+            "survivor": (not is_expired and dte <= 7),
             "last_price": row["last_price"],
             "underlying_price": row["underlying_price"],
             "volume": volume,
@@ -73,7 +78,12 @@ def scan_expiries(store: AirQocStore, *, account_id: str, today: date | None = N
             "checks": checks,
             "missing_evidence": missing,
             "scan_status": status,
-            "classification": "EXPIRYSCAN",
+            "classification": "EXPIRED" if is_expired else "EXPIRYSCAN",
+            "position_status": "EXPIRED" if is_expired else "OBSERVATION",
+            "expiry_status_reason": (
+                "Valid expiry date is before the scan date."
+                if is_expired else "Valid future expiry date."
+            ),
             "qoc_score": None,
             "entry": None,
             "stop_loss": None,
@@ -92,7 +102,8 @@ def scan_expiries(store: AirQocStore, *, account_id: str, today: date | None = N
         "total_contracts": len(candidates),
         "returned": min(limit, len(candidates)),
         "survivor_count": sum(r["survivor"] for r in candidates),
+        "expired_count": sum(r["expired"] for r in candidates),
         "qualified_trade_signals": 0,
-        "note": "Evidence-based expiry/liquidity screen only. No QOC score, entry, SL, targets or order without full underlying and options confirmation.",
+        "note": "Contracts with valid past expiry dates are classified EXPIRED; valid future contracts within max_dte remain EXPIRYSCAN. Invalid expiry dates are omitted, never guessed. This is an evidence-only screen, not a qualified trade signal.",
         "rows": candidates[:limit],
     }
