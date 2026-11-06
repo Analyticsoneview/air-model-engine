@@ -82,3 +82,8 @@ Provider-specific authorization cannot be treated as one generic username/passwo
 - FYERS uses an authorization-code redirect and server-side app-id hash exchange; the API exposes separate data and general WebSockets.
 
 The catalog is not an integration. All five currently report `authorization_ready=false`. Provider adapters, callback/state validation, token lifecycle, feed decoding, order/position normalization, broker-specific rate-limit handling and sandbox/live verification remain required. Dhan data entitlement and static-IP restrictions for order APIs, plus each broker's commercial/API terms, must be confirmed before enabling production features.
+
+
+## AIR operator scope for the global Main Account
+
+The Main Account is an app-wide data-source decision, not a per-customer preference. Only customer IDs explicitly listed in `AIR_OPERATOR_CUSTOMER_IDS` (comma-separated UUIDs) can read global feed status, switch the Main Account or disconnect it. Regular customers can manage only their own execution accounts and credentials. Provision operator IDs out of band; never expose this setting as a customer-editable field. Until a provider adapter is registered and authenticated, Main Account selection correctly remains unavailable.
