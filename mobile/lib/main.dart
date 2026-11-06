@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'screens/air_connection_screen.dart';
 import 'screens/air_qoc_screen.dart';
+import 'screens/model_engine_screen.dart';
 
 void main() => runApp(const AirModelEngineApp());
 
@@ -74,6 +75,7 @@ class _AirShellState extends State<AirShell> {
   Widget build(BuildContext context) {
     final pages = [
       AirDashboard(look: widget.look, onLookChanged: widget.onLookChanged),
+      const ModelEngineScreen(),
       const SimplePage(title: 'Options Intelligence', icon: Icons.candlestick_chart_rounded, subtitle: 'Discover option opportunities with strike, expiry, premium and liquidity context.'),
       const AirQocScreen(),
       const SimplePage(title: 'Market Data Center', icon: Icons.dataset_rounded, subtitle: 'Historical datasets, market breadth and research workspaces.'),
@@ -85,6 +87,7 @@ class _AirShellState extends State<AirShell> {
         onDestinationSelected: (v) => setState(() => tab = v),
         destinations: const [
           NavigationDestination(icon: Icon(Icons.grid_view_rounded), label: 'Home'),
+          NavigationDestination(icon: Icon(Icons.analytics_rounded), label: 'Model Engine'),
           NavigationDestination(icon: Icon(Icons.show_chart_rounded), label: 'Options'),
           NavigationDestination(icon: Icon(Icons.radar_rounded), label: 'AIR QOC'),
           NavigationDestination(icon: Icon(Icons.storage_rounded), label: 'Data'),
