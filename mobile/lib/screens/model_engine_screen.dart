@@ -14,6 +14,8 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   static const _sections = ['SURVIVOR', 'NEW', 'HOLD', 'RE-ENTRY', 'SL', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN'];
   Map<String, dynamic> _groups = {};
   Map<String, dynamic> _counts = {};
+  List<Map<String, dynamic>> _expiryRows = [];
+  String? _expiryNote;
   int _selected = 0;
   bool _authenticated = false, _loading = false;
   String? _error, _updatedAt;
@@ -37,9 +39,17 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     setState(() { _loading = true; _error = null; });
     try {
       final result = await _api.modelEngineLedger();
+      Map<String, dynamic>? expiryResult;
+      try { expiryResult = await _api.expiryScan(); }
+      catch (e) { _expiryNote = 'EXPIRYSCAN unavailable: $e'; }
       if (!mounted) return;
       setState(() {
         _groups = result['groups'] as Map<String, dynamic>? ?? {};
+        if (expiryResult != null) {
+          _expiryRows = (expiryResult['rows'] as List<dynamic>? ?? const [])
+              .whereType<Map<String, dynamic>>().toList();
+          _expiryNote = expiryResult['note']?.toString();
+        }
         _counts = result['counts'] as Map<String, dynamic>? ?? {};
         _updatedAt = result['updated_at']?.toString();
         _dataStatus = result['data_status']?.toString() ?? 'UNKNOWN';
@@ -108,6 +118,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final expirySelected = _sections[_selected] == 'EXPIRYSCAN';
     final rows = (_groups[_sections[_selected]] as List<dynamic>? ?? const [])
         .whereType<Map<String, dynamic>>().toList();
     return Scaffold(
@@ -140,14 +151,34 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                 style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
               const SizedBox(height: 10),
               Wrap(spacing: 7, runSpacing: 7, children: _sections.map((s) => ChoiceChip(
-                label: Text('$s  ${_counts[s] ?? 0}', style: const TextStyle(fontSize: 10)),
+                label: Text('$s  ${s == 'EXPIRYSCAN' ? _expiryRows.length : (_counts[s] ?? 0)}', style: const TextStyle(fontSize: 10)),
                 selected: _sections[_selected] == s,
                 onSelected: (_) => setState(() => _selected = _sections.indexOf(s)),
               )).toList()),
             ],
           ))),
           const SizedBox(height: 10),
-          if (rows.isEmpty) Card(child: Padding(padding: const EdgeInsets.all(18),
+          if (expirySelected && _expiryNote != null) Padding(padding: const EdgeInsets.all(8), child: Text(_expiryNote!, style: const TextStyle(fontSize: 11))),
+          if (expirySelected && _expiryRows.isNotEmpty) Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal,
+            child: DataTable(columns: const [
+              DataColumn(label: Text('PRIORITY')), DataColumn(label: Text('UNDERLYING ID')),
+              DataColumn(label: Text('CE/PE')), DataColumn(label: Text('EXPIRY')),
+              DataColumn(label: Text('STRIKE')), DataColumn(label: Text('DTE')),
+              DataColumn(label: Text('PREMIUM')), DataColumn(label: Text('VOLUME')),
+              DataColumn(label: Text('OI')), DataColumn(label: Text('OI CHANGE')),
+              DataColumn(label: Text('BID')), DataColumn(label: Text('ASK')),
+              DataColumn(label: Text('SPREAD %')), DataColumn(label: Text('SCAN STATUS')),
+              DataColumn(label: Text('OBSERVED AT')),
+            ], rows: _expiryRows.map((r) => DataRow(
+              color: r['survivor'] == true ? MaterialStateProperty.all(cs.tertiary.withOpacity(0.18)) : null,
+              cells: [
+                _v(r, 'survivor') == 'true' ? DataCell(_cell('★ SURVIVOR')) : DataCell(_cell('STANDARD')),
+                for (final key in ['underlying_scrip','option_type','expiry','strike','days_to_expiry',
+                  'last_price','volume','open_interest','oi_change','bid_price','ask_price','spread_pct',
+                  'scan_status','observed_at']) DataCell(_cell(_v(r, key))),
+              ],
+            )).toList()))),
+          if (!expirySelected && rows.isEmpty || expirySelected && _expiryRows.isEmpty) Card(child: Padding(padding: const EdgeInsets.all(18),
             child: Column(children: [
               Icon(Icons.hourglass_empty_rounded, size: 28, color: cs.onSurfaceVariant),
               const SizedBox(height: 8),
@@ -156,7 +187,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
               Text('This section populates when the validated signal engine writes records. No invented sample trades are displayed.',
                 textAlign: TextAlign.center, style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
             ]),
-          )) else Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal,
+          )) else if (!expirySelected) Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal,
             child: DataTable(columnSpacing: 14, headingRowHeight: 38,
               dataRowMinHeight: 38, dataRowMaxHeight: 52,
               columns: _columns, rows: rows.map(_row).toList()))),
