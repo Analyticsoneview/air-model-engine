@@ -68,7 +68,8 @@ def evaluate_expiry78_contract(
         return {"status": "REJECTED", "reason": "Missing or invalid expiry date", "trades": [], "rules": RULES}
     try:
         as_of_day = date.fromisoformat(str(as_of)[:10]) if as_of else max(
-            (date.fromisoformat(str(b.get("date"))[:10]) for b in bars_raw if b.get("date")),
+            (date.fromisoformat(str(b.get("date"))[:10]) for b in bars_raw
+             if isinstance(b, dict) and b.get("date")),
             default=date.today(),
         )
     except ValueError:
