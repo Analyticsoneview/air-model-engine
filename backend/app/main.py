@@ -2,7 +2,7 @@ import os
 from uuid import uuid4
 import secrets
 
-from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -509,6 +509,27 @@ async def dhan_historical(account_id: str, body: DhanHistoricalRequest,
                             detail="Dhan historical-data request failed; verify Data API entitlement") from exc
     finally:
         await client.close()
+
+
+
+@app.get("/api/v1/market-data/instruments/search")
+async def search_market_instruments(
+    q: str = Query(min_length=1, max_length=100),
+    limit: int = Query(default=50, ge=1, le=500),
+    segment: str | None = Query(default=None, max_length=30),
+    customer_id: str = Depends(require_air_operator),
+) -> dict:
+    resolved = market_data_router.resolve("historical")
+    if not resolved:
+        raise HTTPException(status_code=409, detail="No connected Main Account market-data adapter")
+    provider, account_id, adapter = resolved[0]
+    if provider != "dhan":
+        raise HTTPException(status_code=409, detail="Instrument search is not yet implemented for this Main Account provider")
+    try:
+        rows = await adapter._master.search(q, limit=limit, exchange_segment=segment)
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=502, detail=f"Instrument master lookup failed: {type(exc).__name__}") from exc
+    return {"provider": provider, "account_id": account_id, "count": len(rows), "instruments": rows}
 
 
 @app.post("/api/v1/market-data/subscribe")
