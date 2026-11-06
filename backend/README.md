@@ -168,3 +168,8 @@ Official reference: https://smartapi.angelone.in/docs
 ### Atomic execution-intent reservation milestone
 
 `DurableOrderLedger.reserve()` now uses an SQLite `BEGIN IMMEDIATE` transaction and a unique broker/account/idempotency key to reserve a PENDING intent before a broker call. `ExecutionService` persists UNKNOWN when a broker submission raises or times out, and blocks duplicate PENDING/UNKNOWN intents until manual reconciliation. The event log records reservation and subsequent status. This prevents concurrent/restarted requests from blindly submitting the same key twice. It does not yet reconcile UNKNOWN intents automatically against each broker's order book; live execution remains disabled pending that reconciliation layer and fault-injection review.
+
+
+### Dhan Main Account live-feed wiring milestone
+
+`app/market_data/dhan_adapter.py` now implements the AIR market-data adapter contract for Dhan. Selecting a saved Dhan account as Main Account verifies its profile, opens the v2 feed socket, starts a background packet reader and publishes ticker/quote/full packets into `MarketDataHub` using normalized tick fields. The operator-only `POST /api/v1/market-data/subscribe` route submits instrument subscriptions through the active Main Account. Dhan subscriptions require exchange segment plus the official security ID; AIR does not guess instrument tokens. The daily Dhan security-master ingestion/search UI is still outstanding, and historical mapping is not yet generalized across all instrument types. Real account entitlement and production network testing are still required before claiming an operational feed.
