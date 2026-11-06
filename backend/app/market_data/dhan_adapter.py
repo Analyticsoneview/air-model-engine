@@ -7,6 +7,7 @@ from decimal import Decimal
 from typing import Any
 
 from app.brokers.dhan import DhanHQClient
+from app.brokers.dhan_instruments import DhanInstrumentMaster
 from app.brokers.dhan_socket import DhanFeedSocket, SEGMENT_CODES
 from app.market_data.contracts import HistoricalBar, MarketInstrument
 from app.market_data.hub import MarketDataHub
@@ -23,6 +24,7 @@ class DhanMarketDataAdapter:
         self.hub = hub
         self.account_id: str | None = None
         self._rest: DhanHQClient | None = None
+        self._master = DhanInstrumentMaster()
         self._feed: DhanFeedSocket | None = None
         self._reader: asyncio.Task | None = None
         self._symbols: dict[tuple[str, str], str] = {}
@@ -84,8 +86,16 @@ class DhanMarketDataAdapter:
         }
 
     async def search_instruments(self, query: str) -> list[MarketInstrument]:
-        # Dhan security-master ingestion is a separate daily job. Never guess tokens.
-        return []
+        rows = await self._master.search(query, limit=100)
+        return [
+            MarketInstrument(
+                exchange=row["exchange"], symbol=row["symbol"], token=row["token"],
+                segment=row["segment"], expiry=row["expiry"], strike=row["strike"],
+                option_type=row["option_type"], lot_size=row["lot_size"],
+                instrument_type=row["instrument_type"],
+            )
+            for row in rows
+        ]
 
     async def get_historical(self, instrument: MarketInstrument, start: datetime,
                              end: datetime, interval: str) -> list[HistoricalBar]:
@@ -94,14 +104,14 @@ class DhanMarketDataAdapter:
         if interval in {"day", "1d", "D"}:
             raw = await self._rest.historical_daily(
                 security_id=instrument.token, exchange_segment=instrument.segment,
-                instrument="EQUITY", from_date=start.strftime("%Y-%m-%d"),
+                instrument=instrument.instrument_type or "EQUITY", from_date=start.strftime("%Y-%m-%d"),
                 to_date=end.strftime("%Y-%m-%d"),
             )
         else:
             interval_minutes = int(interval.replace("minute", "").replace("m", ""))
             raw = await self._rest.historical_intraday(
                 security_id=instrument.token, exchange_segment=instrument.segment,
-                instrument="EQUITY", interval=interval_minutes,
+                instrument=instrument.instrument_type or "EQUITY", interval=interval_minutes,
                 from_date=start.strftime("%Y-%m-%d %H:%M:%S"),
                 to_date=end.strftime("%Y-%m-%d %H:%M:%S"),
             )
@@ -156,3 +166,4 @@ class DhanMarketDataAdapter:
         if self._rest is not None:
             await self._rest.close()
             self._rest = None
+        await self._master.close()
