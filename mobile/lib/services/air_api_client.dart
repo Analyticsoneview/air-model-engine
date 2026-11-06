@@ -78,6 +78,17 @@ class AirApiClient {
     return _decode(response);
   }
 
+
+  Future<Map<String, dynamic>> saveCredentials(
+      String broker, String accountId, Map<String, String> credentials) async {
+    final response = await _client.put(
+      Uri.parse('$baseUrl/api/v1/customer/accounts/$broker/$accountId/credentials'),
+      headers: _headers,
+      body: jsonEncode({'credentials': credentials}),
+    );
+    return _decode(response);
+  }
+
   Map<String, dynamic> _decode(http.Response response) {
     Map<String, dynamic> body;
     try {
