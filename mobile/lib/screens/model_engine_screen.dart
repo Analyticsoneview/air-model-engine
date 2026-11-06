@@ -230,7 +230,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
           if (expirySelected && _expiryNote != null) Padding(padding: const EdgeInsets.all(8), child: Text(_expiryNote!, style: const TextStyle(fontSize: 11))),
           if (expirySelected && _expiryRows.isNotEmpty) Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal,
             child: DataTable(columns: const [
-              DataColumn(label: Text('PRIORITY')), DataColumn(label: Text('UNDERLYING ID')),
+              DataColumn(label: Text('CLASSIFICATION')), DataColumn(label: Text('PRIORITY')), DataColumn(label: Text('UNDERLYING ID')),
               DataColumn(label: Text('CE/PE')), DataColumn(label: Text('EXPIRY')),
               DataColumn(label: Text('STRIKE')), DataColumn(label: Text('DTE')),
               DataColumn(label: Text('PREMIUM')), DataColumn(label: Text('VOLUME')),
@@ -241,6 +241,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
             ], rows: _expiryRows.map((r) => DataRow(
               color: r['survivor'] == true ? WidgetStateProperty.all(cs.tertiary.withValues(alpha: 0.18)) : null,
               cells: [
+                DataCell(_cell(_v(r, 'classification'))),
                 _v(r, 'survivor') == 'true' ? DataCell(_cell('★ SURVIVOR')) : DataCell(_cell('STANDARD')),
                 for (final key in ['underlying_scrip','option_type','expiry','strike','days_to_expiry',
                   'last_price','volume','open_interest','oi_change','bid_price','ask_price','spread_pct',
@@ -265,7 +266,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
         if (_error != null) Padding(padding: const EdgeInsets.only(top: 10),
           child: Text(_error!, style: TextStyle(color: cs.error, fontSize: 11))),
         const SizedBox(height: 12),
-        Text('AIR MASTER uses one canonical contract ledger. OPEN = NEW + HOLD. REENTRY, SLHIT, TARGETS and EXPIRED remain separate lifecycle outcomes. SURVIVOR is a cross-cutting watch flag for 0–7 calendar DTE; original classification is retained. WAIT is populated only by an explicit pending-state source. EXPIRYSCAN is evidence-only, not a qualified signal. No automatic order placement.',
+        Text('AIR MASTER uses one canonical contract ledger. OPEN = NEW + HOLD. REENTRY, SLHIT, TARGETS and EXPIRED remain separate lifecycle outcomes. SURVIVOR follows EXPIRY78: active contracts entered strictly before expiry and not yet expired. EXPIRYSCAN observations with a valid past expiry date are also routed to EXPIRED; invalid expiry dates are not guessed. WAIT requires an explicit pending-state source. EXPIRYSCAN remains evidence-only, not a qualified signal. No automatic order placement.',
           style: TextStyle(fontSize: 10, height: 1.4, color: cs.onSurfaceVariant)),
       ]),
     );
