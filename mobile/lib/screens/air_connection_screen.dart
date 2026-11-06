@@ -69,6 +69,78 @@ class _AirConnectionScreenState extends State<AirConnectionScreen> {
     }
   }
 
+
+  Future<void> _editCredentials(Map<String, dynamic> account) async {
+    final broker = account['broker'] as String;
+    final accountId = account['account_id'] as String;
+    final fields = <String, List<String>>{
+      'angelone': ['api_key', 'pin'],
+      'dhan': ['client_id', 'access_token'],
+      'zerodha': ['api_key', 'api_secret'],
+      'upstox': ['client_id', 'client_secret', 'redirect_uri'],
+      'fyers': ['app_id', 'app_secret', 'redirect_uri'],
+    }[broker] ?? const <String>[];
+    if (fields.isEmpty) return;
+    final controllers = {
+      for (final field in fields) field: TextEditingController(),
+    };
+    final values = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Secure $broker credentials'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: fields.map((field) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: TextField(
+                controller: controllers[field],
+                obscureText: field.contains('secret') || field == 'pin' || field.contains('token'),
+                decoration: InputDecoration(
+                  labelText: field.replaceAll('_', ' ').toUpperCase(),
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+            )).toList(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('CANCEL'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final result = <String, String>{
+                for (final field in fields)
+                  if (controllers[field]!.text.trim().isNotEmpty)
+                    field: controllers[field]!.text.trim(),
+              };
+              if (result.length != fields.length) return;
+              Navigator.pop(dialogContext, result);
+            },
+            child: const Text('SAVE ENCRYPTED'),
+          ),
+        ],
+      ),
+    );
+    for (final controller in controllers.values) {
+      controller.dispose();
+    }
+    if (values == null) return;
+    setState(() { _loading = true; _error = null; });
+    try {
+      await _api.saveCredentials(broker, accountId, values);
+      final accounts = await _api.accounts();
+      if (!mounted) return;
+      setState(() => _accounts = accounts);
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -149,9 +221,15 @@ class _AirConnectionScreenState extends State<AirConnectionScreen> {
                   subtitle: Text(account['credentials_saved'] == true
                       ? 'Encrypted credentials saved'
                       : 'Account registered · credentials not saved'),
-                  trailing: Icon(
-                    account['order_enabled'] == true ? Icons.lock_open : Icons.lock_outline,
-                    color: cs.onSurfaceVariant,
+                  trailing: IconButton(
+                    tooltip: 'Save encrypted broker credentials',
+                    onPressed: _loading ? null : () => _editCredentials(account),
+                    icon: Icon(
+                      account['credentials_saved'] == true
+                          ? Icons.verified_user_outlined
+                          : Icons.vpn_key_outlined,
+                      color: cs.primary,
+                    ),
                   ),
                 ),
               )),
