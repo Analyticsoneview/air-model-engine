@@ -175,7 +175,7 @@ class _AirQocScreenState extends State<AirQocScreen> {
                 ] else ...[
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
-                    value: _accountId,
+                    initialValue: _accountId,
                     decoration: const InputDecoration(labelText: 'Dhan account', border: OutlineInputBorder()),
                     items: _accounts.map((a) => DropdownMenuItem<String>(
                       value: a['account_id'] as String,
@@ -210,7 +210,7 @@ class _AirQocScreenState extends State<AirQocScreen> {
               if (_expiries.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
-                  value: _expiry,
+                  initialValue: _expiry,
                   decoration: const InputDecoration(labelText: 'Expiry date', border: OutlineInputBorder()),
                   items: _expiries.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
                   onChanged: (v) => setState(() => _expiry = v),
