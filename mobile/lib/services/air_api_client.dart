@@ -139,7 +139,15 @@ class AirApiClient {
     return _decode(response);
   }
 
-  Future<Map<String, dynamic>> modelEngineMaster({int limit = 2000}) async {\n    final response = await _client.get(\n      Uri.parse('$baseUrl/api/v1/model-engine/master?limit=$limit'),\n      headers: _headers,\n    );\n    return _decode(response);\n  }\n\n  Future<Map<String, dynamic>> expiryScan({int maxDte = 45, int limit = 500}) async {
+  Future<Map<String, dynamic>> modelEngineMaster({int limit = 2000}) async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/api/v1/model-engine/master?limit=$limit'),
+      headers: _headers,
+    );
+    return _decode(response);
+  }
+
+  Future<Map<String, dynamic>> expiryScan({int maxDte = 45, int limit = 500}) async {
     final response = await _client.get(
       Uri.parse('$baseUrl/api/v1/model-engine/expiryscan?max_dte=$maxDte&limit=$limit'),
       headers: _headers,
