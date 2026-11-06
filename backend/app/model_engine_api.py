@@ -242,7 +242,10 @@ async def get_original366_engine(
     stopped = [trade for trade in trades if trade.get("classification") == "SLHIT"]
     recovered_watch = [
         {**trade, "classification": "RECOVERED_WATCH", "watch": trade["recovered_watch"],
-         "position_status": "WATCH_ONLY_NOT_OPEN"}
+         "signal_date": trade["recovered_watch"]["trigger_date"],
+         "latest_price": trade["recovered_watch"]["trigger_close"],
+         "position_status": "WATCH_ONLY_NOT_OPEN",
+         "reason": "Post-stop daily close sustained above original entry premium"}
         for trade in stopped if trade.get("recovered_watch")
     ]
     new_rows = [
