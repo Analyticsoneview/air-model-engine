@@ -10,6 +10,7 @@ services:
       AIR_ACCOUNT_DB_PATH: /var/lib/air/accounts.sqlite3
       AIR_CREDENTIAL_DB_PATH: /var/lib/air/credentials.sqlite3
       AIR_ORDER_DB_PATH: /var/lib/air/orders.sqlite3
+      AIR_QOC_DB_PATH: /var/lib/air/qoc.sqlite3
       AIR_ALLOW_CUSTOMER_SIGNUP: "false"
       AIR_CORS_ORIGINS: ${AIR_CORS_ORIGINS:-https://air.example.com}
       AIR_OPERATOR_CUSTOMER_IDS: ${AIR_OPERATOR_CUSTOMER_IDS:?Set operator customer UUIDs}
