@@ -37,7 +37,7 @@ STRATEGY_RULES = {
         "name": "ORIGINAL 366",
         "membership": "ORIGINAL366",
         "stock_entry_filter": "₹1–₹10 applies only when qualifying new stock CE/PE candidates; index options retain existing rules",
-        "qualification": "Keep original 366-trade historical baseline immutable. Filter only newly qualifying stock-option candidates; do not rewrite historical baseline until an explicit recalculation.",
+        "qualification": "Independent ORIGINAL366 replay using explicitly tagged verified entries: preserve original entry_date/entry_price, apply 5% stop from entry day with same-day and gap-through handling, and if unstopped settle from verified expiry-day underlying close. New stock CE/PE candidates require ₹1–₹10 entry premium; index options are exempt. Historical 366-trade baseline is immutable and reported separately.",
         "candidate_filter_stage": "NEW_CANDIDATE_QUALIFICATION",
     },
     "RECOVERY": {
