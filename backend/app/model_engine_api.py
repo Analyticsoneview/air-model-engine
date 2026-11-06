@@ -90,6 +90,43 @@ async def get_model_engine_master(
 ) -> dict:
     """Canonical MASTER view over verified persisted signals."""
     rows = _ledger.list_signals(customer_id, limit)
+    # Valid past-expiry observations from EXPIRYSCAN also belong in EXPIRED.
+    try:
+        scan = _expiry_scan_for_customer(customer_id, max_dte=45, limit=2000)
+        for item in scan.get("rows", []):
+            if item.get("classification") != "EXPIRED":
+                continue
+            observed_at = str(item.get("observed_at") or "")
+            rows.append({
+                "signal_id": "EXPIRYSCAN:" + ":".join(str(item.get(k) or "") for k in
+                    ("security_id", "expiry", "strike", "option_type")),
+                "classification": "EXPIRED",
+                "signal_date": observed_at[:10] if len(observed_at) >= 10 else scan["as_of"],
+                "entry_date": None,
+                "symbol": item.get("symbol") or item.get("underlying_scrip"),
+                "instrument_type": "INDEX" if str(item.get("underlying_segment") or "").upper()
+                    in ("IDX", "INDEX") else "STOCK",
+                "option_type": item.get("option_type"),
+                "expiry": item.get("expiry"),
+                "strike": item.get("strike"),
+                "latest_price": item.get("last_price"),
+                "days_to_expiry": item.get("days_to_expiry"),
+                "position_status": "EXPIRED",
+                "evidence": {
+                    "source": "EXPIRYSCAN",
+                    "expiry_date_valid": True,
+                    "expiry_status_reason": item.get("expiry_status_reason"),
+                    "observed_at": observed_at,
+                    "underlying_price": item.get("underlying_price"),
+                    "volume": item.get("volume"),
+                    "open_interest": item.get("open_interest"),
+                    "bid_price": item.get("bid_price"),
+                    "ask_price": item.get("ask_price"),
+                },
+            })
+    except HTTPException as exc:
+        if exc.status_code not in (503, 403):
+            raise
     result = build_master(rows)
     result.update({
         "source": "AIR Model Engine MASTER",
