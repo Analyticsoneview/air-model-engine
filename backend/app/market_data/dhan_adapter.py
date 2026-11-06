@@ -26,6 +26,8 @@ class DhanMarketDataAdapter:
         self._feed: DhanFeedSocket | None = None
         self._reader: asyncio.Task | None = None
         self._symbols: dict[tuple[str, str], str] = {}
+        self._feed_state = "not_connected"
+        self._last_feed_error: str | None = None
 
     async def authenticate(self, account_id: str) -> None:
         self.account_id = account_id
@@ -33,6 +35,8 @@ class DhanMarketDataAdapter:
         await self._rest.profile()
         self._feed = DhanFeedSocket(self.client_id, self.access_token, mode="full")
         await self._feed.connect()
+        self._feed_state = "connected"
+        self._last_feed_error = None
         self._reader = asyncio.create_task(self._read_feed(), name=f"dhan-feed-{account_id}")
 
     async def _read_feed(self) -> None:
@@ -61,11 +65,23 @@ class DhanMarketDataAdapter:
                     "feed_type": kind,
                 }
                 await self.hub.publish(tick)
+            self._feed_state = "disconnected"
         except asyncio.CancelledError:
+            self._feed_state = "disconnected"
             raise
-        except Exception:
-            # Feed task failure is reflected through the adapter health state.
+        except Exception as exc:
+            self._feed_state = "error"
+            self._last_feed_error = type(exc).__name__
             self._reader = None
+
+    def health(self) -> dict[str, Any]:
+        return {
+            "provider": self.provider_code,
+            "account_id": self.account_id,
+            "feed_state": self._feed_state,
+            "reader_running": self._reader is not None and not self._reader.done(),
+            "last_error_type": self._last_feed_error,
+        }
 
     async def search_instruments(self, query: str) -> list[MarketInstrument]:
         # Dhan security-master ingestion is a separate daily job. Never guess tokens.
@@ -136,6 +152,7 @@ class DhanMarketDataAdapter:
         if self._feed is not None:
             await self._feed.close()
             self._feed = None
+        self._feed_state = "disconnected"
         if self._rest is not None:
             await self._rest.close()
             self._rest = None
