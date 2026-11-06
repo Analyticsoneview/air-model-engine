@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.model_engine_ledger import ModelEngineLedger
 from app.model_engine_master import build_master
 from app.model_engine_expiryscan import scan_expiries
+from app.model_engine_expiry78 import RULES as EXPIRY78_RULES, evaluate_expiry78_rows
 from app.expiry_case_study_27oct2026 import historical_expired_contracts
 from app.air_qoc_store import AirQocStore
 from app.brokers.customer_accounts import CustomerAccountDirectory
@@ -208,6 +209,59 @@ def _expiry_scan_for_customer(customer_id: str, *, max_dte: int = 45,
         return scan_expiries(store, account_id=account_id, max_dte=max_dte, limit=limit)
     finally:
         store.close()
+
+
+@router.get("/expiry78")
+async def get_expiry78_engine(
+    limit: int = Query(default=2000, ge=1, le=2000),
+    as_of: str | None = Query(default=None, description="Replay cutoff date YYYY-MM-DD"),
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    """Replay verified daily option OHLCV for explicitly tagged EXPIRY78 contracts."""
+    rows = _ledger.list_signals(customer_id, limit)
+    contracts = evaluate_expiry78_rows(rows, as_of=as_of)
+    trades = [trade for contract in contracts
+              for trade in (contract.get("expiry78") or {}).get("trades", [])]
+    verified_reentries = []
+    for row in rows:
+        evidence = row.get("evidence") if isinstance(row.get("evidence"), dict) else {}
+        memberships = evidence.get("strategy_memberships") or evidence.get("strategies") or []
+        if isinstance(memberships, str):
+            memberships = [memberships]
+        membership_set = {str(value).upper().replace(" ", "") for value in memberships}
+        if (str(row.get("classification") or "").upper() in ("RE-ENTRY", "REENTRY")
+                and evidence.get("reentry_verified") is True
+                and ("EXPIRY78" in membership_set or
+                     str(evidence.get("strategy") or row.get("strategy") or "").upper() == "EXPIRY78")):
+            verified_reentries.append(row)
+    waiting_contracts = [
+        contract for contract in contracts
+        if not (contract.get("expiry78") or {}).get("trades")
+    ]
+    new_trades = [trade for trade in trades if trade.get("classification") == "NEW"]
+    hold_trades = [trade for trade in trades if trade.get("classification") == "HOLD"]
+    return {
+        "strategy": "EXPIRY78",
+        "as_of": as_of,
+        "rules": EXPIRY78_RULES,
+        "contracts_replayed": len(contracts),
+        "trade_count": len(trades),
+        "expiry_survivors": sum(bool(trade.get("expiry_survivor")) for trade in trades),
+        "stop_losses": sum(trade.get("classification") == "SL" for trade in trades),
+        "groups": {
+            "OPEN": new_trades + hold_trades,
+            "NEW": new_trades,
+            "HOLD": hold_trades,
+            "WAIT": [trade for trade in trades if trade.get("classification") == "WAIT"],
+            "SLHIT": [trade for trade in trades if trade.get("classification") == "SL"],
+            "REENTRY": verified_reentries,
+            "EXPIRED": [trade for trade in trades if trade.get("classification") == "EXPIRED"],
+        },
+        "waiting_contracts": waiting_contracts,
+        "contracts": contracts,
+        "data_status": "POPULATED" if contracts else "AWAITING_VERIFIED_DAILY_OHLCV",
+        "note": "Read-only historical replay. Requires evidence.daily_option_bars on explicitly tagged EXPIRY78 ledger records. No orders are placed; missing bars or expiry valuation are not fabricated.",
+    }
 
 
 @router.get("/expiryscan")
