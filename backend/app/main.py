@@ -525,10 +525,13 @@ async def subscribe_market_data(body: MarketSubscriptionRequest,
 
 @app.get("/api/v1/market-data/status")
 async def market_data_status(customer_id: str = Depends(require_air_operator)) -> dict:
+    resolved = market_data_router.resolve("live")
+    provider_health = resolved[0][2].health() if resolved and hasattr(resolved[0][2], "health") else None
     return {
         "routing": market_data_router.status(),
+        "provider_health": provider_health,
         "stream": market_data_hub.status(),
-        "note": "No broker provider is connected until a provider adapter and credentials are configured.",
+        "note": "Feed state reflects the selected Main Account adapter. Instrument subscriptions and fresh ticks must still be checked.",
     }
 
 
