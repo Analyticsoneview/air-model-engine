@@ -149,7 +149,19 @@ class AirDashboard extends StatelessWidget {
         ]),
         const SizedBox(height: 9),
         Row(children: [
-          Expanded(child: _DashboardAction(icon: Icons.radar_rounded, title: 'AIR QOC', subtitle: 'Qualified setups', color: accent, onTap: () {})),
+          Expanded(child: _DashboardAction(icon: Icons.radar_rounded, title: 'AIR QOC', subtitle: 'Qualified setups', color: accent, onTap: () => showModalBottomSheet<void>(
+            context: context,
+            builder: (sheetContext) => SafeArea(child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('AIR QOC', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
+                const SizedBox(height: 8),
+                const Text('Underlying · Volume · Option premium · OI', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 8),
+                Text('Live scan will appear here when verified market and option-chain feeds are connected.', style: TextStyle(fontSize: 11, color: Theme.of(sheetContext).colorScheme.onSurfaceVariant)),
+              ]),
+            )),
+          ))),
           const SizedBox(width: 9),
           Expanded(child: _DashboardAction(icon: Icons.shield_rounded, title: 'SURVIVOR', subtitle: '≤7 DTE watch', color: const Color(0xFFE5B85C), onTap: () => const SurvivorDashboardShortcut()._openSurvivor(context))),
         ]),
