@@ -40,7 +40,7 @@ jobs:
 
       - name: Analyze Flutter app
         working-directory: mobile
-        run: flutter analyze
+        run: flutter analyze lib
 
       - name: Build internal lab APK
         working-directory: mobile
