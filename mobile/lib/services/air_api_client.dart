@@ -135,6 +135,14 @@ class AirApiClient {
     return _decode(response);
   }
 
+  Future<Map<String, dynamic>> runQocEodCapture() async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/api/v1/air-qoc/run-eod-capture'),
+      headers: _headers,
+    );
+    return _decode(response);
+  }
+
   Future<List<Map<String, dynamic>>> dhanObservations(String accountId) async {
     final response = await _client.get(
       Uri.parse('$baseUrl/api/v1/air-qoc/dhan/observations/$accountId'),
