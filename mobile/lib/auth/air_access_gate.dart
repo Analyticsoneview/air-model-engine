@@ -3,7 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-import 'services/air_api_client.dart';
+import '../services/air_api_client.dart';
 
 class AirAccessGate extends StatefulWidget {
   const AirAccessGate({super.key, required this.builder});
