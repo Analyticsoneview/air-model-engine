@@ -208,7 +208,9 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     final strategySelected = _strategyTabs.contains(selectedSection);
     final strategyData = _strategies[selectedSection] as Map<String, dynamic>?;
     final strategyGroups = strategyData?['groups'] as Map<String, dynamic>?;
-    final rows = ((strategySelected ? strategyGroups?[_strategyStatus] : _groups[selectedSection]) as List<dynamic>? ?? const [])
+    final strategyRows = strategyGroups == null ? null : strategyGroups[_strategyStatus];
+    final selectedRows = strategySelected ? strategyRows : _groups[selectedSection];
+    final rows = (selectedRows as List<dynamic>? ?? const [])
         .whereType<Map<String, dynamic>>().toList();
     return Scaffold(
       appBar: AppBar(title: const Text('AIR MODEL ENGINE'),
