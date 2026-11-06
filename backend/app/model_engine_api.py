@@ -30,6 +30,7 @@ class SignalRecord(BaseModel):
     signal_date: str
     entry_date: str | None = None
     symbol: str = Field(min_length=1, max_length=40)
+    sector: str | None = Field(default=None, max_length=80)
     instrument_type: str | None = None
     option_type: str | None = None
     expiry: str | None = None
@@ -103,6 +104,8 @@ async def upsert_model_engine_signal(
     customer_id: str = Depends(_operator),
 ) -> dict:
     record = body.model_dump()
+    if record.get('sector'):
+        record.setdefault('evidence', {})['sector'] = record['sector']
     try:
         _ledger.upsert(customer_id, record)
     except ValueError as exc:
