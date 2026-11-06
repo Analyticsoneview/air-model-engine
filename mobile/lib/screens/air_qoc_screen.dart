@@ -16,6 +16,8 @@ class _AirQocScreenState extends State<AirQocScreen> {
   final _scrip = TextEditingController(text: '13');
   final _segment = TextEditingController(text: 'IDX_I');
   List<Map<String, dynamic>> _accounts = [];
+  List<Map<String, dynamic>> _universe = [];
+  Map<String, dynamic>? _selectedUnderlying;
   List<String> _expiries = [];
   List<Map<String, dynamic>> _rows = [];
   String? _accountId;
@@ -57,11 +59,33 @@ class _AirQocScreenState extends State<AirQocScreen> {
       _accountId = dhan.isNotEmpty ? dhan.first['account_id'] as String : null;
       _status = dhan.isEmpty
           ? 'No Dhan account registered. Add one under AIR Connections.'
-          : 'Signed in. Select the Dhan account to inspect its data entitlement.';
+          : 'Signed in. Discovering the complete F&O universe…';
     });
+    if (dhan.isNotEmpty) await _loadUniverse();
   });
 
-  int? get _underlyingScrip => int.tryParse(_scrip.text.trim());
+  int? get _underlyingScrip =>
+      int.tryParse((_selectedUnderlying?['security_id'] ?? _scrip.text).toString());
+
+  String get _underlyingSegment =>
+      (_selectedUnderlying?['exchange_segment'] ?? _segment.text).toString();
+
+  Future<void> _loadUniverse() => _run(() async {
+    final result = await _api.dhanFnoUniverse();
+    final values = (result['underlyings'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .where((item) => item['validated'] == true)
+        .toList(growable: false);
+    if (!mounted) return;
+    setState(() {
+      _universe = values;
+      _selectedUnderlying = values.isNotEmpty ? values.first : null;
+      _status = 'Discovered ${result['total_underlying_count'] ?? values.length} NSE F&O underlyings · '
+          '${result['stock_underlying_count'] ?? 0} stocks · '
+          '${result['index_underlying_count'] ?? 0} indices. '
+          'Validated mappings: ${result['validated_underlying_count'] ?? values.length}.';
+    });
+  });
 
   Future<void> _checkStatus() => _run(() async {
     final id = _accountId;
@@ -79,7 +103,7 @@ class _AirQocScreenState extends State<AirQocScreen> {
     if (id == null || scrip == null || scrip <= 0) {
       throw const AirApiException('Enter a valid underlying security ID and select an account.');
     }
-    final values = await _api.dhanExpiryList(id, scrip, _segment.text.trim());
+    final values = await _api.dhanExpiryList(id, scrip, _underlyingSegment);
     if (!mounted) return;
     setState(() {
       _expiries = values;
@@ -97,7 +121,7 @@ class _AirQocScreenState extends State<AirQocScreen> {
       throw const AirApiException('Select an account, valid security ID and expiry.');
     }
     final result = await _api.dhanOptionChain(
-        id, scrip, _segment.text.trim(), expiry);
+        id, scrip, _underlyingSegment, expiry);
     final data = result['data'] as Map<String, dynamic>? ?? {};
     final oc = data['oc'] as Map<String, dynamic>? ?? {};
     final rows = <Map<String, dynamic>>[];
@@ -224,16 +248,35 @@ class _AirQocScreenState extends State<AirQocScreen> {
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               const Text('UNDERLYING & EXPIRY', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900)),
               const SizedBox(height: 10),
-              Row(children: [
-                Expanded(child: TextField(controller: _scrip, keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Underlying security ID', border: OutlineInputBorder()))),
-                const SizedBox(width: 8),
-                SizedBox(width: 105, child: TextField(controller: _segment,
-                    decoration: const InputDecoration(labelText: 'Segment', border: OutlineInputBorder()))),
-              ]),
-              const SizedBox(height: 8),
-              FilledButton.tonal(onPressed: _loading || !_authenticated ? null : _loadExpiries,
-                  child: const Text('GET ACTIVE EXPIRIES')),
+              if (_universe.isEmpty)
+                FilledButton.tonalIcon(
+                  onPressed: _loading || !_authenticated ? null : _loadUniverse,
+                  icon: const Icon(Icons.sync),
+                  label: const Text('DISCOVER F&O UNIVERSE'),
+                )
+              else ...[
+                Text('Automatic universe · ${_universe.length} validated underlyings',
+                    style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant)),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<Map<String, dynamic>>(
+                  initialValue: _selectedUnderlying,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'NSE F&O underlying', border: OutlineInputBorder()),
+                  items: _universe.map((item) => DropdownMenuItem<Map<String, dynamic>>(
+                    value: item,
+                    child: Text('${item['symbol']} · ${item['instrument']} · ${item['security_id']}'),
+                  )).toList(),
+                  onChanged: _loading ? null : (value) => setState(() {
+                    _selectedUnderlying = value;
+                    _expiries = [];
+                    _expiry = null;
+                    _rows = [];
+                  }),
+                ),
+                const SizedBox(height: 8),
+                FilledButton.tonal(onPressed: _loading || !_authenticated ? null : _loadExpiries,
+                    child: const Text('GET ACTIVE EXPIRIES')),
+              ],
               if (_expiries.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
