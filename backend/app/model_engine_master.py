@@ -85,13 +85,12 @@ def build_master(rows: list[dict[str, Any]]) -> dict[str, Any]:
             groups["EXPIRYSCAN"].append(row)
 
         if _is_pre_expiry_survivor_candidate(row):
-            candidate = dict(row)
-            candidate["survivor_eligible"] = True
-            candidate["survivor_rule"] = "EXPIRY78_PRE_EXPIRY_ENTRY"
-            candidate["survivor_reason"] = (
+            row["survivor_eligible"] = True
+            row["survivor_rule"] = "EXPIRY78_PRE_EXPIRY_ENTRY"
+            row["survivor_reason"] = (
                 "Active contract; entry recorded before expiry; contract has not expired."
             )
-            groups["SURVIVOR"].append(candidate)
+            groups["SURVIVOR"].append(row)
 
     # OPEN is the union of currently open lifecycle entries, not a second copy of rows.
     groups["OPEN"] = groups["NEW"] + groups["HOLD"]
