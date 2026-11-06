@@ -10,8 +10,10 @@ class ModelEngineScreen extends StatefulWidget {
 
 class _ModelEngineScreenState extends State<ModelEngineScreen> {
   final AirApiClient _api = AirApiClient();
-  static const _sections = ['OPEN', 'NEW', 'HOLD', 'REENTRY', 'SURVIVOR', 'WAIT', 'SLHIT', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN', 'COMBINED', 'EXPIRY78', 'ORIGINAL366', 'RECOVERY'];
-  static const _strategyTabs = ['EXPIRY78', 'ORIGINAL366', 'RECOVERY'];
+  static const _sections = ['OPEN', 'NEW', 'HOLD', 'REENTRY', 'SURVIVOR', 'WAIT', 'SLHIT', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN', 'COMBINED', 'EXPIRY78', 'RECOVERED', 'RECOVERY'];
+  static const _strategyTabs = ['EXPIRY78', 'RECOVERED', 'RECOVERY'];
+
+  String _strategyKey(String section) => section == 'RECOVERED' ? 'ORIGINAL366' : section;
   Map<String, dynamic> _groups = {};
   Map<String, dynamic> _strategies = {};
   Map<String, dynamic> _counts = {};
@@ -72,7 +74,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
 
   String _tabCount(String section) {
     if (_strategyTabs.contains(section)) {
-      final data = _strategies[section];
+      final data = _strategies[_strategyKey(section)];
       return data is Map ? (data['count'] ?? 0).toString() : '0';
     }
     if (section == 'EXPIRYSCAN') return _expiryRows.length.toString();
@@ -115,6 +117,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       case 'SL': return 'SL HIT';
       case 'TARGETS': return 'TARGET HIT';
       case 'EXPIRED': return 'EXPIRED';
+      case 'RECOVERED_WATCH': return '👀 RECOVERED WATCH';
       default: return _v(r, 'classification');
     }
   }
@@ -206,7 +209,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     final selectedSection = _sections[_selected];
     final expirySelected = selectedSection == 'EXPIRYSCAN';
     final strategySelected = _strategyTabs.contains(selectedSection);
-    final strategyData = _strategies[selectedSection] as Map<String, dynamic>?;
+    final strategyData = _strategies[_strategyKey(selectedSection)] as Map<String, dynamic>?;
     final strategyGroups = strategyData?['groups'] as Map<String, dynamic>?;
     final strategyRows = strategyGroups == null ? null : strategyGroups[_strategyStatus];
     final selectedRows = strategySelected ? strategyRows : _groups[selectedSection];
@@ -258,16 +261,19 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                 style: TextStyle(fontSize: 10, height: 1.35, color: cs.onSurfaceVariant),
               ),
             )),
-            if (selectedSection == 'ORIGINAL366' && strategyData?['baseline'] is Map) Card(child: Padding(
+            if (selectedSection == 'RECOVERED' && strategyData?['baseline'] is Map) Card(child: Padding(
               padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('ORIGINAL 366 • PRESERVED BASELINE', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11)),
+                const Text('RECOVERED • ORIGINAL366 COHORT FILTER', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11)),
                 const SizedBox(height: 6),
-                Text('366 trades • 32 expiry winners • 334 five-percent SL outcomes', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
-                Text('Gross ₹10,71,850 • Charges ₹21,602 • Net ₹10,50,248 • Capital ₹15,14,362', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
-                Text('Baseline is preserved; not recalculated from filtered candidates.', style: TextStyle(fontSize: 10, color: cs.primary)),
+                Text('534 original entries → 366 full-expiry-coverage records', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+                Text('83 partial-coverage excluded • 85 no post-entry data excluded', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+                Text('366 original 5% SL hits: 274 same-day • 69 later-session • 23 gap/open', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+                Text('Watch only: post-SL daily option CLOSE above original entry premium. Not a re-entry or open position.', style: TextStyle(fontSize: 10, color: cs.primary)),
               ]),
             )),
-            Wrap(spacing: 7, runSpacing: 7, children: ['OPEN', 'NEW', 'HOLD', 'WAIT', 'SLHIT', 'REENTRY'].map((status) => ChoiceChip(
+            Wrap(spacing: 7, runSpacing: 7, children: (selectedSection == 'RECOVERED'
+              ? ['RECOVERED', 'SLHIT', 'WAIT']
+              : ['OPEN', 'NEW', 'HOLD', 'WAIT', 'SLHIT', 'REENTRY']).map((status) => ChoiceChip(
               label: Text('$status  ${((strategyData?['counts'] as Map?)?[status] ?? 0)}', style: const TextStyle(fontSize: 10)),
               selected: _strategyStatus == status,
               onSelected: (_) => setState(() => _strategyStatus = status),
@@ -313,7 +319,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
         if (_error != null) Padding(padding: const EdgeInsets.only(top: 10),
           child: Text(_error!, style: TextStyle(color: cs.error, fontSize: 11))),
         const SizedBox(height: 12),
-        Text('AIR MASTER keeps strategy membership isolated. EXPIRY78 applies its pre-expiry entry lifecycle; ORIGINAL366 preserves its 366-trade baseline while filtering new stock-option candidates; RECOVERY requires verified recovery evidence and its own lot-size rules. The ₹1–₹10 entry-premium filter applies to stock CE/PE only; index options retain existing rules. OPEN = NEW + HOLD. WAIT, RE-ENTRY, SL HIT, TARGETS and EXPIRED remain distinct lifecycle states. No automatic order placement.',
+        Text('AIR MASTER keeps strategy membership isolated. EXPIRY78 applies its seven-rule expiry-survivor lifecycle; RECOVERED is the ORIGINAL366 reference cohort (366 of 534) and adds a watch-only row after a post-SL daily option close above original entry premium; RECOVERY remains a separate re-entry strategy. OPEN = NEW + HOLD. No automatic order placement.',
           style: TextStyle(fontSize: 10, height: 1.4, color: cs.onSurfaceVariant)),
       ]),
     );
