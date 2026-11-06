@@ -44,3 +44,29 @@ def test_expiryscan_missing_quote_not_qualified():
     assert row["scan_status"] == "INSUFFICIENT_DATA"
     assert "bid_price" in row["missing_evidence"]
     store.close()
+
+
+
+def test_expiryscan_routes_valid_past_expiry_to_expired():
+    store = AirQocStore(":memory:")
+    expiry = (date.today() - timedelta(days=1)).isoformat()
+    chain = {"oc": {"25000": {"ce": {
+        "security_id": "999", "last_price": 0, "volume": 10,
+        "oi": 20, "previous_oi": 15, "top_bid_price": 0,
+        "top_ask_price": 0,
+    }}}}
+    store.save_option_chain(account_id="a", underlying_scrip=13,
+                            underlying_segment="IDX_I", expiry=expiry,
+                            underlying_price=25000, observed_at="2026-11-06T15:45:00+05:30",
+                            chain=chain)
+    result = scan_expiries(store, account_id="a")
+    assert result["expired_count"] == 1
+    assert result["total_contracts"] == 0
+    row = result["expired_rows"][0]
+    assert row["expiry_date_valid"] is True
+    assert row["classification"] == "EXPIRED"
+    assert row["position_status"] == "EXPIRED"
+    assert row["scan_status"] == "EXPIRED"
+    assert row["days_to_expiry"] == -1
+    assert row["survivor"] is False
+    store.close()

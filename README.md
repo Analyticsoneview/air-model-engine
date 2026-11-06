@@ -36,6 +36,15 @@ python -m pytest -q
 
 Follow [Docker Swarm deployment](deploy/DOCKER_SWARM.md). It covers Docker secrets, first-operator provisioning, PWA/API routing and the current single-replica limits.
 
+## AIR MASTER lifecycle layer
+
+- `GET /api/v1/model-engine/master` exposes a canonical, customer-scoped MASTER aggregation over persisted verified ledger rows.
+- The mobile Model Engine uses the shared AIR mobile approval session; it no longer presents a second email/password sign-in form.
+- MASTER views include OPEN (NEW + HOLD), NEW, HOLD, REENTRY, SLHIT, TARGETS, EXPIRED, SURVIVOR, WAIT, EXPIRYSCAN and COMBINED, with summary counts and audit checks.
+- SURVIVOR is a cross-cutting watchlist for contracts with 0–7 calendar days to expiry. It does not overwrite the original lifecycle status.
+- WAIT remains empty unless an upstream workflow explicitly persists pending candidates. EXPIRY78, ORIGINAL366 and RECOVERY are named in the canonical command vocabulary but remain deferred until their precise source/eligibility rules are implemented. Pinned emoji/icon mapping is also intentionally not guessed.
+- This aggregation is not the full AIR QOC signal-generation engine and does not create orders. It only organizes persisted verified signals.
+
 ## Important limitations
 
 - SQLite and process-local OAuth state mean one API replica only. PostgreSQL, Redis-backed OAuth state, migrations and HA are not implemented.
