@@ -1,3 +1,4 @@
+import os
 import re
 import sqlite3
 from pathlib import Path
@@ -122,5 +123,4 @@ class AccessStore:
         self.db.close()
 
 
-def _row(row):
-    return dict(row) if row else None
+access_store = AccessStore(os.getenv("AIR_AUTH_DB_PATH", "data/air_auth.sqlite3"))
