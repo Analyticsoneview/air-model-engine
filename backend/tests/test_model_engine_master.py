@@ -157,10 +157,44 @@ def test_original366_replay_is_independent_and_does_not_rewrite_historical_basel
     assert original["replay"]["contracts_replayed"] == 1
     assert original["counts"]["HOLD"] == 1
     assert original["baseline"] == ORIGINAL366_BASELINE
-    assert original["baseline"]["trades"] == 366
-    assert original["baseline"]["expiry_winners"] == 32
-    assert original["baseline"]["five_percent_stop_losses"] == 334
-    assert original["baseline"]["gross_pnl_rupees"] == 1071850
-    assert original["baseline"]["charges_rupees"] == 21602
-    assert original["baseline"]["net_pnl_rupees"] == 1050248
-    assert original["baseline"]["capital_rupees"] == 1514362
+    assert original["baseline"]["reference_cohort"] == "ORIGINAL366"
+    assert original["baseline"]["display_section"] == "RECOVERED"
+    assert original["baseline"]["source_entries"] == 534
+    assert original["baseline"]["full_expiry_coverage_cohort"] == 366
+    assert original["baseline"]["partial_coverage_excluded"] == 83
+    assert original["baseline"]["no_post_entry_data_excluded"] == 85
+    assert original["baseline"]["five_percent_sl_hits_in_full_coverage_cohort"] == 366
+
+
+
+def test_original366_post_stop_close_is_added_to_recovered_watch_without_opening_position():
+    from app.model_engine_strategies import build_strategy_views
+
+    contract = {
+        "signal_id": "recovered-watch-row",
+        "classification": "SLHIT",
+        "signal_date": "2026-11-03",
+        "entry_date": "2026-11-03",
+        "symbol": "TESTCO",
+        "instrument_type": "STOCK",
+        "option_type": "CE",
+        "expiry": "2026-11-20",
+        "strike": 100,
+        "entry_price": 8.0,
+        "remaining_trading_sessions": 13,
+        "evidence": {
+            "strategy_memberships": ["ORIGINAL366"],
+            "daily_option_bars": [
+                {"date": "2026-11-03", "open": 8, "high": 8.5, "low": 7.4, "close": 7.6, "quantity": 100},
+                {"date": "2026-11-04", "open": 8.1, "high": 8.8, "low": 7.9, "close": 8.2, "quantity": 100},
+            ],
+        },
+    }
+    original = build_strategy_views([contract])["ORIGINAL366"]
+    assert original["rules"]["name"] == "RECOVERED"
+    assert original["counts"]["SLHIT"] == 1
+    assert original["counts"]["RECOVERED"] == 1
+    watch = original["groups"]["RECOVERED"][0]
+    assert watch["classification"] == "RECOVERED_WATCH"
+    assert watch["position_status"] == "WATCH_ONLY_NOT_OPEN"
+    assert original["counts"]["OPEN"] == 0
