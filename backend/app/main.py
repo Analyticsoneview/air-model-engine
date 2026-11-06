@@ -69,8 +69,8 @@ async def stop_air_qoc_jobs() -> None:
     stop_qoc_scheduler()
 
 
-@app.post("/api/v1/air-qoc/run-eod-capture")
-async def run_air_qoc_eod_capture(customer_id: str = Depends(require_air_operator)) -> dict:
+@app.post("/api/v1/air-qoc/run-eod-capture", dependencies=[Depends(require_air_admin)])
+async def run_air_qoc_eod_capture() -> dict:
     try:
         return await capture_dhan_eod_snapshots(force=True)
     except Exception as exc:
@@ -108,7 +108,8 @@ class AccessReview(BaseModel):
 
 
 def require_air_admin(x_air_admin_key: str | None = Header(default=None)) -> None:
-    configured = os.getenv("AIR_ADMIN_API_KEY", "")
+    key_file = os.getenv("AIR_ADMIN_API_KEY_FILE")
+    configured = open(key_file, encoding="utf-8").read().strip() if key_file else os.getenv("AIR_ADMIN_API_KEY", "")
     if len(configured) < 32 or not x_air_admin_key or not secrets.compare_digest(x_air_admin_key, configured):
         raise HTTPException(status_code=403, detail="AIR administrator approval is required")
 
