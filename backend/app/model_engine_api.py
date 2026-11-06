@@ -9,6 +9,7 @@ from app.model_engine_ledger import ModelEngineLedger
 from app.model_engine_master import build_master
 from app.model_engine_expiryscan import scan_expiries
 from app.model_engine_expiry78 import RULES as EXPIRY78_RULES, evaluate_expiry78_rows
+from app.model_engine_original366 import ORIGINAL366_RULES, evaluate_original366_rows
 from app.expiry_case_study_27oct2026 import historical_expired_contracts
 from app.air_qoc_store import AirQocStore
 from app.brokers.customer_accounts import CustomerAccountDirectory
@@ -209,6 +210,67 @@ def _expiry_scan_for_customer(customer_id: str, *, max_dte: int = 45,
         return scan_expiries(store, account_id=account_id, max_dte=max_dte, limit=limit)
     finally:
         store.close()
+
+
+
+@router.get("/original366")
+async def get_original366_engine(
+    limit: int = Query(default=2000, ge=1, le=2000),
+    as_of: str | None = Query(default=None, description="Replay cutoff date YYYY-MM-DD"),
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    """Replay explicitly tagged ORIGINAL366 entries against verified daily option bars."""
+    rows = _ledger.list_signals(customer_id, limit)
+    contracts = evaluate_original366_rows(rows, as_of=as_of)
+    trades = [trade for contract in contracts
+              for trade in (contract.get("original366") or {}).get("trades", [])]
+    winners = [trade for trade in trades if trade.get("classification") == "EXPIRED_WIN"]
+    expiry_losses = [trade for trade in trades if trade.get("classification") == "EXPIRED_LOSS"]
+    stopped = [trade for trade in trades if trade.get("classification") == "SLHIT"]
+    new_rows = [row for row in rows
+                if str(row.get("classification") or "").upper() == "NEW"
+                and isinstance(row.get("evidence"), dict)
+                and ("ORIGINAL366" in {
+                    str(value).upper().replace(" ", "")
+                    for value in (row["evidence"].get("strategy_memberships") or [])
+                } or str(row["evidence"].get("strategy") or "").upper() == "ORIGINAL366")]
+    return {
+        "strategy": "ORIGINAL366",
+        "as_of": as_of,
+        "rules": ORIGINAL366_RULES,
+        "historical_baseline": dict(ORIGINAL366_BASELINE),
+        "baseline_status": "PRESERVED_NOT_RECALCULATED",
+        "contracts_replayed": len(contracts),
+        "trade_count": len(trades),
+        "expiry_winners": len(winners),
+        "expiry_losses": len(expiry_losses),
+        "stop_losses": len(stopped),
+        "gross_pnl_rupees": round(sum(trade.get("gross_pnl_rupees") or 0 for trade in trades), 2),
+        "charges_rupees": round(sum(trade.get("charges_rupees") or 0 for trade in trades), 2),
+        "net_pnl_rupees": round(sum(trade.get("net_pnl_rupees") or 0 for trade in trades), 2),
+        "groups": {
+            "OPEN": [trade for trade in trades if trade.get("classification") in ("NEW", "HOLD")],
+            "NEW": [trade for trade in trades if trade.get("classification") == "NEW"],
+            "HOLD": [trade for trade in trades if trade.get("classification") == "HOLD"],
+            "WAIT": [trade for trade in trades if trade.get("classification") == "WAIT"],
+            "SLHIT": stopped,
+            "REENTRY": [row for row in rows
+                        if str(row.get("classification") or "").upper() in ("RE-ENTRY", "REENTRY")
+                        and isinstance(row.get("evidence"), dict)
+                        and row["evidence"].get("reentry_verified") is True
+                        and ("ORIGINAL366" in {
+                            str(value).upper().replace(" ", "")
+                            for value in (row["evidence"].get("strategy_memberships") or [])
+                        } or str(row["evidence"].get("strategy") or "").upper() == "ORIGINAL366")],
+            "EXPIRED": winners + expiry_losses,
+            "EXPIRED_WIN": winners,
+            "EXPIRED_LOSS": expiry_losses,
+        },
+        "contracts": contracts,
+        "new_candidates_pending_replay": len(new_rows),
+        "data_status": "POPULATED" if contracts else "AWAITING_VERIFIED_DAILY_OHLCV",
+        "note": "Historical baseline is shown separately and never recalculated. New candidates require explicit ORIGINAL366 membership, verified entry details and daily option OHLCV. No broker orders are placed.",
+    }
 
 
 @router.get("/expiry78")
