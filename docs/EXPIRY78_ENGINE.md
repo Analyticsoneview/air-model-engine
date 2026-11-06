@@ -16,7 +16,7 @@ EXPIRY78 replays the seven-rule option-premium setup against verified daily opti
 
 ## Evidence contract
 
-Tag a ledger signal with evidence.strategy_memberships: ["EXPIRY78"] (or evidence.expiry78_candidate: true) and attach evidence.daily_option_bars:
+Submit a normal operator-authorized POST to /api/v1/model-engine/signals with classification WAIT, wait_verified=true, the contract fields, and the following evidence structure. The signal endpoint persists the evidence JSON used by the evaluator. Tag a ledger signal with evidence.strategy_memberships: ["EXPIRY78"] (or evidence.expiry78_candidate: true) and attach evidence.daily_option_bars:
 
 ~~~json
 {
@@ -51,3 +51,8 @@ The endpoint evaluates only explicitly tagged contracts that include daily bars.
 - OPEN: aggregate of NEW and HOLD in the strategy tab.
 
 REENTRY is not inferred from a second candle pattern. It remains available only through a separately verified lifecycle record; the seven-rule source definition does not specify an automatic re-entry rule.
+
+
+## Execution boundary
+
+The expiry intrinsic result is a historical model outcome, not a live instruction to carry a position overnight. AIR QOC's separate live execution rule remains: do not carry positions overnight into expiry. The T-3 expiry-entry gate belongs to the AIR QOC live-entry workflow and is not silently applied to this seven-rule historical replay.
