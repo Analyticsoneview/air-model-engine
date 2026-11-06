@@ -167,7 +167,12 @@ class AirDashboard extends StatelessWidget {
         ]),
         const SizedBox(height: 9),
         Row(children: [
-          Expanded(child: _DashboardAction(icon: Icons.account_balance_wallet_outlined, title: 'ORDERS', subtitle: 'Multi-account', color: const Color(0xFF20A879), onTap: () => const DashboardOrderPlacementShortcut()._openTicket(context))),
+          Expanded(child: _DashboardAction(icon: Icons.account_balance_wallet_outlined, title: 'ORDERS', subtitle: 'Multi-account', color: const Color(0xFF20A879), onTap: () => showModalBottomSheet<void>(
+            context: context,
+            builder: (sheetContext) => const SafeArea(
+              child: Padding(padding: EdgeInsets.all(16), child: DashboardOrderPlacementShortcut()),
+            ),
+          ))),
           const SizedBox(width: 9),
           Expanded(child: _DashboardAction(icon: Icons.trending_up_rounded, title: 'WEEKLY LOW', subtitle: 'Reversal watch', color: const Color(0xFF789BEA), onTap: () => const WeeklyLowRespectDashboardShortcut()._openDetails(context))),
         ]),
