@@ -27,7 +27,7 @@ def _dte(row: dict[str, Any]) -> int | None:
 def _sort_key(row: dict[str, Any]) -> tuple:
     return (
         str(row.get("signal_date") or ""),
-        float(row.get("entry_price") or 0),
+        -float(row.get("entry_price") or 0),
         str(row.get("symbol") or ""),
         str(row.get("expiry") or ""),
         float(row.get("strike") or 0),
