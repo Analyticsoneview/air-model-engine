@@ -51,7 +51,7 @@ jobs:
 
       - name: Build optimized AIR PWA
         working-directory: mobile
-        run: flutter build web --release --tree-shake-icons --no-source-maps --base-href "/${GITHUB_REPOSITORY#*/}/" --dart-define=APP_ENV=lab
+        run: flutter build web --release --tree-shake-icons --no-source-maps --base-href "/${GITHUB_REPOSITORY#*/}/" --dart-define=APP_ENV=lab --dart-define=AIR_API_BASE_URL=${{ vars.AIR_API_BASE_URL }}
 
       - name: Report web bundle size
         working-directory: mobile
