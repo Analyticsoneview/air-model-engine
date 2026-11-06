@@ -92,8 +92,8 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
         : _v(r, 'days_to_expiry');
     return DataRow(
       color: survivor
-          ? MaterialStateProperty.resolveWith<Color?>((states) =>
-              Theme.of(context).colorScheme.tertiary.withOpacity(0.18))
+          ? WidgetStateProperty.resolveWith<Color?>((states) =>
+              Theme.of(context).colorScheme.tertiary.withValues(alpha: 0.18))
           : null,
       cells: [
     DataCell(_cell(_v(r, 'signal_date'))), DataCell(_cell(_v(r, 'entry_date'))),
@@ -114,6 +114,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     )), DataCell(_cell(_v(r, 'shelf_life_remaining_days'))),
     DataCell(_cell(_v(r, 'shelf_life_status'))), DataCell(_cell(_v(r, 'reason'))),
   ]);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -170,7 +171,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
               DataColumn(label: Text('SPREAD %')), DataColumn(label: Text('SCAN STATUS')),
               DataColumn(label: Text('OBSERVED AT')),
             ], rows: _expiryRows.map((r) => DataRow(
-              color: r['survivor'] == true ? MaterialStateProperty.all(cs.tertiary.withOpacity(0.18)) : null,
+              color: r['survivor'] == true ? WidgetStateProperty.all(cs.tertiary.withValues(alpha: 0.18)) : null,
               cells: [
                 _v(r, 'survivor') == 'true' ? DataCell(_cell('★ SURVIVOR')) : DataCell(_cell('STANDARD')),
                 for (final key in ['underlying_scrip','option_type','expiry','strike','days_to_expiry',
