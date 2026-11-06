@@ -1,0 +1,57 @@
+name: AIR iOS Lab Unsigned IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/ios-lab.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  ios-lab:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate iOS platform
+        working-directory: mobile
+        run: flutter create . --platforms=ios --org com.analyticalstocks
+
+      - name: Resolve packages
+        working-directory: mobile
+        run: flutter pub get
+
+      - name: Analyze Flutter app
+        working-directory: mobile
+        run: flutter analyze lib
+
+      - name: Build unsigned iOS app
+        working-directory: mobile
+        run: flutter build ios --release --no-codesign --dart-define=APP_ENV=lab
+
+      - name: Package unsigned IPA
+        working-directory: mobile
+        run: |
+          mkdir -p build/ios/ipa/Payload
+          cp -R build/ios/iphoneos/Runner.app build/ios/ipa/Payload/
+          cd build/ios/ipa
+          /usr/bin/zip -r AIR-Model-Engine-iOS-Unsigned.ipa Payload
+
+      - name: Upload unsigned IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AIR-Model-Engine-iOS-Unsigned-IPA
+          path: mobile/build/ios/ipa/AIR-Model-Engine-iOS-Unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30
