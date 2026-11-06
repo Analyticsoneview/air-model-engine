@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'screens/air_connection_screen.dart';
+
 void main() => runApp(const AirModelEngineApp());
 
 enum AirLook { glass, dark, light }
@@ -127,7 +129,17 @@ class AirDashboard extends StatelessWidget {
               PopupMenuItem(value: AirLook.light, child: Text('Light')),
             ],
           ),
-          CircleAvatar(radius: 16, backgroundColor: panel, child: Icon(Icons.person_outline, size: 18, color: accent)),
+          IconButton(
+            tooltip: 'AIR connections',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const AirConnectionScreen()),
+            ),
+            icon: CircleAvatar(
+              radius: 16,
+              backgroundColor: panel,
+              child: Icon(Icons.person_outline, size: 18, color: accent),
+            ),
+          ),
         ]),
         const SizedBox(height: 18),
         Row(children: [
