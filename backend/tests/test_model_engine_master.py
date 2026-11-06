@@ -8,7 +8,8 @@ def row(signal_id, classification, dte=30, pnl=0, entry_price=5, entry_date=None
     return {
         "signal_id": signal_id, "classification": classification,
         "signal_date": date.today().isoformat(), "symbol": "NIFTY",
-        "option_type": "CE", "expiry": expiry.isoformat(),\n        "entry_date": entry_date if entry_date is not None else (expiry - timedelta(days=1)).isoformat(),
+        "option_type": "CE", "expiry": expiry.isoformat(),
+        "entry_date": entry_date if entry_date is not None else (expiry - timedelta(days=1)).isoformat(),
         "days_to_expiry": dte, "entry_price": entry_price, "pnl": pnl,
         "instrument_type": "INDEX" if signal_id.startswith("i") else "STOCK",
         "sector": "BANKING" if signal_id.startswith("s") else "INDEX",
