@@ -527,7 +527,7 @@ async def search_market_instruments(
         raise HTTPException(status_code=409, detail="Instrument search is not yet implemented for this Main Account provider")
     try:
         rows = await adapter.search_instruments(q, limit=limit, exchange_segment=segment)
-    except (ValueError, RuntimeError) as exc:
+    except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Instrument master lookup failed: {type(exc).__name__}") from exc
     return {"provider": provider, "account_id": account_id, "count": len(rows), "instruments": rows}
 
