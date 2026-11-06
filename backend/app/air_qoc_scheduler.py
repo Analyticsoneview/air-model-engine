@@ -18,6 +18,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.air_qoc_store import AirQocStore
+from app.model_engine_expiryscan import scan_expiries
 from app.brokers.dhan import DhanHQClient, DhanAPIError
 from app.brokers.customer_accounts import CustomerAccountDirectory
 from app.credential_vault import CredentialVault
@@ -137,11 +138,22 @@ async def capture_dhan_eod_snapshots(*, force: bool = False) -> dict:
             except Exception as exc:
                 errors.append({"underlying": underlying["label"], "error": type(exc).__name__})
                 log.exception("AIR QOC snapshot failed for %s", underlying["label"])
+        expiry_scan = scan_expiries(
+            store, account_id=account_id,
+            max_dte=int(os.getenv("AIR_EXPIRYSCAN_MAX_DTE", "45")),
+            limit=int(os.getenv("AIR_EXPIRYSCAN_MAX_ROWS", "2000")),
+        )
         return {
             "status": "completed_with_errors" if errors else "completed",
             "underlyings": len(underlyings),
             "expiry_chains": expiry_count,
             "contract_observations": total,
+            "expiry_scan": {
+                "status": "completed",
+                "contracts": expiry_scan["total_contracts"],
+                "survivors_0_7_dte": expiry_scan["survivor_count"],
+                "max_dte": expiry_scan["max_dte"],
+            },
             "errors": errors,
             "observed_at": datetime.now(IST).isoformat(),
             "classification": "DATA_CAPTURE_ONLY_NOT_A_SIGNAL",
