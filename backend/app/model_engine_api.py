@@ -232,7 +232,7 @@ async def get_original366_engine(
     as_of: str | None = Query(default=None, description="Replay cutoff date YYYY-MM-DD"),
     customer_id: str = Depends(require_customer),
 ) -> dict:
-    """Replay explicitly tagged ORIGINAL366 entries against verified daily option bars."""
+    """Build the RECOVERED watch from the ORIGINAL366 cohort and post-stop daily closes."""
     rows = _ledger.list_signals(customer_id, limit)
     contracts = evaluate_original366_rows(rows, as_of=as_of)
     trades = [trade for contract in contracts
@@ -263,9 +263,6 @@ async def get_original366_engine(
         "expiry_losses": len(expiry_losses),
         "stop_losses": len(stopped),
         "recovered_watch_count": len(recovered_watch),
-        "gross_pnl_rupees": round(sum(trade.get("gross_pnl_rupees") or 0 for trade in trades), 2),
-        "charges_rupees": round(sum(trade.get("charges_rupees") or 0 for trade in trades), 2),
-        "net_pnl_rupees": round(sum(trade.get("net_pnl_rupees") or 0 for trade in trades), 2),
         "groups": {
             "OPEN": [trade for trade in trades if trade.get("classification") in ("NEW", "HOLD")],
             "NEW": [trade for trade in trades if trade.get("classification") == "NEW"],
