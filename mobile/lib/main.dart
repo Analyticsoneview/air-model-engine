@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'auth/air_access_gate.dart';
+
 import 'screens/air_connection_screen.dart';
 import 'screens/air_qoc_screen.dart';
 import 'screens/model_engine_screen.dart';
@@ -54,10 +56,10 @@ class _AirModelEngineAppState extends State<AirModelEngineApp> {
     title: 'AIR Model Engine',
     debugShowCheckedModeBanner: false,
     theme: appTheme,
-    home: AirShell(
+    home: AirAccessGate(builder: (_) => AirShell(
       look: look,
       onLookChanged: (value) => setState(() => look = value),
-    ),
+    )),
   );
 }
 

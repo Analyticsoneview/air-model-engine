@@ -6,6 +6,7 @@ services:
     environment:
       AIR_JWT_SECRET_FILE: /run/secrets/air_jwt_secret
       AIR_CREDENTIAL_KEY_FILE: /run/secrets/air_credential_key
+      AIR_ADMIN_API_KEY_FILE: /run/secrets/air_admin_api_key
       AIR_AUTH_DB_PATH: /var/lib/air/auth.sqlite3
       AIR_ACCOUNT_DB_PATH: /var/lib/air/accounts.sqlite3
       AIR_CREDENTIAL_DB_PATH: /var/lib/air/credentials.sqlite3
@@ -24,6 +25,7 @@ services:
     secrets:
       - air_jwt_secret
       - air_credential_key
+      - air_admin_api_key
     volumes:
       - air_data:/var/lib/air
     networks:
@@ -97,4 +99,6 @@ secrets:
   air_jwt_secret:
     external: true
   air_credential_key:
+    external: true
+  air_admin_api_key:
     external: true

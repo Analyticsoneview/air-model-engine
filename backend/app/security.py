@@ -35,7 +35,7 @@ def verify_password(password: str, encoded: str) -> bool:
         return False
 
 
-def create_access_token(customer_id: str, expires_minutes: int = 30) -> str:
+def create_access_token(customer_id: str, expires_minutes: int = 30, session_id: str | None = None) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sub": customer_id,
@@ -44,6 +44,8 @@ def create_access_token(customer_id: str, expires_minutes: int = 30) -> str:
         "iss": "air-model-engine",
         "aud": "air-api",
     }
+    if session_id:
+        payload["jti"] = session_id
     return jwt.encode(payload, _secret("AIR_JWT_SECRET"), algorithm="HS256")
 
 
@@ -62,6 +64,11 @@ async def require_customer(credentials: HTTPAuthorizationCredentials | None = De
         customer_id = payload.get("sub")
         if not isinstance(customer_id, str) or not customer_id:
             raise ValueError("Invalid subject")
+        session_id = payload.get("jti")
+        if session_id:
+            from app.access_control import access_store
+            if not access_store.is_session_active(session_id):
+                raise ValueError("Access has been revoked or is not approved")
         return customer_id
     except Exception as exc:
         raise HTTPException(status_code=401, detail="Invalid or expired access token") from exc
