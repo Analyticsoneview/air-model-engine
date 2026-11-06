@@ -42,14 +42,14 @@ jobs:
         working-directory: mobile
         run: flutter analyze lib
 
-      - name: Build internal lab APK
+      - name: Build optimized ARM64 lab APK
         working-directory: mobile
-        run: flutter build apk --debug --dart-define=APP_ENV=lab
+        run: flutter build apk --release --target-platform android-arm64 --dart-define=APP_ENV=lab
 
-      - name: Upload APK artifact
+      - name: Upload optimized APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AIR-Model-Engine-Android-Lab
-          path: mobile/build/app/outputs/flutter-apk/app-debug.apk
+          name: AIR-Model-Engine-Android-ARM64-Release-Lab
+          path: mobile/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
           retention-days: 30
