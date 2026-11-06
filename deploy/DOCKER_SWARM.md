@@ -24,7 +24,7 @@ python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().
 
 Back up the Fernet key securely. Losing it makes encrypted broker credentials unrecoverable. The API reads both secrets from Docker's `*_FILE` paths.
 
-## 3. Set deployment variables
+## 3. Bootstrap the first operator (before deployment)\n\nOn the server, from the checked-out repository, create the first operator in the same persistent auth database path the API will use. For the initial bootstrap, run the script with the data directory mounted at the same host path used by the API volume, or run it inside a one-off container sharing that volume:\n\n```bash\ncd backend\nAIR_AUTH_DB_PATH=/var/lib/air/auth.sqlite3 python scripts/bootstrap_operator.py\n```\n\nThe script prompts for email and password without echoing the password and prints the new customer UUID. Set that UUID as `AIR_OPERATOR_CUSTOMER_IDS` in the API service environment. Do not enable public signup. The bootstrap script must run against the exact auth database that the API will mount; creating a user in a different local file will not provision the deployed service.\n\n## 4. Set deployment variables
 
 ```bash
 export AIR_OPERATOR_CUSTOMER_IDS="<provisioned-customer-uuid>"
@@ -36,7 +36,7 @@ export AIR_CORS_ORIGINS="https://air.example.com"
 
 For Angel One, configure actual server client local IP, public IP and MAC address. Do not use placeholder values.
 
-## 4. Deploy
+## 5. Deploy
 
 ```bash
 docker stack deploy -c docker-stack.yml air
@@ -47,11 +47,11 @@ docker service logs -f air_air-pwa
 
 The PWA listens on port 8080 inside the overlay as `air-pwa`; the API listens on port 8000 as `air-api`. Configure your existing TLS reverse proxy to route the app hostname to `air-pwa:8080` and API hostname to `air-api:8000`. Do not expose the PWA container directly to the public internet without TLS. The API's published port is for lab connectivity; firewall it or remove the `ports` block when only the reverse proxy should access it.
 
-## 5. Mobile build workflow
+## 6. Mobile build workflow
 
 The GitHub Actions workflow `.github/workflows/ios-pwa.yml` runs Flutter analysis and tests, builds the web app, and uploads `air-pwa-web` as a downloadable artifact. Set repository variable `AIR_API_BASE_URL` to the deployed HTTPS API URL. This avoids GitHub Pages permissions and keeps hosting self-managed.
 
-## 6. Provisioning and production blockers
+## 7. Provisioning and production blockers
 
 - Customer signup is disabled by default. Provision the initial operator through the backend's trusted administrative bootstrap procedure; do not enable public signup on an exposed instance.
 - Back up the `air_data` volume and test restore before storing broker credentials.
