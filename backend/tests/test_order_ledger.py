@@ -21,6 +21,9 @@ class DurableOrderLedgerTests(unittest.TestCase):
             self.assertEqual(restored, order)
             self.assertIsNone(second.get("zerodha", "acct-1", "intent-1"))
             self.assertIsNone(second.get("dhan", "acct-2", "intent-1"))
+            events = second.list_events("dhan", "acct-1")
+            self.assertEqual(len(events), 1)
+            self.assertEqual(events[0]["status"], "ACCEPTED")
             second.close()
 
     def test_list_orders_is_bounded_and_filtered(self):
