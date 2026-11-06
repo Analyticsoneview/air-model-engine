@@ -57,7 +57,6 @@ class _AirAccessGateState extends State<AirAccessGate> {
         } on AirApiException {
           AirApiClient.setAccessToken(null);
           await _storage.delete(key: 'air_access_token');
-          _status = 'PENDING';
           _message = 'Your saved access is no longer active. Check your approval status.';
         }
       }
