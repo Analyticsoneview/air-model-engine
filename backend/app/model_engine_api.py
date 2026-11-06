@@ -154,13 +154,8 @@ async def upsert_model_engine_signal(
             "classification": record["classification"].upper()}
 
 
-@router.get("/expiryscan")
-async def get_expiry_scan(
-    max_dte: int = Query(default=45, ge=0, le=365),
-    limit: int = Query(default=500, ge=1, le=2000),
-    customer_id: str = Depends(require_customer),
-) -> dict:
-    """Read-only scan of captured Dhan observations owned by this customer."""
+def _expiry_scan_for_customer(customer_id: str, *, max_dte: int = 45,
+                              limit: int = 2000) -> dict:
     account_id = os.getenv("AIR_QOC_DHAN_ACCOUNT_ID", "").strip()
     if not account_id:
         raise HTTPException(status_code=503, detail="Dhan snapshot account is not configured")
@@ -177,3 +172,13 @@ async def get_expiry_scan(
         return scan_expiries(store, account_id=account_id, max_dte=max_dte, limit=limit)
     finally:
         store.close()
+
+
+@router.get("/expiryscan")
+async def get_expiry_scan(
+    max_dte: int = Query(default=45, ge=0, le=365),
+    limit: int = Query(default=500, ge=1, le=2000),
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    """Read-only scan of captured Dhan option-chain observations owned by this customer."""
+    return _expiry_scan_for_customer(customer_id, max_dte=max_dte, limit=limit)
