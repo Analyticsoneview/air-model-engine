@@ -421,7 +421,7 @@ async def upstox_exchange(account_id: str, body: UpstoxTokenExchangeRequest,
 
 
 @app.post("/api/v1/customer/accounts/dhan/{account_id}/verify")
-async def verify_dhan_account(account_id: str, customer_id: str = Depends(require_air_operator)) -> dict:
+async def verify_dhan_account(account_id: str, customer_id: str = Depends(require_customer)) -> dict:
     owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(customer_id)}
     if ("dhan", account_id) not in owned:
         raise HTTPException(status_code=404, detail="Dhan account not found")
