@@ -128,3 +128,38 @@ def test_recovery_lot_size_rule_is_enforced():
     result = build_strategy_views([recovery])
     assert result["RECOVERY"]["counts"]["REENTRY"] == 0
     assert result["RECOVERY"]["audit"]["recovery_candidates_rejected_without_verified_recovery_evidence"] == 1
+
+
+def test_original366_replay_is_independent_and_does_not_rewrite_historical_baseline():
+    from app.model_engine_strategies import ORIGINAL366_BASELINE, build_strategy_views
+
+    contract = {
+        "signal_id": "orig-engine-row",
+        "classification": "NEW",
+        "signal_date": "2026-11-03",
+        "entry_date": "2026-11-03",
+        "symbol": "TESTCO",
+        "instrument_type": "STOCK",
+        "option_type": "CE",
+        "expiry": "2026-11-06",
+        "strike": 100,
+        "entry_price": 8.0,
+        "evidence": {
+            "strategy_memberships": ["ORIGINAL366"],
+            "daily_option_bars": [
+                {"date": "2026-11-03", "open": 8, "high": 8.5, "low": 7.8, "close": 8.2, "quantity": 100},
+            ],
+        },
+    }
+    views = build_strategy_views([contract])
+    original = views["ORIGINAL366"]
+    assert original["replay"]["contracts_replayed"] == 1
+    assert original["counts"]["HOLD"] == 1
+    assert original["baseline"] == ORIGINAL366_BASELINE
+    assert original["baseline"]["trades"] == 366
+    assert original["baseline"]["expiry_winners"] == 32
+    assert original["baseline"]["five_percent_stop_losses"] == 334
+    assert original["baseline"]["gross_pnl_rupees"] == 1071850
+    assert original["baseline"]["charges_rupees"] == 21602
+    assert original["baseline"]["net_pnl_rupees"] == 1050248
+    assert original["baseline"]["capital_rupees"] == 1514362
