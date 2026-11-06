@@ -101,3 +101,15 @@ Dhan integration constraints:
 - The binary Dhan live market WebSocket and normalized packet decoder are not yet connected to the AIR MarketDataHub. Therefore this milestone is **REST integration only**, not a completed live streaming integration.
 
 References: DhanHQ official Authentication, Market Quote, Historical Data, Live Market Feed and Orders documentation.
+
+
+### DhanHQ live-feed transport and decoder milestone
+
+- `app/brokers/dhan_feed.py` decodes Dhan v2 little-endian ticker, previous-close, quote, OI, full-depth and disconnect packets. It handles concatenated packets and rejects malformed lengths.
+- `app/brokers/dhan_socket.py` opens the documented v2 WebSocket URL, sends JSON subscriptions in batches of at most 100 instruments, enforces the 5,000-instrument connection limit, and decodes binary responses.
+- This transport is currently a reusable provider component; it is **not yet wired into the application lifecycle, Main Account router, or MarketDataHub**. No live feed should be shown as connected until that integration and a real authorized Dhan account test pass.
+- Dhan v2 docs specify up to five sockets per user, up to 5,000 instruments per connection, little-endian response packets and feed request codes 15/17/21 for ticker/quote/full subscriptions.
+
+Official references:
+- https://dhanhq.co/docs/v2/live-market-feed/
+- https://dhanhq.co/docs/v2/annexure/
