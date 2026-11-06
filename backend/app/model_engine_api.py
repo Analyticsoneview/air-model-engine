@@ -69,7 +69,10 @@ async def get_model_engine_ledger(
         # Survivor is a high-priority cross-cutting watchlist, not a replacement
         # for the signal lifecycle classification. Keep original classification.
         dte = row.get("days_to_expiry")
-        if dte is not None and 0 <= dte <= 7 and row["classification"] != "EXPIRED":
+        entry_date, expiry = row.get("entry_date"), row.get("expiry")
+        if (row.get("classification") in ("NEW", "HOLD", "RE-ENTRY")
+                and dte is not None and dte >= 0 and entry_date and expiry
+                and str(entry_date)[:10] < str(expiry)[:10]):
             groups["SURVIVOR"].append(row)
     groups["SURVIVOR"].sort(key=lambda row: (row.get("days_to_expiry", 999), -(row.get("score") or 0), row["signal_date"]))
     return {
@@ -77,7 +80,7 @@ async def get_model_engine_ledger(
         "count": len(rows),
         "counts": {key: len(value) for key, value in groups.items()},
         "groups": groups,
-        "updated_at": max((row["updated_at"] for row in rows), default=None),
+        "updated_at": max((row.get("updated_at") for row in rows if row.get("updated_at")), default=None),
         "data_status": "POPULATED" if rows else "AWAITING_VERIFIED_SIGNALS",
         "note": "Only persisted, verified model signals are shown. No sample signals or broker orders are generated.",
     }
