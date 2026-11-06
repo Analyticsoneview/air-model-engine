@@ -98,6 +98,14 @@ class AirApiClient {
     return _decode(response);
   }
 
+  Future<Map<String, dynamic>> modelEngineLedger({int limit = 500}) async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/api/v1/model-engine/ledger?limit=$limit'),
+      headers: _headers,
+    );
+    return _decode(response);
+  }
+
   Future<Map<String, dynamic>> dhanFnoUniverse() async {
     final response = await _client.get(
       Uri.parse('$baseUrl/api/v1/air-qoc/dhan/universe'),
