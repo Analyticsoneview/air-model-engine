@@ -41,7 +41,7 @@ class _AirAccessGateState extends State<AirAccessGate> {
         await _storage.write(key: 'air_device_id', value: deviceId);
       }
       _deviceId = deviceId;
-      if (savedMobile != null) _mobile.text = savedMobile;
+      if (savedMobile != null) {\n        _mobile.text = savedMobile;\n        if (token == null || token.isEmpty) {\n          final savedStatus = await _api.mobileStatus(savedMobile, deviceId);\n          _status = savedStatus['status']?.toString() ?? 'NEW';\n          if (_status == 'PENDING') _message = 'Your AIR access request has been submitted. Your account is awaiting administrator approval. Please check back later.';\n        }\n      }
       if (token != null && token.isNotEmpty) {
         AirApiClient.setAccessToken(token);
         try {
