@@ -48,7 +48,7 @@ jobs:
 
       - name: Build optimized ARM64 lab APK
         working-directory: mobile
-        run: flutter build apk --release --target-platform android-arm64 --dart-define=APP_ENV=lab
+        run: flutter build apk --release --target-platform android-arm64 --dart-define=APP_ENV=lab --dart-define=AIR_API_BASE_URL=${{ vars.AIR_API_BASE_URL }}
 
       - name: Upload optimized APK artifact
         uses: actions/upload-artifact@v4
