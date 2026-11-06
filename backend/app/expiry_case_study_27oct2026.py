@@ -7,6 +7,8 @@ historical case-study cohort, not a predictive rule and not the separate
 """
 from __future__ import annotations
 
+from datetime import date
+
 COHORT_ID = "EXPIRY_2026-10-27_CASE_STUDY_11"
 SOURCE_WORKBOOK = "AIR_EXPIRYSCAN_EXPIRED_27Oct2026_11Contracts_DailyDetail.xlsx"
 EXPIRY = "2026-10-27"
@@ -47,8 +49,10 @@ def historical_expired_contracts() -> list[dict]:
             "strike": strike,
             "entry_price": entry_price,
             "stop_loss": stop_loss,
-            "latest_price": last_traded_close,
-            "days_to_expiry": -1,
+            "latest_price": expiry_intrinsic,
+            "days_to_expiry": (date.fromisoformat(EXPIRY) - date.today()).days,
+            "pnl_points": round(expiry_intrinsic - entry_price, 4),
+            "pnl_pct": round((expiry_intrinsic / entry_price - 1) * 100, 4) if entry_price else None,
             "cohort_id": COHORT_ID,
             "evidence": {
                 "source": "AIR_QOC_MASTER_AND_2026-10-26_OPTION_BHAVCOPY",
@@ -61,6 +65,8 @@ def historical_expired_contracts() -> list[dict]:
                 "highest_daily_high": highest_daily_high,
                 "last_traded_close": last_traded_close,
                 "expiry_intrinsic": expiry_intrinsic,
+                "expiry_date_valid": True,
+                "expiry_status_reason": "Historical 27-Oct-2026 expiry; contract is past expiry.",
                 "daily_history_available": True,
                 "note": "Historical selected case-study contract; not a live signal or predictive filter.",
             },
