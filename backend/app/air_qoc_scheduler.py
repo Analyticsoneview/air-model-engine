@@ -49,8 +49,8 @@ def _configured_underlyings() -> list[dict]:
     return result
 
 
-async def capture_dhan_eod_snapshots() -> dict:
-    if os.getenv("AIR_QOC_SCHEDULER_ENABLED", "false").lower() != "true":
+async def capture_dhan_eod_snapshots(*, force: bool = False) -> dict:
+    if not force and os.getenv("AIR_QOC_SCHEDULER_ENABLED", "false").lower() != "true":
         return {"status": "disabled"}
     customer_ids = [x.strip() for x in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",") if x.strip()]
     account_id = os.getenv("AIR_QOC_DHAN_ACCOUNT_ID", "").strip()
