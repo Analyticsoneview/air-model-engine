@@ -40,7 +40,7 @@ Follow [Docker Swarm deployment](deploy/DOCKER_SWARM.md). It covers Docker secre
 
 - SQLite and process-local OAuth state mean one API replica only. PostgreSQL, Redis-backed OAuth state, migrations and HA are not implemented.
 - Live broker credentials, market-data permissions, provider streaming and execution have not been validated against the user's broker accounts.
-- Full AIR QOC scoring/qualification, broad F&O universe discovery, validated multi-session backtests, token renewal, complete historical data pipelines and live monitoring are not yet complete. Dhan option-chain snapshots alone are not a qualified signal.
+- Full AIR QOC scoring/qualification, broad F&O universe discovery, validated multi-session backtests, complete historical data pipelines and live monitoring are not yet complete. Optional Dhan token renewal is limited to active tokens originally generated from Dhan Web and remains disabled unless explicitly configured. Dhan option-chain snapshots alone are not a qualified signal.
 - Configure TLS, firewalling, backups, monitoring and restore testing before any internet-facing deployment.
 
 Never treat a placeholder, sample response or unverified broker connection as a live market signal.
