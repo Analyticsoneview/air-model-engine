@@ -1,32 +1,26 @@
 # AIR Market Data and Broker Gateway
 
-AIR uses a self-hosted backend because the mobile app must not hold broker API secrets or be responsible for persistent WebSocket sessions. The backend is a gateway and orchestrator; it does not replace broker APIs or create market data.
+AIR uses a self-hosted backend so broker API credentials stay off the Flutter app and persistent market-data sessions remain available when a phone sleeps or changes network. The backend is a gateway and orchestrator; it does not replace broker APIs or create market data.
 
-## Why a server is needed
+## Main Account data policy
 
-- Broker API credentials and session tokens stay off the Flutter app.
-- WebSocket connections must remain alive when the phone is closed or changes network.
-- One broker connection can distribute normalized data to AIR QOC, SURVIVOR, CPR, SMC, scanners and multiple app sessions.
-- Historical downloads can be scheduled, retried, validated and stored centrally.
-- Provider rate limits, instrument-token mapping, reconnects and failover are handled centrally.
+At any moment, exactly **one broker account** is selected as AIR's Main Account for market-data retrieval. That same account supplies both historical candles and live WebSocket ticks. The provider can be changed by an explicit user action; it is not permanently fixed.
 
-A server is not inherently required for a single-device app that only fetches occasional REST quotes. It is required for AIR's intended persistent, multi-provider, multi-device and background-streaming architecture.
+Switching closes the previous broker adapter before authenticating the selected account. If the new connection fails, AIR reports an outage and remains offline. There is no silent or automatic provider failover, and no second provider is queried in parallel. Execution accounts are separate: multi-account order execution can be supported independently of the single market-data Main Account.
 
 ## Architecture
 
-Broker APIs (multiple providers and accounts) -> provider adapters -> independent historical/live routing -> normalized AIR market-data contracts -> Redis pub/sub (next integration stage) -> FastAPI/WebSocket gateway -> PostgreSQL historical bars, snapshots and audit records (next integration stage) -> Flutter app and AIR research modules.
-
-Historical and live sources are independent. A provider may supply historical candles while another supplies WebSocket ticks. Each record must retain provider, account, exchange timestamp and server receipt timestamp. Conflicting provider ticks must not be silently blended.
+One selected broker Main Account -> provider adapter -> normalized AIR market-data contracts -> (Redis pub/sub, next integration stage) -> FastAPI/WebSocket gateway -> (PostgreSQL historical bars, snapshots and audit records, next integration stage) -> Flutter app and AIR research modules.
 
 ## Current implementation
 
-- app/market_data/contracts.py: normalized instrument, tick and historical-bar contracts and provider adapter protocol.
-- app/market_data/router.py: multiple provider/account registrations, independent historical/live source selection, priority routing and enable/disable.
-- app/market_data/hub.py: WebSocket fan-out to AIR clients.
-- app/main.py: health, data-status and WebSocket endpoints.
-- Dockerfile: container image for the FastAPI gateway.
+- `app/market_data/contracts.py`: normalized instrument, tick and historical-bar contracts and provider adapter protocol.
+- `app/market_data/router.py`: single active Main Account lifecycle, shared historical/live source, explicit switching, close-before-authenticate, outage state and no automatic failover.
+- `app/market_data/hub.py`: WebSocket fan-out to AIR clients.
+- `app/main.py`: health, data-status, explicit Main Account select/disconnect endpoints and WebSocket endpoint.
+- `Dockerfile`: container image for the FastAPI gateway.
 
-This is a backend foundation only. No live broker provider adapter, credential vault, Redis persistence/pub-sub, PostgreSQL storage, user authentication, subscription endpoint, or broker connection has been enabled yet. The status endpoint must not be mistaken for a connected feed.
+This is a backend foundation only. No live broker provider adapter, credential vault, Redis persistence/pub-sub, PostgreSQL storage, user authentication, subscription endpoint, or broker connection has been enabled yet. The selection endpoint can only select an adapter that has already been registered by the server. The status endpoint must not be mistaken for a connected feed.
 
 ## Deployment
 
@@ -37,7 +31,7 @@ Build and run on an always-on self-hosted Linux machine, NAS or VPS. Docker Comp
 - Authenticate and authorize every REST/WebSocket client.
 - Encrypt broker credentials and tokens at rest; restrict access by user/account.
 - Never expose provider credentials or raw broker payloads to the mobile app.
-- Add per-provider connection limits, rate limiting, heartbeat, reconnect with backoff and subscription reconciliation.
+- Add provider heartbeat, reconnect with backoff, subscription reconciliation and explicit outage reporting.
 - Add durable storage, tick freshness checks, duplicate detection and market-session controls.
 - Respect each broker's API terms, data redistribution rules, subscription limits and exchange licensing.
 - Keep order execution separately permissioned from market-data access. Paper mode remains default.
