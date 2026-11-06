@@ -153,3 +153,13 @@ Official references:
 - https://fyers.in/api-docs/v3/api/authentication/individual-app/validate-auth-code
 - https://fyers.in/api-docs/v3/api/websockets/
 - https://fyers.in/api-docs/v3/getting-started/guides/order-placement-guide/
+
+
+## Angel One SmartAPI integration milestone
+
+- `app/brokers/angel.py` implements server-side client-code/PIN/TOTP login, profile verification, historical candles, order book, positions, holdings and guarded place/modify/cancel request methods.
+- The customer-owned `/api/v1/customer/accounts/angel-one/{account_id}/login` route accepts the current TOTP, reads API key/PIN from the encrypted vault, performs the login and profile check, and stores JWT/refresh/feed tokens encrypted. TOTP is not persisted.
+- SmartAPI requires client network identity headers. Configure `AIR_CLIENT_LOCAL_IP`, `AIR_CLIENT_PUBLIC_IP` and `AIR_CLIENT_MAC_ADDRESS` on the server; no fake defaults are supplied. New static-IP rules for order APIs must be satisfied before any execution is enabled.
+- The login session is normally valid until midnight. Angel Smart Stream binary transport and tick decoder are not yet connected to AIR's Main Account router or MarketDataHub. Order permission remains disabled.
+
+Official reference: https://smartapi.angelone.in/docs
