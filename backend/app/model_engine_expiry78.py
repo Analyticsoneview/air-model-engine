@@ -163,9 +163,13 @@ def evaluate_expiry78_contract(
             trade.update({"classification": "SL", "position_status": "EXITED",
                           "reason": exit_reason,
                           "pnl_points": round(exit_price - entry_price, 4)})
-            position_quantity = _num(contract.get("position_quantity"))
+            position_quantity = _num(contract.get("position_quantity") or evidence.get("position_quantity"))
             if position_quantity is not None:
                 trade["gross_pnl_rupees"] = round((exit_price - entry_price) * position_quantity, 2)
+                charges = _num(evidence.get("charges_rupees"))
+                if charges is not None:
+                    trade["charges_rupees"] = charges
+                    trade["net_pnl_rupees"] = round(trade["gross_pnl_rupees"] - charges, 2)
         elif expiry_day <= as_of_day and expiry_bar is not None and _num(expiry_bar.get("underlying_close")) is not None:
             intrinsic = _intrinsic(option_type, strike, float(expiry_bar["underlying_close"]))
             trade.update({
@@ -179,7 +183,7 @@ def evaluate_expiry78_contract(
                 "exit_reason": "EXPIRY_INTRINSIC_SETTLEMENT",
                 "pnl_points": round(intrinsic - entry_price, 4),
             })
-            position_quantity = _num(contract.get("position_quantity"))
+            position_quantity = _num(contract.get("position_quantity") or evidence.get("position_quantity"))
             if position_quantity is not None:
                 trade["gross_pnl_rupees"] = round((intrinsic - entry_price) * position_quantity, 2)
             charges = _num(evidence.get("charges_rupees"))
