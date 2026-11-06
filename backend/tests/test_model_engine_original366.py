@@ -92,4 +92,4 @@ def test_original366_invalid_daily_bar_is_ignored():
     item = sample_contract(bars=[bar("2026-11-03", 8, 7, 6, 9)])
     result = evaluate_original366_contract(item, as_of="2026-11-03")
     assert result["data_quality"]["valid_bars"] == 0
-    assert result["status"] == "HOLD"
+    assert result["status"] == "WAIT"
