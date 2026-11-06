@@ -75,7 +75,12 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   String _tabCount(String section) {
     if (_strategyTabs.contains(section)) {
       final data = _strategies[_strategyKey(section)];
-      return data is Map ? (data['count'] ?? 0).toString() : '0';
+      if (data is! Map) return '0';
+      if (section == 'RECOVERED') {
+        final counts = data['counts'];
+        return counts is Map ? (counts['RECOVERED'] ?? 0).toString() : '0';
+      }
+      return (data['count'] ?? 0).toString();
     }
     if (section == 'EXPIRYSCAN') return _expiryRows.length.toString();
     return (_counts[section] ?? 0).toString();
@@ -249,7 +254,10 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
               Wrap(spacing: 7, runSpacing: 7, children: _sections.map((s) => ChoiceChip(
                 label: Text('$s  ${_tabCount(s)}', style: const TextStyle(fontSize: 10)),
                 selected: _sections[_selected] == s,
-                onSelected: (_) => setState(() => _selected = _sections.indexOf(s)),
+                onSelected: (_) => setState(() {
+                  _selected = _sections.indexOf(s);
+                  _strategyStatus = s == 'RECOVERED' ? 'RECOVERED' : 'OPEN';
+                }),
               )).toList()),
             ],
           ))),
