@@ -64,3 +64,22 @@ def test_survivor_uses_pre_expiry_entry_not_0_to_7_dte():
     assert members == {"a", "c"}
     assert all(item["survivor_rule"] == "EXPIRY78_PRE_EXPIRY_ENTRY"
                for item in result["groups"]["SURVIVOR"])
+
+
+def test_preserves_original_11_contract_27_oct_expiry_case_study():
+    from app.expiry_case_study_27oct2026 import (
+        COHORT_ID, EXPIRY, historical_expired_contracts,
+    )
+
+    cohort = historical_expired_contracts()
+    assert len(cohort) == 11
+    assert {row["symbol"] for row in cohort} == {
+        "ALKEM", "BPCL", "INDHOTEL", "JIOFIN", "LTF", "MIDCPNIFTY",
+        "NIFTY", "TCS", "TVSMOTOR", "VMM",
+    }
+    assert all(row["classification"] == "EXPIRED" for row in cohort)
+    assert all(row["expiry"] == EXPIRY == "2026-10-27" for row in cohort)
+    assert all(row["cohort_id"] == COHORT_ID for row in cohort)
+    result = build_master(cohort)
+    assert result["counts"]["EXPIRED"] == 11
+    assert result["summary"]["expired"] == 11
