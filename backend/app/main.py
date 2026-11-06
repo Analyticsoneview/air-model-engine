@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.auth_store import AuthStore
 from app.brokers.customer_accounts import CustomerAccountDirectory, CustomerTradingAccount
+from app.brokers.catalog import get_broker_catalog, is_supported_broker
 from app.credential_vault import CredentialVault
 from app.market_data.hub import MarketDataHub
 from app.market_data.router import MarketDataRouter
@@ -68,6 +69,14 @@ class MainAccountSelection(BaseModel):
     account_id: str
 
 
+@app.get("/api/v1/brokers/catalog")
+async def broker_catalog(customer_id: str = Depends(require_customer)) -> dict:
+    return {
+        "brokers": get_broker_catalog(),
+        "note": "Catalog entries describe supported integration targets; none is live-authorized until its provider handshake is implemented and verified.",
+    }
+
+
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok", "service": "air-model-engine-api"}
@@ -120,6 +129,8 @@ async def list_customer_accounts(customer_id: str = Depends(require_customer)) -
 @app.post("/api/v1/customer/accounts", status_code=201)
 async def add_customer_account(body: TradingAccountCreate,
                                customer_id: str = Depends(require_customer)) -> dict:
+    if not is_supported_broker(body.broker):
+        raise HTTPException(status_code=422, detail="Unsupported broker. Use the AIR broker catalog.")
     try:
         account_directory.add(CustomerTradingAccount(customer_id, body.broker, body.account_id, False))
     except ValueError as exc:
