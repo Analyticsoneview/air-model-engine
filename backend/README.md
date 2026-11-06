@@ -46,3 +46,16 @@ Order destinations are modeled separately from the market-data Main Account. A c
 - `app/brokers/registry.py`: holds independently connected broker sessions for execution accounts. This registry does not change or expand the one-account market-data policy.
 
 The directory stores account identifiers and permissions only. It does not store broker passwords, API secrets, refresh tokens or access tokens. Do not expose account-management or execution methods through public API routes until customer authentication, authorization, encrypted credential storage, CSRF/rate limiting where applicable, and audit logging are implemented. A customer identifier supplied by an unauthenticated client is not proof of identity.
+
+
+## Authentication and credential protection foundation
+
+- `app/auth_store.py`: SQLite customer identity store with unique email and active-account flag.
+- `app/security.py`: Argon2 password hashing and short-lived JWT access tokens (30 minutes), with issuer/audience validation.
+- `app/credential_vault.py`: Fernet authenticated encryption for broker credential payloads at rest. Credential listing returns metadata only; plaintext is never returned by account APIs.
+- `app/main.py`: authenticated customer registration/login, customer-scoped execution account management, encrypted credential save, and authenticated market-data status/Main Account endpoints. WebSocket requires a bearer token.
+- New customer registration is disabled by default. Set `AIR_ALLOW_CUSTOMER_SIGNUP=true` only for a controlled onboarding window or use an administrator-managed provisioning process.
+- Configure `AIR_JWT_SECRET` (at least 32 characters) and `AIR_CREDENTIAL_KEY` (Fernet key). Prefer Docker secrets by setting `AIR_JWT_SECRET_FILE` and `AIR_CREDENTIAL_KEY_FILE` to mounted secret paths. Generate a Fernet key with `Fernet.generate_key()`; never rotate it without a planned re-encryption migration.
+- Persist the `data/` directory as a protected volume. Back it up encrypted and restrict filesystem permissions.
+
+**Not production-complete yet:** no provider-specific broker adapter or OAuth/token refresh flow is installed; credentials can be encrypted and saved but are not used to authenticate a broker. No public order-placement endpoint is exposed. Account order permission cannot be enabled through the API until broker authorization is verified. Add rate limiting, email verification/password reset, refresh-token rotation/revocation, admin provisioning, audit log, database migration strategy, TLS, and security review before onboarding real customers or enabling live trading.
