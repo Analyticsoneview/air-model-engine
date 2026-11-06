@@ -16,7 +16,7 @@ MASTER_COMMANDS = (
     "MASTER", "OPEN", "NEW", "HOLD", "REENTRY", "SLHIT", "SURVIVOR",
     "WAIT", "EXPIRY78", "ORIGINAL366", "RECOVERY", "SUMMARY", "AUDIT", "COMBINED",
 )
-LIFECYCLE_STATUSES = ("NEW", "HOLD", "RE-ENTRY", "SL", "TARGETS", "EXPIRED", "EXPIRYSCAN")
+LIFECYCLE_STATUSES = ("NEW", "HOLD", "WAIT", "RE-ENTRY", "SL", "TARGETS", "EXPIRED", "EXPIRYSCAN")
 MASTER_GROUPS = ("OPEN", "NEW", "HOLD", "REENTRY", "SURVIVOR", "WAIT",
                  "SLHIT", "TARGETS", "EXPIRED", "EXPIRYSCAN", "COMBINED")
 
@@ -120,8 +120,8 @@ def build_master(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "vocabulary": {
             "commands": list(MASTER_COMMANDS),
             "lifecycle_statuses": list(LIFECYCLE_STATUSES),
-            "implemented_views": ["MASTER", *MASTER_GROUPS, "SUMMARY", "AUDIT"],
-            "deferred_views": ["EXPIRY78", "ORIGINAL366", "RECOVERY"],
+            "implemented_views": ["MASTER", *MASTER_GROUPS, "EXPIRY78", "ORIGINAL366", "RECOVERY", "SUMMARY", "AUDIT"],
+            "deferred_views": [],
             "survivor_rule": "EXPIRY78_PRE_EXPIRY_ENTRY",
             "survivor_exclusions": ["EXPIRED_CONTRACT", "ENTRY_ON_OR_AFTER_EXPIRY", "INACTIVE_LIFECYCLE", "MISSING_ENTRY_OR_EXPIRY"],
         },
