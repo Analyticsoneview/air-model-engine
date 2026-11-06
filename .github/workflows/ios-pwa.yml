@@ -1,4 +1,4 @@
-name: AIR iPhone Web App (PWA)
+name: AIR iPhone Web App (Self-hosted PWA)
 
 on:
   workflow_dispatch:
@@ -6,23 +6,19 @@ on:
     branches: [main]
     paths:
       - 'mobile/**'
+      - 'deploy/nginx-air-pwa.conf'
       - '.github/workflows/ios-pwa.yml'
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
-  group: air-pwa-pages
+  group: air-pwa-build
   cancel-in-progress: true
 
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -51,24 +47,22 @@ jobs:
 
       - name: Build optimized AIR PWA
         working-directory: mobile
-        run: flutter build web --release --tree-shake-icons --no-source-maps --base-href "/${GITHUB_REPOSITORY#*/}/" --dart-define=APP_ENV=lab --dart-define=AIR_API_BASE_URL=${{ vars.AIR_API_BASE_URL }}
+        env:
+          AIR_API_BASE_URL: ${{ vars.AIR_API_BASE_URL }}
+        run: |
+          if [ -z "$AIR_API_BASE_URL" ]; then
+            echo "AIR_API_BASE_URL repository variable is required for a connected build."
+            exit 1
+          fi
+          flutter build web --release --tree-shake-icons --no-source-maps --base-href "/" --dart-define=APP_ENV=production --dart-define=AIR_API_BASE_URL="$AIR_API_BASE_URL"
 
       - name: Report web bundle size
         working-directory: mobile
-        run: |
-          du -sh build/web
-          find build/web -type f -printf '%s %p\\n' | sort -nr | head -15
+        run: du -sh build/web
 
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
+      - name: Upload self-hosted PWA bundle
+        uses: actions/upload-artifact@v4
         with:
-          enablement: true
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: mobile/build/web
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          name: air-pwa-web
+          path: mobile/build/web/
+          retention-days: 30
