@@ -110,6 +110,7 @@ def test_invalid_ohlcv_is_excluded_and_expiry_day_entry_is_not_allowed():
     bars = [
         bar("2026-11-03", 12, 13, 9, 10),
         bar("2026-11-04", 9, 20, 8, 15),
+        bar("2026-11-06", 9, 8, 7, 9),          # invalid: high below open/close
         bar("2026-11-10", 9, 10, 7.8, 8.5),
         bar("2026-11-11", 9, 10, 8, 9),
     ]
