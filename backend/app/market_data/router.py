@@ -37,6 +37,9 @@ class MarketDataRouter:
         self._adapters[key] = adapter
         self._bindings[key] = ProviderBinding(*key)
 
+    def is_registered(self, provider: str, account_id: str) -> bool:
+        return (provider.strip().lower(), account_id.strip()) in self._adapters
+
     async def set_main_account(self, provider: str, account_id: str) -> None:
         """Explicitly switch the sole historical + live data account."""
         key = (provider.strip().lower(), account_id.strip())
