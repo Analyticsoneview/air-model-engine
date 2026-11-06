@@ -68,7 +68,24 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     DataColumn(label: Text('SHELF STATUS')), DataColumn(label: Text('REASON')),
   ];
 
-  DataRow _row(Map<String, dynamic> r) => DataRow(cells: [
+  bool _isSurvivor(Map<String, dynamic> r) {
+    final dte = r['days_to_expiry'];
+    if (dte is num) return dte >= 0 && dte <= 7;
+    final parsed = int.tryParse(dte?.toString() ?? '');
+    return parsed != null && parsed >= 0 && parsed <= 7;
+  }
+
+  DataRow _row(Map<String, dynamic> r) {
+    final survivor = _isSurvivor(r);
+    final dteLabel = survivor
+        ? '★ SURVIVOR • ${_v(r, 'days_to_expiry')}D'
+        : _v(r, 'days_to_expiry');
+    return DataRow(
+      color: survivor
+          ? MaterialStateProperty.resolveWith<Color?>((states) =>
+              Theme.of(context).colorScheme.tertiary.withOpacity(0.18))
+          : null,
+      cells: [
     DataCell(_cell(_v(r, 'signal_date'))), DataCell(_cell(_v(r, 'entry_date'))),
     DataCell(_cell(_v(r, 'classification'))), DataCell(_cell(_v(r, 'symbol'))),
     DataCell(_cell('${_v(r, 'instrument_type')} ${_v(r, 'option_type')}')),
@@ -79,7 +96,12 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     DataCell(_cell(_v(r, 'lot_size'))), DataCell(_cell(_v(r, 'quantity'))),
     DataCell(_cell('${_v(r, 'pnl')} (${_v(r, 'pnl_pct')}%)')),
     DataCell(_cell(_v(r, 'score'))), DataCell(_cell(_v(r, 'signal_age_days'))),
-    DataCell(_cell(_v(r, 'days_to_expiry'))), DataCell(_cell(_v(r, 'shelf_life_remaining_days'))),
+    DataCell(Tooltip(
+      message: survivor
+          ? 'SURVIVOR PRIORITY: contract expires in 0–7 calendar days. Watchlist flag only; not an automatic entry or exit.'
+          : 'Calendar days remaining until contract expiry.',
+      child: _cell(dteLabel),
+    )), DataCell(_cell(_v(r, 'shelf_life_remaining_days'))),
     DataCell(_cell(_v(r, 'shelf_life_status'))), DataCell(_cell(_v(r, 'reason'))),
   ]);
 
@@ -143,7 +165,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
         if (_error != null) Padding(padding: const EdgeInsets.only(top: 10),
           child: Text(_error!, style: TextStyle(color: cs.error, fontSize: 11))),
         const SizedBox(height: 12),
-        Text('Shelf life is separate from contract DTE. SURVIVOR marks contracts with 0–7 days to expiry; it is a watch classification, not an automatic trade signal. Order placement is not part of this ledger.',
+        Text('★ SURVIVOR highlight: every contract with 0–7 calendar days to expiry is highlighted in every tab and listed in the priority SURVIVOR tab. Original lifecycle classification is retained. Shelf life is separate from contract DTE. This is a watch flag, not an automatic trade signal. Order placement is not part of this ledger.',
           style: TextStyle(fontSize: 10, height: 1.4, color: cs.onSurfaceVariant)),
       ]),
     );
