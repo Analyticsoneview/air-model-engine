@@ -10,9 +10,7 @@ class ModelEngineScreen extends StatefulWidget {
 
 class _ModelEngineScreenState extends State<ModelEngineScreen> {
   final AirApiClient _api = AirApiClient();
-  final _email = TextEditingController();
-  final _password = TextEditingController();
-  static const _sections = ['SURVIVOR', 'NEW', 'HOLD', 'RE-ENTRY', 'SL', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN'];
+  static const _sections = ['OPEN', 'NEW', 'HOLD', 'REENTRY', 'SURVIVOR', 'WAIT', 'SLHIT', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN', 'COMBINED'];
   Map<String, dynamic> _groups = {};
   Map<String, dynamic> _counts = {};
   List<Map<String, dynamic>> _expiryRows = [];
@@ -24,21 +22,19 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   String _dataStatus = 'SIGN IN TO LOAD YOUR MODEL ENGINE LEDGER';
 
   @override
-  void dispose() { _autoRefreshTimer?.cancel(); _email.dispose(); _password.dispose(); _api.dispose(); super.dispose(); }
-
-  Future<void> _login() async {
-    setState(() { _loading = true; _error = null; });
-    try {
-      await _api.login(_email.text, _password.text);
-      _authenticated = true;
-      await _refresh();
-      _autoRefreshTimer?.cancel();
+  void initState() {
+    super.initState();
+    _authenticated = _api.isAuthenticated;
+    if (_authenticated) {
+      _refresh();
       _autoRefreshTimer = Timer.periodic(const Duration(minutes: 5), (_) {
         if (mounted && !_loading) _refresh();
       });
-    } catch (e) { if (mounted) setState(() => _error = e.toString()); }
-    finally { if (mounted) setState(() => _loading = false); }
+    }
   }
+
+  @override
+  void dispose() { _autoRefreshTimer?.cancel(); _api.dispose(); super.dispose(); }
 
   Future<void> _refresh() async {
     if (!_api.isAuthenticated) return;
@@ -135,16 +131,12 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
           icon: const Icon(Icons.refresh_rounded))]),
       body: ListView(padding: const EdgeInsets.all(14), children: [
         if (!_authenticated) Card(child: Padding(
-          padding: const EdgeInsets.all(14), child: Column(children: [
-            const Text('SIGN IN TO AIR', style: TextStyle(fontWeight: FontWeight.w900)),
-            const SizedBox(height: 10),
-            TextField(controller: _email, keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(labelText: 'AIR email', border: OutlineInputBorder())),
+          padding: const EdgeInsets.all(16), child: Column(children: [
+            const Icon(Icons.lock_outline_rounded, size: 28),
             const SizedBox(height: 8),
-            TextField(controller: _password, obscureText: true,
-              decoration: const InputDecoration(labelText: 'AIR password', border: OutlineInputBorder())),
-            const SizedBox(height: 10),
-            FilledButton(onPressed: _loading ? null : _login, child: const Text('SIGN IN & LOAD LEDGER')),
+            const Text('AIR MOBILE APPROVAL REQUIRED', style: TextStyle(fontWeight: FontWeight.w900)),
+            const SizedBox(height: 6),
+            const Text('Sign in once through the main AIR mobile approval screen. Model Engine uses that shared session and does not request a second login.', textAlign: TextAlign.center, style: TextStyle(fontSize: 11)),
           ]),
         )) else ...[
           Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(
@@ -165,7 +157,8 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
             ],
           ))),
           const SizedBox(height: 10),
-          if (_sections[_selected] == 'WAIT') Padding(padding: const EdgeInsets.all(8), child: Text('WAIT is reserved for candidates explicitly marked pending by a verified signal workflow. No WAIT records are inferred from missing data.', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant))),\n          if (expirySelected && _expiryNote != null) Padding(padding: const EdgeInsets.all(8), child: Text(_expiryNote!, style: const TextStyle(fontSize: 11))),
+          if (_sections[_selected] == 'WAIT') Padding(padding: const EdgeInsets.all(8), child: Text('WAIT is reserved for candidates explicitly marked pending by a verified signal workflow. No WAIT records are inferred from missing data.', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant))),\n          if (_sections[_selected] == 'WAIT') Padding(padding: const EdgeInsets.all(8), child: Text('WAIT is reserved for candidates explicitly marked pending by a verified workflow. Missing data is never treated as WAIT.', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant))),
+          if (expirySelected && _expiryNote != null) Padding(padding: const EdgeInsets.all(8), child: Text(_expiryNote!, style: const TextStyle(fontSize: 11))),
           if (expirySelected && _expiryRows.isNotEmpty) Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal,
             child: DataTable(columns: const [
               DataColumn(label: Text('PRIORITY')), DataColumn(label: Text('UNDERLYING ID')),
