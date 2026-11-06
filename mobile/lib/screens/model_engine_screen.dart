@@ -91,12 +91,8 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     DataColumn(label: Text('LATEST EVIDENCE')),
   ];
 
-  bool _isSurvivor(Map<String, dynamic> r) {
-    final dte = r['days_to_expiry'];
-    if (dte is num) return dte >= 0 && dte <= 7;
-    final parsed = int.tryParse(dte?.toString() ?? '');
-    return parsed != null && parsed >= 0 && parsed <= 7;
-  }
+  bool _isSurvivor(Map<String, dynamic> r) =>
+      r['survivor_eligible'] == true;
 
   String _classificationLabel(Map<String, dynamic> r) {
     switch ((r['classification'] ?? '').toString().toUpperCase()) {
