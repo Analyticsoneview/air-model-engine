@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.model_engine_ledger import ModelEngineLedger
+from app.model_engine_master import build_master
 from app.model_engine_expiryscan import scan_expiries
 from app.air_qoc_store import AirQocStore
 from app.brokers.customer_accounts import CustomerAccountDirectory
@@ -78,6 +79,22 @@ async def get_model_engine_ledger(
         "data_status": "POPULATED" if rows else "AWAITING_VERIFIED_SIGNALS",
         "note": "Only persisted, verified model signals are shown. No sample signals or broker orders are generated.",
     }
+
+
+@router.get("/master")
+async def get_model_engine_master(
+    limit: int = Query(default=2000, ge=1, le=2000),
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    """Canonical MASTER view over verified persisted signals."""
+    rows = _ledger.list_signals(customer_id, limit)
+    result = build_master(rows)
+    result.update({
+        "source": "AIR Model Engine MASTER",
+        "updated_at": max((row["updated_at"] for row in rows), default=None),
+        "data_status": "POPULATED" if rows else "AWAITING_VERIFIED_SIGNALS",
+    })
+    return result
 
 
 @router.post("/signals", status_code=201)
