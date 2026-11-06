@@ -2,11 +2,11 @@ import os
 from uuid import uuid4
 import secrets
 
-from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from app.auth_store import AuthStore
+from app.auth_store import AuthStore\nfrom app.access_control import AccessStore
 from app.brokers.customer_accounts import CustomerAccountDirectory, CustomerTradingAccount
 from app.brokers.catalog import get_broker_catalog, is_supported_broker
 from app.brokers.dhan import DhanHQClient, DhanAPIError
@@ -41,7 +41,7 @@ app.add_middleware(
 )
 market_data_router = MarketDataRouter()
 market_data_hub = MarketDataHub()
-auth_store = AuthStore(os.getenv("AIR_AUTH_DB_PATH", "data/air_auth.sqlite3"))
+auth_store = AuthStore(os.getenv("AIR_AUTH_DB_PATH", "data/air_auth.sqlite3"))\naccess_store = AccessStore(os.getenv("AIR_AUTH_DB_PATH", "data/air_auth.sqlite3"))
 account_directory = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3"))
 _credential_vault: CredentialVault | None = None
 _upstox_oauth_states: dict[tuple[str, str], str] = {}
@@ -172,30 +172,62 @@ async def health() -> dict:
     return {"status": "ok", "service": "air-model-engine-api"}
 
 
-@app.post("/api/v1/auth/register", status_code=201)
-async def register_customer(body: CustomerRegistration) -> dict:
-    if os.getenv("AIR_ALLOW_CUSTOMER_SIGNUP", "false").lower() != "true":
-        raise HTTPException(status_code=403, detail="Customer registration is disabled; contact AIR administrator")
+@app.post("/api/v1/auth/mobile-login")
+async def mobile_login(body: MobileAccessRequest) -> dict:
     try:
-        customer_id = str(uuid4())
-        auth_store.create_customer(customer_id, body.email, hash_password(body.password))
+        request = access_store.request_access(body.mobile_e164, body.device_id)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except Exception as exc:
-        if "UNIQUE" in str(exc).upper():
-            raise HTTPException(status_code=409, detail="Email is already registered") from exc
-        raise
-    return {"customer_id": customer_id, "status": "created"}
+    if request["status"] == "PENDING":
+        return {"status": "PENDING", "message": "Your AIR access request is awaiting administrator approval."}
+    if request["status"] != "APPROVED":
+        return {"status": request["status"], "message": "AIR access is not currently available for this request."}
+    session_id = access_store.create_session(request["request_id"])
+    token = create_access_token(request["request_id"], expires_minutes=525600, session_id=session_id)
+    return {"status": "APPROVED", "access_token": token, "token_type": "bearer",
+            "expires_in": 31536000, "customer_id": request["request_id"]}
 
 
-@app.post("/api/v1/auth/login")
-async def login_customer(body: CustomerLogin) -> dict:
-    row = auth_store.get_by_email(body.email)
-    if row is None or not row["is_active"] or not verify_password(body.password, row["password_hash"]):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-    token = create_access_token(row["customer_id"])
-    return {"access_token": token, "token_type": "bearer", "expires_in": 1800,
-            "customer_id": row["customer_id"]}
+@app.get("/api/v1/auth/mobile-status")
+async def mobile_access_status(mobile_e164: str = Query(min_length=9, max_length=16),
+                               device_id: str = Query(min_length=8, max_length=128)) -> dict:
+    try:
+        request = access_store.get_request(access_store.validate_mobile(mobile_e164), device_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if request is None:
+        return {"status": "NOT_SUBMITTED"}
+    return {"status": request["status"], "message": (
+        "Your AIR access request is awaiting administrator approval."
+        if request["status"] == "PENDING" else "AIR access request status: " + request["status"]
+    )}
+
+
+@app.get("/api/v1/auth/me")
+async def current_customer(customer_id: str = Depends(require_customer)) -> dict:
+    return {"customer_id": customer_id, "status": "APPROVED"}
+
+
+@app.get("/api/v1/admin/access-requests", dependencies=[Depends(require_air_admin)])
+async def list_access_requests(status: str | None = Query(default=None, pattern="^(PENDING|APPROVED|REJECTED|BLOCKED)$")) -> dict:
+    return {"requests": [dict(row) for row in access_store.list_requests(status)]}
+
+
+@app.put("/api/v1/admin/access-requests/{request_id}", dependencies=[Depends(require_air_admin)])
+async def review_access_request(request_id: str, body: AccessReview) -> dict:
+    if not access_store.review(request_id, body.status, body.note):
+        raise HTTPException(status_code=404, detail="Access request not found")
+    return {"request_id": request_id, "status": body.status, "updated": True}
+
+
+@app.post("/api/v1/auth/register", status_code=410)
+async def register_customer() -> dict:
+    raise HTTPException(status_code=410, detail="Email/password registration is disabled. Use mobile access request.")
+
+
+@app.post("/api/v1/auth/login", status_code=410)
+async def login_customer() -> dict:
+    raise HTTPException(status_code=410, detail="Email/password login is disabled. Use mobile access request.")
 
 
 @app.get("/api/v1/customer/accounts")
