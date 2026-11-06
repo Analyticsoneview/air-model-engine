@@ -190,7 +190,7 @@ def evaluate_expiry78_contract(
             trade.update({"classification": "WAIT", "position_status": "WAIT",
                           "reason": "Expiry reached but verified expiry-day underlying close is missing"})
         else:
-            trade.update({"classification": "HOLD", "position_status": "OPEN",
+            trade.update({"classification": "NEW" if entry_day == as_of_day else "HOLD", "position_status": "OPEN",
                           "reason": "Entry filled; daily low has not breached protected stop"})
         trades.append(trade)
 
