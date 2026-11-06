@@ -17,6 +17,7 @@ from app.credential_vault import CredentialVault
 from app.market_data.hub import MarketDataHub
 from app.market_data.router import MarketDataRouter
 from app.market_data.dhan_adapter import DhanMarketDataAdapter
+from app.market_data.contracts import MarketInstrument
 from app.security import create_access_token, hash_password, require_customer, verify_password
 
 app = FastAPI(title="AIR Model Engine API", version="0.3.0",
@@ -99,6 +100,17 @@ class AngelLoginRequest(BaseModel):
 class DhanMarketFeedRequest(BaseModel):
     mode: str = Field(pattern="^(ltp|ohlc|quote)$")
     instruments: dict[str, list[int]]
+
+
+class MarketSubscriptionInstrument(BaseModel):
+    exchange: str = Field(min_length=2, max_length=20)
+    symbol: str = Field(min_length=1, max_length=100)
+    token: str = Field(min_length=1, max_length=30)
+    segment: str = Field(min_length=2, max_length=30)
+
+
+class MarketSubscriptionRequest(BaseModel):
+    instruments: list[MarketSubscriptionInstrument] = Field(min_length=1, max_length=5000)
 
 
 class DhanHistoricalRequest(BaseModel):
@@ -485,6 +497,31 @@ async def dhan_historical(account_id: str, body: DhanHistoricalRequest,
                             detail="Dhan historical-data request failed; verify Data API entitlement") from exc
     finally:
         await client.close()
+
+
+@app.post("/api/v1/market-data/subscribe")
+async def subscribe_market_data(body: MarketSubscriptionRequest,
+                                 customer_id: str = Depends(require_air_operator)) -> dict:
+    resolved = market_data_router.resolve("live")
+    if not resolved:
+        raise HTTPException(status_code=409, detail="No connected Main Account market-data adapter")
+    provider, account_id, adapter = resolved[0]
+    if provider != "dhan":
+        raise HTTPException(status_code=409, detail="Instrument subscription route is not yet implemented for this Main Account provider")
+    try:
+        instruments = [
+            MarketInstrument(
+                exchange=item.exchange, symbol=item.symbol, token=item.token,
+                segment=item.segment,
+            )
+            for item in body.instruments
+        ]
+        await adapter.subscribe(instruments)
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"provider": provider, "account_id": account_id,
+            "subscribed_count": len(instruments), "status": "subscription_sent"}
+
 
 @app.get("/api/v1/market-data/status")
 async def market_data_status(customer_id: str = Depends(require_air_operator)) -> dict:
