@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.model_engine_ledger import ModelEngineLedger
 from app.model_engine_master import build_master
 from app.model_engine_expiryscan import scan_expiries
+from app.expiry_case_study_27oct2026 import historical_expired_contracts
 from app.air_qoc_store import AirQocStore
 from app.brokers.customer_accounts import CustomerAccountDirectory
 from app.security import require_customer
@@ -129,9 +130,21 @@ async def get_model_engine_master(
     except HTTPException as exc:
         if exc.status_code not in (503, 403):
             raise
+    # Preserve the original, explicitly selected 11-contract 27-Oct-2026
+    # case-study cohort in EXPIRED. This cohort is separate from the generic
+    # EXPIRYSCAN expiry-date transition and from all DTE/session-count subsets.
+    rows.extend(historical_expired_contracts())
     result = build_master(rows)
     result.update({
         "source": "AIR Model Engine MASTER",
+        "historical_expiry_cohorts": {
+            "EXPIRY_2026-10-27_CASE_STUDY_11": {
+                "expiry": "2026-10-27",
+                "contracts": 11,
+                "source": "AIR QOC/Master + op261026.csv",
+                "daily_detail_source": "AIR_EXPIRYSCAN_EXPIRED_27Oct2026_11Contracts_DailyDetail.xlsx",
+            }
+        },
         "updated_at": max((row.get("updated_at") for row in rows if row.get("updated_at")), default=None),
         "data_status": "POPULATED" if rows else "AWAITING_VERIFIED_SIGNALS",
     })
