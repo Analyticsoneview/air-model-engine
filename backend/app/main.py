@@ -144,7 +144,7 @@ async def set_customer_order_permission(broker: str, account_id: str, body: Orde
 
 @app.put("/api/v1/customer/accounts/{broker}/{account_id}/credentials")
 async def save_customer_broker_credentials(broker: str, account_id: str, body: BrokerCredentialInput,
-                                           customer_id: str = Depends(require_air_operator)) -> dict:
+                                           customer_id: str = Depends(require_customer)) -> dict:
     try:
         owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(customer_id)}
         if (broker.lower(), account_id) not in owned:
@@ -180,7 +180,7 @@ async def market_data_status(customer_id: str = Depends(require_air_operator)) -
 
 @app.put("/api/v1/market-data/main-account")
 async def select_main_account(selection: MainAccountSelection,
-                              customer_id: str = Depends(require_customer)) -> dict:
+                              customer_id: str = Depends(require_air_operator)) -> dict:
     try:
         owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(customer_id)}
         if (selection.provider.lower(), selection.account_id) not in owned:
