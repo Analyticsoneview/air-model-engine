@@ -222,6 +222,25 @@ async def get_expiry78_engine(
     contracts = evaluate_expiry78_rows(rows, as_of=as_of)
     trades = [trade for contract in contracts
               for trade in (contract.get("expiry78") or {}).get("trades", [])]
+    verified_reentries = [
+        row for row in rows
+        if str(row.get("classification") or "").upper() in ("RE-ENTRY", "REENTRY")
+        and isinstance(row.get("evidence"), dict)
+        and row["evidence"].get("reentry_verified") is True
+        and (
+            "EXPIRY78" in {
+                str(value).upper().replace(" ", "")
+                for value in (row["evidence"].get("strategy_memberships") or [])
+            }
+            or row["evidence"].get("strategy") == "EXPIRY78"
+        )
+    ]
+    waiting_contracts = [
+        contract for contract in contracts
+        if not (contract.get("expiry78") or {}).get("trades")
+    ]
+    new_trades = [trade for trade in trades if trade.get("classification") == "NEW"]
+    hold_trades = [trade for trade in trades if trade.get("classification") == "HOLD"]
     return {
         "strategy": "EXPIRY78",
         "as_of": as_of,
@@ -231,12 +250,15 @@ async def get_expiry78_engine(
         "expiry_survivors": sum(bool(trade.get("expiry_survivor")) for trade in trades),
         "stop_losses": sum(trade.get("classification") == "SL" for trade in trades),
         "groups": {
-            "NEW": [trade for trade in trades if trade.get("classification") == "NEW"],
-            "HOLD": [trade for trade in trades if trade.get("classification") == "HOLD"],
+            "OPEN": new_trades + hold_trades,
+            "NEW": new_trades,
+            "HOLD": hold_trades,
             "WAIT": [trade for trade in trades if trade.get("classification") == "WAIT"],
             "SLHIT": [trade for trade in trades if trade.get("classification") == "SL"],
+            "REENTRY": verified_reentries,
             "EXPIRED": [trade for trade in trades if trade.get("classification") == "EXPIRED"],
         },
+        "waiting_contracts": waiting_contracts,
         "contracts": contracts,
         "data_status": "POPULATED" if contracts else "AWAITING_VERIFIED_DAILY_OHLCV",
         "note": "Read-only historical replay. Requires evidence.daily_option_bars on explicitly tagged EXPIRY78 ledger records. No orders are placed; missing bars or expiry valuation are not fabricated.",
