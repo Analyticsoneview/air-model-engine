@@ -131,9 +131,30 @@ async def get_model_engine_master(
         if exc.status_code not in (503, 403):
             raise
     # Preserve the original, explicitly selected 11-contract 27-Oct-2026
-    # case-study cohort in EXPIRED. This cohort is separate from the generic
-    # EXPIRYSCAN expiry-date transition and from all DTE/session-count subsets.
-    rows.extend(historical_expired_contracts())
+    # case-study cohort in EXPIRED. Merge into matching ledger rows rather than
+    # duplicating a contract. This is independent of generic EXPIRYSCAN expiry
+    # transitions and all DTE/session-count subsets.
+    for case in historical_expired_contracts():
+        match = next((row for row in rows
+                      if str(row.get("symbol") or "").upper() == case["symbol"]
+                      and str(row.get("option_type") or "").upper() == case["option_type"]
+                      and str(row.get("expiry") or "")[:10] == case["expiry"]
+                      and row.get("strike") is not None
+                      and float(row["strike"]) == float(case["strike"])), None)
+        if match is None:
+            rows.append(case)
+        else:
+            prior_evidence = match.get("evidence") if isinstance(match.get("evidence"), dict) else {}
+            match.update({
+                "classification": "EXPIRED",
+                "position_status": "EXPIRED",
+                "latest_price": case["latest_price"],
+                "days_to_expiry": case["days_to_expiry"],
+                "pnl_points": case["pnl_points"],
+                "pnl_pct": case["pnl_pct"],
+                "cohort_id": case["cohort_id"],
+                "evidence": {**prior_evidence, **case["evidence"]},
+            })
     result = build_master(rows)
     result.update({
         "source": "AIR Model Engine MASTER",
