@@ -92,7 +92,7 @@ class DhanMarketDataAdapter:
                 exchange=row["exchange"], symbol=row["symbol"], token=row["token"],
                 segment=row["segment"], expiry=row["expiry"], strike=row["strike"],
                 option_type=row["option_type"], lot_size=row["lot_size"],
-                instrument_type=row["instrument_type"],
+                instrument_type=row["instrument_type"], expiry_code=row["expiry_code"],
             )
             for row in rows
         ]
@@ -104,7 +104,8 @@ class DhanMarketDataAdapter:
         if interval in {"day", "1d", "D"}:
             raw = await self._rest.historical_daily(
                 security_id=instrument.token, exchange_segment=instrument.segment,
-                instrument=instrument.instrument_type or "EQUITY", from_date=start.strftime("%Y-%m-%d"),
+                instrument=instrument.instrument_type or "EQUITY", expiry_code=instrument.expiry_code or 0,
+                from_date=start.strftime("%Y-%m-%d"),
                 to_date=end.strftime("%Y-%m-%d"),
             )
         else:
@@ -112,6 +113,7 @@ class DhanMarketDataAdapter:
             raw = await self._rest.historical_intraday(
                 security_id=instrument.token, exchange_segment=instrument.segment,
                 instrument=instrument.instrument_type or "EQUITY", interval=interval_minutes,
+                expiry_code=instrument.expiry_code or 0,
                 from_date=start.strftime("%Y-%m-%d %H:%M:%S"),
                 to_date=end.strftime("%Y-%m-%d %H:%M:%S"),
             )
