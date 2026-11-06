@@ -94,6 +94,8 @@ class ModelEngineLedger:
             raise ValueError("Unsupported signal classification")
         if status == "RE-ENTRY" and not (record.get("evidence") or {}).get("reentry_verified"):
             raise ValueError("RE-ENTRY requires evidence.reentry_verified=true")
+        if status == "WAIT" and not (record.get("evidence") or {}).get("wait_verified"):
+            raise ValueError("WAIT requires evidence.wait_verified=true")
         signal_id = str(record.get("signal_id", "")).strip()
         symbol = str(record.get("symbol", "")).strip().upper()
         signal_date = str(record.get("signal_date", "")).strip()
