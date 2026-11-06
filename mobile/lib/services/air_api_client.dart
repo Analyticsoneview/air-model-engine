@@ -31,10 +31,13 @@ class AirApiClient {
 
   final http.Client _client;
   final String baseUrl;
-  String? _accessToken;
+  static String? _sharedAccessToken;
+  String? get _accessToken => _sharedAccessToken;
+
+  static void setAccessToken(String? token) => _sharedAccessToken = token;
 
   bool get isAuthenticated => _accessToken != null;
-  void logout() => _accessToken = null;
+  void logout() => _sharedAccessToken = null;
 
   Map<String, String> get _headers => {
         'Accept': 'application/json',
@@ -53,8 +56,36 @@ class AirApiClient {
     if (token is! String || token.isEmpty) {
       throw const AirApiException('The AIR server did not return an access token.');
     }
-    _accessToken = token;
+    _sharedAccessToken = token;
     return data;
+  }
+
+  Future<Map<String, dynamic>> mobileLogin(String mobileE164, String deviceId) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/api/v1/auth/mobile-login'),
+      headers: _headers,
+      body: jsonEncode({'mobile_e164': mobileE164.trim(), 'device_id': deviceId}),
+    );
+    final data = _decode(response);
+    final token = data['access_token'];
+    if (data['status'] == 'APPROVED' && token is String && token.isNotEmpty) {
+      _sharedAccessToken = token;
+    }
+    return data;
+  }
+
+  Future<Map<String, dynamic>> mobileStatus(String mobileE164, String deviceId) async {
+    final uri = Uri.parse('$baseUrl/api/v1/auth/mobile-status').replace(
+      queryParameters: {'mobile_e164': mobileE164.trim(), 'device_id': deviceId},
+    );
+    return _decode(await _client.get(uri, headers: _headers));
+  }
+
+  Future<Map<String, dynamic>> me() async {
+    return _decode(await _client.get(
+      Uri.parse('$baseUrl/api/v1/auth/me'),
+      headers: _headers,
+    ));
   }
 
   Future<List<Map<String, dynamic>>> brokerCatalog() async {
