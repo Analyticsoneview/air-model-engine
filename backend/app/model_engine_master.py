@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.model_engine_strategies import build_strategy_views
+
 # Stable public vocabulary shared by API and clients. Icons are intentionally omitted
 # until the user's exact pinned icon legend is confirmed.
 MASTER_COMMANDS = (
@@ -124,6 +126,7 @@ def build_master(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "count": len(all_rows),
         "counts": {name: len(items) for name, items in groups.items()},
         "groups": groups,
+        "strategies": build_strategy_views(all_rows),
         "breakdowns": {
             "instrument_type": instrument_counts,
             "sector": dict(sorted(sector_counts.items(), key=lambda item: (-item[1], item[0]))),
