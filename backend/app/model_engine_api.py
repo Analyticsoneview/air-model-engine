@@ -96,7 +96,7 @@ async def get_model_engine_master(
     # Valid past-expiry observations from EXPIRYSCAN also belong in EXPIRED.
     try:
         scan = _expiry_scan_for_customer(customer_id, max_dte=45, limit=2000)
-        for item in scan.get("rows", []):
+        for item in scan.get("expired_rows", []):
             if item.get("classification") != "EXPIRED":
                 continue
             observed_at = str(item.get("observed_at") or "")
