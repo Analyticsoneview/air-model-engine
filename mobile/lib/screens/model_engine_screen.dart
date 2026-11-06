@@ -10,8 +10,10 @@ class ModelEngineScreen extends StatefulWidget {
 
 class _ModelEngineScreenState extends State<ModelEngineScreen> {
   final AirApiClient _api = AirApiClient();
-  static const _sections = ['OPEN', 'NEW', 'HOLD', 'REENTRY', 'SURVIVOR', 'WAIT', 'SLHIT', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN', 'COMBINED'];
+  static const _sections = ['OPEN', 'NEW', 'HOLD', 'REENTRY', 'SURVIVOR', 'WAIT', 'SLHIT', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN', 'COMBINED', 'EXPIRY78', 'ORIGINAL366', 'RECOVERY'];
+  static const _strategyTabs = ['EXPIRY78', 'ORIGINAL366', 'RECOVERY'];
   Map<String, dynamic> _groups = {};
+  Map<String, dynamic> _strategies = {};
   Map<String, dynamic> _counts = {};
   Map<String, dynamic> _summary = {};
   Map<String, dynamic> _breakdowns = {};
@@ -21,6 +23,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   bool _authenticated = false, _loading = false;
   Timer? _autoRefreshTimer;
   String? _error, _updatedAt;
+  String _strategyStatus = 'OPEN';
   String _dataStatus = 'SIGN IN TO LOAD YOUR MODEL ENGINE LEDGER';
 
   @override
@@ -49,6 +52,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       if (!mounted) return;
       setState(() {
         _groups = result['groups'] as Map<String, dynamic>? ?? {};
+        _strategies = result['strategies'] as Map<String, dynamic>? ?? {};
         if (expiryResult != null) {
           _expiryRows = (expiryResult['rows'] as List<dynamic>? ?? const [])
               .whereType<Map<String, dynamic>>().toList();
@@ -65,6 +69,15 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   }
 
   String _v(Map<String, dynamic> row, String key) => row[key] == null ? '—' : row[key].toString();
+
+  String _tabCount(String section) {
+    if (_strategyTabs.contains(section)) {
+      final data = _strategies[section];
+      return data is Map ? (data['count'] ?? 0).toString() : '0';
+    }
+    if (section == 'EXPIRYSCAN') return _expiryRows.length.toString();
+    return (_counts[section] ?? 0).toString();
+  }
   Widget _cell(String value) => Padding(
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
     child: Text(value, style: const TextStyle(fontSize: 10)),
@@ -190,8 +203,12 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final expirySelected = _sections[_selected] == 'EXPIRYSCAN';
-    final rows = (_groups[_sections[_selected]] as List<dynamic>? ?? const [])
+    final selectedSection = _sections[_selected];
+    final expirySelected = selectedSection == 'EXPIRYSCAN';
+    final strategySelected = _strategyTabs.contains(selectedSection);
+    final strategyData = _strategies[selectedSection] as Map<String, dynamic>?;
+    final strategyGroups = strategyData?['groups'] as Map<String, dynamic>?;
+    final rows = ((strategySelected ? strategyGroups?[_strategyStatus] : _groups[selectedSection]) as List<dynamic>? ?? const [])
         .whereType<Map<String, dynamic>>().toList();
     return Scaffold(
       appBar: AppBar(title: const Text('AIR MODEL ENGINE'),
@@ -225,14 +242,36 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                 style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
               const SizedBox(height: 10),
               Wrap(spacing: 7, runSpacing: 7, children: _sections.map((s) => ChoiceChip(
-                label: Text('$s  ${s == 'EXPIRYSCAN' ? _expiryRows.length : (_counts[s] ?? 0)}', style: const TextStyle(fontSize: 10)),
+                label: Text('$s  ${_tabCount(s)}', style: const TextStyle(fontSize: 10)),
                 selected: _sections[_selected] == s,
                 onSelected: (_) => setState(() => _selected = _sections.indexOf(s)),
               )).toList()),
             ],
           ))),
           const SizedBox(height: 10),
-          if (_sections[_selected] == 'WAIT') Padding(padding: const EdgeInsets.all(8), child: Text('WAIT is reserved for candidates explicitly marked pending by a verified workflow. Missing data is never treated as WAIT.', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant))),
+          if (strategySelected) ...[
+            if (strategyData?['rules'] is Map) Card(child: Padding(
+              padding: const EdgeInsets.all(12), child: Text(
+                (strategyData!['rules'] as Map)['qualification']?.toString() ?? '',
+                style: TextStyle(fontSize: 10, height: 1.35, color: cs.onSurfaceVariant),
+              ),
+            )),
+            if (selectedSection == 'ORIGINAL366' && strategyData?['baseline'] is Map) Card(child: Padding(
+              padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('ORIGINAL 366 • PRESERVED BASELINE', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11)),
+                const SizedBox(height: 6),
+                Text('366 trades • 32 expiry winners • 334 five-percent SL outcomes', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+                Text('Gross ₹10,71,850 • Charges ₹21,602 • Net ₹10,50,248 • Capital ₹15,14,362', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+                Text('Baseline is preserved; not recalculated from filtered candidates.', style: TextStyle(fontSize: 10, color: cs.primary)),
+              ]),
+            )),
+            Wrap(spacing: 7, runSpacing: 7, children: ['OPEN', 'NEW', 'HOLD', 'WAIT', 'SLHIT', 'REENTRY'].map((status) => ChoiceChip(
+              label: Text('$status  ${((strategyData?['counts'] as Map?)?[status] ?? 0)}', style: const TextStyle(fontSize: 10)),
+              selected: _strategyStatus == status,
+              onSelected: (_) => setState(() => _strategyStatus = status),
+            )).toList()),
+          ],
+          if (_sections[_selected] == 'WAIT' && !strategySelected) Padding(padding: const EdgeInsets.all(8), child: Text('WAIT is reserved for candidates explicitly marked pending by a verified workflow. Missing data is never treated as WAIT.', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant))),
           if (expirySelected && _expiryNote != null) Padding(padding: const EdgeInsets.all(8), child: Text(_expiryNote!, style: const TextStyle(fontSize: 11))),
           if (expirySelected && _expiryRows.isNotEmpty) Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal,
             child: DataTable(columns: const [
@@ -258,7 +297,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
             child: Column(children: [
               Icon(Icons.hourglass_empty_rounded, size: 28, color: cs.onSurfaceVariant),
               const SizedBox(height: 8),
-              Text('No verified ${_sections[_selected]} records', style: const TextStyle(fontWeight: FontWeight.w800)),
+              Text('No verified ${strategySelected ? '$selectedSection / $_strategyStatus' : selectedSection} records', style: const TextStyle(fontWeight: FontWeight.w800)),
               const SizedBox(height: 5),
               Text('This section populates only from persisted verified records. No invented sample trades are displayed.',
                 textAlign: TextAlign.center, style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
@@ -272,7 +311,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
         if (_error != null) Padding(padding: const EdgeInsets.only(top: 10),
           child: Text(_error!, style: TextStyle(color: cs.error, fontSize: 11))),
         const SizedBox(height: 12),
-        Text('AIR MASTER uses one canonical contract ledger. OPEN = NEW + HOLD. REENTRY, SLHIT, TARGETS and EXPIRED remain separate lifecycle outcomes. SURVIVOR follows EXPIRY78: active contracts entered strictly before expiry and not yet expired. EXPIRYSCAN observations with a valid past expiry date are also routed to EXPIRED; invalid expiry dates are not guessed. WAIT requires an explicit pending-state source. EXPIRYSCAN remains evidence-only, not a qualified signal. No automatic order placement.',
+        Text('AIR MASTER keeps strategy membership isolated. EXPIRY78 applies its pre-expiry entry lifecycle; ORIGINAL366 preserves its 366-trade baseline while filtering new stock-option candidates; RECOVERY requires verified recovery evidence and its own lot-size rules. The ₹1–₹10 entry-premium filter applies to stock CE/PE only; index options retain existing rules. OPEN = NEW + HOLD. WAIT, RE-ENTRY, SL HIT, TARGETS and EXPIRED remain distinct lifecycle states. No automatic order placement.',
           style: TextStyle(fontSize: 10, height: 1.4, color: cs.onSurfaceVariant)),
       ]),
     );
