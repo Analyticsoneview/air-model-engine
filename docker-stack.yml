@@ -11,6 +11,9 @@ services:
       AIR_CREDENTIAL_DB_PATH: /var/lib/air/credentials.sqlite3
       AIR_ORDER_DB_PATH: /var/lib/air/orders.sqlite3
       AIR_QOC_DB_PATH: /var/lib/air/qoc.sqlite3
+      AIR_QOC_SCHEDULER_ENABLED: ${AIR_QOC_SCHEDULER_ENABLED:-false}
+      AIR_QOC_DHAN_ACCOUNT_ID: ${AIR_QOC_DHAN_ACCOUNT_ID:-}
+      AIR_QOC_DHAN_UNDERLYINGS: ${AIR_QOC_DHAN_UNDERLYINGS:-[]}
       AIR_ALLOW_CUSTOMER_SIGNUP: "false"
       AIR_CORS_ORIGINS: ${AIR_CORS_ORIGINS:-https://air.example.com}
       AIR_OPERATOR_CUSTOMER_IDS: ${AIR_OPERATOR_CUSTOMER_IDS:?Set operator customer UUIDs}
