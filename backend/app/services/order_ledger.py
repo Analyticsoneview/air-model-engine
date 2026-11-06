@@ -64,6 +64,37 @@ class DurableOrderLedger:
         return BrokerOrder(row["broker"], row["account_id"], row["broker_order_id"],
                            row["status"], json.loads(row["raw_json"]))
 
+
+    def reserve(self, broker: str, account_id: str, idempotency_key: str,
+                intent: dict | None = None) -> bool:
+        """Atomically reserve an intent before any broker network call.
+
+        Returns True only for the process that inserted the first reservation.
+        Existing PENDING/UNKNOWN intents are never automatically resubmitted.
+        """
+        if not broker.strip() or not account_id.strip() or not idempotency_key.strip():
+            raise ValueError("Broker, account and idempotency key are required")
+        raw = json.dumps({"intent": intent or {}}, default=str)
+        self._db.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = self._db.execute("""
+                INSERT OR IGNORE INTO order_ledger
+                    (broker, account_id, idempotency_key, broker_order_id, status, raw_json)
+                VALUES (?, ?, ?, '', 'PENDING', ?)
+            """, (broker.lower(), account_id, idempotency_key, raw))
+            created = cursor.rowcount == 1
+            if created:
+                self._db.execute("""
+                    INSERT INTO order_ledger_events
+                        (broker, account_id, idempotency_key, broker_order_id, status, raw_json)
+                    VALUES (?, ?, ?, '', 'PENDING', ?)
+                """, (broker.lower(), account_id, idempotency_key, raw))
+            self._db.commit()
+            return created
+        except Exception:
+            self._db.rollback()
+            raise
+
     def record(self, order: BrokerOrder, idempotency_key: str) -> None:
         with self._db:
             self._db.execute("""
