@@ -53,6 +53,18 @@ class DhanHQClient:
             return {}
         return response.json()
 
+    async def renew_token(self) -> dict[str, Any]:
+        """Renew an active Dhan Web-generated token; API-key/OAuth tokens are not supported here."""
+        data = await self._request(
+            "POST", "/RenewToken",
+            headers={"dhanClientId": self.client_id},
+        )
+        if not isinstance(data, dict):
+            raise DhanAPIError(502, "Unexpected Dhan token-renewal response")
+        if str(data.get("dhanClientId", "")) != self.client_id or not data.get("accessToken"):
+            raise DhanAPIError(502, "Dhan token-renewal response did not match the configured account")
+        return data
+
     async def profile(self) -> dict[str, Any]:
         """Validate token and return Dhan account/data entitlement metadata."""
         data = await self._request("GET", "/profile")
