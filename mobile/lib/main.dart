@@ -185,6 +185,10 @@ class AirDashboard extends StatelessWidget {
         WorkspaceTile(icon: Icons.discount_rounded, title: 'Options Opportunity Radar', subtitle: 'Premium · expiry · liquidity · strike distance', accent: const Color(0xFF46BFA0), panel: panel, muted: muted),
         WorkspaceTile(icon: Icons.account_tree_rounded, title: 'Market Structure', subtitle: 'CPR · SMC · BOS/CHOCH · order blocks', accent: const Color(0xFF789BEA), panel: panel, muted: muted),
         WorkspaceTile(icon: Icons.fact_check_outlined, title: 'Historical Proof & Risk', subtitle: 'Backtests · setup evidence · invalidation levels', accent: const Color(0xFFB184D9), panel: panel, muted: muted),
+        const SizedBox(height: 22),
+        const SectionHeader(title: 'MULTI-TIMEFRAME ORDER BLOCKS', caption: 'W · D · M'),
+        const SizedBox(height: 11),
+        const AirOrderBlockScanner(),
         const SizedBox(height: 14),
         Center(child: Text('AIR MODEL ENGINE  •  INTERNAL LAB', style: TextStyle(color: muted, fontSize: 10, letterSpacing: 1.1))),
       ],
@@ -275,4 +279,123 @@ class SimplePage extends StatelessWidget {
     const SizedBox(height: 9), Text(subtitle, textAlign: TextAlign.center, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, height: 1.5)),
     const SizedBox(height: 18), const AirTag('LAB PREVIEW · DATA INTEGRATION PENDING', color: Color(0xFFE5B85C)),
   ])));
+}
+
+
+enum AirCandleDirection { bullish, bearish, neutral }
+enum AirOrderBlockSignal { bullish, bearish, none }
+
+class AirCandle {
+  const AirCandle({required this.open, required this.high, required this.low, required this.close});
+  final double open, high, low, close;
+  AirCandleDirection get direction => close > open
+      ? AirCandleDirection.bullish
+      : close < open ? AirCandleDirection.bearish : AirCandleDirection.neutral;
+  bool isInside(AirCandle parent) => high <= parent.high && low >= parent.low;
+}
+
+/// Evaluates three completed candles in chronological order:
+/// inside-1, parent, inside-2. Both outer candles must be fully
+/// contained by the middle candle's high-low range.
+AirOrderBlockSignal detectAirOrderBlock(List<AirCandle> candles) {
+  if (candles.length < 3) return AirOrderBlockSignal.none;
+  final first = candles[candles.length - 3];
+  final parent = candles[candles.length - 2];
+  final last = candles[candles.length - 1];
+  if (!first.isInside(parent) || !last.isInside(parent)) return AirOrderBlockSignal.none;
+  if (parent.direction == AirCandleDirection.bearish &&
+      first.direction == AirCandleDirection.bullish &&
+      last.direction == AirCandleDirection.bullish) {
+    return AirOrderBlockSignal.bullish;
+  }
+  if (parent.direction == AirCandleDirection.bullish &&
+      first.direction == AirCandleDirection.bearish &&
+      last.direction == AirCandleDirection.bearish) {
+    return AirOrderBlockSignal.bearish;
+  }
+  return AirOrderBlockSignal.none;
+}
+
+class AirOrderBlockScanner extends StatefulWidget {
+  const AirOrderBlockScanner({super.key});
+  @override
+  State<AirOrderBlockScanner> createState() => _AirOrderBlockScannerState();
+}
+
+class _AirOrderBlockScannerState extends State<AirOrderBlockScanner> {
+  String timeframe = 'Daily';
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final muted = cs.onSurfaceVariant;
+    final accent = cs.primary;
+    return CardPanel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Expanded(child: Text('AIR Order Block Scanner', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900))),
+        AirTag('RULE-BASED', color: accent),
+      ]),
+      const SizedBox(height: 5),
+      Text('Find the three-candle containment pattern on completed candles.', style: TextStyle(color: muted, fontSize: 11, height: 1.4)),
+      const SizedBox(height: 14),
+      SegmentedButton<String>(
+        segments: const [
+          ButtonSegment(value: 'Weekly', label: Text('W')),
+          ButtonSegment(value: 'Daily', label: Text('D')),
+          ButtonSegment(value: 'Monthly', label: Text('M')),
+        ],
+        selected: {timeframe},
+        onSelectionChanged: (selection) => setState(() => timeframe = selection.first),
+      ),
+      const SizedBox(height: 14),
+      _OrderBlockPatternRow(
+        title: 'Bullish order block',
+        detail: 'Green inside 1 → Red parent → Green inside 2',
+        signal: 'BULLISH',
+        color: const Color(0xFF20A879),
+        muted: muted,
+      ),
+      const SizedBox(height: 10),
+      _OrderBlockPatternRow(
+        title: 'Bearish order block',
+        detail: 'Red inside 1 → Green parent → Red inside 2',
+        signal: 'BEARISH',
+        color: const Color(0xFFD65A63),
+        muted: muted,
+      ),
+      const SizedBox(height: 13),
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(11),
+        decoration: BoxDecoration(
+          color: cs.surfaceContainerHighest.withValues(alpha: .45),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Icon(Icons.info_outline_rounded, color: accent, size: 17),
+          const SizedBox(width: 8),
+          Expanded(child: Text(
+            '$timeframe scan · Waiting for OHLC data feed. Both outer candles must have their full high-low range inside the middle parent candle.',
+            style: TextStyle(color: muted, fontSize: 10, height: 1.4),
+          )),
+        ]),
+      ),
+    ]));
+  }
+}
+
+class _OrderBlockPatternRow extends StatelessWidget {
+  const _OrderBlockPatternRow({required this.title, required this.detail, required this.signal, required this.color, required this.muted});
+  final String title, detail, signal;
+  final Color color, muted;
+  @override
+  Widget build(BuildContext context) => Row(children: [
+    Container(width: 8, height: 38, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(5))),
+    const SizedBox(width: 10),
+    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(title, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
+      const SizedBox(height: 3),
+      Text(detail, style: TextStyle(fontSize: 9, color: muted)),
+    ])),
+    Text(signal, style: TextStyle(color: color, fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: .5)),
+  ]);
 }
