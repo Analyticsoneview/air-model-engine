@@ -15,9 +15,12 @@ from app.brokers.dhan import DhanAPIError, DhanHQClient
 from app.brokers.customer_accounts import CustomerAccountDirectory
 from app.credential_vault import CredentialVault
 from app.security import require_customer
+from app.air_qoc_store import AirQocStore
+from datetime import datetime, timezone
 
 router = APIRouter(prefix="/api/v1/air-qoc/dhan", tags=["AIR QOC - Dhan Data"])
 _accounts = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3"))
+_store = AirQocStore()
 
 
 @lru_cache(maxsize=1)
@@ -119,7 +122,20 @@ async def dhan_option_chain(account_id: str, body: DhanOptionChainRequest,
             underlying_segment=body.underlying_segment,
             expiry=body.expiry,
         )
-        return {"provider": "dhan", "account_id": account_id, "data": data}
+        observed_at = datetime.now(timezone.utc).isoformat()
+        saved = _store.save_option_chain(
+            account_id=account_id, underlying_scrip=body.underlying_scrip,
+            underlying_segment=body.underlying_segment, expiry=body.expiry,
+            underlying_price=data.get("last_price"), observed_at=observed_at,
+            chain=data,
+        )
+        return {
+            "provider": "dhan", "account_id": account_id,
+            "underlying_scrip": body.underlying_scrip,
+            "underlying_segment": body.underlying_segment,
+            "expiry": body.expiry, "observed_at": observed_at,
+            "saved_contract_observations": saved, "data": data,
+        }
     except DhanAPIError as exc:
         raise HTTPException(status_code=502 if exc.status_code >= 500 else 401,
                             detail="Dhan option-chain request failed") from exc
@@ -146,3 +162,15 @@ async def dhan_expired_options(account_id: str, body: DhanExpiredOptionsRequest,
                             detail="Dhan expired-options request failed") from exc
     finally:
         await client.close()
+
+
+
+@router.get("/observations/{account_id}")
+async def dhan_qoc_observations(account_id: str, limit: int = 500,
+                                customer_id: str = Depends(_operator)) -> dict:
+    _client_check = _client(customer_id, account_id)
+    await _client_check.close()
+    rows = _store.latest_observations(account_id=account_id, limit=max(1, min(limit, 2000)))
+    return {"provider": "dhan", "account_id": account_id,
+            "count": len(rows), "observations": rows,
+            "note": "Normalized private snapshots only; no AIR QOC qualification score is inferred from one snapshot."}
