@@ -107,8 +107,7 @@ async def get_model_engine_master(
                 "signal_date": observed_at[:10] if len(observed_at) >= 10 else scan["as_of"],
                 "entry_date": None,
                 "symbol": item.get("symbol") or item.get("underlying_scrip"),
-                "instrument_type": "INDEX" if str(item.get("underlying_segment") or "").upper()
-                    startswith("IDX") else "STOCK",
+                "instrument_type": "INDEX" if str(item.get("underlying_segment") or "").upper().startswith("IDX") else "STOCK",
                 "option_type": item.get("option_type"),
                 "expiry": item.get("expiry"),
                 "strike": item.get("strike"),
