@@ -163,3 +163,8 @@ Official references:
 - The login session is normally valid until midnight. Angel Smart Stream binary transport and tick decoder are not yet connected to AIR's Main Account router or MarketDataHub. Order permission remains disabled.
 
 Official reference: https://smartapi.angelone.in/docs
+
+
+### Atomic execution-intent reservation milestone
+
+`DurableOrderLedger.reserve()` now uses an SQLite `BEGIN IMMEDIATE` transaction and a unique broker/account/idempotency key to reserve a PENDING intent before a broker call. `ExecutionService` persists UNKNOWN when a broker submission raises or times out, and blocks duplicate PENDING/UNKNOWN intents until manual reconciliation. The event log records reservation and subsequent status. This prevents concurrent/restarted requests from blindly submitting the same key twice. It does not yet reconcile UNKNOWN intents automatically against each broker's order book; live execution remains disabled pending that reconciliation layer and fault-injection review.
