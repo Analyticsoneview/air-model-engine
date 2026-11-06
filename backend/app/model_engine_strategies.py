@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.model_engine_expiry78 import evaluate_expiry78_rows
+from app.model_engine_original366 import evaluate_original366_rows
 
 STOCK_ENTRY_MIN = 1.0
 STOCK_ENTRY_MAX = 10.0
@@ -77,6 +78,59 @@ def _memberships(row: dict[str, Any]) -> set[str]:
     single = evidence.get("strategy") or row.get("strategy")
     if single:
         result.add(str(single).upper().replace(" ", ""))
+    # ORIGINAL366 has an independent 5% stop / expiry-settlement replay.
+    # Historical 366-trade baseline above is immutable and never recomputed here.
+    original_evaluated = evaluate_original366_rows(rows)
+    if original_evaluated:
+        prior_groups = result["ORIGINAL366"]["groups"]
+        replayed_ids = {str(item.get("signal_id") or "") for item in original_evaluated}
+        original_groups = {
+            key: [row for row in prior_groups[key]
+                  if str(row.get("signal_id") or "") not in replayed_ids]
+            for key in ("NEW", "HOLD", "WAIT", "SLHIT", "REENTRY", "EXPIRED", "TARGETS")
+        }
+        original_groups["OPEN"] = []
+        expiry_winners = []
+        expiry_losses = []
+        replay_trades = []
+        for source in original_evaluated:
+            replay = source["original366"]
+            for trade in replay.get("trades", []):
+                item = {**source, **trade, "strategy": "ORIGINAL366"}
+                replay_trades.append(item)
+                status = trade.get("classification")
+                bucket = {
+                    "EXPIRED_WIN": "EXPIRED",
+                    "EXPIRED_LOSS": "EXPIRED",
+                }.get(status, status)
+                if bucket in original_groups:
+                    original_groups[bucket].append(item)
+                if status == "EXPIRED_WIN":
+                    expiry_winners.append(item)
+                elif status == "EXPIRED_LOSS":
+                    expiry_losses.append(item)
+        original_groups["OPEN"] = original_groups["NEW"] + original_groups["HOLD"]
+        for values in original_groups.values():
+            values.sort(key=_sort_key, reverse=True)
+        result["ORIGINAL366"]["groups"] = original_groups
+        result["ORIGINAL366"]["counts"] = {key: len(value) for key, value in original_groups.items()}
+        result["ORIGINAL366"]["count"] = sum(
+            len(original_groups[key]) for key in
+            ("NEW", "HOLD", "WAIT", "SLHIT", "REENTRY", "EXPIRED", "TARGETS")
+        )
+        result["ORIGINAL366"]["replay"] = {
+            "contracts_replayed": len(original_evaluated),
+            "trades_replayed": len(replay_trades),
+            "expiry_winners": len(expiry_winners),
+            "expiry_losses": len(expiry_losses),
+            "stop_losses": sum(item.get("classification") == "SLHIT" for item in replay_trades),
+            "gross_pnl_rupees": round(sum(item.get("gross_pnl_rupees") or 0 for item in replay_trades), 2),
+            "charges_rupees": round(sum(item.get("charges_rupees") or 0 for item in replay_trades), 2),
+            "net_pnl_rupees": round(sum(item.get("net_pnl_rupees") or 0 for item in replay_trades), 2),
+            "baseline": dict(ORIGINAL366_BASELINE),
+            "baseline_status": "PRESERVED_NOT_RECALCULATED",
+            "note": "Replay results use only explicitly tagged ORIGINAL366 entries with verified daily bars. They are reported separately and do not overwrite the historical 366-trade baseline.",
+        }
     return result
 
 
