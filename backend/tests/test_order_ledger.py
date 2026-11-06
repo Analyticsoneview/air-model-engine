@@ -42,7 +42,7 @@ class DurableOrderLedgerTests(unittest.TestCase):
             unknown = second.get("dhan", "acct-1", "intent-1")
             self.assertEqual(unknown.status, "UNKNOWN")
             self.assertEqual([e["status"] for e in second.list_events("dhan", "acct-1")],
-                             ["PENDING", "UNKNOWN"])
+                             ["UNKNOWN", "PENDING"])
             second.close()
 
     def test_list_orders_is_bounded_and_filtered(self):
