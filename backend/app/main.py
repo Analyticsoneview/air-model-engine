@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from app.auth_store import AuthStore
 from app.brokers.customer_accounts import CustomerAccountDirectory, CustomerTradingAccount
 from app.brokers.catalog import get_broker_catalog, is_supported_broker
+from app.brokers.dhan import DhanHQClient, DhanAPIError
 from app.credential_vault import CredentialVault
 from app.market_data.hub import MarketDataHub
 from app.market_data.router import MarketDataRouter
@@ -67,6 +68,22 @@ class BrokerCredentialInput(BaseModel):
 class MainAccountSelection(BaseModel):
     provider: str
     account_id: str
+
+
+class DhanMarketFeedRequest(BaseModel):
+    mode: str = Field(pattern="^(ltp|ohlc|quote)$")
+    instruments: dict[str, list[int]]
+
+
+class DhanHistoricalRequest(BaseModel):
+    security_id: str = Field(min_length=1, max_length=30)
+    exchange_segment: str = Field(min_length=2, max_length=30)
+    instrument: str = Field(min_length=2, max_length=30)
+    from_date: str
+    to_date: str
+    interval: int | None = Field(default=None, ge=1, le=60)
+    expiry_code: int = Field(default=0, ge=0, le=3)
+    oi: bool = False
 
 
 @app.get("/api/v1/brokers/catalog")
@@ -179,6 +196,84 @@ async def remove_customer_account(broker: str, account_id: str,
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"status": "removed", "broker": broker.lower(), "account_id": account_id}
 
+
+
+def get_dhan_client(customer_id: str, account_id: str) -> DhanHQClient:
+    try:
+        credentials = get_vault().get(customer_id, "dhan", account_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=409, detail="Dhan credentials have not been saved") from exc
+    client_id = credentials.get("client_id", account_id)
+    access_token = credentials.get("access_token")
+    if not access_token:
+        raise HTTPException(status_code=422, detail="Saved Dhan credentials require client_id and access_token")
+    return DhanHQClient(client_id, access_token)
+
+
+@app.post("/api/v1/customer/accounts/dhan/{account_id}/verify")
+async def verify_dhan_account(account_id: str, customer_id: str = Depends(require_customer)) -> dict:
+    owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(customer_id)}
+    if ("dhan", account_id) not in owned:
+        raise HTTPException(status_code=404, detail="Dhan account not found")
+    client = get_dhan_client(customer_id, account_id)
+    try:
+        profile = await client.profile()
+        return {
+            "broker": "dhan", "account_id": account_id, "verified": True,
+            "token_validity": profile.get("tokenValidity"),
+            "data_plan": profile.get("dataPlan"),
+            "data_validity": profile.get("dataValidity"),
+            "active_segments": profile.get("activeSegment"),
+            "order_permission_enabled": False,
+            "note": "Token and client ID verified. Live order permission remains disabled.",
+        }
+    except DhanAPIError as exc:
+        raise HTTPException(status_code=502 if exc.status_code >= 500 else 401,
+                            detail="Dhan verification failed; check token validity and API entitlement") from exc
+    finally:
+        await client.close()
+
+
+@app.post("/api/v1/customer/accounts/dhan/{account_id}/market-feed")
+async def dhan_market_feed(account_id: str, body: DhanMarketFeedRequest,
+                           customer_id: str = Depends(require_customer)) -> dict:
+    owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(customer_id)}
+    if ("dhan", account_id) not in owned:
+        raise HTTPException(status_code=404, detail="Dhan account not found")
+    client = get_dhan_client(customer_id, account_id)
+    try:
+        return await client.market_feed(body.mode, body.instruments)
+    except DhanAPIError as exc:
+        raise HTTPException(status_code=502 if exc.status_code >= 500 else 401,
+                            detail="Dhan market-data request failed; verify Data API entitlement") from exc
+    finally:
+        await client.close()
+
+
+@app.post("/api/v1/customer/accounts/dhan/{account_id}/historical")
+async def dhan_historical(account_id: str, body: DhanHistoricalRequest,
+                          customer_id: str = Depends(require_customer)) -> dict:
+    owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(customer_id)}
+    if ("dhan", account_id) not in owned:
+        raise HTTPException(status_code=404, detail="Dhan account not found")
+    client = get_dhan_client(customer_id, account_id)
+    try:
+        if body.interval is None:
+            return await client.historical_daily(
+                security_id=body.security_id, exchange_segment=body.exchange_segment,
+                instrument=body.instrument, from_date=body.from_date,
+                to_date=body.to_date, expiry_code=body.expiry_code, oi=body.oi,
+            )
+        return await client.historical_intraday(
+            security_id=body.security_id, exchange_segment=body.exchange_segment,
+            instrument=body.instrument, interval=body.interval,
+            from_date=body.from_date, to_date=body.to_date, oi=body.oi,
+        )
+    except DhanAPIError as exc:
+        raise HTTPException(status_code=502 if exc.status_code >= 500 else 401,
+                            detail="Dhan historical-data request failed; verify Data API entitlement") from exc
+    finally:
+        await client.close()
 
 @app.get("/api/v1/market-data/status")
 async def market_data_status(customer_id: str = Depends(require_air_operator)) -> dict:
