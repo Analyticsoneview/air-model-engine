@@ -34,11 +34,12 @@ class _AirConnectionScreenState extends State<AirConnectionScreen> {
     setState(() { _loading = true; _error = null; });
     try {
       await _api.login(_email.text, _password.text);
-      final results = await Future.wait([_api.brokerCatalog(), _api.accounts()]);
+      final brokers = await _api.brokerCatalog();
+      final accounts = await _api.accounts();
       if (!mounted) return;
       setState(() {
-        _brokers = results[0] as List<Map<String, dynamic>>;
-        _accounts = results[1] as List<Map<String, dynamic>>;
+        _brokers = brokers;
+        _accounts = accounts;
         _authenticated = true;
         _selectedBroker = _brokers.isNotEmpty ? _brokers.first['code'] as String : null;
       });
@@ -118,7 +119,7 @@ class _AirConnectionScreenState extends State<AirConnectionScreen> {
             const Text('BROKER ACCOUNTS', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: .8)),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
-              value: _selectedBroker,
+              initialValue: _selectedBroker,
               decoration: const InputDecoration(labelText: 'Broker', border: OutlineInputBorder()),
               items: _brokers.map((broker) => DropdownMenuItem<String>(
                 value: broker['code'] as String,
