@@ -126,3 +126,16 @@ Official references:
 - https://www.kite.trade/docs/connect/v3/user/
 - https://kite.trade/docs/connect/v3/market-quotes/
 - https://kite.trade/docs/connect/v3/websocket/
+
+
+## Upstox OAuth and REST integration milestone
+
+- `app/brokers/upstox.py` implements OAuth authorization URL construction, authorization-code exchange, profile, market quote, historical candle, portfolio and order REST operations.
+- Customer-owned Upstox accounts can save `client_id`, `client_secret` and the exact registered `redirect_uri` in the encrypted vault. AIR generates a one-time random OAuth state, validates it on callback exchange, exchanges the single-use code server-side and verifies the profile before storing the access token encrypted.
+- OAuth state is currently held in process memory and is invalidated by server restart; production deployment must use a shared, expiring, one-time state store (e.g. Redis) before running multiple replicas.
+- Upstox standard access tokens expire at 3:30 AM the following day. Upstox analytics-token product has different entitlement and expiry characteristics and is not implemented here. Live Protobuf feed decoding and Main Account router integration remain outstanding; live order permission stays disabled.
+
+Official references:
+- https://upstox.com/developer/api-documentation/authentication/
+- https://upstox.com/developer/api-documentation/v3/get-market-data-feed/
+- https://upstox.com/developer/api-documentation/get-market-data-feed-authorize-v3/
