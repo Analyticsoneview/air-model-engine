@@ -61,7 +61,8 @@ def test_expiryscan_routes_valid_past_expiry_to_expired():
                             chain=chain)
     result = scan_expiries(store, account_id="a")
     assert result["expired_count"] == 1
-    row = result["rows"][0]
+    assert result["total_contracts"] == 0
+    row = result["expired_rows"][0]
     assert row["expiry_date_valid"] is True
     assert row["classification"] == "EXPIRED"
     assert row["position_status"] == "EXPIRED"
