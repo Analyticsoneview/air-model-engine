@@ -8,6 +8,7 @@ from app.auth_store import AuthStore
 from app.brokers.customer_accounts import CustomerAccountDirectory, CustomerTradingAccount
 from app.brokers.catalog import get_broker_catalog, is_supported_broker
 from app.brokers.dhan import DhanHQClient, DhanAPIError
+from app.brokers.zerodha import KiteConnectClient, KiteAPIError, kite_login_url
 from app.credential_vault import CredentialVault
 from app.market_data.hub import MarketDataHub
 from app.market_data.router import MarketDataRouter
@@ -68,6 +69,10 @@ class BrokerCredentialInput(BaseModel):
 class MainAccountSelection(BaseModel):
     provider: str
     account_id: str
+
+
+class ZerodhaTokenExchangeRequest(BaseModel):
+    request_token: str = Field(min_length=8, max_length=256)
 
 
 class DhanMarketFeedRequest(BaseModel):
@@ -196,6 +201,57 @@ async def remove_customer_account(broker: str, account_id: str,
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"status": "removed", "broker": broker.lower(), "account_id": account_id}
 
+
+
+
+def get_owned_account(customer_id: str, broker: str, account_id: str) -> None:
+    owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(customer_id)}
+    if (broker.lower(), account_id) not in owned:
+        raise HTTPException(status_code=404, detail="Broker account not found")
+
+
+@app.get("/api/v1/customer/accounts/zerodha/{account_id}/login-url")
+async def zerodha_login_url(account_id: str, customer_id: str = Depends(require_customer)) -> dict:
+    get_owned_account(customer_id, "zerodha", account_id)
+    try:
+        credentials = get_vault().get(customer_id, "zerodha", account_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=409, detail="Save Zerodha api_key and api_secret first") from exc
+    api_key = credentials.get("api_key")
+    if not api_key or not credentials.get("api_secret"):
+        raise HTTPException(status_code=422, detail="Zerodha api_key and api_secret are required")
+    return {"login_url": kite_login_url(api_key), "redirect_uri_must_be_registered": True,
+            "note": "Complete login in the broker page and submit the short-lived request_token to the exchange endpoint immediately."}
+
+
+@app.post("/api/v1/customer/accounts/zerodha/{account_id}/exchange")
+async def zerodha_exchange_token(account_id: str, body: ZerodhaTokenExchangeRequest,
+                                 customer_id: str = Depends(require_customer)) -> dict:
+    get_owned_account(customer_id, "zerodha", account_id)
+    try:
+        credentials = get_vault().get(customer_id, "zerodha", account_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=409, detail="Save Zerodha api_key and api_secret first") from exc
+    api_key, api_secret = credentials.get("api_key"), credentials.get("api_secret")
+    if not api_key or not api_secret:
+        raise HTTPException(status_code=422, detail="Zerodha api_key and api_secret are required")
+    client = KiteConnectClient(api_key)
+    try:
+        session = await client.exchange_request_token(body.request_token, api_secret)
+        profile = await client.profile()
+        broker_user_id = str(profile.get("user_id", ""))
+        if broker_user_id and broker_user_id != account_id:
+            raise HTTPException(status_code=409, detail="Authenticated Zerodha user does not match registered account ID")
+        credentials["access_token"] = session["access_token"]
+        get_vault().put(customer_id, "zerodha", account_id, credentials)
+        return {"broker": "zerodha", "account_id": account_id, "verified": True,
+                "user_id": broker_user_id, "access_token_saved": True,
+                "note": "Token is stored encrypted. Kite access tokens expire at the next daily session boundary; repeat the login flow when expired. Order permission remains disabled."}
+    except KiteAPIError as exc:
+        raise HTTPException(status_code=502 if exc.status_code >= 500 else 401,
+                            detail="Zerodha token exchange or profile verification failed") from exc
+    finally:
+        await client.close()
 
 
 def get_dhan_client(customer_id: str, account_id: str) -> DhanHQClient:
