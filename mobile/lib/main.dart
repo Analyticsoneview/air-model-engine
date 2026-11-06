@@ -172,6 +172,8 @@ class AirDashboard extends StatelessWidget {
         const SectionHeader(title: 'MODEL ENGINE SHORTCUTS', caption: 'QUICK ACCESS'),
         const SizedBox(height: 10),
         const ModelEngineQuickTabs(),
+        const SizedBox(height: 12),
+        const ModelEngineRecordsTable(),
         const SizedBox(height: 10),
         const WeeklyLowRespectDashboardShortcut(),
         const SizedBox(height: 10),
@@ -759,6 +761,76 @@ class SurvivorDashboardShortcut extends StatelessWidget {
             Icon(Icons.arrow_forward_ios_rounded, size: 14, color: cs.primary),
           ]),
         ),
+      ),
+    );
+  }
+}
+
+
+class ModelEngineRecordsTable extends StatelessWidget {
+  const ModelEngineRecordsTable({super.key});
+
+  static const columns = [
+    'Signal Date',
+    'Entry Date',
+    'Entry Classification',
+    'Entry Price',
+    'Latest Price',
+    'Stop',
+    'Lot Size',
+    'P&L',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final muted = cs.onSurfaceVariant;
+    return CardPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Expanded(child: Text('MODEL ENGINE RECORDS',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: .8))),
+            AirTag('MASTER TABLE', color: cs.primary),
+          ]),
+          const SizedBox(height: 5),
+          Text('Same column structure as the Model Engine master ledger.',
+            style: TextStyle(fontSize: 10, color: muted)),
+          const SizedBox(height: 12),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              columnSpacing: 18,
+              horizontalMargin: 8,
+              headingRowHeight: 42,
+              dataRowMinHeight: 46,
+              dataRowMaxHeight: 54,
+              columns: [
+                for (final column in columns)
+                  DataColumn(label: Text(column,
+                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900))),
+              ],
+              rows: const [],
+            ),
+          ),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+            decoration: BoxDecoration(
+              color: cs.surfaceContainerHighest.withValues(alpha: .3),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(children: [
+              Icon(Icons.sync_rounded, size: 16, color: muted),
+              const SizedBox(width: 8),
+              Expanded(child: Text(
+                'No ledger records synced yet. Connected NEW, HOLD, RE-ENTRY, SL, TARGETS and EXPIRED records will appear here using these columns.',
+                style: TextStyle(fontSize: 10, height: 1.4, color: muted),
+              )),
+            ]),
+          ),
+        ],
       ),
     );
   }
