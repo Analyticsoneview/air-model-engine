@@ -31,3 +31,18 @@ jobs:
       - name: Run backend unit tests
         working-directory: backend
         run: python -m unittest discover -s tests -v
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve Flutter packages
+        working-directory: mobile
+        run: flutter pub get
+      - name: Analyze Flutter app
+        working-directory: mobile
+        run: flutter analyze lib
+      - name: Run Flutter tests
+        working-directory: mobile
+        run: flutter test
