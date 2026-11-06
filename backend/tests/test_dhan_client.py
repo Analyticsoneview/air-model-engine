@@ -19,6 +19,24 @@ class DhanHQClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(seen["auth"], "test-token")
         await client.close()
 
+    async def test_renew_token_uses_dhan_client_header_and_validates_account(self):
+        seen = {}
+
+        def handler(request):
+            seen["path"] = request.url.path
+            seen["client_id"] = request.headers.get("dhanclientid")
+            return httpx.Response(200, json={
+                "dhanClientId": "10001", "accessToken": "renewed-token",
+                "expiryTime": "2026-11-08T00:00:00",
+            })
+
+        client = DhanHQClient("10001", "old-token", transport=httpx.MockTransport(handler))
+        result = await client.renew_token()
+        self.assertEqual(seen["path"], "/v2/RenewToken")
+        self.assertEqual(seen["client_id"], "10001")
+        self.assertEqual(result["accessToken"], "renewed-token")
+        await client.close()
+
     async def test_profile_rejects_wrong_account(self):
         def handler(request):
             return httpx.Response(200, json={"dhanClientId": "other"})
