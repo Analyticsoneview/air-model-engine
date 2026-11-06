@@ -173,3 +173,10 @@ Official reference: https://smartapi.angelone.in/docs
 ### Dhan Main Account live-feed wiring milestone
 
 `app/market_data/dhan_adapter.py` now implements the AIR market-data adapter contract for Dhan. Selecting a saved Dhan account as Main Account verifies its profile, opens the v2 feed socket, starts a background packet reader and publishes ticker/quote/full packets into `MarketDataHub` using normalized tick fields. The operator-only `POST /api/v1/market-data/subscribe` route submits instrument subscriptions through the active Main Account. Dhan subscriptions require exchange segment plus the official security ID; AIR does not guess instrument tokens. The daily Dhan security-master ingestion/search UI is still outstanding, and historical mapping is not yet generalized across all instrument types. Real account entitlement and production network testing are still required before claiming an operational feed.
+
+
+### Dhan instrument master and derivative contract lookup
+
+`app/brokers/dhan_instruments.py` downloads Dhan's official compact scrip-master CSV, validates required headers, caches it for 24 hours, and performs exact trading-symbol/custom-symbol matches before substring search. Results retain the composite exchange segment (NSE_EQ, NSE_FNO, IDX_I, BSE_EQ, MCX_COMM, etc.), token, expiry, strike, CE/PE and lot size. This matters because a security ID must always be paired with its exchange segment; never reverse-map a token alone. The Dhan adapter now uses this master for symbol/contract lookup and passes the official instrument type into historical-data requests. Cache refresh is in-process and will refresh after TTL; persistent cross-restart storage and scheduled refresh monitoring remain follow-up infrastructure work.
+
+Official source: https://dhanhq.co/docs/v2/instruments/
