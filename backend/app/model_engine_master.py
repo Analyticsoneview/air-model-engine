@@ -96,7 +96,15 @@ def build_master(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "count": len(all_rows),
         "counts": {name: len(items) for name, items in groups.items()},
         "groups": groups,
-        "breakdowns": {\n            "instrument_type": instrument_counts,\n            "sector": dict(sorted(sector_counts.items(), key=lambda item: (-item[1], item[0]))),\n            "option_type": {\n                "CE": sum(1 for r in all_rows if str(r.get("option_type") or "").upper() == "CE"),\n                "PE": sum(1 for r in all_rows if str(r.get("option_type") or "").upper() == "PE"),\n            },\n        },\n        "summary": {
+        "breakdowns": {
+            "instrument_type": instrument_counts,
+            "sector": dict(sorted(sector_counts.items(), key=lambda item: (-item[1], item[0]))),
+            "option_type": {
+                "CE": sum(1 for r in all_rows if str(r.get("option_type") or "").upper() == "CE"),
+                "PE": sum(1 for r in all_rows if str(r.get("option_type") or "").upper() == "PE"),
+            },
+        },
+        "summary": {
             "unique_signals": len(all_rows),
             "open": len(groups["OPEN"]),
             "new": len(groups["NEW"]),
