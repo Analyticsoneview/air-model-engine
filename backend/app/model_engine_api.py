@@ -46,6 +46,7 @@ class SignalRecord(BaseModel):
     score: float | None = None
     pnl: float | None = None
     pnl_pct: float | None = None
+    pnl_points: float | None = None
     shelf_life_days: int | None = Field(default=None, ge=0, le=3650)
     valid_until: str | None = None
     exit_date: str | None = None
@@ -106,6 +107,8 @@ async def upsert_model_engine_signal(
     record = body.model_dump()
     if record.get('sector'):
         record.setdefault('evidence', {})['sector'] = record['sector']
+    if record.get('pnl_points') is not None:
+        record.setdefault('evidence', {})['pnl_points'] = record['pnl_points']
     try:
         _ledger.upsert(customer_id, record)
     except ValueError as exc:
