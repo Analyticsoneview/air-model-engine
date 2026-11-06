@@ -77,3 +77,40 @@ def test_upsert_updates_existing_signal_without_duplicate():
     assert rows[0]["classification"] == "HOLD"
     assert rows[0]["latest_price"] == 101
     ledger.close()
+
+
+
+def test_common_position_fields_and_verified_reentry():
+    ledger = ModelEngineLedger(":memory:")
+    value = record(
+        classification="RE-ENTRY",
+        quantity=50,
+        lot_size=25,
+        pnl_pct=12.5,
+        evidence={
+            "sector": "BANKING",
+            "pnl_points": 8.0,
+            "reentry_verified": True,
+            "underlying_confirmation": "3-candle reversal confirmed",
+            "option_confirmation": "premium and volume confirmed",
+        },
+    )
+    ledger.upsert("customer-a", value)
+    row = ledger.list_signals("customer-a")[0]
+    assert row["position_status"] == "OPEN"
+    assert row["sector"] == "BANKING"
+    assert row["pnl_points"] == 8.0
+    assert row["pnl_rupees"] == 400.0
+    assert row["days_to_expiry"] == 5
+    ledger.close()
+
+
+def test_reentry_without_verification_is_rejected():
+    ledger = ModelEngineLedger(":memory:")
+    try:
+        ledger.upsert("customer-a", record(classification="RE-ENTRY"))
+    except ValueError as exc:
+        assert "reentry_verified" in str(exc)
+    else:
+        raise AssertionError("Unverified RE-ENTRY must be rejected")
+    ledger.close()
