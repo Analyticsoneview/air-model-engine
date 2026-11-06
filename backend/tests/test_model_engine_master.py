@@ -9,7 +9,7 @@ def row(signal_id, classification, dte=30, pnl=0, entry_price=5):
         "signal_id": signal_id, "classification": classification,
         "signal_date": date.today().isoformat(), "symbol": "NIFTY",
         "option_type": "CE", "expiry": expiry.isoformat(),
-        "days_to_expiry": dte, "entry_price": entry_price, "pnl": pnl,
+        "days_to_expiry": dte, "entry_price": entry_price, "pnl": pnl,\n        "instrument_type": "INDEX" if signal_id.startswith("i") else "STOCK",\n        "sector": "BANKING" if signal_id.startswith("s") else "INDEX",
     }
 
 
@@ -30,7 +30,7 @@ def test_master_groups_and_cross_cutting_survivor():
     assert result["counts"]["SURVIVOR"] == 2
     assert result["counts"]["WAIT"] == 0
     assert result["counts"]["COMBINED"] == 6
-    assert result["summary"]["pnl"] == 8
+    assert result["summary"]["pnl"] == 8\n    assert result["breakdowns"]["instrument_type"]["INDEX"] == 1\n    assert result["breakdowns"]["instrument_type"]["STOCK"] == 5
 
 
 def test_master_deduplicates_and_declares_deferred_views():
