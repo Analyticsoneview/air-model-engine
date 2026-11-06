@@ -11,7 +11,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   final AirApiClient _api = AirApiClient();
   final _email = TextEditingController();
   final _password = TextEditingController();
-  static const _sections = ['NEW', 'HOLD', 'RE-ENTRY', 'SL', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN'];
+  static const _sections = ['SURVIVOR', 'NEW', 'HOLD', 'RE-ENTRY', 'SL', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN'];
   Map<String, dynamic> _groups = {};
   Map<String, dynamic> _counts = {};
   int _selected = 0;
