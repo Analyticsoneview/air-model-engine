@@ -16,6 +16,7 @@ from app.brokers.angel import AngelSmartAPI, AngelAPIError
 from app.credential_vault import CredentialVault
 from app.market_data.hub import MarketDataHub
 from app.market_data.router import MarketDataRouter
+from app.market_data.dhan_adapter import DhanMarketDataAdapter
 from app.security import create_access_token, hash_password, require_customer, verify_password
 
 app = FastAPI(title="AIR Model Engine API", version="0.3.0",
@@ -501,8 +502,24 @@ async def select_main_account(selection: MainAccountSelection,
         owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(customer_id)}
         if (selection.provider.lower(), selection.account_id) not in owned:
             raise HTTPException(status_code=404, detail="Customer does not own this Main Account")
-        get_vault().get(customer_id, selection.provider, selection.account_id)
-        await market_data_router.set_main_account(selection.provider, selection.account_id)
+        credentials = get_vault().get(customer_id, selection.provider, selection.account_id)
+        provider = selection.provider.strip().lower()
+        if not market_data_router.is_registered(provider, selection.account_id):
+            if provider == "dhan":
+                client_id = credentials.get("client_id", selection.account_id)
+                access_token = credentials.get("access_token")
+                if not access_token:
+                    raise HTTPException(status_code=422, detail="Dhan access_token is required")
+                market_data_router.register(
+                    selection.account_id,
+                    DhanMarketDataAdapter(client_id, access_token, market_data_hub),
+                )
+            else:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"{provider} credentials are saved, but its live Main Account adapter is not yet connected",
+                )
+        await market_data_router.set_main_account(provider, selection.account_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RuntimeError as exc:
