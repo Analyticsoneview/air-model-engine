@@ -6,6 +6,7 @@ raw Dhan responses. AIR's research store can retain normalized derived observati
 from __future__ import annotations
 
 import os
+import httpx
 from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -16,6 +17,7 @@ from app.brokers.customer_accounts import CustomerAccountDirectory
 from app.credential_vault import CredentialVault
 from app.security import require_customer
 from app.air_qoc_store import AirQocStore
+from app.air_qoc_universe import DETAILED_MASTER_URL, parse_dhan_instrument_master
 from datetime import datetime, timezone
 
 router = APIRouter(prefix="/api/v1/air-qoc/dhan", tags=["AIR QOC - Dhan Data"])
@@ -72,6 +74,27 @@ class DhanExpiredOptionsRequest(BaseModel):
     required_data: list[str] = Field(default_factory=lambda: [
         "open", "high", "low", "close", "iv", "volume", "strike", "oi", "spot"
     ])
+
+
+@router.get("/universe")
+async def dhan_fno_universe(customer_id: str = Depends(_operator)) -> dict:
+    """Fetch and normalize the official Dhan instrument master for NSE F&O underlyings."""
+    del customer_id  # operator dependency is the authorization gate
+    try:
+        async with httpx.AsyncClient(timeout=45.0, follow_redirects=True) as session:
+            response = await session.get(DETAILED_MASTER_URL)
+            response.raise_for_status()
+        result = parse_dhan_instrument_master(response.text)
+        result["master_url"] = DETAILED_MASTER_URL
+        result["retrieved_at_utc"] = datetime.now(timezone.utc).isoformat()
+        result["persistence"] = "not stored; fetched on demand"
+        result["warning"] = (
+            "Verify underlying IDs against the live Dhan expiry-list API before scheduling. "
+            "Rows with conflicting IDs or missing expiries are not validated."
+        )
+        return result
+    except (httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail="Unable to retrieve or parse Dhan instrument master") from exc
 
 
 @router.get("/status/{account_id}")
