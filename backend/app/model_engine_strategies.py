@@ -15,14 +15,17 @@ STOCK_ENTRY_MIN = 1.0
 STOCK_ENTRY_MAX = 10.0
 
 ORIGINAL366_BASELINE = {
-    "trades": 366,
-    "expiry_winners": 32,
-    "five_percent_stop_losses": 334,
-    "gross_pnl_rupees": 1071850,
-    "charges_rupees": 21602,
-    "net_pnl_rupees": 1050248,
-    "capital_rupees": 1514362,
-    "baseline_status": "PRESERVED_NOT_RECALCULATED",
+    "reference_cohort": "ORIGINAL366",
+    "display_section": "RECOVERED",
+    "source_entries": 534,
+    "full_expiry_coverage_cohort": 366,
+    "partial_coverage_excluded": 83,
+    "no_post_entry_data_excluded": 85,
+    "five_percent_sl_hits_in_full_coverage_cohort": 366,
+    "same_day_sl_hits": 274,
+    "later_session_sl_hits": 69,
+    "gap_open_sl_hits": 23,
+    "baseline_status": "COHORT_FILTER_ONLY",
 }
 
 STRATEGY_RULES = {
@@ -34,10 +37,10 @@ STRATEGY_RULES = {
         "candidate_filter_stage": "ENTRY_QUALIFICATION",
     },
     "ORIGINAL366": {
-        "name": "ORIGINAL 366",
+        "name": "RECOVERED",
         "membership": "ORIGINAL366",
-        "stock_entry_filter": "₹1–₹10 applies only when qualifying new stock CE/PE candidates; index options retain existing rules",
-        "qualification": "Recovered ORIGINAL366 cohort: actual filled entry; stock CE/PE premium ₹1–₹10 (index exempt); at least 10 verified NSE trading sessions remaining; apply original 5% stop, otherwise settle from verified expiry-day underlying reference. Historical 366-trade baseline remains immutable.",
+        "stock_entry_filter": "Reference cohort was filtered using actual entry premium ₹1–₹10 for stock CE/PE; index options exempt; shelf_sessions at least 10",
+        "qualification": "Display the 366 full-expiry-coverage records selected from the original 534-entry population. Preserve original 5% SLHIT. After SL, add a watch-only RECOVERED row when a verified daily option CLOSE is above original entry premium. This is not RECOVERY re-entry or an open position.",
         "candidate_filter_stage": "NEW_CANDIDATE_QUALIFICATION",
     },
     "RECOVERY": {
@@ -154,7 +157,7 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for strategy, rules in STRATEGY_RULES.items():
         groups = {key: [] for key in
-                  ("OPEN", "NEW", "HOLD", "WAIT", "SLHIT", "REENTRY", "EXPIRED", "TARGETS")}
+                  ("OPEN", "NEW", "HOLD", "WAIT", "SLHIT", "REENTRY", "EXPIRED", "TARGETS", "RECOVERED")}
         accepted: list[dict[str, Any]] = []
         rejected_stock_filter = 0
         rejected_recovery_proof = 0
@@ -233,6 +236,13 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
                     original_groups[status].append(item)
                 elif status in original_groups:
                     original_groups[status].append(item)
+                if trade.get("recovered_watch"):
+                    original_groups["RECOVERED"].append({
+                        **item,
+                        "classification": "RECOVERED_WATCH",
+                        "watch": trade["recovered_watch"],
+                        "position_status": "WATCH_ONLY_NOT_OPEN",
+                    })
         original_groups["OPEN"] = original_groups["NEW"] + original_groups["HOLD"]
         for values in original_groups.values():
             values.sort(key=_sort_key, reverse=True)
@@ -252,7 +262,7 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "charges_rupees": round(sum(item.get("charges_rupees") or 0 for item in replay_trades), 2),
             "net_pnl_rupees": round(sum(item.get("net_pnl_rupees") or 0 for item in replay_trades), 2),
             "baseline": dict(ORIGINAL366_BASELINE),
-            "baseline_status": "PRESERVED_NOT_RECALCULATED",
+            "baseline_status": "COHORT_FILTER_ONLY",
         }
 
     # EXPIRY78's seven-rule engine is replayed only when verified daily option
