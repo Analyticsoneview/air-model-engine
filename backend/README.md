@@ -139,3 +139,17 @@ Official references:
 - https://upstox.com/developer/api-documentation/authentication/
 - https://upstox.com/developer/api-documentation/v3/get-market-data-feed/
 - https://upstox.com/developer/api-documentation/get-market-data-feed-authorize-v3/
+
+
+## FYERS API v3 OAuth and REST integration milestone
+
+- `app/brokers/fyers.py` implements FYERS authorization URL construction, app-id hash (`SHA-256(app_id:app_secret)`) exchange, profile, quotes, history, order book, positions, holdings and guarded sync order request methods.
+- Customer-owned FYERS account routes generate a one-time random OAuth state, validate the callback state, exchange the auth code server-side, verify the profile and store the access token in the encrypted vault.
+- FYERS standard access tokens expire daily at 6:30 AM. A trading app requires the broker's current static-IP activation/whitelisting and the appropriate app type; a non-trading app is data-only. AIR does not enable live order permissions.
+- OAuth state is process-local pending a shared expiring state store. FYERS Data Socket and General WebSocket transports, normalized event decoding and Main Account router integration remain outstanding.
+
+Official references:
+- https://fyers.in/api-docs/v3/api/authentication/individual-app/authentication-flow/
+- https://fyers.in/api-docs/v3/api/authentication/individual-app/validate-auth-code
+- https://fyers.in/api-docs/v3/api/websockets/
+- https://fyers.in/api-docs/v3/getting-started/guides/order-placement-guide/
