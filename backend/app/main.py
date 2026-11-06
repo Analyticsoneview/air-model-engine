@@ -211,7 +211,7 @@ def get_dhan_client(customer_id: str, account_id: str) -> DhanHQClient:
 
 
 @app.post("/api/v1/customer/accounts/dhan/{account_id}/verify")
-async def verify_dhan_account(account_id: str, customer_id: str = Depends(require_customer)) -> dict:
+async def verify_dhan_account(account_id: str, customer_id: str = Depends(require_air_operator)) -> dict:
     owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(customer_id)}
     if ("dhan", account_id) not in owned:
         raise HTTPException(status_code=404, detail="Dhan account not found")
@@ -236,10 +236,10 @@ async def verify_dhan_account(account_id: str, customer_id: str = Depends(requir
 
 @app.post("/api/v1/customer/accounts/dhan/{account_id}/market-feed")
 async def dhan_market_feed(account_id: str, body: DhanMarketFeedRequest,
-                           customer_id: str = Depends(require_customer)) -> dict:
-    owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(customer_id)}
-    if ("dhan", account_id) not in owned:
-        raise HTTPException(status_code=404, detail="Dhan account not found")
+                           customer_id: str = Depends(require_air_operator)) -> dict:
+    active = market_data_router.status().get("active_data_account")
+    if active != {"provider": "dhan", "account_id": account_id}:
+        raise HTTPException(status_code=409, detail="Market data requests must use the configured single Main Account")
     client = get_dhan_client(customer_id, account_id)
     try:
         return await client.market_feed(body.mode, body.instruments)
@@ -252,10 +252,10 @@ async def dhan_market_feed(account_id: str, body: DhanMarketFeedRequest,
 
 @app.post("/api/v1/customer/accounts/dhan/{account_id}/historical")
 async def dhan_historical(account_id: str, body: DhanHistoricalRequest,
-                          customer_id: str = Depends(require_customer)) -> dict:
-    owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(customer_id)}
-    if ("dhan", account_id) not in owned:
-        raise HTTPException(status_code=404, detail="Dhan account not found")
+                          customer_id: str = Depends(require_air_operator)) -> dict:
+    active = market_data_router.status().get("active_data_account")
+    if active != {"provider": "dhan", "account_id": account_id}:
+        raise HTTPException(status_code=409, detail="Historical data must use the configured single Main Account")
     client = get_dhan_client(customer_id, account_id)
     try:
         if body.interval is None:
