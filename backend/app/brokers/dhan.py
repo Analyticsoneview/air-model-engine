@@ -109,7 +109,7 @@ class DhanHQClient:
             raise ValueError("transaction_type must be BUY or SELL")
         if product_type not in {"CNC", "INTRADAY", "MARGIN", "MTF", "CO", "BO"}:
             raise ValueError("Unsupported Dhan product_type")
-        order_types = {"LIMIT", "MARKET", "SL": "STOP_LOSS", "SL-M": "STOP_LOSS_MARKET"}
+        order_types = {"LIMIT": "LIMIT", "MARKET": "MARKET", "SL": "STOP_LOSS", "SL-M": "STOP_LOSS_MARKET"}
         mapped_order_type = order_types.get(order_type, order_type)
         if mapped_order_type not in {"LIMIT", "MARKET", "STOP_LOSS", "STOP_LOSS_MARKET"}:
             raise ValueError("Unsupported Dhan order_type")
