@@ -194,6 +194,23 @@ class AirDashboard extends StatelessWidget {
           Expanded(child: Text('Evidence order: Underlying → Volume → Premium → OI', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: muted))),
         ])),
         const SizedBox(height: 18),
+        CardPanel(child: Theme(
+          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+          child: ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            childrenPadding: EdgeInsets.zero,
+            initiallyExpanded: false,
+            leading: Icon(Icons.menu_book_rounded, color: accent),
+            title: const Text('AIR RESEARCH LIBRARY', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: .6)),
+            subtitle: Text('Strategies · scanners · research · calculators', style: TextStyle(fontSize: 9, color: muted)),
+            trailing: Icon(Icons.expand_more_rounded, color: accent),
+            children: const [
+              SizedBox(height: 8),
+              AirResearchLibrary(),
+            ],
+          ),
+        )),
+        const SizedBox(height: 14),
         Center(child: Text('AIR  •  FIND THE OPPORTUNITY. VALIDATE THE EVIDENCE. MANAGE THE RISK.', textAlign: TextAlign.center, style: TextStyle(color: muted, fontSize: 8, letterSpacing: .45))),
       ],
     );
