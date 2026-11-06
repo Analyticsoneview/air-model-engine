@@ -20,6 +20,18 @@ router = APIRouter(prefix="/api/v1/model-engine", tags=["AIR Model Engine"])
 _ledger = ModelEngineLedger()
 
 
+def _has_strategy_membership(row: dict, strategy: str) -> bool:
+    evidence = row.get("evidence") if isinstance(row.get("evidence"), dict) else {}
+    memberships = evidence.get("strategy_memberships") or evidence.get("strategies") or []
+    if isinstance(memberships, str):
+        memberships = [memberships]
+    normalized = {str(value).upper().replace(" ", "") for value in memberships}
+    single = evidence.get("strategy") or row.get("strategy")
+    if single:
+        normalized.add(str(single).upper().replace(" ", ""))
+    return strategy.upper().replace(" ", "") in normalized
+
+
 def _operator(customer_id: str = Depends(require_customer)) -> str:
     allowed = {x.strip() for x in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",") if x.strip()}
     if customer_id not in allowed:
@@ -228,13 +240,11 @@ async def get_original366_engine(
     winners = [trade for trade in trades if trade.get("classification") == "EXPIRED_WIN"]
     expiry_losses = [trade for trade in trades if trade.get("classification") == "EXPIRED_LOSS"]
     stopped = [trade for trade in trades if trade.get("classification") == "SLHIT"]
-    new_rows = [row for row in rows
-                if str(row.get("classification") or "").upper() == "NEW"
-                and isinstance(row.get("evidence"), dict)
-                and ("ORIGINAL366" in {
-                    str(value).upper().replace(" ", "")
-                    for value in (row["evidence"].get("strategy_memberships") or [])
-                } or str(row["evidence"].get("strategy") or "").upper() == "ORIGINAL366")]
+    new_rows = [
+        row for row in rows
+        if str(row.get("classification") or "").upper() == "NEW"
+        and _has_strategy_membership(row, "ORIGINAL366")
+    ]
     return {
         "strategy": "ORIGINAL366",
         "as_of": as_of,
@@ -255,14 +265,13 @@ async def get_original366_engine(
             "HOLD": [trade for trade in trades if trade.get("classification") == "HOLD"],
             "WAIT": [trade for trade in trades if trade.get("classification") == "WAIT"],
             "SLHIT": stopped,
-            "REENTRY": [row for row in rows
-                        if str(row.get("classification") or "").upper() in ("RE-ENTRY", "REENTRY")
-                        and isinstance(row.get("evidence"), dict)
-                        and row["evidence"].get("reentry_verified") is True
-                        and ("ORIGINAL366" in {
-                            str(value).upper().replace(" ", "")
-                            for value in (row["evidence"].get("strategy_memberships") or [])
-                        } or str(row["evidence"].get("strategy") or "").upper() == "ORIGINAL366")],
+            "REENTRY": [
+                row for row in rows
+                if str(row.get("classification") or "").upper() in ("RE-ENTRY", "REENTRY")
+                and isinstance(row.get("evidence"), dict)
+                and row["evidence"].get("reentry_verified") is True
+                and _has_strategy_membership(row, "ORIGINAL366")
+            ],
             "EXPIRED": winners + expiry_losses,
             "EXPIRED_WIN": winners,
             "EXPIRED_LOSS": expiry_losses,
