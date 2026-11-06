@@ -99,6 +99,7 @@ class DhanInstrumentMaster:
                 "lot_size": lot_size or None,
                 "tick_size": row.get("SEM_TICK_SIZE"),
                 "instrument_type": (row.get("SEM_INSTRUMENT_NAME") or "").strip(),
+                "expiry_code": int(float(row.get("SEM_EXPIRY_CODE", "0") or 0)),
             })
         return result
 
