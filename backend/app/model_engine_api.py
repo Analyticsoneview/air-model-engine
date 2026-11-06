@@ -132,7 +132,7 @@ async def get_model_engine_master(
     result = build_master(rows)
     result.update({
         "source": "AIR Model Engine MASTER",
-        "updated_at": max((row["updated_at"] for row in rows), default=None),
+        "updated_at": max((row.get("updated_at") for row in rows if row.get("updated_at")), default=None),
         "data_status": "POPULATED" if rows else "AWAITING_VERIFIED_SIGNALS",
     })
     return result
