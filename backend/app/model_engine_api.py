@@ -64,7 +64,7 @@ async def get_model_engine_ledger(
 ) -> dict:
     rows = _ledger.list_signals(customer_id, limit)
     groups = {key: [] for key in
-              ("SURVIVOR", "NEW", "HOLD", "RE-ENTRY", "SL", "TARGETS", "EXPIRED", "EXPIRYSCAN")}
+              ("SURVIVOR", "NEW", "HOLD", "WAIT", "RE-ENTRY", "SL", "TARGETS", "EXPIRED", "EXPIRYSCAN")}
     for row in rows:
         groups[row["classification"]].append(row)
         # Survivor is a high-priority cross-cutting watchlist, not a replacement
