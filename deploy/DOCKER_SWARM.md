@@ -35,6 +35,7 @@ export AIR_CORS_ORIGINS="https://air.example.com"
 
 # AIR QOC scheduled Dhan option-chain snapshot capture (OFF by default)
 export AIR_QOC_SCHEDULER_ENABLED=false
+export AIR_QOC_DHAN_AUTO_RENEW_ENABLED=false
 export AIR_QOC_DHAN_ACCOUNT_ID="<registered-dhan-account-id>"
 # JSON list of verified underlying Dhan security IDs; never guess IDs.
 # Example format only: [{"security_id":13,"segment":"IDX_I","label":"NIFTY"}]
@@ -73,7 +74,7 @@ Manual operator-only run:
 POST /api/v1/air-qoc/run-eod-capture
 ```
 
-The scheduler does not refresh or generate Dhan access tokens. Refresh the token through Dhan’s supported account flow and update the encrypted AIR credential record when required. No raw NSE bhavcopy downloader is enabled; written NSE permission remains a prerequisite for automated NSE website collection. The scheduler captures snapshots only; it does not score, recommend, or place orders.
+Optional token renewal is available only for an active access token originally generated from Dhan Web. Enable it separately with `AIR_QOC_DHAN_AUTO_RENEW_ENABLED=true`; Dhan's RenewToken endpoint invalidates the current token and returns a new 24-hour token. API-key/OAuth tokens and expired tokens must use their respective Dhan authorization flow. Keep this switch off until the account's token origin is confirmed. The new token is written back to AIR's encrypted credential vault. No raw NSE bhavcopy downloader is enabled; written NSE permission remains a prerequisite for automated NSE website collection. The scheduler captures snapshots only; it does not score, recommend, or place orders.
 ## 7. Mobile build workflow
 
 The GitHub Actions workflow `.github/workflows/ios-pwa.yml` runs Flutter analysis and tests, builds the web app, and uploads `air-pwa-web` as a downloadable artifact. Set repository variable `AIR_API_BASE_URL` to the deployed HTTPS API URL. This avoids GitHub Pages permissions and keeps hosting self-managed.
