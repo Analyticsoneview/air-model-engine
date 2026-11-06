@@ -6,6 +6,7 @@ from typing import Any
 from app.brokers.base import OrderRequest, BrokerOrder
 from app.brokers.registry import BrokerRegistry
 from app.brokers.customer_accounts import CustomerAccountDirectory
+from app.services.order_ledger import DurableOrderLedger
 
 
 @dataclass(frozen=True)
@@ -32,10 +33,12 @@ class ExecutionService:
         registry: BrokerRegistry,
         policies: dict[tuple[str, str], ExecutionPolicy],
         account_directory: CustomerAccountDirectory,
+        ledger: DurableOrderLedger | None = None,
     ) -> None:
         self.registry = registry
         self.policies = policies
         self.account_directory = account_directory
+        self.ledger = ledger
         self._idempotency: dict[tuple[str, str, str], BrokerOrder] = {}
 
     def _validate(
@@ -88,6 +91,10 @@ class ExecutionService:
         self.account_directory.authorize_order_target(customer_id, broker, account)
         self._validate(broker, order, paper=paper, estimated_order_value=estimated_order_value)
         key = (broker, account, order.idempotency_key)
+        if self.ledger is not None:
+            persisted = self.ledger.get(broker, account, order.idempotency_key)
+            if persisted is not None:
+                return persisted
         if key in self._idempotency:
             return self._idempotency[key]
         if paper:
@@ -100,6 +107,8 @@ class ExecutionService:
         else:
             result = await self.registry.get(broker, account).place_order(order)
         self._idempotency[key] = result
+        if self.ledger is not None:
+            self.ledger.record(result, order.idempotency_key)
         return result
 
     async def submit_to_active_accounts(
