@@ -310,7 +310,8 @@ async def upstox_exchange(account_id: str, body: UpstoxTokenExchangeRequest,
     client = UpstoxClient()
     try:
         session = await client.exchange_code(body.code, client_id, client_secret, redirect_uri)
-        profile = session.get("user_id") or session.get("user_name")
+        profile_data = await client.profile()
+        profile = profile_data.get("user_id") or profile_data.get("user_name")
         credentials["access_token"] = session["access_token"]
         get_vault().put(customer_id, "upstox", account_id, credentials)
         return {"broker": "upstox", "account_id": account_id, "verified": True,
