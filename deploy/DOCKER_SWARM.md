@@ -20,9 +20,10 @@ Generate keys on the server. Keep them outside source control and do not paste t
 ```bash
 python3 -c "import secrets; print(secrets.token_urlsafe(48))" | docker secret create air_jwt_secret -
 python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" | docker secret create air_credential_key -
+python3 -c "import secrets; print(secrets.token_urlsafe(48))" | docker secret create air_admin_api_key -
 ```
 
-Back up the Fernet key securely. Losing it makes encrypted broker credentials unrecoverable. The API reads both secrets from Docker's `*_FILE` paths.
+Back up the Fernet key securely. Losing it makes encrypted broker credentials unrecoverable. The API reads all three secrets from Docker's `*_FILE` paths. Keep the admin key private; it is used to review customer requests and run operator-only backend actions.
 
 ## 3. Bootstrap the first operator (before deployment)\n\nOn the server, from the checked-out repository, create the first operator in the same persistent auth database path the API will use. For the initial bootstrap, run the script with the data directory mounted at the same host path used by the API volume, or run it inside a one-off container sharing that volume:\n\n```bash\ncd backend\nAIR_AUTH_DB_PATH=/var/lib/air/auth.sqlite3 python scripts/bootstrap_operator.py\n```\n\nThe script prompts for email and password without echoing the password and prints the new customer UUID. Set that UUID as `AIR_OPERATOR_CUSTOMER_IDS` in the API service environment. Do not enable public signup. The bootstrap script must run against the exact auth database that the API will mount; creating a user in a different local file will not provision the deployed service.\n\n## 4. Set deployment variables
 
@@ -89,3 +90,24 @@ The GitHub Actions workflow `.github/workflows/ios-pwa.yml` runs Flutter analysi
 - Configure a TLS reverse proxy, strict firewall rules, monitoring, log retention and backup rotation.
 - Broker API plans, market-data entitlements, static IP approvals, instrument masters and exchange data redistribution rights must be verified separately.
 - No live order permission is enabled by this deployment. Live trading must remain disabled until provider-specific preflight, reconciliation and explicit confirmation tests pass.
+
+
+## 9. Customer mobile access and administrator approval
+
+Customers enter a mobile number in international E.164 format (for example `+14155550123`). No OTP, WhatsApp, SMS, email or password is used. The first request is tied to the app's device identifier and remains `PENDING` until approved.
+
+Use the administrator API key stored in the `air_admin_api_key` Docker secret:
+
+```bash
+curl -H "X-AIR-ADMIN-KEY: $AIR_ADMIN_API_KEY" \
+  "https://api.example.com/api/v1/admin/access-requests?status=PENDING"
+
+curl -X PUT -H "X-AIR-ADMIN-KEY: $AIR_ADMIN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"status":"APPROVED","note":"Approved by AIR admin"}' \
+  "https://api.example.com/api/v1/admin/access-requests/<request_id>"
+```
+
+Set `status` to `REJECTED` or `BLOCKED` to deny access. Blocking or rejecting invalidates existing device sessions immediately. The mobile app securely stores its approved session and restores it on subsequent launches. Each new device requires its own approval.
+
+The mobile number is an identifier, not proof of ownership. Since customer identity verification is intentionally omitted, the administrator must make the access decision using the request details and any separate business process.
