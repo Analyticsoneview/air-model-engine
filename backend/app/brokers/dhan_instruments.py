@@ -98,6 +98,7 @@ class DhanInstrumentMaster:
                 "option_type": (row.get("SEM_OPTION_TYPE") or "").strip() or None,
                 "lot_size": lot_size or None,
                 "tick_size": row.get("SEM_TICK_SIZE"),
+                "instrument_type": (row.get("SEM_INSTRUMENT_NAME") or "").strip(),
             })
         return result
 
