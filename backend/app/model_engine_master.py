@@ -1,8 +1,7 @@
 """Canonical AIR MASTER lifecycle aggregation.
 
 This module only aggregates persisted, verified ledger rows. It never invents signals,
-orders, entry prices, or P&L. SURVIVOR applies the EXPIRY78 pre-expiry-entry cohort to
-active contracts that have not expired; expiry-day entries are excluded.
+orders, entry prices, or P&L. SURVIVOR is a cross-cutting <=7 calendar-DTE view.
 """
 from __future__ import annotations
 
@@ -22,29 +21,6 @@ MASTER_GROUPS = ("OPEN", "NEW", "HOLD", "REENTRY", "SURVIVOR", "WAIT",
 def _dte(row: dict[str, Any]) -> int | None:
     value = row.get("days_to_expiry")
     return int(value) if isinstance(value, (int, float)) else None
-
-
-def _is_pre_expiry_survivor_candidate(row: dict[str, Any]) -> bool:
-    """Apply the broker-restricted EXPIRY78 cohort rule to live positions.
-
-    A candidate must still be unexpired, have a verified entry date strictly before
-    expiry, and remain in an active lifecycle classification. The historical
-    0–7-DTE marker is not the survivor definition.
-    """
-    status = str(row.get("classification") or "").upper()
-    if status not in ("NEW", "HOLD", "RE-ENTRY", "REENTRY"):
-        return False
-    dte = _dte(row)
-    if dte is None or dte < 0:
-        return False
-    entry_date = str(row.get("entry_date") or "").strip()
-    expiry = str(row.get("expiry") or "").strip()
-    if not entry_date or not expiry:
-        return False
-    try:
-        return entry_date[:10] < expiry[:10]
-    except (TypeError, ValueError):
-        return False
 
 
 def _sort_key(row: dict[str, Any]) -> tuple:
@@ -87,14 +63,8 @@ def build_master(rows: list[dict[str, Any]]) -> dict[str, Any]:
         elif status == "EXPIRYSCAN":
             groups["EXPIRYSCAN"].append(row)
 
-        if _is_pre_expiry_survivor_candidate(row):
-            candidate = dict(row)
-            candidate["survivor_eligible"] = True
-            candidate["survivor_rule"] = "EXPIRY78_PRE_EXPIRY_ENTRY"
-            candidate["survivor_reason"] = (
-                "Active contract; entry recorded before expiry; contract has not expired."
-            )
-            groups["SURVIVOR"].append(candidate)
+        if dte is not None and 0 <= dte <= 7 and status != "EXPIRED":
+            groups["SURVIVOR"].append(row)
 
     # OPEN is the union of currently open lifecycle entries, not a second copy of rows.
     groups["OPEN"] = groups["NEW"] + groups["HOLD"]
@@ -121,7 +91,7 @@ def build_master(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "commands": list(MASTER_COMMANDS),
             "lifecycle_statuses": list(LIFECYCLE_STATUSES),
             "implemented_views": ["MASTER", *MASTER_GROUPS, "SUMMARY", "AUDIT"],
-            "deferred_views": ["EXPIRY78", "ORIGINAL366", "RECOVERY"],\n            "survivor_rule": "EXPIRY78_PRE_EXPIRY_ENTRY",\n            "survivor_exclusions": ["EXPIRED_CONTRACT", "ENTRY_ON_OR_AFTER_EXPIRY", "INACTIVE_LIFECYCLE", "MISSING_ENTRY_OR_EXPIRY"],
+            "deferred_views": ["EXPIRY78", "ORIGINAL366", "RECOVERY"],
         },
         "count": len(all_rows),
         "counts": {name: len(items) for name, items in groups.items()},
@@ -141,7 +111,7 @@ def build_master(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "hold": len(groups["HOLD"]),
             "reentry": len(groups["REENTRY"]),
             "slhit": len(groups["SLHIT"]),
-            "survivor_watch": len(groups["SURVIVOR"]),\n            "survivor_rule": "EXPIRY78_PRE_EXPIRY_ENTRY",
+            "survivor_watch": len(groups["SURVIVOR"]),
             "wait": len(groups["WAIT"]),
             "expired": len(groups["EXPIRED"]),
             "targets": len(groups["TARGETS"]),
