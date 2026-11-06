@@ -11,6 +11,7 @@ services:
       AIR_CREDENTIAL_DB_PATH: /var/lib/air/credentials.sqlite3
       AIR_ORDER_DB_PATH: /var/lib/air/orders.sqlite3
       AIR_ALLOW_CUSTOMER_SIGNUP: "false"
+      AIR_CORS_ORIGINS: ${AIR_CORS_ORIGINS:-http://localhost:3000}
       AIR_OPERATOR_CUSTOMER_IDS: ${AIR_OPERATOR_CUSTOMER_IDS:?Set operator customer UUIDs}
       AIR_CLIENT_LOCAL_IP: ${AIR_CLIENT_LOCAL_IP:-}
       AIR_CLIENT_PUBLIC_IP: ${AIR_CLIENT_PUBLIC_IP:-}
