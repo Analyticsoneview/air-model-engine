@@ -235,9 +235,9 @@ def get_owned_account(customer_id: str, broker: str, account_id: str) -> None:
 @app.post("/api/v1/customer/accounts/angel-one/{account_id}/login")
 async def angel_login(account_id: str, body: AngelLoginRequest,
                       customer_id: str = Depends(require_customer)) -> dict:
-    get_owned_account(customer_id, "angel_one", account_id)
+    get_owned_account(customer_id, "angelone", account_id)
     try:
-        credentials = get_vault().get(customer_id, "angel_one", account_id)
+        credentials = get_vault().get(customer_id, "angelone", account_id)
     except KeyError as exc:
         raise HTTPException(status_code=409, detail="Save Angel API key and PIN first") from exc
     api_key, pin = credentials.get("api_key"), credentials.get("pin")
@@ -257,8 +257,8 @@ async def angel_login(account_id: str, body: AngelLoginRequest,
         credentials["jwt_token"] = session["jwtToken"]
         credentials["refresh_token"] = session.get("refreshToken", "")
         credentials["feed_token"] = session.get("feedToken", "")
-        get_vault().put(customer_id, "angel_one", account_id, credentials)
-        return {"broker": "angel_one", "account_id": account_id, "verified": True,
+        get_vault().put(customer_id, "angelone", account_id, credentials)
+        return {"broker": "angelone", "account_id": account_id, "verified": True,
                 "feed_token_saved": bool(session.get("feedToken")),
                 "note": "Angel session verified and tokens stored encrypted. Session normally expires at midnight; TOTP was not stored. Live order permission remains disabled."}
     except AngelAPIError as exc:
