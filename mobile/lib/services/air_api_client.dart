@@ -98,6 +98,53 @@ class AirApiClient {
     return _decode(response);
   }
 
+  Future<Map<String, dynamic>> dhanDataStatus(String accountId) async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/api/v1/air-qoc/dhan/status/$accountId'),
+      headers: _headers,
+    );
+    return _decode(response);
+  }
+
+  Future<List<String>> dhanExpiryList(String accountId, int underlyingScrip,
+      String underlyingSegment) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/api/v1/air-qoc/dhan/expiry-list/$accountId'),
+      headers: _headers,
+      body: jsonEncode({
+        'underlying_scrip': underlyingScrip,
+        'underlying_segment': underlyingSegment,
+      }),
+    );
+    final data = _decode(response);
+    return (data['expiries'] as List<dynamic>? ?? const [])
+        .whereType<String>().toList(growable: false);
+  }
+
+  Future<Map<String, dynamic>> dhanOptionChain(String accountId,
+      int underlyingScrip, String underlyingSegment, String expiry) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/api/v1/air-qoc/dhan/option-chain/$accountId'),
+      headers: _headers,
+      body: jsonEncode({
+        'underlying_scrip': underlyingScrip,
+        'underlying_segment': underlyingSegment,
+        'expiry': expiry,
+      }),
+    );
+    return _decode(response);
+  }
+
+  Future<List<Map<String, dynamic>>> dhanObservations(String accountId) async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/api/v1/air-qoc/dhan/observations/$accountId'),
+      headers: _headers,
+    );
+    final data = _decode(response);
+    return (data['observations'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>().toList(growable: false);
+  }
+
   Map<String, dynamic> _decode(http.Response response) {
     Map<String, dynamic> body;
     try {
