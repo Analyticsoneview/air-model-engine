@@ -1,27 +1,28 @@
 # Self-hosted Docker Swarm deployment (single-node lab)
 
-This stack is a **single-replica lab deployment**, not a highly available production cluster. The current authentication, account, credential and order stores are SQLite and OAuth state is process-local. Do not scale the API service above one replica until the database and one-time OAuth state are migrated to shared durable services.
+This stack serves the Flutter PWA and API on a private overlay network. It is a **single-replica lab deployment**, not a highly available production cluster. Authentication, account, credential and order stores currently use SQLite; OAuth state is process-local. Do not scale the API above one replica until shared database and OAuth-state services are implemented.
 
-## 1. Build the API image
+## 1. Build images
 
 From the repository root:
 
 ```bash
 docker build -t air-model-engine-api:lab ./backend
+docker build --build-arg AIR_API_BASE_URL=https://api.example.com -f deploy/pwa.Dockerfile -t air-model-engine-pwa:lab .
 ```
 
-For a multi-node Swarm, push the image to a private registry and set `AIR_BACKEND_IMAGE` to that immutable image reference.
+The PWA build embeds the API base URL at compile time. Use the public HTTPS API URL, not localhost. For multi-node Swarm, push both images to a private registry and set `AIR_BACKEND_IMAGE` and `AIR_PWA_IMAGE` to immutable image references.
 
 ## 2. Create Docker secrets
 
-Generate a JWT secret and Fernet key on the server. Keep both outside source control and do not paste them into chat.
+Generate keys on the server. Keep them outside source control and do not paste them into chat.
 
 ```bash
 python3 -c "import secrets; print(secrets.token_urlsafe(48))" | docker secret create air_jwt_secret -
 python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" | docker secret create air_credential_key -
 ```
 
-Back up the Fernet key securely. Losing it makes encrypted broker credentials unrecoverable. Rotating it requires a planned re-encryption migration.
+Back up the Fernet key securely. Losing it makes encrypted broker credentials unrecoverable. The API reads both secrets from Docker's `*_FILE` paths.
 
 ## 3. Set deployment variables
 
@@ -29,9 +30,11 @@ Back up the Fernet key securely. Losing it makes encrypted broker credentials un
 export AIR_OPERATOR_CUSTOMER_IDS="<provisioned-customer-uuid>"
 export AIR_API_PORT=8000
 export AIR_BACKEND_IMAGE=air-model-engine-api:lab
+export AIR_PWA_IMAGE=air-model-engine-pwa:lab
+export AIR_CORS_ORIGINS="https://air.example.com"
 ```
 
-For Angel One, configure the actual server client local IP, public IP and MAC address as `AIR_CLIENT_LOCAL_IP`, `AIR_CLIENT_PUBLIC_IP` and `AIR_CLIENT_MAC_ADDRESS`. Do not use placeholder values.
+For Angel One, configure actual server client local IP, public IP and MAC address. Do not use placeholder values.
 
 ## 4. Deploy
 
@@ -39,21 +42,20 @@ For Angel One, configure the actual server client local IP, public IP and MAC ad
 docker stack deploy -c docker-stack.yml air
 docker service ls
 docker service logs -f air_air-api
+docker service logs -f air_air-pwa
 ```
 
-Health check: `http://<server-host>:8000/health`.
+The PWA listens on port 8080 inside the overlay as `air-pwa`; the API listens on port 8000 as `air-api`. Configure your existing TLS reverse proxy to route the app hostname to `air-pwa:8080` and API hostname to `air-api:8000`. Do not expose the PWA container directly to the public internet without TLS. The API's published port is for lab connectivity; firewall it or remove the `ports` block when only the reverse proxy should access it.
 
-## 5. Security and production blockers
+## 5. Mobile build workflow
 
-- Put the API behind a TLS reverse proxy and firewall the published port to trusted ingress only.
-- Configure backups for the `air_data` volume and test restore before storing broker credentials.
-- The example publishes the API port for lab connectivity; it does not configure TLS or internet-facing ingress.
-- SQLite plus in-memory OAuth state requires one replica. PostgreSQL, Redis-backed OAuth state, migrations, shared audit storage and HA deployment are not implemented in this stack.
-- Broker API plans, data entitlements, static IP approvals, instrument masters and exchange data redistribution rights must be verified separately.
-- No live order permission is enabled by this deployment.
+The GitHub Actions workflow `.github/workflows/ios-pwa.yml` runs Flutter analysis and tests, builds the web app, and uploads `air-pwa-web` as a downloadable artifact. Set repository variable `AIR_API_BASE_URL` to the deployed HTTPS API URL. This avoids GitHub Pages permissions and keeps hosting self-managed.
 
-## Mobile backend URL
+## 6. Provisioning and production blockers
 
-Set the GitHub repository variable `AIR_API_BASE_URL` to the HTTPS URL of the deployed AIR API before distributing a connected Android/PWA build. The build workflows pass this variable through as a Dart compile-time value. If it is unset, the app deliberately falls back to `http://127.0.0.1:8000` for local development only; a deployed phone/PWA cannot use that localhost address to reach your server.
-
-Set `AIR_CORS_ORIGINS` to a comma-separated allowlist of exact browser origins (scheme + host + optional port), including the deployed PWA origin. Do not use `*` with credentials. Keep localhost entries only for local development.
+- Customer signup is disabled by default. Provision the initial operator through the backend's trusted administrative bootstrap procedure; do not enable public signup on an exposed instance.
+- Back up the `air_data` volume and test restore before storing broker credentials.
+- SQLite and in-memory OAuth state require one API replica. PostgreSQL, Redis-backed OAuth state, migrations, shared audit storage and HA deployment are not implemented yet.
+- Configure a TLS reverse proxy, strict firewall rules, monitoring, log retention and backup rotation.
+- Broker API plans, market-data entitlements, static IP approvals, instrument masters and exchange data redistribution rights must be verified separately.
+- No live order permission is enabled by this deployment. Live trading must remain disabled until provider-specific preflight, reconciliation and explicit confirmation tests pass.
