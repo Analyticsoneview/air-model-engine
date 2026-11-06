@@ -65,5 +65,43 @@ class DhanHQClientTests(unittest.IsolatedAsyncioTestCase):
         await client.close()
 
 
+    async def test_option_chain_and_expired_options_payloads(self):
+        seen = []
+
+        def handler(request):
+            seen.append((request.url.path, request.read().decode()))
+            if request.url.path.endswith("/optionchain/expirylist"):
+                return httpx.Response(200, json={"data": ["2026-11-26"]})
+            if request.url.path.endswith("/optionchain"):
+                return httpx.Response(200, json={"status": "success", "data": {"oc": {}}})
+            return httpx.Response(200, json={"data": {"ce": {"close": [12.5]}}})
+
+        client = DhanHQClient("10001", "test-token", transport=httpx.MockTransport(handler))
+        expiries = await client.option_expiry_list(underlying_scrip=13, underlying_segment="IDX_I")
+        chain = await client.option_chain(
+            underlying_scrip=13, underlying_segment="IDX_I", expiry="2026-11-26"
+        )
+        expired = await client.expired_options(
+            underlying_scrip=13, interval=5, instrument="OPTIDX",
+            expiry_flag="WEEK", expiry_code=1, strike="ATM",
+            option_type="CALL", from_date="2026-10-01", to_date="2026-10-15",
+        )
+        self.assertEqual(expiries, ["2026-11-26"])
+        self.assertIn("oc", chain)
+        self.assertIn("ce", expired["data"])
+        self.assertEqual([item[0] for item in seen], [
+            "/v2/optionchain/expirylist", "/v2/optionchain", "/v2/charts/rollingoption"
+        ])
+        self.assertIn('"drvOptionType":"CALL"', seen[2][1])
+        with self.assertRaises(ValueError):
+            await client.expired_options(
+                underlying_scrip=13, interval=3, instrument="OPTIDX",
+                expiry_flag="WEEK", expiry_code=1, strike="ATM",
+                option_type="CALL", from_date="2026-10-01", to_date="2026-10-15",
+            )
+        await client.close()
+
+
+
 if __name__ == "__main__":
     unittest.main()
