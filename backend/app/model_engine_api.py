@@ -10,6 +10,7 @@ from app.model_engine_master import build_master
 from app.model_engine_expiryscan import scan_expiries
 from app.model_engine_expiry78 import RULES as EXPIRY78_RULES, evaluate_expiry78_rows
 from app.model_engine_original366 import ORIGINAL366_RULES, evaluate_original366_rows
+from app.model_engine_strategies import ORIGINAL366_BASELINE
 from app.expiry_case_study_27oct2026 import historical_expired_contracts
 from app.air_qoc_store import AirQocStore
 from app.brokers.customer_accounts import CustomerAccountDirectory
