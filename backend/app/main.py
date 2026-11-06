@@ -69,7 +69,7 @@ async def stop_air_qoc_jobs() -> None:
 @app.post("/api/v1/air-qoc/run-eod-capture")
 async def run_air_qoc_eod_capture(customer_id: str = Depends(require_air_operator)) -> dict:
     try:
-        return await capture_dhan_eod_snapshots()
+        return await capture_dhan_eod_snapshots(force=True)
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"AIR QOC data capture failed: {type(exc).__name__}") from exc
 
