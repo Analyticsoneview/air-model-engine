@@ -213,10 +213,12 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
         engine_trade_count = 0
         engine_survivors = 0
         engine_stops = 0
+        contracts_without_entry_touch = 0
         for source in evaluated:
             replay = source["expiry78"]
             trades = replay.get("trades") or []
             if not trades:
+                contracts_without_entry_touch += 1
                 engine_groups["WAIT"].append({
                     **source, "classification": "WAIT",
                     "reason": replay.get("reason"),
@@ -238,14 +240,17 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
             values.sort(key=_sort_key, reverse=True)
         result["EXPIRY78"]["groups"] = engine_groups
         result["EXPIRY78"]["counts"] = {key: len(value) for key, value in engine_groups.items()}
-        result["EXPIRY78"]["count"] = engine_trade_count + len(engine_groups["WAIT"])
+        result["EXPIRY78"]["count"] = sum(
+            len(engine_groups[key]) for key in
+            ("NEW", "HOLD", "WAIT", "SLHIT", "REENTRY", "EXPIRED", "TARGETS")
+        )
         result["EXPIRY78"]["audit"].update({
             "engine": "AIR_EXPIRY78_SEVEN_RULES",
             "contracts_replayed": len(evaluated),
             "trades_replayed": engine_trade_count,
             "expiry_survivors": engine_survivors,
             "stop_losses": engine_stops,
-            "contracts_without_entry_touch": len(engine_groups["WAIT"]),
+            "contracts_without_entry_touch": contracts_without_entry_touch,
             "note": "Only verified daily OHLCV evidence is replayed; contracts without attached daily bars are not backfilled or guessed.",
         })
     return result
