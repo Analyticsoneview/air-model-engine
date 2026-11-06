@@ -26,6 +26,7 @@ class AirQocStore:
                 underlying_scrip INTEGER NOT NULL,
                 underlying_segment TEXT NOT NULL,
                 expiry TEXT NOT NULL,
+                underlying_price REAL,
                 strike TEXT NOT NULL,
                 option_type TEXT NOT NULL CHECK(option_type IN ('CE','PE')),
                 security_id TEXT,
@@ -44,6 +45,9 @@ class AirQocStore:
                 UNIQUE(provider, account_id, underlying_scrip, expiry, strike, option_type, observed_at)
             )
         """)
+        columns = {row["name"] for row in self.db.execute("PRAGMA table_info(option_observations)").fetchall()}
+        if "underlying_price" not in columns:
+            self.db.execute("ALTER TABLE option_observations ADD COLUMN underlying_price REAL")
         self.db.execute("""
             CREATE INDEX IF NOT EXISTS idx_qoc_latest
             ON option_observations(provider, account_id, underlying_scrip, expiry, observed_at DESC)
@@ -65,7 +69,7 @@ class AirQocStore:
                 greeks = item.get("greeks") or {}
                 rows.append((
                     "dhan", account_id, underlying_scrip, underlying_segment, expiry,
-                    str(strike), option_type, str(item.get("security_id") or ""),
+                    underlying_price, str(strike), option_type, str(item.get("security_id") or ""),
                     _number(item.get("last_price")), _number(item.get("previous_close_price")),
                     _integer(item.get("volume")), _integer(item.get("previous_volume")),
                     _integer(item.get("oi")), _integer(item.get("previous_oi")),
@@ -77,10 +81,10 @@ class AirQocStore:
             self.db.executemany("""
                 INSERT OR REPLACE INTO option_observations (
                     provider,account_id,underlying_scrip,underlying_segment,expiry,
-                    strike,option_type,security_id,last_price,previous_close,volume,
+                    underlying_price,strike,option_type,security_id,last_price,previous_close,volume,
                     previous_volume,open_interest,previous_oi,bid_price,bid_quantity,
                     ask_price,ask_quantity,implied_volatility,observed_at
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, rows)
         return len(rows)
 
