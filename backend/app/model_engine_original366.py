@@ -5,11 +5,12 @@ from datetime import date
 from typing import Any
 
 ORIGINAL366_RULES = {
-    "cohort": "The historical ORIGINAL366 cohort is the 366 recovered contracts from 534 September–October 2026 entries with verified expiry outcomes; 168 unresolved entries are excluded from the historical baseline.",
+    "cohort": "RECOVERED is the display section for the ORIGINAL366 reference cohort: 366 full-expiry-coverage entries selected from the original 534-entry population; 83 partial-coverage and 85 no-post-entry-data records remain outside this cohort.",
     "entry": "Use actual filled entry_date and entry_price. CE and PE contracts are evaluated independently.",
     "stock_premium": "New stock CE/PE entries require premium ₹1–₹10 inclusive. Index options are exempt from the ₹10 cap.",
     "minimum_shelf_life": "At least 10 verified NSE trading sessions must remain from actual filled entry to expiry. Supply remaining_trading_sessions on the row or in evidence; calendar days and weekday estimates are not substituted.",
     "stop_loss": "5% below actual entry premium. Check daily option LOW from entry day through expiry. Same-day breach exits at stop; later gap-through exits at observed OPEN when below stop; otherwise at stop.",
+    "recovered_watch": "After the original 5% stop is hit, add the contract to the RECOVERED watch-only section when a subsequent verified daily option CLOSE is above the original entry premium. Keep the original SLHIT classification. This is not a re-entry, open position, order, or P&L event.",
     "expiry": "If no 5% stop occurs, settle using verified expiry-day underlying reference close and CE/PE intrinsic value. Keep expiry winners and losses under EXPIRED.",
     "unresolved": "Missing entry qualification, daily option bars, or verified expiry reference remains WAIT/UNRESOLVED and is never presented as a qualified active contract or completed historical trade.",
     "pnl": "Rupee P&L requires explicit position_quantity; net P&L additionally requires explicit charges_rupees.",
@@ -103,6 +104,24 @@ def evaluate_original366_contract(contract: dict[str, Any], *, as_of: str | None
         if day >= expiry_day:
             break
 
+    # A post-stop close above the original entry premium is a watch-only
+    # recovery observation. It does not reverse the original SLHIT or create
+    # a position/re-entry. A daily HIGH alone is deliberately insufficient.
+    recovered_watch = None
+    if exit_day is not None:
+        for bar in bars:
+            if bar["date"] > exit_day and _number(bar.get("close")) is not None and float(bar["close"]) > entry_price:
+                recovered_watch = {
+                    "trigger_date": bar["date"],
+                    "trigger_close": float(bar["close"]),
+                    "reference_entry_price": entry_price,
+                    "condition": "DAILY_CLOSE_ABOVE_ORIGINAL_ENTRY_AFTER_5_PERCENT_SL",
+                    "watch_only": True,
+                    "is_reentry": False,
+                    "is_open_position": False,
+                }
+                break
+
     qty = _number(contract.get("position_quantity") or evidence.get("position_quantity"))
     trade = {
         "strategy": "ORIGINAL366", "signal_id": contract.get("signal_id"),
@@ -115,6 +134,7 @@ def evaluate_original366_contract(contract: dict[str, Any], *, as_of: str | None
         "exit_reason": exit_reason, "classification": None, "expiry_intrinsic": None,
         "expiry_underlying_close": None, "pnl_points": None,
         "position_quantity": qty, "gross_pnl_rupees": None, "charges_rupees": None, "net_pnl_rupees": None,
+        "recovered_watch": recovered_watch,
     }
 
     if exit_reason:
