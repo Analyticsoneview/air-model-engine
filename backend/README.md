@@ -35,3 +35,14 @@ Build and run on an always-on self-hosted Linux machine, NAS or VPS. Docker Comp
 - Add durable storage, tick freshness checks, duplicate detection and market-session controls.
 - Respect each broker's API terms, data redistribution rules, subscription limits and exchange licensing.
 - Keep order execution separately permissioned from market-data access. Paper mode remains default.
+
+
+## Customer execution accounts
+
+Order destinations are modeled separately from the market-data Main Account. A customer may register multiple accounts under the same broker and across different brokers. Each account has an independent order-placement permission, and batch orders carry an explicit destination and quantity for every account.
+
+- `app/brokers/customer_accounts.py`: SQLite-backed ownership directory. The composite broker/account identifier is unique, customer listings are tenant-scoped, and order permission can be enabled or revoked independently. The default database path is `data/customer_accounts.sqlite3`; persist the data directory with a Docker volume.
+- `app/services/execution.py`: requires the authenticated customer identifier and validates ownership plus order permission for both single-account and batch routing. Batch preflight checks every selected account before the first live submission. Results remain per account because broker responses can partially succeed.
+- `app/brokers/registry.py`: holds independently connected broker sessions for execution accounts. This registry does not change or expand the one-account market-data policy.
+
+The directory stores account identifiers and permissions only. It does not store broker passwords, API secrets, refresh tokens or access tokens. Do not expose account-management or execution methods through public API routes until customer authentication, authorization, encrypted credential storage, CSRF/rate limiting where applicable, and audit logging are implemented. A customer identifier supplied by an unauthenticated client is not proof of identity.
