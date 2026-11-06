@@ -132,7 +132,6 @@ class _AirAccessGateState extends State<AirAccessGate> {
   @override
   Widget build(BuildContext context) {
     if (_approved) return widget.builder(context);
-    final cs = Theme.of(context).colorScheme;
     final pending = _status == 'PENDING';
     final approvedStatus = _status == 'APPROVED';
     final denied = _status == 'REJECTED' || _status == 'BLOCKED';
