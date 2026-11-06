@@ -20,6 +20,16 @@ account_directory = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "d
 _credential_vault: CredentialVault | None = None
 
 
+def require_air_operator(customer_id: str = Depends(require_customer)) -> str:
+    allowed = {
+        value.strip() for value in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",")
+        if value.strip()
+    }
+    if not allowed or customer_id not in allowed:
+        raise HTTPException(status_code=403, detail="AIR operator permission is required")
+    return customer_id
+
+
 def get_vault() -> CredentialVault:
     global _credential_vault
     if _credential_vault is None:
@@ -92,14 +102,19 @@ async def login_customer(body: CustomerLogin) -> dict:
 @app.get("/api/v1/customer/accounts")
 async def list_customer_accounts(customer_id: str = Depends(require_customer)) -> dict:
     accounts = account_directory.list_for_customer(customer_id)
-    credentials = get_vault().list_for_customer(customer_id)
-    credential_keys = {(r["broker"], r["account_id"]) for r in credentials}
+    try:
+        credentials = get_vault().list_for_customer(customer_id)
+        credential_keys = {(r["broker"], r["account_id"]) for r in credentials}
+        vault_configured = True
+    except HTTPException:
+        credential_keys = set()
+        vault_configured = False
     return {"accounts": [
         {"broker": a.broker, "account_id": a.account_id,
          "order_enabled": a.enabled_for_orders,
          "credentials_saved": (a.broker, a.account_id) in credential_keys}
         for a in accounts
-    ]}
+    ], "credential_vault_configured": vault_configured}
 
 
 @app.post("/api/v1/customer/accounts", status_code=201)
@@ -129,7 +144,7 @@ async def set_customer_order_permission(broker: str, account_id: str, body: Orde
 
 @app.put("/api/v1/customer/accounts/{broker}/{account_id}/credentials")
 async def save_customer_broker_credentials(broker: str, account_id: str, body: BrokerCredentialInput,
-                                           customer_id: str = Depends(require_customer)) -> dict:
+                                           customer_id: str = Depends(require_air_operator)) -> dict:
     try:
         owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(customer_id)}
         if (broker.lower(), account_id) not in owned:
@@ -145,16 +160,17 @@ async def save_customer_broker_credentials(broker: str, account_id: str, body: B
 @app.delete("/api/v1/customer/accounts/{broker}/{account_id}")
 async def remove_customer_account(broker: str, account_id: str,
                                   customer_id: str = Depends(require_customer)) -> dict:
+    vault = get_vault()
     try:
+        vault.delete(customer_id, broker, account_id)
         account_directory.remove(customer_id, broker, account_id)
     except PermissionError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    get_vault().delete(customer_id, broker, account_id)
     return {"status": "removed", "broker": broker.lower(), "account_id": account_id}
 
 
 @app.get("/api/v1/market-data/status")
-async def market_data_status(customer_id: str = Depends(require_customer)) -> dict:
+async def market_data_status(customer_id: str = Depends(require_air_operator)) -> dict:
     return {
         "routing": market_data_router.status(),
         "stream": market_data_hub.status(),
@@ -179,7 +195,7 @@ async def select_main_account(selection: MainAccountSelection,
 
 
 @app.delete("/api/v1/market-data/main-account")
-async def disconnect_main_account(customer_id: str = Depends(require_customer)) -> dict:
+async def disconnect_main_account(customer_id: str = Depends(require_air_operator)) -> dict:
     try:
         await market_data_router.clear_main_account()
     except RuntimeError as exc:
