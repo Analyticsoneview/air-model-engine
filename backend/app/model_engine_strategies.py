@@ -123,7 +123,9 @@ def _recovery_verified(row: dict[str, Any]) -> bool:
     if evidence.get("recovery_verified") is not True:
         return False
     lot_size = row.get("lot_size")
-    if isinstance(lot_size, (int, float)) and lot_size > 1250:
+    if not isinstance(lot_size, (int, float)) or lot_size <= 0:
+        return False
+    if lot_size > 1250:
         original_premium = evidence.get("original_entry_premium")
         if original_premium is None:
             original_premium = evidence.get("original_entry_price")
