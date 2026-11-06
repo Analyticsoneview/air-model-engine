@@ -65,6 +65,32 @@ class DhanHQClientTests(unittest.IsolatedAsyncioTestCase):
         await client.close()
 
 
+    def test_qoc_store_saves_normalized_calls_and_puts_without_raw_payload(self):
+        import tempfile
+        from pathlib import Path
+        from app.air_qoc_store import AirQocStore
+
+        with tempfile.TemporaryDirectory() as temp:
+            store = AirQocStore(str(Path(temp) / "qoc.sqlite3"))
+            count = store.save_option_chain(
+                account_id="A001", underlying_scrip=13,
+                underlying_segment="IDX_I", expiry="2026-11-26",
+                underlying_price=24500.0, observed_at="2026-11-07T10:00:00+00:00",
+                chain={"oc": {
+                    "24500": {
+                        "ce": {"security_id": 100, "last_price": 120.5, "volume": 1000,
+                               "oi": 5000, "top_bid_price": 120.0, "top_ask_price": 121.0},
+                        "pe": {"security_id": 101, "last_price": 115.0, "volume": 900,
+                               "oi": 4500},
+                    }
+                }},
+            )
+            rows = store.latest_observations(account_id="A001")
+            self.assertEqual(count, 2)
+            self.assertEqual({row["option_type"] for row in rows}, {"CE", "PE"})
+            self.assertEqual(rows[0]["underlying_scrip"], 13)
+            store.close()
+
     async def test_option_chain_and_expired_options_payloads(self):
         seen = []
 
