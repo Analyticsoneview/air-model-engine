@@ -41,7 +41,7 @@ STRATEGY_RULES = {
         "name": "RECOVERY",
         "membership": "RECOVERY",
         "stock_entry_filter": "₹1–₹10 applies to qualifying stock CE/PE recovery entries; index options retain existing rules",
-        "qualification": "Verified next-session-open re-entry after prior close above original entry; fresh 5% stop; +50% high qualification then hold to expiry; minimum 10 sessions; retain the existing lot-size rule (lot size > 1,250 requires original premium < ₹1).",
+        "qualification": "After the initial 5% SL, a daily option close above the original entry premium qualifies a recovery signal; enter at the next session open and set a fresh 5% SL from the recovery entry. The recovery entry has a 10-trading-session shelf life measured from the recovery re-entry date. A later daily HIGH reaching recovery-entry × 1.50 marks +50% target-qualified and the position is then held to expiry. Trail milestones +50/+100/+200/+300% at +45/+90/+180/+270%; if target and stop occur in the same candle, assume stop first. Lot size >1,250 requires original entry premium < ₹1.",
         "candidate_filter_stage": "RECOVERY_ENTRY_QUALIFICATION",
     },
 }
