@@ -137,14 +137,24 @@ class _AirQocScreenState extends State<AirQocScreen> {
     if (id == null) throw const AirApiException('Select a Dhan account first.');
     final values = await _api.dhanObservations(id);
     if (!mounted) return;
+    final grouped = <String, Map<String, dynamic>>{};
+    for (final observation in values) {
+      final key = '${observation['expiry']}|${observation['strike']}|${observation['observed_at']}';
+      final row = grouped.putIfAbsent(key, () => {
+        'strike': observation['strike']?.toString() ?? '—',
+        'ce': <String, dynamic>{},
+        'pe': <String, dynamic>{},
+      });
+      if (observation['option_type'] == 'CE') {
+        row['ce'] = observation;
+      } else if (observation['option_type'] == 'PE') {
+        row['pe'] = observation;
+      }
+    }
     setState(() {
-      _rows = values.map((row) => {
-        'strike': row['strike']?.toString() ?? '—',
-        'ce': row['option_type'] == 'CE' ? row : <String, dynamic>{},
-        'pe': row['option_type'] == 'PE' ? row : <String, dynamic>{},
-      }).toList();
-      _status = 'Loaded ${values.length} stored observations. '
-          'Rows are historical snapshots, not live quotes.';
+      _rows = grouped.values.toList();
+      _status = 'Loaded ${values.length} stored CE/PE observations. '
+          'Rows are grouped by expiry, strike and observation time; they are snapshots, not live quotes.';
     });
   });
 
