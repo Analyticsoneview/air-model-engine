@@ -112,7 +112,7 @@ def build_master(rows: list[dict[str, Any]]) -> dict[str, Any]:
             instrument_counts["OTHER_OR_UNKNOWN"] += 1
         sector = str(row.get("sector") or "UNCLASSIFIED").strip().upper()
         sector_counts[sector] = sector_counts.get(sector, 0) + 1
-    # WAIT is intentionally empty until a verified pending-state source is implemented.
+    # WAIT is populated only by an explicitly persisted, verified pending-state record.
     for name in groups:
         groups[name].sort(key=_sort_key, reverse=True)
 
