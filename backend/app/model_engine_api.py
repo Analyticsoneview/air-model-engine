@@ -240,22 +240,29 @@ async def get_original366_engine(
     winners = [trade for trade in trades if trade.get("classification") == "EXPIRED_WIN"]
     expiry_losses = [trade for trade in trades if trade.get("classification") == "EXPIRED_LOSS"]
     stopped = [trade for trade in trades if trade.get("classification") == "SLHIT"]
+    recovered_watch = [
+        {**trade, "classification": "RECOVERED_WATCH", "watch": trade["recovered_watch"],
+         "position_status": "WATCH_ONLY_NOT_OPEN"}
+        for trade in stopped if trade.get("recovered_watch")
+    ]
     new_rows = [
         row for row in rows
         if str(row.get("classification") or "").upper() == "NEW"
         and _has_strategy_membership(row, "ORIGINAL366")
     ]
     return {
-        "strategy": "ORIGINAL366",
+        "strategy": "RECOVERED",
+        "cohort_id": "ORIGINAL366",
         "as_of": as_of,
         "rules": ORIGINAL366_RULES,
-        "historical_baseline": dict(ORIGINAL366_BASELINE),
-        "baseline_status": "PRESERVED_NOT_RECALCULATED",
+        "cohort_reference": dict(ORIGINAL366_BASELINE),
+        "baseline_status": "COHORT_FILTER_ONLY",
         "contracts_replayed": len(contracts),
         "trade_count": len(trades),
         "expiry_winners": len(winners),
         "expiry_losses": len(expiry_losses),
         "stop_losses": len(stopped),
+        "recovered_watch_count": len(recovered_watch),
         "gross_pnl_rupees": round(sum(trade.get("gross_pnl_rupees") or 0 for trade in trades), 2),
         "charges_rupees": round(sum(trade.get("charges_rupees") or 0 for trade in trades), 2),
         "net_pnl_rupees": round(sum(trade.get("net_pnl_rupees") or 0 for trade in trades), 2),
@@ -265,6 +272,7 @@ async def get_original366_engine(
             "HOLD": [trade for trade in trades if trade.get("classification") == "HOLD"],
             "WAIT": [trade for trade in trades if trade.get("classification") == "WAIT"],
             "SLHIT": stopped,
+            "RECOVERED": recovered_watch,
             "REENTRY": [
                 row for row in rows
                 if str(row.get("classification") or "").upper() in ("RE-ENTRY", "REENTRY")
@@ -279,7 +287,7 @@ async def get_original366_engine(
         "contracts": contracts,
         "new_candidates_pending_replay": len(new_rows),
         "data_status": "POPULATED" if contracts else "AWAITING_VERIFIED_DAILY_OHLCV",
-        "note": "Historical baseline is shown separately and never recalculated. New candidates require explicit ORIGINAL366 membership, verified entry details and daily option OHLCV. No broker orders are placed.",
+        "note": "RECOVERED is a watch-only section for the ORIGINAL366 reference cohort. A post-SL daily option close above original entry premium adds a watch row; it does not create a re-entry, open position, order or P&L event. No broker orders are placed.",
     }
 
 
