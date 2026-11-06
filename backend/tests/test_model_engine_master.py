@@ -44,7 +44,7 @@ def test_master_deduplicates_and_declares_deferred_views():
     assert result["count"] == 1
     assert result["audit"]["deduplicated"] == 1
     assert "EXPIRY78" in result["vocabulary"]["implemented_views"]
-    assert "ORIGINAL366" in result["vocabulary"]["deferred_views"]
+    assert "ORIGINAL366" in result["vocabulary"]["implemented_views"]
     assert "RECOVERY" in result["vocabulary"]["deferred_views"]
     assert "MASTER" in MASTER_COMMANDS
 
