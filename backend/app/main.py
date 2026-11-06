@@ -20,6 +20,7 @@ from app.market_data.router import MarketDataRouter
 from app.market_data.dhan_adapter import DhanMarketDataAdapter
 from app.market_data.contracts import MarketInstrument
 from app.air_qoc_dhan import router as air_qoc_dhan_router
+from app.air_qoc_scheduler import start_qoc_scheduler, stop_qoc_scheduler, capture_dhan_eod_snapshots
 from app.security import create_access_token, hash_password, require_customer, verify_password
 
 app = FastAPI(title="AIR Model Engine API", version="0.3.0",
@@ -53,6 +54,24 @@ def require_air_operator(customer_id: str = Depends(require_customer)) -> str:
     if not allowed or customer_id not in allowed:
         raise HTTPException(status_code=403, detail="AIR operator permission is required")
     return customer_id
+
+
+@app.on_event("startup")
+async def start_air_qoc_jobs() -> None:
+    start_qoc_scheduler()
+
+
+@app.on_event("shutdown")
+async def stop_air_qoc_jobs() -> None:
+    stop_qoc_scheduler()
+
+
+@app.post("/api/v1/air-qoc/run-eod-capture")
+async def run_air_qoc_eod_capture(customer_id: str = Depends(require_air_operator)) -> dict:
+    try:
+        return await capture_dhan_eod_snapshots()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"AIR QOC data capture failed: {type(exc).__name__}") from exc
 
 
 def get_vault() -> CredentialVault:
