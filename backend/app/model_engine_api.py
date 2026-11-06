@@ -65,6 +65,7 @@ async def get_model_engine_ledger(
         dte = row.get("days_to_expiry")
         if dte is not None and 0 <= dte <= 7 and row["classification"] != "EXPIRED":
             groups["SURVIVOR"].append(row)
+    groups["SURVIVOR"].sort(key=lambda row: (row.get("days_to_expiry", 999), -(row.get("score") or 0), row["signal_date"]))
     return {
         "source": "AIR Model Engine signal ledger",
         "count": len(rows),
