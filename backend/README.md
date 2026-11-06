@@ -59,3 +59,11 @@ The directory stores account identifiers and permissions only. It does not store
 - Persist the `data/` directory as a protected volume. Back it up encrypted and restrict filesystem permissions.
 
 **Not production-complete yet:** no provider-specific broker adapter or OAuth/token refresh flow is installed; credentials can be encrypted and saved but are not used to authenticate a broker. No public order-placement endpoint is exposed. Account order permission cannot be enabled through the API until broker authorization is verified. Add rate limiting, email verification/password reset, refresh-token rotation/revocation, admin provisioning, audit log, database migration strategy, TLS, and security review before onboarding real customers or enabling live trading.
+
+
+## Durable order ledger (foundation)
+
+- `app/services/order_ledger.py` persists broker order identifiers, status and normalized response metadata in SQLite using WAL mode and an account-scoped unique key: broker + account + idempotency key.
+- `ExecutionService` can be constructed with this ledger so a completed result is returned after an application restart rather than being forgotten in process memory.
+- This protects retries after a completed submission. It does **not** yet provide an atomic pre-submit reservation, broker-timeout ambiguity resolution, event-sourced audit history, or automated broker reconciliation. A timeout must be treated as unknown and checked against the broker order book; never blindly retry a possibly accepted live order.
+- Keep live execution disabled until atomic intent reservation, durable audit events, provider-specific reconciliation and fault-injection tests are complete. The ledger database must be included in encrypted backups and protected persistent storage.
