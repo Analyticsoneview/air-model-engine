@@ -42,6 +42,10 @@ jobs:
         working-directory: mobile
         run: flutter analyze lib
 
+      - name: Run Flutter tests
+        working-directory: mobile
+        run: flutter test
+
       - name: Build optimized ARM64 lab APK
         working-directory: mobile
         run: flutter build apk --release --target-platform android-arm64 --dart-define=APP_ENV=lab
