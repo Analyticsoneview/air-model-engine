@@ -113,3 +113,16 @@ References: DhanHQ official Authentication, Market Quote, Historical Data, Live 
 Official references:
 - https://dhanhq.co/docs/v2/live-market-feed/
 - https://dhanhq.co/docs/v2/annexure/
+
+
+## Zerodha Kite Connect v3 integration milestone
+
+- `app/brokers/zerodha.py` implements the server-side login URL, SHA-256 request-token checksum exchange, authenticated profile, quote snapshots, historical candles, order book, positions, holdings, and guarded order request validation.
+- Customer-owned account endpoints expose a login URL and accept the short-lived request token for server-side exchange. The resulting access token is written back into the encrypted credential vault only after profile verification.
+- The API secret is never returned to Flutter. Zerodha's access token expires at the next daily session boundary; the login flow must be repeated when expired. The route keeps AIR order permission disabled.
+- Kite live WebSocket streaming, normalized quote packet parsing and Main Account router integration are not yet wired. Do not treat this as a completed live market-data feed.
+
+Official references:
+- https://www.kite.trade/docs/connect/v3/user/
+- https://kite.trade/docs/connect/v3/market-quotes/
+- https://kite.trade/docs/connect/v3/websocket/
