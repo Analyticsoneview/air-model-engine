@@ -17,13 +17,17 @@ market_data_router = MarketDataRouter()
 market_data_hub = MarketDataHub()
 auth_store = AuthStore(os.getenv("AIR_AUTH_DB_PATH", "data/air_auth.sqlite3"))
 account_directory = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3"))
+_credential_vault: CredentialVault | None = None
 
 
 def get_vault() -> CredentialVault:
-    try:
-        return CredentialVault(os.getenv("AIR_CREDENTIAL_DB_PATH", "data/air_credentials.sqlite3"))
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail="Credential vault is not configured on the server") from exc
+    global _credential_vault
+    if _credential_vault is None:
+        try:
+            _credential_vault = CredentialVault(os.getenv("AIR_CREDENTIAL_DB_PATH", "data/air_credentials.sqlite3"))
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail="Credential vault is not configured on the server") from exc
+    return _credential_vault
 
 
 class CustomerRegistration(BaseModel):
@@ -127,7 +131,6 @@ async def set_customer_order_permission(broker: str, account_id: str, body: Orde
 async def save_customer_broker_credentials(broker: str, account_id: str, body: BrokerCredentialInput,
                                            customer_id: str = Depends(require_customer)) -> dict:
     try:
-        account_directory.authorize_order_target(customer_id, broker, account_id) if False else None
         owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(customer_id)}
         if (broker.lower(), account_id) not in owned:
             raise PermissionError("Customer does not own this broker account")
@@ -163,6 +166,10 @@ async def market_data_status(customer_id: str = Depends(require_customer)) -> di
 async def select_main_account(selection: MainAccountSelection,
                               customer_id: str = Depends(require_customer)) -> dict:
     try:
+        owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(customer_id)}
+        if (selection.provider.lower(), selection.account_id) not in owned:
+            raise HTTPException(status_code=404, detail="Customer does not own this Main Account")
+        get_vault().get(customer_id, selection.provider, selection.account_id)
         await market_data_router.set_main_account(selection.provider, selection.account_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
