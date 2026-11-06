@@ -32,6 +32,13 @@ export AIR_API_PORT=8000
 export AIR_BACKEND_IMAGE=air-model-engine-api:lab
 export AIR_PWA_IMAGE=air-model-engine-pwa:lab
 export AIR_CORS_ORIGINS="https://air.example.com"
+
+# AIR QOC scheduled Dhan option-chain snapshot capture (OFF by default)
+export AIR_QOC_SCHEDULER_ENABLED=false
+export AIR_QOC_DHAN_ACCOUNT_ID="<registered-dhan-account-id>"
+# JSON list of verified underlying Dhan security IDs; never guess IDs.
+# Example format only: [{"security_id":13,"segment":"IDX_I","label":"NIFTY"}]
+export AIR_QOC_DHAN_UNDERLYINGS='[]'
 ```
 
 For Angel One, configure actual server client local IP, public IP and MAC address. Do not use placeholder values.
@@ -47,11 +54,31 @@ docker service logs -f air_air-pwa
 
 The PWA listens on port 8080 inside the overlay as `air-pwa`; the API listens on port 8000 as `air-api`. Configure your existing TLS reverse proxy to route the app hostname to `air-pwa:8080` and API hostname to `air-api:8000`. Do not expose the PWA container directly to the public internet without TLS. The API's published port is for lab connectivity; firewall it or remove the `ports` block when only the reverse proxy should access it.
 
-## 6. Mobile build workflow
+## 6. AIR QOC data capture
+
+The AIR QOC Dhan data routes are read-only. The mobile AIR QOC tab can check Dhan Data API entitlement, retrieve active expiries, fetch a live option chain and store normalized CE/PE observations in the private SQLite research database. A single snapshot is not an AIR QOC qualification signal.
+
+The weekday EOD capture scheduler runs at 15:45 Asia/Kolkata only when explicitly enabled. Configure the Dhan account and a verified JSON list of underlying security IDs/segments first. It fetches every active expiry sequentially and waits at least 3.1 seconds between option-chain requests to respect Dhan’s published option-chain rate limit. For a large universe, the run may take substantial time.
+
+```bash
+# Enable only after Data API entitlement and permitted use are confirmed.
+export AIR_QOC_SCHEDULER_ENABLED=true
+export AIR_QOC_DHAN_ACCOUNT_ID="<registered-dhan-account-id>"
+export AIR_QOC_DHAN_UNDERLYINGS='[{"security_id":13,"segment":"IDX_I","label":"NIFTY"}]'
+```
+
+Manual operator-only run:
+
+```text
+POST /api/v1/air-qoc/run-eod-capture
+```
+
+The scheduler does not refresh or generate Dhan access tokens. Refresh the token through Dhan’s supported account flow and update the encrypted AIR credential record when required. No raw NSE bhavcopy downloader is enabled; written NSE permission remains a prerequisite for automated NSE website collection. The scheduler captures snapshots only; it does not score, recommend, or place orders.
+## 7. Mobile build workflow
 
 The GitHub Actions workflow `.github/workflows/ios-pwa.yml` runs Flutter analysis and tests, builds the web app, and uploads `air-pwa-web` as a downloadable artifact. Set repository variable `AIR_API_BASE_URL` to the deployed HTTPS API URL. This avoids GitHub Pages permissions and keeps hosting self-managed.
 
-## 7. Provisioning and production blockers
+## 8. Provisioning and production blockers
 
 - Customer signup is disabled by default. Provision the initial operator through the backend's trusted administrative bootstrap procedure; do not enable public signup on an exposed instance.
 - Back up the `air_data` volume and test restore before storing broker credentials.
