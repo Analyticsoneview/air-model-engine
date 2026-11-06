@@ -5,7 +5,6 @@ orders, entry prices, or P&L. SURVIVOR is a cross-cutting <=7 calendar-DTE view.
 """
 from __future__ import annotations
 
-from collections import defaultdict
 from typing import Any
 
 # Stable public vocabulary shared by API and clients. Icons are intentionally omitted
@@ -48,7 +47,10 @@ def build_master(rows: list[dict[str, Any]]) -> dict[str, Any]:
     groups: dict[str, list[dict[str, Any]]] = {name: [] for name in MASTER_GROUPS}
     for row in all_rows:
         status = str(row.get("classification") or "").upper()
-        if status == "NEW":
+        dte = _dte(row)
+        if status == "EXPIRED" or (dte is not None and dte < 0):
+            groups["EXPIRED"].append(row)
+        elif status == "NEW":
             groups["NEW"].append(row)
         elif status == "HOLD":
             groups["HOLD"].append(row)
@@ -58,12 +60,9 @@ def build_master(rows: list[dict[str, Any]]) -> dict[str, Any]:
             groups["SLHIT"].append(row)
         elif status == "TARGETS":
             groups["TARGETS"].append(row)
-        elif status == "EXPIRED" or (_dte(row) is not None and _dte(row) < 0):
-            groups["EXPIRED"].append(row)
         elif status == "EXPIRYSCAN":
             groups["EXPIRYSCAN"].append(row)
 
-        dte = _dte(row)
         if dte is not None and 0 <= dte <= 7 and status != "EXPIRED":
             groups["SURVIVOR"].append(row)
 
