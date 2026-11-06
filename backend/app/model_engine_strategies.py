@@ -210,7 +210,7 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
         original_groups = {
             key: [row for row in prior.get(key, [])
                   if str(row.get("signal_id") or "") not in replayed_ids]
-            for key in ("NEW", "HOLD", "WAIT", "SLHIT", "REENTRY", "EXPIRED", "TARGETS")
+            for key in ("NEW", "HOLD", "WAIT", "SLHIT", "REENTRY", "EXPIRED", "TARGETS", "RECOVERED")
         }
         original_groups["OPEN"] = []
         original_groups["REJECTED"] = []
