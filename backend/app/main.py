@@ -11,6 +11,7 @@ from app.brokers.catalog import get_broker_catalog, is_supported_broker
 from app.brokers.dhan import DhanHQClient, DhanAPIError
 from app.brokers.zerodha import KiteConnectClient, KiteAPIError, kite_login_url
 from app.brokers.upstox import UpstoxClient, UpstoxAPIError, upstox_login_url
+from app.brokers.fyers import FyersClient, FyersAPIError, fyers_login_url
 from app.credential_vault import CredentialVault
 from app.market_data.hub import MarketDataHub
 from app.market_data.router import MarketDataRouter
@@ -24,6 +25,7 @@ auth_store = AuthStore(os.getenv("AIR_AUTH_DB_PATH", "data/air_auth.sqlite3"))
 account_directory = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3"))
 _credential_vault: CredentialVault | None = None
 _upstox_oauth_states: dict[tuple[str, str], str] = {}
+_fyers_oauth_states: dict[tuple[str, str], str] = {}
 
 
 def require_air_operator(customer_id: str = Depends(require_customer)) -> str:
@@ -80,6 +82,11 @@ class ZerodhaTokenExchangeRequest(BaseModel):
 
 class UpstoxTokenExchangeRequest(BaseModel):
     code: str = Field(min_length=4, max_length=512)
+    state: str = Field(min_length=8, max_length=256)
+
+
+class FyersTokenExchangeRequest(BaseModel):
+    auth_code: str = Field(min_length=8, max_length=2048)
     state: str = Field(min_length=8, max_length=256)
 
 
@@ -216,6 +223,53 @@ def get_owned_account(customer_id: str, broker: str, account_id: str) -> None:
     owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(customer_id)}
     if (broker.lower(), account_id) not in owned:
         raise HTTPException(status_code=404, detail="Broker account not found")
+
+
+
+@app.get("/api/v1/customer/accounts/fyers/{account_id}/login-url")
+async def fyers_login(account_id: str, customer_id: str = Depends(require_customer)) -> dict:
+    get_owned_account(customer_id, "fyers", account_id)
+    try:
+        credentials = get_vault().get(customer_id, "fyers", account_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=409, detail="Save FYERS app_id, app_secret and redirect_uri first") from exc
+    app_id, redirect_uri = credentials.get("app_id"), credentials.get("redirect_uri")
+    if not app_id or not credentials.get("app_secret") or not redirect_uri:
+        raise HTTPException(status_code=422, detail="FYERS app credentials are incomplete")
+    state = secrets.token_urlsafe(24)
+    _fyers_oauth_states[(customer_id, account_id)] = state
+    return {"login_url": fyers_login_url(app_id, redirect_uri, state), "state": state,
+            "note": "Complete FYERS login and submit auth_code with the returned state. State is one-time and process-local."}
+
+
+@app.post("/api/v1/customer/accounts/fyers/{account_id}/exchange")
+async def fyers_exchange(account_id: str, body: FyersTokenExchangeRequest,
+                         customer_id: str = Depends(require_customer)) -> dict:
+    get_owned_account(customer_id, "fyers", account_id)
+    expected_state = _fyers_oauth_states.pop((customer_id, account_id), None)
+    if not expected_state or not secrets.compare_digest(expected_state, body.state):
+        raise HTTPException(status_code=400, detail="Invalid or expired FYERS OAuth state")
+    try:
+        credentials = get_vault().get(customer_id, "fyers", account_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=409, detail="FYERS app credentials are not saved") from exc
+    app_id, app_secret = credentials.get("app_id"), credentials.get("app_secret")
+    if not app_id or not app_secret:
+        raise HTTPException(status_code=422, detail="FYERS app_id and app_secret are required")
+    client = FyersClient(app_id)
+    try:
+        session = await client.exchange_auth_code(body.auth_code, app_secret)
+        profile = await client.profile()
+        credentials["access_token"] = session["access_token"]
+        get_vault().put(customer_id, "fyers", account_id, credentials)
+        return {"broker": "fyers", "account_id": account_id, "verified": True,
+                "profile": profile.get("data", profile), "access_token_saved": True,
+                "note": "FYERS profile verified and token stored encrypted. Standard access tokens expire daily at 6:30 AM. Trading-app static IP eligibility is separate; AIR order permission remains disabled."}
+    except FyersAPIError as exc:
+        raise HTTPException(status_code=502 if exc.status_code >= 500 else 401,
+                            detail="FYERS authorization-code exchange or profile verification failed") from exc
+    finally:
+        await client.close()
 
 
 @app.get("/api/v1/customer/accounts/zerodha/{account_id}/login-url")
