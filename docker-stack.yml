@@ -1,0 +1,70 @@
+version: "3.9"
+
+services:
+  air-api:
+    image: ${AIR_BACKEND_IMAGE:-air-model-engine-api:lab}
+    environment:
+      AIR_JWT_SECRET_FILE: /run/secrets/air_jwt_secret
+      AIR_CREDENTIAL_KEY_FILE: /run/secrets/air_credential_key
+      AIR_AUTH_DB_PATH: /var/lib/air/auth.sqlite3
+      AIR_ACCOUNT_DB_PATH: /var/lib/air/accounts.sqlite3
+      AIR_CREDENTIAL_DB_PATH: /var/lib/air/credentials.sqlite3
+      AIR_ORDER_DB_PATH: /var/lib/air/orders.sqlite3
+      AIR_ALLOW_CUSTOMER_SIGNUP: "false"
+      AIR_OPERATOR_CUSTOMER_IDS: ${AIR_OPERATOR_CUSTOMER_IDS:?Set operator customer UUIDs}
+      AIR_CLIENT_LOCAL_IP: ${AIR_CLIENT_LOCAL_IP:-}
+      AIR_CLIENT_PUBLIC_IP: ${AIR_CLIENT_PUBLIC_IP:-}
+      AIR_CLIENT_MAC_ADDRESS: ${AIR_CLIENT_MAC_ADDRESS:-}
+    secrets:
+      - air_jwt_secret
+      - air_credential_key
+    volumes:
+      - air_data:/var/lib/air
+    networks:
+      - air_private
+    ports:
+      - target: 8000
+        published: ${AIR_API_PORT:-8000}
+        protocol: tcp
+        mode: ingress
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+      resources:
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+        limits:
+          cpus: "2.0"
+          memory: 1G
+      placement:
+        constraints:
+          - node.role == manager
+
+networks:
+  air_private:
+    driver: overlay
+    attachable: true
+
+volumes:
+  air_data:
+    driver: local
+
+secrets:
+  air_jwt_secret:
+    external: true
+  air_credential_key:
+    external: true
