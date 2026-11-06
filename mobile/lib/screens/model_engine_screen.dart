@@ -71,17 +71,24 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   );
 
   List<DataColumn> get _columns => const [
-    DataColumn(label: Text('SIGNAL DATE')), DataColumn(label: Text('ENTRY DATE')),
-    DataColumn(label: Text('CLASS')), DataColumn(label: Text('SYMBOL')), DataColumn(label: Text('SECTOR')),
-    DataColumn(label: Text('TYPE')), DataColumn(label: Text('EXPIRY')),
-    DataColumn(label: Text('STRIKE')), DataColumn(label: Text('ENTRY')),
-    DataColumn(label: Text('LATEST')), DataColumn(label: Text('SL')),
-    DataColumn(label: Text('T1')), DataColumn(label: Text('T2')),
-    DataColumn(label: Text('T3')), DataColumn(label: Text('LOT')),
-    DataColumn(label: Text('QTY')), DataColumn(label: Text('P&L')),
-    DataColumn(label: Text('SCORE')), DataColumn(label: Text('AGE')),
-    DataColumn(label: Text('DTE')), DataColumn(label: Text('SHELF LEFT')),
-    DataColumn(label: Text('SHELF STATUS')), DataColumn(label: Text('REASON')),
+    DataColumn(label: Text('MODEL SIGNAL DATE')),
+    DataColumn(label: Text('ENTRY DATE')),
+    DataColumn(label: Text('CLASSIFICATION')),
+    DataColumn(label: Text('INSTRUMENT')),
+    DataColumn(label: Text('SYMBOL')),
+    DataColumn(label: Text('SECTOR')),
+    DataColumn(label: Text('CE/PE')),
+    DataColumn(label: Text('STRIKE')),
+    DataColumn(label: Text('EXPIRY')),
+    DataColumn(label: Text('ENTRY PRICE')),
+    DataColumn(label: Text('LATEST PRICE')),
+    DataColumn(label: Text('QUANTITY / LOTS')),
+    DataColumn(label: Text('STOP LOSS')),
+    DataColumn(label: Text('TARGETS')),
+    DataColumn(label: Text('CURRENT P&L')),
+    DataColumn(label: Text('DAYS TO EXPIRY')),
+    DataColumn(label: Text('STATUS')),
+    DataColumn(label: Text('LATEST EVIDENCE')),
   ];
 
   bool _isSurvivor(Map<String, dynamic> r) {
@@ -91,35 +98,91 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     return parsed != null && parsed >= 0 && parsed <= 7;
   }
 
+  String _classificationLabel(Map<String, dynamic> r) {
+    switch ((r['classification'] ?? '').toString().toUpperCase()) {
+      case 'NEW': return '🆕 NEW';
+      case 'HOLD': return '📌 HOLD';
+      case 'RE-ENTRY': return '🔁 RE-ENTRY';
+      case 'SL': return 'SL HIT';
+      case 'TARGETS': return 'TARGET HIT';
+      case 'EXPIRED': return 'EXPIRED';
+      default: return _v(r, 'classification');
+    }
+  }
+
+  String _quantityLots(Map<String, dynamic> r) {
+    final quantity = r['quantity'];
+    final lotSize = r['lot_size'];
+    if (quantity == null) return '—';
+    if (lotSize is num && lotSize > 0 && quantity is num) {
+      final lots = quantity / lotSize;
+      return '${quantity} qty / ${lots.toStringAsFixed(lots % 1 == 0 ? 0 : 2)} lots';
+    }
+    return '${quantity} qty';
+  }
+
+  String _targets(Map<String, dynamic> r) {
+    final values = [r['target_1'], r['target_2'], r['target_3']]
+        .where((value) => value != null).map((value) => value.toString()).toList();
+    return values.isEmpty ? '—' : values.join(' / ');
+  }
+
+  String _pnlDisplay(Map<String, dynamic> r) {
+    final points = r['pnl_points'];
+    final pct = r['pnl_pct'];
+    final rupees = r['pnl_rupees'];
+    final parts = <String>[];
+    if (points != null) parts.add('${points} pts');
+    if (pct != null) parts.add('${pct}%');
+    if (rupees != null) parts.add('₹${rupees}');
+    return parts.isEmpty ? '—' : parts.join(' • ');
+  }
+
+  String _evidenceDisplay(Map<String, dynamic> r) {
+    final evidence = r['evidence'];
+    if (evidence is! Map) return '—';
+    final underlying = evidence['underlying_confirmation'] ??
+        evidence['latest_underlying_confirmation'] ?? evidence['underlying'];
+    final option = evidence['option_confirmation'] ??
+        evidence['latest_option_confirmation'] ?? evidence['option'];
+    final parts = <String>[];
+    if (underlying != null) parts.add('Underlying: $underlying');
+    if (option != null) parts.add('Option: $option');
+    return parts.isEmpty ? '—' : parts.join(' | ');
+  }
+
   DataRow _row(Map<String, dynamic> r) {
     final survivor = _isSurvivor(r);
-    final dteLabel = survivor
-        ? '★ SURVIVOR • ${_v(r, 'days_to_expiry')}D'
-        : _v(r, 'days_to_expiry');
+    final dte = r['days_to_expiry'];
+    final status = _v(r, 'position_status');
+    final instrument = (r['instrument_type'] ?? '—').toString().toUpperCase();
+    final cells = [
+      _cell(_v(r, 'signal_date')),
+      _cell(_v(r, 'entry_date')),
+      _cell(_classificationLabel(r)),
+      _cell(instrument),
+      _cell(_v(r, 'symbol')),
+      _cell(_v(r, 'sector')),
+      _cell(_v(r, 'option_type')),
+      _cell(_v(r, 'strike')),
+      _cell(_v(r, 'expiry')),
+      _cell(_v(r, 'entry_price')),
+      _cell(_v(r, 'latest_price')),
+      _cell(_quantityLots(r)),
+      _cell(_v(r, 'stop_loss')),
+      _cell(_targets(r)),
+      _cell(_pnlDisplay(r)),
+      _cell(dte == null ? '—' : '${dte} calendar days'),
+      _cell(status),
+      _cell(_evidenceDisplay(r)),
+    ];
     return DataRow(
       color: survivor
           ? WidgetStateProperty.resolveWith<Color?>((states) =>
               Theme.of(context).colorScheme.tertiary.withValues(alpha: 0.18))
           : null,
-      cells: [
-    DataCell(_cell(_v(r, 'signal_date'))), DataCell(_cell(_v(r, 'entry_date'))),
-    DataCell(_cell(_v(r, 'classification'))), DataCell(_cell(_v(r, 'symbol'))), DataCell(_cell(_v(r, 'sector'))),
-    DataCell(_cell('${_v(r, 'instrument_type')} ${_v(r, 'option_type')}')),
-    DataCell(_cell(_v(r, 'expiry'))), DataCell(_cell(_v(r, 'strike'))),
-    DataCell(_cell(_v(r, 'entry_price'))), DataCell(_cell(_v(r, 'latest_price'))),
-    DataCell(_cell(_v(r, 'stop_loss'))), DataCell(_cell(_v(r, 'target_1'))),
-    DataCell(_cell(_v(r, 'target_2'))), DataCell(_cell(_v(r, 'target_3'))),
-    DataCell(_cell(_v(r, 'lot_size'))), DataCell(_cell(_v(r, 'quantity'))),
-    DataCell(_cell('${_v(r, 'pnl')} (${_v(r, 'pnl_pct')}%)')),
-    DataCell(_cell(_v(r, 'score'))), DataCell(_cell(_v(r, 'signal_age_days'))),
-    DataCell(Tooltip(
-      message: survivor
-          ? 'SURVIVOR PRIORITY: contract expires in 0–7 calendar days. Watchlist flag only; not an automatic entry or exit.'
-          : 'Calendar days remaining until contract expiry.',
-      child: _cell(dteLabel),
-    )), DataCell(_cell(_v(r, 'shelf_life_remaining_days'))),
-    DataCell(_cell(_v(r, 'shelf_life_status'))), DataCell(_cell(_v(r, 'reason'))),
-  ]);
+      cells: cells.map((cell) => DataCell(cell)).toList(),
+    );
   }
 
   @override
@@ -167,7 +230,8 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
             ],
           ))),
           const SizedBox(height: 10),
-          if (_sections[_selected] == 'WAIT') Padding(padding: const EdgeInsets.all(8), child: Text('WAIT is reserved for candidates explicitly marked pending by a verified signal workflow. No WAIT records are inferred from missing data.', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant))),\n          if (_sections[_selected] == 'WAIT') Padding(padding: const EdgeInsets.all(8), child: Text('WAIT is reserved for candidates explicitly marked pending by a verified workflow. Missing data is never treated as WAIT.', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant))),
+          if (_sections[_selected] == 'WAIT') Padding(padding: const EdgeInsets.all(8), child: Text('WAIT is reserved for candidates explicitly marked pending by a verified signal workflow. No WAIT records are inferred from missing data.', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant))),
+          if (_sections[_selected] == 'WAIT') Padding(padding: const EdgeInsets.all(8), child: Text('WAIT is reserved for candidates explicitly marked pending by a verified workflow. Missing data is never treated as WAIT.', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant))),
           if (expirySelected && _expiryNote != null) Padding(padding: const EdgeInsets.all(8), child: Text(_expiryNote!, style: const TextStyle(fontSize: 11))),
           if (expirySelected && _expiryRows.isNotEmpty) Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal,
             child: DataTable(columns: const [
