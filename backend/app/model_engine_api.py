@@ -222,19 +222,18 @@ async def get_expiry78_engine(
     contracts = evaluate_expiry78_rows(rows, as_of=as_of)
     trades = [trade for contract in contracts
               for trade in (contract.get("expiry78") or {}).get("trades", [])]
-    verified_reentries = [
-        row for row in rows
-        if str(row.get("classification") or "").upper() in ("RE-ENTRY", "REENTRY")
-        and isinstance(row.get("evidence"), dict)
-        and row["evidence"].get("reentry_verified") is True
-        and (
-            "EXPIRY78" in {
-                str(value).upper().replace(" ", "")
-                for value in (row["evidence"].get("strategy_memberships") or [])
-            }
-            or row["evidence"].get("strategy") == "EXPIRY78"
-        )
-    ]
+    verified_reentries = []
+    for row in rows:
+        evidence = row.get("evidence") if isinstance(row.get("evidence"), dict) else {}
+        memberships = evidence.get("strategy_memberships") or evidence.get("strategies") or []
+        if isinstance(memberships, str):
+            memberships = [memberships]
+        membership_set = {str(value).upper().replace(" ", "") for value in memberships}
+        if (str(row.get("classification") or "").upper() in ("RE-ENTRY", "REENTRY")
+                and evidence.get("reentry_verified") is True
+                and ("EXPIRY78" in membership_set or
+                     str(evidence.get("strategy") or row.get("strategy") or "").upper() == "EXPIRY78")):
+            verified_reentries.append(row)
     waiting_contracts = [
         contract for contract in contracts
         if not (contract.get("expiry78") or {}).get("trades")
