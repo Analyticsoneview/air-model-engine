@@ -69,6 +69,19 @@ def build_master(rows: list[dict[str, Any]]) -> dict[str, Any]:
     # OPEN is the union of currently open lifecycle entries, not a second copy of rows.
     groups["OPEN"] = groups["NEW"] + groups["HOLD"]
     groups["COMBINED"] = all_rows
+    # Evidence-backed breakdowns; unknown sectors remain explicitly unclassified.
+    instrument_counts = {"INDEX": 0, "STOCK": 0, "OTHER_OR_UNKNOWN": 0}
+    sector_counts: dict[str, int] = {}
+    for row in all_rows:
+        kind = str(row.get("instrument_type") or "").upper()
+        if kind in ("INDEX", "INDICES"):
+            instrument_counts["INDEX"] += 1
+        elif kind in ("STOCK", "EQUITY"):
+            instrument_counts["STOCK"] += 1
+        else:
+            instrument_counts["OTHER_OR_UNKNOWN"] += 1
+        sector = str(row.get("sector") or "UNCLASSIFIED").strip().upper()
+        sector_counts[sector] = sector_counts.get(sector, 0) + 1
     # WAIT is intentionally empty until a verified pending-state source is implemented.
     for name in groups:
         groups[name].sort(key=_sort_key, reverse=True)
@@ -83,7 +96,7 @@ def build_master(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "count": len(all_rows),
         "counts": {name: len(items) for name, items in groups.items()},
         "groups": groups,
-        "summary": {
+        "breakdowns": {\n            "instrument_type": instrument_counts,\n            "sector": dict(sorted(sector_counts.items(), key=lambda item: (-item[1], item[0]))),\n            "option_type": {\n                "CE": sum(1 for r in all_rows if str(r.get("option_type") or "").upper() == "CE"),\n                "PE": sum(1 for r in all_rows if str(r.get("option_type") or "").upper() == "PE"),\n            },\n        },\n        "summary": {
             "unique_signals": len(all_rows),
             "open": len(groups["OPEN"]),
             "new": len(groups["NEW"]),
