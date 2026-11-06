@@ -20,6 +20,7 @@ AIR is a self-hosted research and broker-connectivity foundation with a Flutter 
 - Android lab APK and unsigned iOS lab IPA builds passed on the recorded workflow run. The iOS IPA is not installable without Apple signing; use the PWA route for iPhone without an Apple Developer membership.
 - Flutter web analysis, tests and self-hosted PWA bundle workflow are being validated separately.
 - Broker REST foundations exist for Angel One, DhanHQ, Zerodha, Upstox and FYERS. Dhan has the furthest market-feed integration; real-account entitlements and streaming for all brokers are not yet validated.
+- AIR QOC now has a read-only Dhan option-chain path, expiry lookup, normalized private SQLite snapshot storage and a Flutter research screen. An optional 15:45 IST weekday snapshot scheduler is implemented but disabled by default; it requires a configured Dhan Data API account and an explicit underlying security-ID list. It captures data only and does not yet generate qualified AIR QOC signals.
 - Broker order permission is intentionally disabled. Do not use this project for live order placement.
 
 ## Run backend tests
@@ -39,7 +40,7 @@ Follow [Docker Swarm deployment](deploy/DOCKER_SWARM.md). It covers Docker secre
 
 - SQLite and process-local OAuth state mean one API replica only. PostgreSQL, Redis-backed OAuth state, migrations and HA are not implemented.
 - Live broker credentials, market-data permissions, provider streaming and execution have not been validated against the user's broker accounts.
-- AIR QOC signal generation, full options research screens, production historical data pipelines, audited backtests and live monitoring are not yet complete.
+- Full AIR QOC scoring/qualification, broad F&O universe discovery, validated multi-session backtests, token renewal, complete historical data pipelines and live monitoring are not yet complete. Dhan option-chain snapshots alone are not a qualified signal.
 - Configure TLS, firewalling, backups, monitoring and restore testing before any internet-facing deployment.
 
 Never treat a placeholder, sample response or unverified broker connection as a live market signal.
