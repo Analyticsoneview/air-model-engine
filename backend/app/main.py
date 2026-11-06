@@ -1,5 +1,6 @@
 import os
 from uuid import uuid4
+import secrets
 
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
@@ -9,6 +10,7 @@ from app.brokers.customer_accounts import CustomerAccountDirectory, CustomerTrad
 from app.brokers.catalog import get_broker_catalog, is_supported_broker
 from app.brokers.dhan import DhanHQClient, DhanAPIError
 from app.brokers.zerodha import KiteConnectClient, KiteAPIError, kite_login_url
+from app.brokers.upstox import UpstoxClient, UpstoxAPIError, upstox_login_url
 from app.credential_vault import CredentialVault
 from app.market_data.hub import MarketDataHub
 from app.market_data.router import MarketDataRouter
@@ -21,6 +23,7 @@ market_data_hub = MarketDataHub()
 auth_store = AuthStore(os.getenv("AIR_AUTH_DB_PATH", "data/air_auth.sqlite3"))
 account_directory = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3"))
 _credential_vault: CredentialVault | None = None
+_upstox_oauth_states: dict[tuple[str, str], str] = {}
 
 
 def require_air_operator(customer_id: str = Depends(require_customer)) -> str:
@@ -73,6 +76,11 @@ class MainAccountSelection(BaseModel):
 
 class ZerodhaTokenExchangeRequest(BaseModel):
     request_token: str = Field(min_length=8, max_length=256)
+
+
+class UpstoxTokenExchangeRequest(BaseModel):
+    code: str = Field(min_length=4, max_length=512)
+    state: str = Field(min_length=8, max_length=256)
 
 
 class DhanMarketFeedRequest(BaseModel):
@@ -264,6 +272,55 @@ def get_dhan_client(customer_id: str, account_id: str) -> DhanHQClient:
     if not access_token:
         raise HTTPException(status_code=422, detail="Saved Dhan credentials require client_id and access_token")
     return DhanHQClient(client_id, access_token)
+
+
+
+@app.get("/api/v1/customer/accounts/upstox/{account_id}/login-url")
+async def upstox_login(account_id: str, customer_id: str = Depends(require_customer)) -> dict:
+    get_owned_account(customer_id, "upstox", account_id)
+    try:
+        credentials = get_vault().get(customer_id, "upstox", account_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=409, detail="Save Upstox client_id, client_secret and redirect_uri first") from exc
+    client_id, redirect_uri = credentials.get("client_id"), credentials.get("redirect_uri")
+    if not client_id or not credentials.get("client_secret") or not redirect_uri:
+        raise HTTPException(status_code=422, detail="Upstox OAuth app credentials are incomplete")
+    state = secrets.token_urlsafe(24)
+    _upstox_oauth_states[(customer_id, account_id)] = state
+    return {"login_url": upstox_login_url(client_id, redirect_uri, state), "state": state,
+            "note": "Complete login at Upstox and submit the returned single-use code and state. State expires when replaced or the server restarts."}
+
+
+@app.post("/api/v1/customer/accounts/upstox/{account_id}/exchange")
+async def upstox_exchange(account_id: str, body: UpstoxTokenExchangeRequest,
+                          customer_id: str = Depends(require_customer)) -> dict:
+    get_owned_account(customer_id, "upstox", account_id)
+    expected_state = _upstox_oauth_states.pop((customer_id, account_id), None)
+    if not expected_state or not secrets.compare_digest(expected_state, body.state):
+        raise HTTPException(status_code=400, detail="Invalid or expired Upstox OAuth state")
+    try:
+        credentials = get_vault().get(customer_id, "upstox", account_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=409, detail="Upstox app credentials are not saved") from exc
+    client_id, client_secret, redirect_uri = (
+        credentials.get("client_id"), credentials.get("client_secret"), credentials.get("redirect_uri")
+    )
+    if not all((client_id, client_secret, redirect_uri)):
+        raise HTTPException(status_code=422, detail="Upstox OAuth app credentials are incomplete")
+    client = UpstoxClient()
+    try:
+        session = await client.exchange_code(body.code, client_id, client_secret, redirect_uri)
+        profile = session.get("user_id") or session.get("user_name")
+        credentials["access_token"] = session["access_token"]
+        get_vault().put(customer_id, "upstox", account_id, credentials)
+        return {"broker": "upstox", "account_id": account_id, "verified": True,
+                "broker_user": profile, "access_token_saved": True,
+                "note": "Authorization code exchanged and token stored encrypted. Standard access tokens expire at 3:30 AM the following day; order permission remains disabled."}
+    except UpstoxAPIError as exc:
+        raise HTTPException(status_code=502 if exc.status_code >= 500 else 401,
+                            detail="Upstox authorization-code exchange failed") from exc
+    finally:
+        await client.close()
 
 
 @app.post("/api/v1/customer/accounts/dhan/{account_id}/verify")
