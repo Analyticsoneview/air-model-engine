@@ -36,6 +36,22 @@ class DurableOrderLedger:
             CREATE INDEX IF NOT EXISTS idx_order_ledger_status
             ON order_ledger(status, updated_at)
         """)
+        self._db.execute("""
+            CREATE TABLE IF NOT EXISTS order_ledger_events (
+                event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                broker TEXT NOT NULL,
+                account_id TEXT NOT NULL,
+                idempotency_key TEXT NOT NULL,
+                status TEXT NOT NULL,
+                broker_order_id TEXT NOT NULL,
+                raw_json TEXT NOT NULL,
+                event_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        self._db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_order_events_account
+            ON order_ledger_events(broker, account_id, event_id)
+        """)
         self._db.commit()
 
     def get(self, broker: str, account_id: str, idempotency_key: str) -> BrokerOrder | None:
@@ -61,6 +77,29 @@ class DurableOrderLedger:
                     updated_at=CURRENT_TIMESTAMP
             """, (order.broker.lower(), order.account_id, idempotency_key,
                   order.broker_order_id, order.status, json.dumps(order.raw, default=str)))
+            self._db.execute("""
+                INSERT INTO order_ledger_events
+                    (broker, account_id, idempotency_key, broker_order_id, status, raw_json)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (order.broker.lower(), order.account_id, idempotency_key,
+                  order.broker_order_id, order.status, json.dumps(order.raw, default=str)))
+
+    def list_events(self, broker: str, account_id: str, limit: int = 500) -> list[dict]:
+        if limit < 1 or limit > 5000:
+            raise ValueError("limit must be between 1 and 5000")
+        rows = self._db.execute("""
+            SELECT event_id, idempotency_key, broker_order_id, status, raw_json, event_at
+            FROM order_ledger_events
+            WHERE broker=? AND account_id=? ORDER BY event_id DESC LIMIT ?
+        """, (broker.lower(), account_id, limit)).fetchall()
+        return [{
+            "event_id": row["event_id"],
+            "idempotency_key": row["idempotency_key"],
+            "broker_order_id": row["broker_order_id"],
+            "status": row["status"],
+            "raw": json.loads(row["raw_json"]),
+            "event_at": row["event_at"],
+        } for row in rows]
 
     def list_orders(self, broker: str | None = None, account_id: str | None = None,
                     limit: int = 500) -> list[BrokerOrder]:
