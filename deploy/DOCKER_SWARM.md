@@ -51,3 +51,7 @@ Health check: `http://<server-host>:8000/health`.
 - SQLite plus in-memory OAuth state requires one replica. PostgreSQL, Redis-backed OAuth state, migrations, shared audit storage and HA deployment are not implemented in this stack.
 - Broker API plans, data entitlements, static IP approvals, instrument masters and exchange data redistribution rights must be verified separately.
 - No live order permission is enabled by this deployment.
+
+## Mobile backend URL
+
+Set the GitHub repository variable `AIR_API_BASE_URL` to the HTTPS URL of the deployed AIR API before distributing a connected Android/PWA build. The build workflows pass this variable through as a Dart compile-time value. If it is unset, the app deliberately falls back to `http://127.0.0.1:8000` for local development only; a deployed phone/PWA cannot use that localhost address to reach your server.
