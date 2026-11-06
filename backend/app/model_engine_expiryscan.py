@@ -50,8 +50,9 @@ def scan_expiries(store: AirQocStore, *, account_id: str, today: date | None = N
         checks["spread_at_most_10pct"] = spread_pct is not None and spread_pct <= 10
         missing = [key for key in ("volume", "open_interest", "bid_price", "ask_price")
                    if row[key] is None]
-        status = ("LIQUIDITY_SCREEN_PASSED" if all(checks.values())
-                  else "INSUFFICIENT_DATA" if missing else "WATCH_NOT_QUALIFIED")
+        status = ("EXPIRED" if is_expired else
+                  "LIQUIDITY_SCREEN_PASSED" if all(checks.values()) else
+                  "INSUFFICIENT_DATA" if missing else "WATCH_NOT_QUALIFIED")
         candidates.append({
             "underlying_scrip": row["underlying_scrip"],
             "underlying_segment": row["underlying_segment"],
