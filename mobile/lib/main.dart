@@ -776,6 +776,8 @@ class ModelEngineRecordsTable extends StatelessWidget {
     'Entry Classification',
     'Entry Price',
     'Latest Price',
+    'Expiry Date',
+    'Days to Expiry',
     'Stop',
     'Lot Size',
     'P&L',
@@ -795,7 +797,7 @@ class ModelEngineRecordsTable extends StatelessWidget {
             AirTag('MASTER TABLE', color: cs.primary),
           ]),
           const SizedBox(height: 5),
-          Text('Same column structure as the Model Engine master ledger.',
+          Text('Includes contract shelf life (expiry date and calendar days remaining) across every options one-tap.',
             style: TextStyle(fontSize: 10, color: muted)),
           const SizedBox(height: 12),
           SingleChildScrollView(
@@ -825,7 +827,7 @@ class ModelEngineRecordsTable extends StatelessWidget {
               Icon(Icons.sync_rounded, size: 16, color: muted),
               const SizedBox(width: 8),
               Expanded(child: Text(
-                'No ledger records synced yet. Connected NEW, HOLD, RE-ENTRY, SL, TARGETS and EXPIRED records will appear here using these columns.',
+                'No ledger records synced yet. Every options one-tap must carry the contract expiry date and days to expiry. Expired contracts must be marked EXPIRED and excluded from fresh-entry candidates; no shelf-life values are estimated.',
                 style: TextStyle(fontSize: 10, height: 1.4, color: muted),
               )),
             ]),
