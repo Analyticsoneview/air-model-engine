@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 
-STATUSES = {"NEW", "HOLD", "RE-ENTRY", "SL", "TARGETS", "EXPIRED", "EXPIRYSCAN"}
+STATUSES = {"NEW", "HOLD", "WAIT", "RE-ENTRY", "SL", "TARGETS", "EXPIRED", "EXPIRYSCAN"}
 
 
 class ModelEngineLedger:
@@ -31,7 +31,7 @@ class ModelEngineLedger:
                 signal_id TEXT PRIMARY KEY,
                 customer_id TEXT NOT NULL,
                 classification TEXT NOT NULL CHECK(classification IN
-                    ('NEW','HOLD','RE-ENTRY','SL','TARGETS','EXPIRED','EXPIRYSCAN')),
+                    ('NEW','HOLD','WAIT','RE-ENTRY','SL','TARGETS','EXPIRED','EXPIRYSCAN')),
                 signal_date TEXT NOT NULL,
                 entry_date TEXT,
                 symbol TEXT NOT NULL,
@@ -60,6 +60,28 @@ class ModelEngineLedger:
                 updated_at TEXT NOT NULL
             )
         """)
+        # Existing customer databases were created before WAIT was a persisted
+        # lifecycle state. Rebuild only when the old CHECK constraint is present.
+        schema_row = self.db.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='model_signals'"
+        ).fetchone()
+        schema_sql = schema_row["sql"] if schema_row else ""
+        if "'WAIT'" not in schema_sql:
+            updated_schema = schema_sql.replace(
+                "CREATE TABLE model_signals",
+                "CREATE TABLE model_signals_new",
+                1,
+            ).replace(
+                "('NEW','HOLD','RE-ENTRY','SL','TARGETS','EXPIRED','EXPIRYSCAN')",
+                "('NEW','HOLD','WAIT','RE-ENTRY','SL','TARGETS','EXPIRED','EXPIRYSCAN')",
+            )
+            if updated_schema == schema_sql:
+                raise RuntimeError("Unable to safely migrate model_signals lifecycle CHECK constraint")
+            self.db.execute("ALTER TABLE model_signals RENAME TO model_signals_legacy")
+            self.db.execute(updated_schema)
+            self.db.execute("INSERT INTO model_signals_new SELECT * FROM model_signals_legacy")
+            self.db.execute("DROP TABLE model_signals_legacy")
+            self.db.execute("ALTER TABLE model_signals_new RENAME TO model_signals")
         self.db.execute("""
             CREATE INDEX IF NOT EXISTS idx_model_signals_customer_status
             ON model_signals(customer_id, classification, signal_date DESC)
@@ -139,6 +161,8 @@ class ModelEngineLedger:
                 item["position_status"] = "EXITED"
             elif classification == "HOLD":
                 item["position_status"] = "HOLD"
+            elif classification == "WAIT":
+                item["position_status"] = "WAIT"
             elif classification in ("NEW", "RE-ENTRY"):
                 item["position_status"] = "OPEN"
             else:
