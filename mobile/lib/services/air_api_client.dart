@@ -98,6 +98,14 @@ class AirApiClient {
     return _decode(response);
   }
 
+  Future<Map<String, dynamic>> dhanFnoUniverse() async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/api/v1/air-qoc/dhan/universe'),
+      headers: _headers,
+    );
+    return _decode(response);
+  }
+
   Future<Map<String, dynamic>> dhanDataStatus(String accountId) async {
     final response = await _client.get(
       Uri.parse('$baseUrl/api/v1/air-qoc/dhan/status/$accountId'),
