@@ -13,6 +13,8 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   static const _sections = ['OPEN', 'NEW', 'HOLD', 'REENTRY', 'SURVIVOR', 'WAIT', 'SLHIT', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN', 'COMBINED'];
   Map<String, dynamic> _groups = {};
   Map<String, dynamic> _counts = {};
+  Map<String, dynamic> _summary = {};
+  Map<String, dynamic> _breakdowns = {};
   List<Map<String, dynamic>> _expiryRows = [];
   String? _expiryNote;
   int _selected = 0;
@@ -53,6 +55,8 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
           _expiryNote = expiryResult['note']?.toString();
         }
         _counts = result['counts'] as Map<String, dynamic>? ?? {};
+        _summary = result['summary'] as Map<String, dynamic>? ?? {};
+        _breakdowns = result['breakdowns'] as Map<String, dynamic>? ?? {};
         _updatedAt = result['updated_at']?.toString();
         _dataStatus = result['data_status']?.toString() ?? 'UNKNOWN';
       });
@@ -68,7 +72,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
 
   List<DataColumn> get _columns => const [
     DataColumn(label: Text('SIGNAL DATE')), DataColumn(label: Text('ENTRY DATE')),
-    DataColumn(label: Text('CLASS')), DataColumn(label: Text('SYMBOL')),
+    DataColumn(label: Text('CLASS')), DataColumn(label: Text('SYMBOL')), DataColumn(label: Text('SECTOR')),
     DataColumn(label: Text('TYPE')), DataColumn(label: Text('EXPIRY')),
     DataColumn(label: Text('STRIKE')), DataColumn(label: Text('ENTRY')),
     DataColumn(label: Text('LATEST')), DataColumn(label: Text('SL')),
@@ -99,7 +103,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
           : null,
       cells: [
     DataCell(_cell(_v(r, 'signal_date'))), DataCell(_cell(_v(r, 'entry_date'))),
-    DataCell(_cell(_v(r, 'classification'))), DataCell(_cell(_v(r, 'symbol'))),
+    DataCell(_cell(_v(r, 'classification'))), DataCell(_cell(_v(r, 'symbol'))), DataCell(_cell(_v(r, 'sector'))),
     DataCell(_cell('${_v(r, 'instrument_type')} ${_v(r, 'option_type')}')),
     DataCell(_cell(_v(r, 'expiry'))), DataCell(_cell(_v(r, 'strike'))),
     DataCell(_cell(_v(r, 'entry_price'))), DataCell(_cell(_v(r, 'latest_price'))),
@@ -147,6 +151,12 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
               ]),
               const SizedBox(height: 5),
               Text('Updated: ${_updatedAt ?? 'No verified records yet'} • shared AIR session • auto-refresh 5 min',
+                style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+              const SizedBox(height: 8),
+              Text('OPEN ${_summary['open'] ?? 0}  •  NEW ${_summary['new'] ?? 0}  •  HOLD ${_summary['hold'] ?? 0}  •  REENTRY ${_summary['reentry'] ?? 0}  •  SURVIVOR ${_summary['survivor_watch'] ?? 0}  •  SLHIT ${_summary['slhit'] ?? 0}',
+                style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+              const SizedBox(height: 4),
+              Text('INDEX ${(_breakdowns['instrument_type'] as Map<String, dynamic>?)?['INDEX'] ?? 0}  •  STOCK ${(_breakdowns['instrument_type'] as Map<String, dynamic>?)?['STOCK'] ?? 0}  •  SECTORS ${(_breakdowns['sector'] as Map<String, dynamic>?)?.length ?? 0}',
                 style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
               const SizedBox(height: 10),
               Wrap(spacing: 7, runSpacing: 7, children: _sections.map((s) => ChoiceChip(
