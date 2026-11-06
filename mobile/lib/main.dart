@@ -69,7 +69,6 @@ class _AirShellState extends State<AirShell> {
   int tab = 0;
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
     final pages = [
       AirDashboard(look: widget.look, onLookChanged: widget.onLookChanged),
       const SimplePage(title: 'Options Intelligence', icon: Icons.candlestick_chart_rounded, subtitle: 'Discover option opportunities with strike, expiry, premium and liquidity context.'),
@@ -205,7 +204,7 @@ class AirDashboard extends StatelessWidget {
 }
 
 class AirTag extends StatelessWidget {
-  const AirTag(this.text, {required this.color});
+  const AirTag(this.text, {super.key, required this.color});
   final String text; final Color color;
   @override
   Widget build(BuildContext context) => Container(padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
@@ -490,6 +489,7 @@ class _AirResearchLibraryState extends State<AirResearchLibrary> {
     AirResearchItem('EXPIRYSCAN', 'Expiry-wise index and stock option opportunity discovery.', 'Options', Icons.calendar_month_rounded),
     AirResearchItem('Stock Options Recommendations', 'Stock-first selection followed by CE/PE contract validation.', 'Options', Icons.candlestick_chart_rounded),
     AirResearchItem('NSE Reversal Watchlist', 'Three-candle reversal, underlying OHLCV and next-session validation.', 'Setups', Icons.swap_vert_circle_outlined),
+    AirResearchItem('WEEKLY LOW RESPECT REVERSAL', 'Bullish weekly reversal: weekly low holds with a bullish inverted hammer (close above open), or a bottom formation confirms with a break above the weekly high.', 'Setups', Icons.trending_up_rounded),
     AirResearchItem('Parabolic Selling Reversal', 'Selling exhaustion, liquidity sweep, CHOCH/BOS and demand-zone confirmation.', 'Setups', Icons.trending_down_rounded),
     AirResearchItem('Monthly Double Bottom Stocks', 'Monthly base formation, neckline and confirmation tracking.', 'Setups', Icons.stacked_line_chart_rounded),
     AirResearchItem('Fib 50% Rejection Stocks', 'Fibonacci retracement rejection and price-action screening.', 'Setups', Icons.show_chart_rounded),
