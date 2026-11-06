@@ -35,7 +35,7 @@ def verify_password(password: str, encoded: str) -> bool:
         return False
 
 
-def create_access_token(customer_id: str, expires_minutes: int = 30) -> str:
+def create_access_token(customer_id: str, expires_minutes: int = 30, session_id: str | None = None) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sub": customer_id,
