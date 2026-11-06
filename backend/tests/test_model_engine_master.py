@@ -80,6 +80,9 @@ def test_preserves_original_11_contract_27_oct_expiry_case_study():
     assert all(row["classification"] == "EXPIRED" for row in cohort)
     assert all(row["expiry"] == EXPIRY == "2026-10-27" for row in cohort)
     assert all(row["cohort_id"] == COHORT_ID for row in cohort)
+    assert all(row["days_to_expiry"] < 0 for row in cohort)
+    assert all(row["latest_price"] == row["evidence"]["expiry_intrinsic"] for row in cohort)
+    assert all(row["evidence"]["daily_history_available"] is True for row in cohort)
     result = build_master(cohort)
     assert result["counts"]["EXPIRED"] == 11
     assert result["summary"]["expired"] == 11
