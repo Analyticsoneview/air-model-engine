@@ -1,7 +1,5 @@
 from datetime import date, timedelta
 
-import pytest
-
 from app.model_engine_ledger import ModelEngineLedger
 
 
@@ -61,8 +59,12 @@ def test_missing_expiry_and_shelf_life_are_not_guessed():
 
 def test_invalid_classification_rejected():
     ledger = ModelEngineLedger(":memory:")
-    with pytest.raises(ValueError):
+    try:
         ledger.upsert("customer-a", record(classification="MAYBE"))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Invalid classification must be rejected")
     ledger.close()
 
 
