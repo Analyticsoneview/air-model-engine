@@ -55,3 +55,5 @@ Health check: `http://<server-host>:8000/health`.
 ## Mobile backend URL
 
 Set the GitHub repository variable `AIR_API_BASE_URL` to the HTTPS URL of the deployed AIR API before distributing a connected Android/PWA build. The build workflows pass this variable through as a Dart compile-time value. If it is unset, the app deliberately falls back to `http://127.0.0.1:8000` for local development only; a deployed phone/PWA cannot use that localhost address to reach your server.
+
+Set `AIR_CORS_ORIGINS` to a comma-separated allowlist of exact browser origins (scheme + host + optional port), including the deployed PWA origin. Do not use `*` with credentials. Keep localhost entries only for local development.
