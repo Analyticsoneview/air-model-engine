@@ -65,6 +65,7 @@ def test_expiryscan_routes_valid_past_expiry_to_expired():
     assert row["expiry_date_valid"] is True
     assert row["classification"] == "EXPIRED"
     assert row["position_status"] == "EXPIRED"
+    assert row["scan_status"] == "EXPIRED"
     assert row["days_to_expiry"] == -1
     assert row["survivor"] is False
     store.close()
