@@ -120,7 +120,18 @@ def _recovery_verified(row: dict[str, Any]) -> bool:
     evidence = row.get("evidence") if isinstance(row.get("evidence"), dict) else {}
     # Recovery is opt-in only from an evidence-backed recovery pipeline. Never
     # infer a recovery from a plain RE-ENTRY classification.
-    return evidence.get("recovery_verified") is True
+    if evidence.get("recovery_verified") is not True:
+        return False
+    lot_size = row.get("lot_size")
+    if isinstance(lot_size, (int, float)) and lot_size > 1250:
+        original_premium = evidence.get("original_entry_premium")
+        if original_premium is None:
+            original_premium = evidence.get("original_entry_price")
+        try:
+            return float(original_premium) < 1.0
+        except (TypeError, ValueError):
+            return False
+    return True
 
 
 def _sort_key(row: dict[str, Any]) -> tuple:
