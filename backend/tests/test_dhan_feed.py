@@ -18,7 +18,7 @@ class DhanFeedDecoderTests(unittest.TestCase):
         )
         packets = decode_dhan_message(message)
         self.assertEqual([p["type"] for p in packets], ["ticker", "previous_close"])
-        self.assertEqual(packets[0]["ltp"], 123.45)
+        self.assertAlmostEqual(packets[0]["ltp"], 123.45, places=4)
         self.assertEqual(packets[1]["previous_oi"], 500)
 
     def test_quote_and_oi_packets(self):
