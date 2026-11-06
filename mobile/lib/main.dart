@@ -211,9 +211,12 @@ class AirDashboard extends StatelessWidget {
           Expanded(child: Text('Evidence order: Underlying → Volume → Premium → OI', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: muted))),
         ])),
         const SizedBox(height: 18),
-        CardPanel(child: Theme(
-          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-          child: ExpansionTile(
+        CardPanel(child: Material(
+          color: Theme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(16),
+          child: Theme(
+            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
             tilePadding: EdgeInsets.zero,
             childrenPadding: EdgeInsets.zero,
             initiallyExpanded: false,
@@ -225,6 +228,7 @@ class AirDashboard extends StatelessWidget {
               SizedBox(height: 8),
               AirResearchLibrary(),
             ],
+            ),
           ),
         )),
         const SizedBox(height: 14),
