@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/air_api_client.dart';
 
@@ -18,11 +19,12 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   String? _expiryNote;
   int _selected = 0;
   bool _authenticated = false, _loading = false;
+  Timer? _autoRefreshTimer;
   String? _error, _updatedAt;
   String _dataStatus = 'SIGN IN TO LOAD YOUR MODEL ENGINE LEDGER';
 
   @override
-  void dispose() { _email.dispose(); _password.dispose(); _api.dispose(); super.dispose(); }
+  void dispose() { _autoRefreshTimer?.cancel(); _email.dispose(); _password.dispose(); _api.dispose(); super.dispose(); }
 
   Future<void> _login() async {
     setState(() { _loading = true; _error = null; });
@@ -30,6 +32,10 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       await _api.login(_email.text, _password.text);
       _authenticated = true;
       await _refresh();
+      _autoRefreshTimer?.cancel();
+      _autoRefreshTimer = Timer.periodic(const Duration(minutes: 5), (_) {
+        if (mounted && !_loading) _refresh();
+      });
     } catch (e) { if (mounted) setState(() => _error = e.toString()); }
     finally { if (mounted) setState(() => _loading = false); }
   }
@@ -148,7 +154,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                 Text(_dataStatus, style: TextStyle(fontSize: 9, color: cs.primary, fontWeight: FontWeight.w800)),
               ]),
               const SizedBox(height: 5),
-              Text('Updated: ${_updatedAt ?? 'No verified records yet'}',
+              Text('Updated: ${_updatedAt ?? 'No verified records yet'} • auto-refresh 5 min',
                 style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
               const SizedBox(height: 10),
               Wrap(spacing: 7, runSpacing: 7, children: _sections.map((s) => ChoiceChip(
