@@ -37,9 +37,14 @@ def _intrinsic(option_type: str, strike: float, underlying_close: float) -> floa
 
 
 def _remaining_sessions(contract: dict[str, Any], evidence: dict[str, Any]) -> float | None:
+    # The recovered MFE/MAE workbook names this source field shelf_sessions.
     value = contract.get("remaining_trading_sessions")
     if value is None:
+        value = contract.get("shelf_sessions")
+    if value is None:
         value = evidence.get("remaining_trading_sessions")
+    if value is None:
+        value = evidence.get("shelf_sessions")
     return _number(value)
 
 
