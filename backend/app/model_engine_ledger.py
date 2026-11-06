@@ -118,11 +118,29 @@ class ModelEngineLedger:
             item = dict(row)
             item["evidence"] = json.loads(item.pop("evidence_json") or "{}")
             item["sector"] = item["evidence"].get("sector")
+            item["pnl_points"] = item["evidence"].get("pnl_points")
+            quantity = item.get("quantity")
+            pnl_points = item.get("pnl_points")
+            item["pnl_rupees"] = (
+                round(float(pnl_points) * int(quantity), 2)
+                if pnl_points is not None and quantity is not None else None
+            )
             expiry = date.fromisoformat(item["expiry"]) if item.get("expiry") else None
             valid_until = date.fromisoformat(item["valid_until"]) if item.get("valid_until") else None
             signal_day = date.fromisoformat(item["signal_date"])
             item["signal_age_days"] = max(0, (today - signal_day).days)
             item["days_to_expiry"] = (expiry - today).days if expiry else None
+            classification = str(item.get("classification") or "").upper()
+            if classification == "EXPIRED" or (expiry is not None and expiry < today):
+                item["position_status"] = "EXPIRED"
+            elif classification in ("SL", "TARGETS") or item.get("exit_date") or item.get("exit_price") is not None:
+                item["position_status"] = "EXITED"
+            elif classification == "HOLD":
+                item["position_status"] = "HOLD"
+            elif classification in ("NEW", "RE-ENTRY"):
+                item["position_status"] = "OPEN"
+            else:
+                item["position_status"] = "—"
             item["days_to_validity_end"] = (valid_until - today).days if valid_until else None
             shelf_end = valid_until or (signal_day.fromordinal(signal_day.toordinal() + item["shelf_life_days"])
                                         if item.get("shelf_life_days") is not None else None)
