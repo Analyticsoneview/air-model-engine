@@ -33,12 +33,14 @@ export AIR_BACKEND_IMAGE=air-model-engine-api:lab
 export AIR_PWA_IMAGE=air-model-engine-pwa:lab
 export AIR_CORS_ORIGINS="https://air.example.com"
 
-# AIR QOC scheduled Dhan option-chain snapshot capture (OFF by default)
+# Scheduled Dhan capture + automatic post-capture EXPIRYSCAN (OFF until credentials/entitlement verified)
 export AIR_QOC_SCHEDULER_ENABLED=false
 export AIR_QOC_DHAN_AUTO_RENEW_ENABLED=false
 export AIR_QOC_DHAN_ACCOUNT_ID="<registered-dhan-account-id>"
-# JSON list of verified underlying Dhan security IDs; never guess IDs.
-# Example format only: [{"security_id":13,"segment":"IDX_I","label":"NIFTY"}]
+export AIR_EXPIRYSCAN_MAX_DTE=45
+export AIR_EXPIRYSCAN_MAX_ROWS=2000
+# Optional fallback universe only if official Dhan instrument-master discovery is unavailable.
+# Use verified IDs/segments only; never guess IDs.
 export AIR_QOC_DHAN_UNDERLYINGS='[]'
 ```
 
@@ -59,7 +61,7 @@ The PWA listens on port 8080 inside the overlay as `air-pwa`; the API listens on
 
 The AIR QOC Dhan data routes are read-only. The mobile AIR QOC tab can check Dhan Data API entitlement, retrieve active expiries, fetch a live option chain and store normalized CE/PE observations in the private SQLite research database. A single snapshot is not an AIR QOC qualification signal.
 
-The weekday EOD capture scheduler runs at 15:45 Asia/Kolkata only when explicitly enabled. Configure the Dhan account and a verified JSON list of underlying security IDs/segments first. It fetches every active expiry sequentially and waits at least 3.1 seconds between option-chain requests to respect Dhan’s published option-chain rate limit. For a large universe, the run may take substantial time.
+The weekday EOD capture scheduler runs at 15:45 Asia/Kolkata only when explicitly enabled. Configure the registered Dhan account and encrypted credentials first. The scheduler discovers validated NSE F&O underlyings from Dhan's detailed instrument master; the JSON universe below is only a fallback if master discovery is unavailable. It fetches each discovered underlying's active expiries sequentially and waits at least 3.1 seconds between option-chain requests to respect Dhan's option-chain rate limit. For the full F&O universe, the run can take substantial time and may span a long period. After capture, the backend automatically runs EXPIRYSCAN on the newly stored observations and reports contract and 0–7 DTE SURVIVOR counts. The app refreshes the ledger and scan every five minutes while signed in.
 
 ```bash
 # Enable only after Data API entitlement and permitted use are confirmed.
@@ -74,7 +76,7 @@ Manual operator-only run:
 POST /api/v1/air-qoc/run-eod-capture
 ```
 
-Optional token renewal is available only for an active access token originally generated from Dhan Web. Enable it separately with `AIR_QOC_DHAN_AUTO_RENEW_ENABLED=true`; Dhan's RenewToken endpoint invalidates the current token and returns a new 24-hour token. API-key/OAuth tokens and expired tokens must use their respective Dhan authorization flow. Keep this switch off until the account's token origin is confirmed. The new token is written back to AIR's encrypted credential vault. No raw NSE bhavcopy downloader is enabled; written NSE permission remains a prerequisite for automated NSE website collection. The scheduler captures snapshots only; it does not score, recommend, or place orders.
+Optional token renewal is available only for an active access token originally generated from Dhan Web. Enable it separately with `AIR_QOC_DHAN_AUTO_RENEW_ENABLED=true`; Dhan's RenewToken endpoint invalidates the current token and returns a new 24-hour token. API-key/OAuth tokens and expired tokens must use their respective Dhan authorization flow. Keep this switch off until the account's token origin is confirmed. The new token is written back to AIR's encrypted credential vault. No raw NSE bhavcopy downloader is enabled; written NSE permission remains a prerequisite for automated NSE website collection. The scheduler captures normalized snapshots and runs the EXPIRYSCAN liquidity screen. EXPIRYSCAN reports observed volume, OI, bid/ask spread and DTE; it does not assign AIR QOC scores, entry, SL or targets because a single EOD snapshot cannot establish underlying candle confirmation, intraday premium acceleration or session volume/OI progression. No orders are placed.
 ## 7. Mobile build workflow
 
 The GitHub Actions workflow `.github/workflows/ios-pwa.yml` runs Flutter analysis and tests, builds the web app, and uploads `air-pwa-web` as a downloadable artifact. Set repository variable `AIR_API_BASE_URL` to the deployed HTTPS API URL. This avoids GitHub Pages permissions and keeps hosting self-managed.
