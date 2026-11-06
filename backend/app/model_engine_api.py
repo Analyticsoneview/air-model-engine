@@ -6,6 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.model_engine_ledger import ModelEngineLedger
+from app.model_engine_expiryscan import scan_expiries
+from app.air_qoc_store import AirQocStore
+from app.brokers.customer_accounts import CustomerAccountDirectory
 from app.security import require_customer
 
 router = APIRouter(prefix="/api/v1/model-engine", tags=["AIR Model Engine"])
@@ -89,3 +92,28 @@ async def upsert_model_engine_signal(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"status": "saved", "signal_id": record["signal_id"],
             "classification": record["classification"].upper()}
+
+
+@router.get("/expiryscan")
+async def get_expiry_scan(
+    max_dte: int = Query(default=45, ge=0, le=365),
+    limit: int = Query(default=500, ge=1, le=2000),
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    """Read-only scan of captured Dhan observations owned by this customer."""
+    account_id = os.getenv("AIR_QOC_DHAN_ACCOUNT_ID", "").strip()
+    if not account_id:
+        raise HTTPException(status_code=503, detail="Dhan snapshot account is not configured")
+    directory = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3"))
+    try:
+        owned = {(account.broker, account.account_id)
+                 for account in directory.list_for_customer(customer_id)}
+    finally:
+        directory.close()
+    if ("dhan", account_id) not in owned:
+        raise HTTPException(status_code=403, detail="No access to configured Dhan snapshot account")
+    store = AirQocStore()
+    try:
+        return scan_expiries(store, account_id=account_id, max_dte=max_dte, limit=limit)
+    finally:
+        store.close()
