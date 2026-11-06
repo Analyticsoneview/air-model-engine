@@ -190,7 +190,7 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "audit": {
                 "stock_candidates_rejected_outside_1_to_10": rejected_stock_filter,
                 "recovery_candidates_rejected_without_verified_recovery_evidence": rejected_recovery_proof,
-                "membership_source": "explicit evidence.strategy_memberships/strategies; EXPIRY78 also uses canonical pre-expiry eligibility",
+                "membership_source": "explicit evidence.strategy_memberships/strategies or evidence.expiry78_candidate; no cross-strategy inference",
             },
         }
         if strategy == "ORIGINAL366":
