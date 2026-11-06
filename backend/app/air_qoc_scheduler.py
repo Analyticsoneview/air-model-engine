@@ -21,6 +21,8 @@ from app.air_qoc_store import AirQocStore
 from app.brokers.dhan import DhanHQClient, DhanAPIError
 from app.brokers.customer_accounts import CustomerAccountDirectory
 from app.credential_vault import CredentialVault
+from app.air_qoc_universe import DETAILED_MASTER_URL, parse_dhan_instrument_master
+import httpx
 
 log = logging.getLogger("air.qoc.scheduler")
 IST = ZoneInfo("Asia/Kolkata")
@@ -67,9 +69,27 @@ async def capture_dhan_eod_snapshots(*, force: bool = False) -> dict:
     access_token = credentials.get("access_token")
     if not access_token:
         raise RuntimeError("Dhan access token is not configured")
-    underlyings = _configured_underlyings()
-    if not underlyings:
-        raise RuntimeError("No AIR QOC underlyings configured")
+    # Discover the complete NSE F&O universe automatically. A configured static
+    # list is retained only as a fallback if the official master is unavailable.
+    try:
+        async with httpx.AsyncClient(timeout=45.0, follow_redirects=True) as session:
+            master_response = await session.get(DETAILED_MASTER_URL)
+            master_response.raise_for_status()
+        master = parse_dhan_instrument_master(master_response.text)
+        underlyings = [
+            {"security_id": item["security_id"], "segment": item["exchange_segment"],
+             "label": item["symbol"]}
+            for item in master["underlyings"] if item["validated"]
+        ]
+        if not underlyings:
+            raise RuntimeError("Dhan master returned no validated NSE F&O underlyings")
+        log.info("Discovered %s NSE F&O underlyings (%s stocks, %s indices)",
+                 len(underlyings), master["stock_underlying_count"], master["index_underlying_count"])
+    except (httpx.HTTPError, ValueError) as exc:
+        underlyings = _configured_underlyings()
+        if not underlyings:
+            raise RuntimeError("Automatic Dhan F&O universe discovery failed and no fallback universe is configured") from exc
+        log.warning("Using configured fallback universe because Dhan master discovery failed")
     client = DhanHQClient(client_id, access_token)
     if os.getenv("AIR_QOC_DHAN_AUTO_RENEW_ENABLED", "false").lower() == "true":
         try:
