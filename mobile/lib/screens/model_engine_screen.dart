@@ -144,6 +144,11 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     final parts = <String>[];
     if (underlying != null) parts.add('Underlying: $underlying');
     if (option != null) parts.add('Option: $option');
+    if (evidence['source'] != null) parts.add('Source: ${evidence['source']}');
+    if (evidence['expiry_status_reason'] != null) {
+      parts.add(evidence['expiry_status_reason'].toString());
+    }
+    if (evidence['observed_at'] != null) parts.add('Observed: ${evidence['observed_at']}');
     return parts.isEmpty ? '—' : parts.join(' | ');
   }
 
