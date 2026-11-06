@@ -172,6 +172,8 @@ class AirDashboard extends StatelessWidget {
         const SectionHeader(title: 'MODEL ENGINE SHORTCUTS', caption: 'QUICK ACCESS'),
         const SizedBox(height: 10),
         const ModelEngineQuickTabs(),
+        const SizedBox(height: 10),
+        const WeeklyLowRespectDashboardShortcut(),
         const SizedBox(height: 20),
         const SectionHeader(title: 'AIR RESEARCH LIBRARY', caption: 'CHAT LOGIC → MODULES'),
         const SizedBox(height: 10),
@@ -610,5 +612,79 @@ class _ResearchLibraryTile extends StatelessWidget {
         ])),
       ),
     ));
+  }
+}
+
+
+class WeeklyLowRespectDashboardShortcut extends StatelessWidget {
+  const WeeklyLowRespectDashboardShortcut({super.key});
+
+  void _openDetails(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).cardColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Icon(Icons.trending_up_rounded, color: cs.primary, size: 22),
+              const SizedBox(width: 9),
+              const Expanded(child: Text('WEEKLY LOW RESPECT REVERSAL', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900))),
+              AirTag('SETUP', color: cs.primary),
+            ]),
+            const SizedBox(height: 16),
+            const Text('Setup A · Bullish inverted hammer', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 6),
+            Text('Weekly low holds as support. Weekly candle forms an inverted hammer near the bottom, with a prominent upper wick and close above open.', style: TextStyle(fontSize: 11, height: 1.45, color: cs.onSurfaceVariant)),
+            const SizedBox(height: 14),
+            const Text('Setup B · Breakout confirmation', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 6),
+            Text('After a bottom formation, monitor a confirmed break above the relevant weekly high. Define invalidation around the support structure.', style: TextStyle(fontSize: 11, height: 1.45, color: cs.onSurfaceVariant)),
+            const SizedBox(height: 14),
+            Container(width: double.infinity, padding: const EdgeInsets.all(11),
+              decoration: BoxDecoration(color: cs.surfaceContainerHighest.withValues(alpha: .45), borderRadius: BorderRadius.circular(12)),
+              child: Text('Scanner status: waiting for verified weekly OHLC data. This shortcut opens the strategy rules; it does not yet produce live signals.', style: TextStyle(fontSize: 10, height: 1.4, color: cs.onSurfaceVariant))),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Material(
+      color: Theme.of(context).cardColor,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => _openDetails(context),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: cs.primary.withValues(alpha: .38)),
+          ),
+          child: Row(children: [
+            Container(width: 40, height: 40,
+              decoration: BoxDecoration(color: cs.primary.withValues(alpha: .13), borderRadius: BorderRadius.circular(12)),
+              child: Icon(Icons.trending_up_rounded, color: cs.primary, size: 21)),
+            const SizedBox(width: 12),
+            const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('WEEKLY LOW RESPECT', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: .4)),
+              SizedBox(height: 4),
+              Text('One-tap reversal strategy', style: TextStyle(fontSize: 10, color: Colors.grey)),
+            ])),
+            Icon(Icons.arrow_forward_ios_rounded, size: 15, color: cs.primary),
+          ]),
+        ),
+      ),
+    );
   }
 }
