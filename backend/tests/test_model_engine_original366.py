@@ -106,3 +106,28 @@ def test_original366_invalid_daily_bar_is_ignored():
     result = evaluate_original366_contract(item, as_of="2026-11-03")
     assert result["data_quality"]["valid_bars"] == 0
     assert result["status"] == "WAIT"
+
+
+
+def test_post_stop_close_above_original_entry_creates_watch_only_not_reentry():
+    item = sample_contract(bars=[
+        bar("2026-11-03", 8.0, 8.5, 7.4, 7.6),  # original 5% SL
+        bar("2026-11-04", 8.1, 8.8, 7.9, 8.2),  # closes above original 8.0 entry
+    ])
+    trade = evaluate_original366_contract(item, as_of="2026-11-04")["trades"][0]
+    assert trade["classification"] == "SLHIT"
+    assert trade["recovered_watch"]["trigger_date"] == "2026-11-04"
+    assert trade["recovered_watch"]["trigger_close"] == 8.2
+    assert trade["recovered_watch"]["watch_only"] is True
+    assert trade["recovered_watch"]["is_reentry"] is False
+    assert trade["recovered_watch"]["is_open_position"] is False
+
+
+def test_post_stop_high_above_entry_without_close_does_not_create_recovered_watch():
+    item = sample_contract(bars=[
+        bar("2026-11-03", 8.0, 8.5, 7.4, 7.6),
+        bar("2026-11-04", 7.9, 8.8, 7.5, 7.95),
+    ])
+    trade = evaluate_original366_contract(item, as_of="2026-11-04")["trades"][0]
+    assert trade["classification"] == "SLHIT"
+    assert trade["recovered_watch"] is None
