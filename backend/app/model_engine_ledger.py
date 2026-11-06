@@ -117,6 +117,7 @@ class ModelEngineLedger:
         for row in rows:
             item = dict(row)
             item["evidence"] = json.loads(item.pop("evidence_json") or "{}")
+            item["sector"] = item["evidence"].get("sector")
             expiry = date.fromisoformat(item["expiry"]) if item.get("expiry") else None
             valid_until = date.fromisoformat(item["valid_until"]) if item.get("valid_until") else None
             signal_day = date.fromisoformat(item["signal_date"])
