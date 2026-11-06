@@ -141,9 +141,10 @@ def test_original366_replay_is_independent_and_does_not_rewrite_historical_basel
         "symbol": "TESTCO",
         "instrument_type": "STOCK",
         "option_type": "CE",
-        "expiry": "2026-11-06",
+        "expiry": "2026-11-20",
         "strike": 100,
         "entry_price": 8.0,
+        "remaining_trading_sessions": 13,
         "evidence": {
             "strategy_memberships": ["ORIGINAL366"],
             "daily_option_bars": [
