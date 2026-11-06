@@ -57,9 +57,14 @@ async def get_model_engine_ledger(
 ) -> dict:
     rows = _ledger.list_signals(customer_id, limit)
     groups = {key: [] for key in
-              ("NEW", "HOLD", "RE-ENTRY", "SL", "TARGETS", "EXPIRED", "EXPIRYSCAN")}
+              ("SURVIVOR", "NEW", "HOLD", "RE-ENTRY", "SL", "TARGETS", "EXPIRED", "EXPIRYSCAN")}
     for row in rows:
         groups[row["classification"]].append(row)
+        # Survivor is a high-priority cross-cutting watchlist, not a replacement
+        # for the signal lifecycle classification. Keep original classification.
+        dte = row.get("days_to_expiry")
+        if dte is not None and 0 <= dte <= 7 and row["classification"] != "EXPIRED":
+            groups["SURVIVOR"].append(row)
     return {
         "source": "AIR Model Engine signal ledger",
         "count": len(rows),
