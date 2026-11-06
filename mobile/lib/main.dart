@@ -173,6 +173,10 @@ class AirDashboard extends StatelessWidget {
         const SectionHeader(title: 'MODEL ENGINE SHORTCUTS', caption: 'QUICK ACCESS'),
         const SizedBox(height: 10),
         const ModelEngineQuickTabs(),
+        const SizedBox(height: 20),
+        const SectionHeader(title: 'AIR RESEARCH LIBRARY', caption: 'CHAT LOGIC → MODULES'),
+        const SizedBox(height: 10),
+        const AirResearchLibrary(),
         const SizedBox(height: 23),
         const SectionHeader(title: 'THE AIR DIFFERENCE', caption: 'OUR RESEARCH METHOD'),
         const SizedBox(height: 12),
@@ -459,5 +463,150 @@ class _ModelEngineQuickTabsState extends State<ModelEngineQuickTabs> {
         ]),
       ),
     ]));
+  }
+}
+
+
+class AirResearchItem {
+  const AirResearchItem(this.name, this.subtitle, this.category, this.icon);
+  final String name, subtitle, category;
+  final IconData icon;
+}
+
+class AirResearchLibrary extends StatefulWidget {
+  const AirResearchLibrary({super.key});
+  @override
+  State<AirResearchLibrary> createState() => _AirResearchLibraryState();
+}
+
+class _AirResearchLibraryState extends State<AirResearchLibrary> {
+  final search = TextEditingController();
+  String category = 'All';
+  bool showAll = false;
+  String? selected;
+  static const items = [
+    AirResearchItem('AIR QOC LIVE / POSITIONAL / POST-MARKET', 'Options confluence, premium movement, OI, volume and liquidity validation.', 'Options', Icons.radar_rounded),
+    AirResearchItem('AIR QOC HIGH TARGET', 'Discounted premium research, exhaustion, reversal and target planning.', 'Options', Icons.track_changes_rounded),
+    AirResearchItem('EXPIRYSCAN', 'Expiry-wise index and stock option opportunity discovery.', 'Options', Icons.calendar_month_rounded),
+    AirResearchItem('Stock Options Recommendations', 'Stock-first selection followed by CE/PE contract validation.', 'Options', Icons.candlestick_chart_rounded),
+    AirResearchItem('NSE Reversal Watchlist', 'Three-candle reversal, underlying OHLCV and next-session validation.', 'Setups', Icons.swap_vert_circle_outlined),
+    AirResearchItem('Parabolic Selling Reversal', 'Selling exhaustion, liquidity sweep, CHOCH/BOS and demand-zone confirmation.', 'Setups', Icons.trending_down_rounded),
+    AirResearchItem('Monthly Double Bottom Stocks', 'Monthly base formation, neckline and confirmation tracking.', 'Setups', Icons.stacked_line_chart_rounded),
+    AirResearchItem('Fib 50% Rejection Stocks', 'Fibonacci retracement rejection and price-action screening.', 'Setups', Icons.show_chart_rounded),
+    AirResearchItem('WIN Trading Setup', 'Structured entry, stop, target and setup validation workspace.', 'Setups', Icons.bolt_rounded),
+    AirResearchItem('Daily SMC Research', 'Supply/demand, order blocks, CHOCH, BOS and retest.', 'Structure', Icons.account_tree_rounded),
+    AirResearchItem('Inside-Candle Order Blocks', 'Green-red-green bullish and red-green-red bearish containment patterns.', 'Structure', Icons.view_agenda_rounded),
+    AirResearchItem('Narrow CPR D/W/M', 'Daily, weekly and monthly CPR width ranking with option confluence.', 'Structure', Icons.compress_rounded),
+    AirResearchItem('CPR CHECK', 'CPR levels, breakout/retest conditions and directional context.', 'Structure', Icons.rule_rounded),
+    AirResearchItem('Watchlist Screening Request', 'Custom universe scans, ranking, filters and exportable watchlists.', 'Research', Icons.filter_alt_rounded),
+    AirResearchItem('AIR Historical Proof', 'Session-wise backtests, validation logs and performance evidence.', 'Research', Icons.fact_check_outlined),
+    AirResearchItem('Sensex Capital Calculation', 'Lot size, quantity, premium and capital requirement calculator.', 'Calculators', Icons.calculate_outlined),
+    AirResearchItem('Total K Calculation', 'Quantity and capital arithmetic workspace.', 'Calculators', Icons.functions_rounded),
+    AirResearchItem('Convert USD to INR Crores', 'Currency and large-number conversion utility.', 'Calculators', Icons.currency_exchange_rounded),
+  ];
+  static const categories = ['All', 'Options', 'Setups', 'Structure', 'Research', 'Calculators'];
+
+  @override
+  void dispose() {
+    search.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final q = search.text.trim().toLowerCase();
+    final filtered = items.where((item) =>
+      (category == 'All' || item.category == category) &&
+      (q.isEmpty || item.name.toLowerCase().contains(q) || item.subtitle.toLowerCase().contains(q))
+    ).toList();
+    final shown = showAll || q.isNotEmpty || category != 'All' ? filtered : filtered.take(5).toList();
+    return CardPanel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Expanded(child: Text('Your chat workflows, organised', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900))),
+        AirTag('${items.length} MODULES', color: cs.primary),
+      ]),
+      const SizedBox(height: 10),
+      TextField(
+        controller: search,
+        onChanged: (_) => setState(() {}),
+        decoration: InputDecoration(
+          hintText: 'Search a strategy, scanner or calculator',
+          prefixIcon: const Icon(Icons.search_rounded, size: 18),
+          isDense: true,
+          filled: true,
+          fillColor: cs.surfaceContainerHighest.withValues(alpha: .35),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+        ),
+      ),
+      const SizedBox(height: 10),
+      SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(children: [
+          for (final value in categories)
+            Padding(padding: const EdgeInsets.only(right: 6), child: ChoiceChip(
+              label: Text(value, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800)),
+              selected: category == value,
+              onSelected: (_) => setState(() { category = value; showAll = false; }),
+              visualDensity: VisualDensity.compact,
+            )),
+        ]),
+      ),
+      const SizedBox(height: 8),
+      for (final item in shown)
+        _ResearchLibraryTile(
+          item: item,
+          selected: selected == item.name,
+          onTap: () => setState(() => selected = selected == item.name ? null : item.name),
+        ),
+      if (filtered.isEmpty)
+        Padding(padding: const EdgeInsets.all(12), child: Text('No matching AIR modules found.', style: TextStyle(color: cs.onSurfaceVariant, fontSize: 11))),
+      if (filtered.length > 5 && q.isEmpty && category == 'All')
+        Align(alignment: Alignment.center, child: TextButton.icon(
+          onPressed: () => setState(() => showAll = !showAll),
+          icon: Icon(showAll ? Icons.expand_less_rounded : Icons.expand_more_rounded),
+          label: Text(showAll ? 'SHOW LESS' : 'VIEW ALL MODULES'),
+        )),
+      if (selected != null)
+        Container(
+          width: double.infinity,
+          margin: const EdgeInsets.only(top: 8),
+          padding: const EdgeInsets.all(11),
+          decoration: BoxDecoration(color: cs.primary.withValues(alpha: .08), borderRadius: BorderRadius.circular(11)),
+          child: Text('$selected selected · Module interface preview. Logic and live data connections will be enabled module by module.',
+            style: TextStyle(fontSize: 10, height: 1.4, color: cs.onSurface)),
+        ),
+    ]));
+  }
+}
+
+class _ResearchLibraryTile extends StatelessWidget {
+  const _ResearchLibraryTile({required this.item, required this.selected, required this.onTap});
+  final AirResearchItem item;
+  final bool selected;
+  final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(padding: const EdgeInsets.only(top: 5), child: Material(
+      color: selected ? cs.primary.withValues(alpha: .09) : Colors.transparent,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Padding(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10), child: Row(children: [
+          Container(width: 34, height: 34, decoration: BoxDecoration(color: cs.primary.withValues(alpha: .1), borderRadius: BorderRadius.circular(10)),
+            child: Icon(item.icon, color: cs.primary, size: 17)),
+          const SizedBox(width: 10),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(item.name, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 3),
+            Text(item.subtitle, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 9, height: 1.3, color: cs.onSurfaceVariant)),
+          ])),
+          const SizedBox(width: 5),
+          Icon(selected ? Icons.expand_less_rounded : Icons.chevron_right_rounded, size: 18, color: cs.onSurfaceVariant),
+        ])),
+      ),
+    ));
   }
 }
