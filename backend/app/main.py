@@ -6,7 +6,8 @@ from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from app.auth_store import AuthStore\nfrom app.access_control import AccessStore
+from app.auth_store import AuthStore
+from app.access_control import access_store
 from app.brokers.customer_accounts import CustomerAccountDirectory, CustomerTradingAccount
 from app.brokers.catalog import get_broker_catalog, is_supported_broker
 from app.brokers.dhan import DhanHQClient, DhanAPIError
@@ -41,7 +42,7 @@ app.add_middleware(
 )
 market_data_router = MarketDataRouter()
 market_data_hub = MarketDataHub()
-auth_store = AuthStore(os.getenv("AIR_AUTH_DB_PATH", "data/air_auth.sqlite3"))\naccess_store = AccessStore(os.getenv("AIR_AUTH_DB_PATH", "data/air_auth.sqlite3"))
+auth_store = AuthStore(os.getenv("AIR_AUTH_DB_PATH", "data/air_auth.sqlite3"))
 account_directory = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3"))
 _credential_vault: CredentialVault | None = None
 _upstox_oauth_states: dict[tuple[str, str], str] = {}
@@ -94,6 +95,22 @@ class CustomerRegistration(BaseModel):
 class CustomerLogin(BaseModel):
     email: str
     password: str
+
+
+class MobileAccessRequest(BaseModel):
+    mobile_e164: str = Field(min_length=9, max_length=16)
+    device_id: str = Field(min_length=8, max_length=128)
+
+
+class AccessReview(BaseModel):
+    status: str = Field(pattern="^(APPROVED|REJECTED|BLOCKED)$")
+    note: str = Field(default="", max_length=500)
+
+
+def require_air_admin(x_air_admin_key: str | None = Header(default=None)) -> None:
+    configured = os.getenv("AIR_ADMIN_API_KEY", "")
+    if len(configured) < 32 or not x_air_admin_key or not secrets.compare_digest(x_air_admin_key, configured):
+        raise HTTPException(status_code=403, detail="AIR administrator approval is required")
 
 
 class TradingAccountCreate(BaseModel):
