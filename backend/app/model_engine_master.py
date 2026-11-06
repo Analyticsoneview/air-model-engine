@@ -79,8 +79,10 @@ def build_master(rows: list[dict[str, Any]]) -> dict[str, Any]:
             groups["HOLD"].append(row)
         elif status in ("RE-ENTRY", "REENTRY"):
             groups["REENTRY"].append(row)
-        elif status in ("SL", "SLHIT"):
+        elif status in ("SL", "SLHIT", "SL HIT"):
             groups["SLHIT"].append(row)
+        elif status == "WAIT":
+            groups["WAIT"].append(row)
         elif status == "TARGETS":
             groups["TARGETS"].append(row)
         elif status == "EXPIRYSCAN":
