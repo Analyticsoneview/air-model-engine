@@ -14,6 +14,7 @@ class MarketInstrument:
     option_type: str | None = None
     lot_size: int | None = None
     instrument_type: str | None = None
+    expiry_code: int | None = None
 
 @dataclass(frozen=True)
 class MarketTick:
