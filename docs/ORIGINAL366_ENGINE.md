@@ -1,8 +1,8 @@
 # AIR ORIGINAL366 Engine
 
-## Historical baseline — immutable
+## Recovered cohort — immutable historical baseline
 
-The ORIGINAL366 historical Sep–Oct 2026 completed-expiry case study remains pinned as:
+ORIGINAL366 is the 366 recovered contracts from the September–October 2026 cohort. The starting population was 534 entries. Selection used the actual filled entry date and price, stock-option premium ₹1–₹10 (index options exempt), and at least 10 NSE trading sessions remaining to expiry. CE and PE were evaluated separately. Of 534 entries, 366 had verified expiry outcomes; 168 unresolved entries were excluded from the completed historical baseline.
 
 | Metric | Preserved baseline |
 |---|---:|
@@ -15,69 +15,34 @@ The ORIGINAL366 historical Sep–Oct 2026 completed-expiry case study remains pi
 | Premium capital | ₹15,14,362 |
 | Return on premium capital | 69.35% |
 
-These values are a historical reference, not output recalculated by the new-candidate engine. In the source sample, 168 of 534 entries lacked verified expiry settlement and were excluded. The historical 366-trade stop breakdown was 274 same-day, 69 later-session and 23 gap-through stops. The source simulation used daily bhavcopy evidence, not intraday execution. Physical-settlement funding/costs were not included.
+The historical 366-trade stop breakdown was 274 same-day, 69 later-session and 23 gap-through stops. The source simulation used daily bhavcopy evidence, not intraday execution. Physical-settlement funding/costs were not included. The historical baseline is preserved and is not recalculated by the live candidate engine.
 
-## ORIGINAL366 lifecycle replay
+## Qualification and lifecycle
 
-The evaluator is independent from EXPIRY78 and RECOVERY.
+1. Only explicitly tagged ORIGINAL366 contracts enter this strategy; EXPIRY78 and RECOVERY membership is never inherited.
+2. Use actual filled entry date and premium. Evaluate CE and PE independently.
+3. New stock CE/PE entries must be ₹1–₹10 inclusive. Index options are exempt from the ₹10 cap.
+4. At least 10 verified NSE trading sessions must remain at actual entry. Supply `remaining_trading_sessions` on the contract or in evidence. The engine does not approximate NSE holidays using calendar days or weekdays.
+5. Apply the original 5% stop below entry premium using daily option LOW. Same-day stop is conservatively at stop; a later gap-through exits at observed OPEN below stop; otherwise at stop.
+6. If no stop occurs, settle from verified expiry-day underlying reference close and CE/PE intrinsic value. The expired contract is classified EXPIRED_WIN or EXPIRED_LOSS and appears only under EXPIRED.
+7. Missing qualification evidence is REJECTED; missing daily bars or expiry reference is WAIT/UNRESOLVED, never a qualified active contract or completed historical trade.
+8. Rupee P&L requires explicit actual position quantity; net P&L additionally requires explicit charges.
 
-1. **Membership:** only records explicitly tagged ORIGINAL366 are evaluated. No membership is copied from another strategy.
-2. **Entry:** use the verified entry_date and entry_price recorded on the ORIGINAL366 signal. The evaluator does not invent or regenerate a missing historical entry signal.
-3. **New stock candidates:** stock CE/PE entry premium must be ₹1–₹10 inclusive. Index options are exempt from the ₹10 ceiling. The filter does not modify the pinned historical baseline.
-4. **Stop:** 5% below original entry premium. Check daily option LOW beginning on entry day. Same-day breach is stopped at the 5% level. On a later session opening below the stop, exit at the observed OPEN; otherwise exit at the stop.
-5. **Expiry winner:** if the stop was never hit, use verified expiry-day underlying close to calculate CE/PE intrinsic value. Classify as EXPIRED_WIN only when intrinsic value is strictly greater than entry premium.
-6. **Expiry loss:** if intrinsic value is equal to or below entry premium and the stop was not hit, classify as EXPIRED_LOSS.
-7. **Missing evidence:** if expiry is reached without a verified expiry-day underlying close, classify WAIT; do not invent a settlement value.
-8. **P&L:** point P&L is calculated from entry and actual stop/expiry exit. Rupee P&L requires explicit position_quantity; net P&L requires explicit charges_rupees. Traded volume is never used as position size.
+## Separation from other engines
 
-## Evidence contract
-
-Create an operator-authorized ledger signal with classification NEW, actual entry_date, entry_price, contract details, and evidence containing explicit ORIGINAL366 membership plus daily option bars.
-
-~~~json
-{
-  "strategy": "ORIGINAL366",
-  "evidence": {
-    "strategy_memberships": ["ORIGINAL366"],
-    "daily_option_bars": [
-      {
-        "date": "2026-11-03",
-        "open": 8.0,
-        "high": 8.5,
-        "low": 7.8,
-        "close": 8.2,
-        "quantity": 100
-      },
-      {
-        "date": "2026-11-06",
-        "open": 8.0,
-        "high": 9.0,
-        "low": 7.9,
-        "close": 8.5,
-        "quantity": 100,
-        "underlying_close": 115.0
-      }
-    ],
-    "position_quantity": 50,
-    "charges_rupees": 10.0
-  }
-}
-~~~
-
-position_quantity is actual position quantity, not option-market traded quantity.
+- EXPIRYSCAN is a case-study and monthly scanner workbook, independent of AIR QOC Master.
+- EXPIRY78 is the separate seven-rule expiry-survivor model (including 80% observed-high fall, close confirmation, and 1.5× volume).
+- RECOVERY is the separate post-stop re-entry model with its own 10-session shelf life and +50% target-qualified hold-to-expiry rule.
+- ORIGINAL366 is only the recovered 366-contract cohort and its original 5% stop / expiry-settlement outcome logic.
 
 ## API
 
 GET /api/v1/model-engine/original366
 
-Optional query parameters:
-- limit: 1–2000 (default 2000)
-- as_of: replay cutoff date in YYYY-MM-DD
+Optional query parameters: `limit` (1–2000, default 2000) and `as_of` (YYYY-MM-DD).
 
-The response exposes independent OPEN, NEW, HOLD, WAIT, SLHIT, REENTRY, EXPIRED, EXPIRED_WIN and EXPIRED_LOSS groups, replay counts and P&L fields where position-size/charges evidence exists. It always returns the preserved historical baseline separately with baseline_status: PRESERVED_NOT_RECALCULATED.
+The API exposes OPEN, NEW, HOLD, WAIT, SLHIT, REENTRY and EXPIRED groups, with EXPIRED_WIN and EXPIRED_LOSS breakdowns. Expired contracts are not included in OPEN. The immutable baseline is returned separately as PRESERVED_NOT_RECALCULATED. No broker orders are placed.
 
-The MASTER /master response also exposes the ORIGINAL366 strategy view. The mobile strategy tab consumes that strategy view; no broker order placement is performed.
+## Evidence contract
 
-## Explicit scope boundary
-
-The original entry-signal generation formula/source-data pipeline is not reconstructed from the 366-trade outcome totals. The current replay consumes explicit ORIGINAL366 membership and verified entry fields already supplied to the ledger. Automatic full-universe daily option OHLCV ingestion and original signal regeneration remain separate data-pipeline work; no candidate is fabricated when those inputs are absent.
+Each candidate needs explicit ORIGINAL366 membership, actual filled entry fields, contract details, verified remaining trading-session count, and daily option OHLCV. Expiry settlement additionally requires the expiry-day underlying reference close. Unverified records are not promoted to qualified contracts.
