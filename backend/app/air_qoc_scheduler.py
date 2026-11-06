@@ -18,7 +18,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.air_qoc_store import AirQocStore
-from app.brokers.dhan import DhanHQClient
+from app.brokers.dhan import DhanHQClient, DhanAPIError
 from app.brokers.customer_accounts import CustomerAccountDirectory
 from app.credential_vault import CredentialVault
 
@@ -71,6 +71,18 @@ async def capture_dhan_eod_snapshots(*, force: bool = False) -> dict:
     if not underlyings:
         raise RuntimeError("No AIR QOC underlyings configured")
     client = DhanHQClient(client_id, access_token)
+    if os.getenv("AIR_QOC_DHAN_AUTO_RENEW_ENABLED", "false").lower() == "true":
+        try:
+            renewed = await client.renew_token()
+            credentials["access_token"] = renewed["accessToken"]
+            vault.put(customer_id, "dhan", account_id, credentials)
+            await client.close()
+            client = DhanHQClient(client_id, renewed["accessToken"])
+            log.info("Renewed active Dhan Web token for configured AIR QOC account")
+        except DhanAPIError:
+            # Dhan only renews active tokens originally generated from Dhan Web.
+            # API-key/OAuth tokens or already-expired tokens must use their own flow.
+            log.warning("Dhan Web token renewal was unavailable; validating the existing token")
     store = AirQocStore()
     total = 0
     expiry_count = 0
