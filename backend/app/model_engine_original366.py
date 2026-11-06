@@ -86,8 +86,13 @@ def evaluate_original366_contract(contract: dict[str, Any], *, as_of: str | None
     }
     if exit_reason:
         trade.update({"classification": "SLHIT", "pnl_points": round(exit_price-entry_price, 4)})
+    elif not bars:
+        trade.update({"classification": "WAIT", "reason": "No valid daily option OHLCV is available from entry date"})
     elif cutoff < expiry_day:
-        trade.update({"classification": "HOLD", "reason": "Original entry remains active; no verified 5% stop breach through replay cutoff"})
+        trade.update({
+            "classification": "NEW" if entry_day == cutoff else "HOLD",
+            "reason": "Original entry remains active; no verified 5% stop breach through replay cutoff",
+        })
     elif expiry_bar is None or _number(expiry_bar.get("underlying_close")) is None:
         trade.update({"classification": "WAIT", "reason": "Expiry reached but verified expiry-day underlying close is missing"})
     else:
