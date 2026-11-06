@@ -169,6 +169,10 @@ class AirDashboard extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(child: IndexCard(name: 'BANK NIFTY', panel: panel, muted: muted)),
         ]),
+        const SizedBox(height: 20),
+        const SectionHeader(title: 'MODEL ENGINE SHORTCUTS', caption: 'QUICK ACCESS'),
+        const SizedBox(height: 10),
+        const ModelEngineQuickTabs(),
         const SizedBox(height: 23),
         const SectionHeader(title: 'THE AIR DIFFERENCE', caption: 'OUR RESEARCH METHOD'),
         const SizedBox(height: 12),
@@ -398,4 +402,62 @@ class _OrderBlockPatternRow extends StatelessWidget {
     ])),
     Text(signal, style: TextStyle(color: color, fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: .5)),
   ]);
+}
+
+
+class ModelEngineQuickTabs extends StatefulWidget {
+  const ModelEngineQuickTabs({super.key});
+  @override
+  State<ModelEngineQuickTabs> createState() => _ModelEngineQuickTabsState();
+}
+
+class _ModelEngineQuickTabsState extends State<ModelEngineQuickTabs> {
+  static const labels = ['NEW', 'HOLD', 'RE-ENTRY', 'SL', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN'];
+  bool expanded = false;
+  String selected = 'NEW';
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final visible = expanded ? labels : labels.take(5).toList();
+    return CardPanel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Wrap(
+        spacing: 7,
+        runSpacing: 7,
+        children: [
+          for (final label in visible)
+            ChoiceChip(
+              label: Text(label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: .35)),
+              selected: selected == label,
+              onSelected: (_) => setState(() => selected = label),
+              visualDensity: VisualDensity.compact,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ActionChip(
+            avatar: Icon(expanded ? Icons.expand_less_rounded : Icons.expand_more_rounded, size: 16),
+            label: Text(expanded ? 'LESS' : 'ALL 7', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w900)),
+            onPressed: () => setState(() => expanded = !expanded),
+            visualDensity: VisualDensity.compact,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+        ],
+      ),
+      const SizedBox(height: 12),
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: cs.primary.withValues(alpha: .08),
+          borderRadius: BorderRadius.circular(11),
+          border: Border.all(color: cs.primary.withValues(alpha: .18)),
+        ),
+        child: Row(children: [
+          Icon(Icons.dashboard_customize_outlined, size: 16, color: cs.primary),
+          const SizedBox(width: 8),
+          Expanded(child: Text('Selected workspace: $selected', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800))),
+          Text(expanded ? '7 TABS' : '5 OF 7', style: TextStyle(fontSize: 8, color: cs.onSurfaceVariant, fontWeight: FontWeight.w800, letterSpacing: .7)),
+        ]),
+      ),
+    ]));
+  }
 }
