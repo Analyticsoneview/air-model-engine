@@ -89,7 +89,7 @@ def evaluate_expiry78_contract(
 
     option_type = str(contract.get("option_type") or "").upper()
     instrument_type = str(contract.get("instrument_type") or "").upper()
-    is_stock_option = instrument_type in {"STOCK", "EQUITY"} and option_type in {"CE", "PE"}
+    is_stock_option = instrument_type in {"STOCK", "EQUITY", "OPTSTK", "STOCK_OPTION"} and option_type in {"CE", "PE"}
     strike = _num(contract.get("strike"))
     if option_type not in {"CE", "PE"} or strike is None or strike <= 0:
         return {"status": "REJECTED", "reason": "Invalid option type or strike", "trades": [], "rules": RULES}
