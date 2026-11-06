@@ -29,7 +29,7 @@ STRATEGY_RULES = {
         "name": "EXPIRY78",
         "membership": "EXPIRY78",
         "stock_entry_filter": "₹1–₹10 entry premium for stock CE/PE; index options retain existing rules",
-        "qualification": "Existing EXPIRY78 pre-expiry-entry rule: active NEW/HOLD/verified RE-ENTRY, valid entry and expiry, entry strictly before expiry, DTE >= 0. Expiry-day entries and expired/inactive/missing-date records are excluded.",
+        "qualification": "Seven-rule replay: valid positive option OHLCV; bullish real-body engulfing against the previous valid traded observation; entry limit = 40% of engulfing HIGH; later daily LOW touch strictly before expiry; entry premium >= ₹1 and entry-day quantity >= 10; 5% protected stop with conservative same-day and gap-through handling; only unstopped positions with verified expiry intrinsic valuation qualify as survivors.",
         "candidate_filter_stage": "ENTRY_QUALIFICATION",
     },
     "ORIGINAL366": {
@@ -162,8 +162,11 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
             memberships = _memberships(row)
             # EXPIRY78 keeps its canonical pre-expiry active cohort. Other
             # lifecycle states enter only with explicit model membership.
-            member = (strategy in memberships or
-                      (strategy == "EXPIRY78" and _active_expiry78(row)))
+            member = strategy in memberships or (
+                strategy == "EXPIRY78" and
+                isinstance(row.get("evidence"), dict) and
+                row["evidence"].get("expiry78_candidate") is True
+            )
             if not member:
                 continue
             if _candidate_filter_applies(status, strategy) and not _stock_entry_filter_passes(row):
