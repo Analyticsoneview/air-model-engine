@@ -199,8 +199,14 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
     # never represented as engine-qualified trades.
     evaluated = evaluate_expiry78_rows(rows)
     if evaluated:
-        engine_groups = {key: [] for key in
-                         ("OPEN", "NEW", "HOLD", "WAIT", "SLHIT", "REENTRY", "EXPIRED", "TARGETS")}
+        replayed_ids = {str(source.get("signal_id") or "") for source in evaluated}
+        # Keep independently verified ledger lifecycle rows that do not carry
+        # replay bars (notably separately verified REENTRY records).
+        engine_groups = {key: [
+            item for item in groups[key]
+            if str(item.get("signal_id") or "") not in replayed_ids
+        ] for key in ("NEW", "HOLD", "WAIT", "SLHIT", "REENTRY", "EXPIRED", "TARGETS")}
+        engine_groups["OPEN"] = []
         engine_trade_count = 0
         engine_survivors = 0
         engine_stops = 0
