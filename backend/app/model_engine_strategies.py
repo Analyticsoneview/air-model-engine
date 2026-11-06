@@ -83,7 +83,7 @@ def _memberships(row: dict[str, Any]) -> set[str]:
 def _is_stock_option(row: dict[str, Any]) -> bool:
     instrument = str(row.get("instrument_type") or "").upper()
     option_type = str(row.get("option_type") or "").upper()
-    return instrument in ("STOCK", "EQUITY") and option_type in ("CE", "PE")
+    return instrument in ("STOCK", "EQUITY", "OPTSTK", "STOCK_OPTION") and option_type in ("CE", "PE")
 
 
 def _stock_entry_filter_passes(row: dict[str, Any]) -> bool:
