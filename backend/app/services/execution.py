@@ -94,18 +94,47 @@ class ExecutionService:
         if self.ledger is not None:
             persisted = self.ledger.get(broker, account, order.idempotency_key)
             if persisted is not None:
+                if persisted.status in {"PENDING", "UNKNOWN"}:
+                    raise RuntimeError(
+                        f"Order intent is {persisted.status}; reconcile with broker before any retry"
+                    )
                 return persisted
+            reserved = self.ledger.reserve(
+                broker, account, order.idempotency_key,
+                intent={
+                    "symbol": order.symbol, "token": order.token,
+                    "side": order.side, "order_type": order.order_type,
+                    "quantity": order.quantity, "product": order.product,
+                    "price": str(order.price) if order.price is not None else None,
+                    "paper": paper,
+                },
+            )
+            if not reserved:
+                existing = self.ledger.get(broker, account, order.idempotency_key)
+                if existing is None or existing.status in {"PENDING", "UNKNOWN"}:
+                    raise RuntimeError("Order intent already reserved; reconcile before retry")
+                return existing
         if key in self._idempotency:
             return self._idempotency[key]
-        if paper:
-            result = BrokerOrder(
-                broker=broker, account_id=account,
-                broker_order_id=f"PAPER-{account}-{order.idempotency_key}",
-                status="PAPER_ACCEPTED",
-                raw={"mode": "paper", "not_sent_to_broker": True},
-            )
-        else:
-            result = await self.registry.get(broker, account).place_order(order)
+        try:
+            if paper:
+                result = BrokerOrder(
+                    broker=broker, account_id=account,
+                    broker_order_id=f"PAPER-{account}-{order.idempotency_key}",
+                    status="PAPER_ACCEPTED",
+                    raw={"mode": "paper", "not_sent_to_broker": True},
+                )
+            else:
+                result = await self.registry.get(broker, account).place_order(order)
+        except Exception as exc:
+            if self.ledger is not None:
+                self.ledger.record(BrokerOrder(
+                    broker=broker, account_id=account, broker_order_id="",
+                    status="UNKNOWN",
+                    raw={"submission_outcome": "unknown", "error_type": type(exc).__name__,
+                         "message": str(exc)[:500], "reconcile_before_retry": True},
+                ), order.idempotency_key)
+            raise
         self._idempotency[key] = result
         if self.ledger is not None:
             self.ledger.record(result, order.idempotency_key)
