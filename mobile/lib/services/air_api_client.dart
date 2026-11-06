@@ -70,6 +70,8 @@ class AirApiClient {
     final token = data['access_token'];
     if (data['status'] == 'APPROVED' && token is String && token.isNotEmpty) {
       _sharedAccessToken = token;
+    } else {
+      _sharedAccessToken = null;
     }
     return data;
   }
