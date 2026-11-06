@@ -99,116 +99,152 @@ class AirDashboard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final light = look == AirLook.light;
-    final glass = look == AirLook.glass;
-    final accent = cs.primary;
     final panel = Theme.of(context).cardColor;
     final muted = cs.onSurfaceVariant;
+    final accent = cs.primary;
     return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
       children: [
         Row(children: [
-          Container(width: 42, height: 42, decoration: BoxDecoration(
-            color: accent.withValues(alpha: .13), borderRadius: BorderRadius.circular(13),
-            border: Border.all(color: accent.withValues(alpha: .45))),
-            child: Center(child: Text('AIR', style: TextStyle(color: accent, fontWeight: FontWeight.w900, letterSpacing: 1)))),
-          const SizedBox(width: 11),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('ANALYTICAL INVESTMENT RESEARCH', style: TextStyle(fontSize: 9, color: muted, letterSpacing: 1, fontWeight: FontWeight.w700)),
-            const Text('MODEL ENGINE', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, letterSpacing: 1.5)),
+          Container(
+            width: 38, height: 38,
+            decoration: BoxDecoration(color: accent.withValues(alpha: .13), borderRadius: BorderRadius.circular(12)),
+            child: Center(child: Text('AIR', style: TextStyle(color: accent, fontWeight: FontWeight.w900, letterSpacing: 1))),
+          ),
+          const SizedBox(width: 10),
+          const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('AIR MODEL ENGINE', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, letterSpacing: .7)),
+            Text('Market intelligence terminal', style: TextStyle(fontSize: 10, color: Colors.grey)),
           ])),
           PopupMenuButton<AirLook>(
-            tooltip: 'Choose appearance',
+            tooltip: 'Appearance',
             initialValue: look,
             onSelected: onLookChanged,
             icon: Icon(Icons.palette_outlined, color: accent),
             itemBuilder: (context) => const [
-              PopupMenuItem(value: AirLook.glass, child: Text('Glass theme')),
-              PopupMenuItem(value: AirLook.dark, child: Text('Dark theme')),
-              PopupMenuItem(value: AirLook.light, child: Text('Light theme')),
+              PopupMenuItem(value: AirLook.glass, child: Text('Glass')),
+              PopupMenuItem(value: AirLook.dark, child: Text('Dark')),
+              PopupMenuItem(value: AirLook.light, child: Text('Light')),
             ],
           ),
-          CircleAvatar(radius: 17, backgroundColor: panel, child: Icon(Icons.person_outline_rounded, size: 19, color: accent)),
+          CircleAvatar(radius: 16, backgroundColor: panel, child: Icon(Icons.person_outline, size: 18, color: accent)),
         ]),
-        const SizedBox(height: 22),
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(24),
-            gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight,
-              colors: light
-                ? [const Color(0xFFFFF5DF), const Color(0xFFE8EEF8)]
-                : glass
-                  ? [const Color(0xCC344C6B), const Color(0xAA19283E), const Color(0x99101828)]
-                  : [const Color(0xFF26354B), const Color(0xFF151F30), const Color(0xFF111722)]),
-            border: Border.all(color: accent.withValues(alpha: glass ? .55 : .35)),
-            boxShadow: [BoxShadow(color: accent.withValues(alpha: glass ? .12 : .06), blurRadius: 28, spreadRadius: 1)],
-          ),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [AirTag('INTELLIGENCE, NOT NOISE', color: accent), const Spacer(), Icon(Icons.auto_awesome, color: accent, size: 18)]),
-            const SizedBox(height: 17),
-            Text('See the setup.\nUnderstand the edge.', style: TextStyle(fontSize: 29, height: 1.12, fontWeight: FontWeight.w900, letterSpacing: -.6, color: light ? const Color(0xFF172235) : Colors.white)),
-            const SizedBox(height: 10),
-            Text('A research-first view of Indian markets, options confluence and risk.', style: TextStyle(color: light ? const Color(0xFF526176) : const Color(0xFFB8C4D5), height: 1.45, fontSize: 13)),
-            const SizedBox(height: 19),
-            Row(children: [
-              _Metric(value: '4', label: 'EVIDENCE LAYERS', accent: accent),
-              const SizedBox(width: 24),
-              _Metric(value: '3', label: 'RESEARCH MODES', accent: accent),
-              const Spacer(),
-              Icon(Icons.arrow_forward_rounded, color: accent),
-            ]),
-          ]),
-        ),
-        const SizedBox(height: 22),
-        const SectionHeader(title: 'MARKET SNAPSHOT', caption: 'DEMO DATA · NOT LIVE'),
-        const SizedBox(height: 11),
+        const SizedBox(height: 18),
         Row(children: [
-          Expanded(child: IndexCard(name: 'NIFTY 50', panel: panel, muted: muted)),
-          const SizedBox(width: 10),
-          Expanded(child: IndexCard(name: 'BANK NIFTY', panel: panel, muted: muted)),
+          const Expanded(child: Text('MARKET PULSE', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1))),
+          AirTag('FEED PENDING', color: muted),
         ]),
-        const SizedBox(height: 20),
-        const SectionHeader(title: 'MODEL ENGINE SHORTCUTS', caption: 'QUICK ACCESS'),
-        const SizedBox(height: 10),
-        const ModelEngineQuickTabs(),
-        const SizedBox(height: 12),
-        const ModelEngineRecordsTable(),
-        const SizedBox(height: 10),
-        const WeeklyLowRespectDashboardShortcut(),
-        const SizedBox(height: 10),
-        const SurvivorDashboardShortcut(),
-        const SizedBox(height: 10),
-        const DashboardOrderPlacementShortcut(),
-        const SizedBox(height: 20),
-        const SectionHeader(title: 'AIR RESEARCH LIBRARY', caption: 'CHAT LOGIC → MODULES'),
-        const SizedBox(height: 10),
-        const AirResearchLibrary(),
-        const SizedBox(height: 23),
-        const SectionHeader(title: 'THE AIR DIFFERENCE', caption: 'OUR RESEARCH METHOD'),
-        const SizedBox(height: 12),
-        CardPanel(child: Column(children: [
-          EvidenceRow(number: '01', title: 'Underlying leads', detail: 'Read the stock or index structure first.', icon: Icons.show_chart_rounded, accent: accent, muted: muted),
-          EvidenceRow(number: '02', title: 'Volume confirms', detail: 'Look for participation, not just a price move.', icon: Icons.bar_chart_rounded, accent: accent, muted: muted),
-          EvidenceRow(number: '03', title: 'Option premium validates', detail: 'Check acceleration, liquidity and strike distance.', icon: Icons.bolt_rounded, accent: accent, muted: muted),
-          EvidenceRow(number: '04', title: 'Open interest completes context', detail: 'Assess positioning before qualifying a setup.', icon: Icons.query_stats_rounded, accent: accent, muted: muted, last: true),
+        const SizedBox(height: 9),
+        Row(children: [
+          Expanded(child: _CompactIndexCard(name: 'NIFTY 50', panel: panel, muted: muted)),
+          const SizedBox(width: 9),
+          Expanded(child: _CompactIndexCard(name: 'BANK NIFTY', panel: panel, muted: muted)),
+          const SizedBox(width: 9),
+          Expanded(child: _CompactIndexCard(name: 'SENSEX', panel: panel, muted: muted)),
+        ]),
+        const SizedBox(height: 18),
+        Row(children: [
+          const Expanded(child: Text('YOUR WORKSPACE', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1))),
+          Text('4 MODULES', style: TextStyle(fontSize: 9, color: muted, letterSpacing: .6)),
+        ]),
+        const SizedBox(height: 9),
+        Row(children: [
+          Expanded(child: _DashboardAction(icon: Icons.radar_rounded, title: 'AIR QOC', subtitle: 'Qualified setups', color: accent, onTap: () {})),
+          const SizedBox(width: 9),
+          Expanded(child: _DashboardAction(icon: Icons.shield_rounded, title: 'SURVIVOR', subtitle: '≤7 DTE watch', color: const Color(0xFFE5B85C), onTap: () => const SurvivorDashboardShortcut()._openSurvivor(context))),
+        ]),
+        const SizedBox(height: 9),
+        Row(children: [
+          Expanded(child: _DashboardAction(icon: Icons.account_balance_wallet_outlined, title: 'ORDERS', subtitle: 'Multi-account', color: const Color(0xFF20A879), onTap: () => const DashboardOrderPlacementShortcut()._openTicket(context))),
+          const SizedBox(width: 9),
+          Expanded(child: _DashboardAction(icon: Icons.trending_up_rounded, title: 'WEEKLY LOW', subtitle: 'Reversal watch', color: const Color(0xFF789BEA), onTap: () => const WeeklyLowRespectDashboardShortcut()._openDetails(context))),
+        ]),
+        const SizedBox(height: 18),
+        CardPanel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            const Expanded(child: Text('MODEL ENGINE', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: .7))),
+            AirTag('LEDGER PENDING', color: muted),
+          ]),
+          const SizedBox(height: 5),
+          Text('Your signal and position records will appear here when the model ledger is connected.', style: TextStyle(fontSize: 10, color: muted, height: 1.35)),
+          const SizedBox(height: 12),
+          Row(children: [
+            _MiniStatus(label: 'NEW', value: '—'),
+            _MiniStatus(label: 'HOLD', value: '—'),
+            _MiniStatus(label: 'RE-ENTRY', value: '—'),
+            _MiniStatus(label: 'EXPIRED', value: '—'),
+          ]),
         ])),
-        const SizedBox(height: 22),
-        const SectionHeader(title: 'YOUR RESEARCH DESK', caption: 'BUILT AROUND DECISIONS'),
-        const SizedBox(height: 11),
-        WorkspaceTile(icon: Icons.radar_rounded, title: 'AIR QOC', subtitle: 'Qualified Options Confluence', accent: accent, panel: panel, muted: muted),
-        WorkspaceTile(icon: Icons.discount_rounded, title: 'Options Opportunity Radar', subtitle: 'Premium · expiry · liquidity · strike distance', accent: const Color(0xFF46BFA0), panel: panel, muted: muted),
-        WorkspaceTile(icon: Icons.account_tree_rounded, title: 'Market Structure', subtitle: 'CPR · SMC · BOS/CHOCH · order blocks', accent: const Color(0xFF789BEA), panel: panel, muted: muted),
-        WorkspaceTile(icon: Icons.fact_check_outlined, title: 'Historical Proof & Risk', subtitle: 'Backtests · setup evidence · invalidation levels', accent: const Color(0xFFB184D9), panel: panel, muted: muted),
-        const SizedBox(height: 22),
-        const SectionHeader(title: 'MULTI-TIMEFRAME ORDER BLOCKS', caption: 'W · D · M'),
-        const SizedBox(height: 11),
-        const AirOrderBlockScanner(),
         const SizedBox(height: 14),
-        Center(child: Text('AIR MODEL ENGINE  •  INTERNAL LAB', style: TextStyle(color: muted, fontSize: 10, letterSpacing: 1.1))),
+        CardPanel(child: Row(children: [
+          Icon(Icons.verified_user_outlined, color: accent, size: 19),
+          const SizedBox(width: 10),
+          Expanded(child: Text('Evidence order: Underlying → Volume → Premium → OI', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: muted))),
+        ])),
+        const SizedBox(height: 18),
+        Center(child: Text('AIR  •  FIND THE OPPORTUNITY. VALIDATE THE EVIDENCE. MANAGE THE RISK.', textAlign: TextAlign.center, style: TextStyle(color: muted, fontSize: 8, letterSpacing: .45))),
       ],
     );
   }
+}
+
+class _CompactIndexCard extends StatelessWidget {
+  const _CompactIndexCard({required this.name, required this.panel, required this.muted});
+  final String name;
+  final Color panel, muted;
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(11),
+    decoration: BoxDecoration(color: panel, borderRadius: BorderRadius.circular(14), border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: .3))),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: muted)),
+      const SizedBox(height: 8),
+      const Text('—', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+      Text('No feed', style: TextStyle(fontSize: 9, color: muted)),
+    ]),
+  );
+}
+
+class _DashboardAction extends StatelessWidget {
+  const _DashboardAction({required this.icon, required this.title, required this.subtitle, required this.color, required this.onTap});
+  final IconData icon;
+  final String title, subtitle;
+  final Color color;
+  final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Theme.of(context).cardColor,
+    borderRadius: BorderRadius.circular(15),
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(15),
+      child: Container(
+        padding: const EdgeInsets.all(13),
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(15), border: Border.all(color: color.withValues(alpha: .35))),
+        child: Row(children: [
+          Icon(icon, color: color, size: 21),
+          const SizedBox(width: 9),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(title, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 3),
+            Text(subtitle, style: TextStyle(fontSize: 9, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+          ])),
+          Icon(Icons.chevron_right_rounded, size: 16, color: Theme.of(context).colorScheme.onSurfaceVariant),
+        ]),
+      ),
+    ),
+  );
+}
+
+class _MiniStatus extends StatelessWidget {
+  const _MiniStatus({required this.label, required this.value});
+  final String label, value;
+  @override
+  Widget build(BuildContext context) => Expanded(child: Column(children: [
+    Text(value, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+    const SizedBox(height: 2),
+    Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 8, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+  ]));
 }
 
 class AirTag extends StatelessWidget {
