@@ -243,9 +243,20 @@ async def register_customer() -> dict:
     raise HTTPException(status_code=410, detail="Email/password registration is disabled. Use mobile access request.")
 
 
-@app.post("/api/v1/auth/login", status_code=410)
-async def login_customer() -> dict:
-    raise HTTPException(status_code=410, detail="Email/password login is disabled. Use mobile access request.")
+@app.post("/api/v1/auth/login")
+async def login_customer(body: CustomerLogin) -> dict:
+    # Legacy operator login only. End customers must use the admin-approved mobile flow.
+    row = auth_store.get_by_email(body.email)
+    allowed = {
+        value.strip() for value in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",")
+        if value.strip()
+    }
+    if (row is None or not row["is_active"] or not verify_password(body.password, row["password_hash"])
+            or row["customer_id"] not in allowed):
+        raise HTTPException(status_code=401, detail="Invalid operator credentials")
+    token = create_access_token(row["customer_id"])
+    return {"access_token": token, "token_type": "bearer", "expires_in": 1800,
+            "customer_id": row["customer_id"], "role": "operator"}
 
 
 @app.get("/api/v1/customer/accounts")
