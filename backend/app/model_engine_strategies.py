@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.model_engine_expiry78 import evaluate_expiry78_rows
+
 STOCK_ENTRY_MIN = 1.0
 STOCK_ENTRY_MAX = 10.0
 
@@ -190,4 +192,51 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
         }
         if strategy == "ORIGINAL366":
             result[strategy]["baseline"] = dict(ORIGINAL366_BASELINE)
+
+    # EXPIRY78's seven-rule engine is replayed only when verified daily option
+    # OHLCV bars are attached to an explicitly tagged EXPIRY78 contract. Ledger
+    # rows without source bars remain visible as persisted observations, but are
+    # never represented as engine-qualified trades.
+    evaluated = evaluate_expiry78_rows(rows)
+    if evaluated:
+        engine_groups = {key: [] for key in
+                         ("OPEN", "NEW", "HOLD", "WAIT", "SLHIT", "REENTRY", "EXPIRED", "TARGETS")}
+        engine_trade_count = 0
+        engine_survivors = 0
+        engine_stops = 0
+        for source in evaluated:
+            replay = source["expiry78"]
+            trades = replay.get("trades") or []
+            if not trades:
+                engine_groups["WAIT"].append({
+                    **source, "classification": "WAIT",
+                    "reason": replay.get("reason"),
+                    "position_status": "WAIT",
+                })
+            for trade in trades:
+                item = {**source, **trade, "strategy": "EXPIRY78"}
+                bucket = {"SL": "SLHIT", "RE-ENTRY": "REENTRY"}.get(
+                    str(trade.get("classification") or "").upper(),
+                    str(trade.get("classification") or "").upper(),
+                )
+                if bucket in engine_groups:
+                    engine_groups[bucket].append(item)
+                engine_trade_count += 1
+                engine_survivors += int(bool(trade.get("expiry_survivor")))
+                engine_stops += int(trade.get("classification") == "SL")
+        engine_groups["OPEN"] = engine_groups["NEW"] + engine_groups["HOLD"]
+        for values in engine_groups.values():
+            values.sort(key=_sort_key, reverse=True)
+        result["EXPIRY78"]["groups"] = engine_groups
+        result["EXPIRY78"]["counts"] = {key: len(value) for key, value in engine_groups.items()}
+        result["EXPIRY78"]["count"] = engine_trade_count + len(engine_groups["WAIT"])
+        result["EXPIRY78"]["audit"].update({
+            "engine": "AIR_EXPIRY78_SEVEN_RULES",
+            "contracts_replayed": len(evaluated),
+            "trades_replayed": engine_trade_count,
+            "expiry_survivors": engine_survivors,
+            "stop_losses": engine_stops,
+            "contracts_without_entry_touch": len(engine_groups["WAIT"]),
+            "note": "Only verified daily OHLCV evidence is replayed; contracts without attached daily bars are not backfilled or guessed.",
+        })
     return result
