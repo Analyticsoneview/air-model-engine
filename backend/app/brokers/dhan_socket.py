@@ -16,6 +16,7 @@ SEGMENT_CODES = {
     "BSE_EQ": 4, "MCX_COMM": 5, "BSE_CURRENCY": 7, "BSE_FNO": 8,
 }
 REQUEST_CODES = {"ticker": 15, "quote": 17, "full": 21}
+UNSUBSCRIBE_CODES = {"ticker": 16, "quote": 18, "full": 22}
 
 
 class DhanFeedSocket:
@@ -67,6 +68,27 @@ class DhanFeedSocket:
             batch = normalized[start:start + 100]
             await self._socket.send(json.dumps({
                 "RequestCode": REQUEST_CODES[self.mode],
+                "InstrumentCount": len(batch),
+                "InstrumentList": batch,
+            }))
+
+
+    async def unsubscribe(self, instruments: list[dict[str, str]]) -> None:
+        if self._socket is None:
+            return
+        if not instruments or len(instruments) > self.max_instruments:
+            raise ValueError(f"Supply 1 to {self.max_instruments} instruments")
+        normalized = []
+        for item in instruments:
+            segment = item.get("exchange_segment", "")
+            security_id = str(item.get("security_id", "")).strip()
+            if segment not in SEGMENT_CODES or not security_id.isdigit():
+                raise ValueError("Each instrument needs a supported exchange_segment and numeric security_id")
+            normalized.append({"ExchangeSegment": segment, "SecurityId": security_id})
+        for start in range(0, len(normalized), 100):
+            batch = normalized[start:start + 100]
+            await self._socket.send(json.dumps({
+                "RequestCode": UNSUBSCRIBE_CODES[self.mode],
                 "InstrumentCount": len(batch),
                 "InstrumentList": batch,
             }))
