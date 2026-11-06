@@ -112,9 +112,9 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     if (quantity == null) return '—';
     if (lotSize is num && lotSize > 0 && quantity is num) {
       final lots = quantity / lotSize;
-      return '${quantity} qty / ${lots.toStringAsFixed(lots % 1 == 0 ? 0 : 2)} lots';
+      return '$quantity qty / ${lots.toStringAsFixed(lots % 1 == 0 ? 0 : 2)} lots';
     }
-    return '${quantity} qty';
+    return '$quantity qty';
   }
 
   String _targets(Map<String, dynamic> r) {
@@ -128,9 +128,9 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     final pct = r['pnl_pct'];
     final rupees = r['pnl_rupees'];
     final parts = <String>[];
-    if (points != null) parts.add('${points} pts');
-    if (pct != null) parts.add('${pct}%');
-    if (rupees != null) parts.add('₹${rupees}');
+    if (points != null) parts.add('$points pts');
+    if (pct != null) parts.add('$pct%');
+    if (rupees != null) parts.add('₹$rupees');
     return parts.isEmpty ? '—' : parts.join(' • ');
   }
 
@@ -173,7 +173,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       _cell(_v(r, 'stop_loss')),
       _cell(_targets(r)),
       _cell(_pnlDisplay(r)),
-      _cell(dte == null ? '—' : '${dte} calendar days'),
+      _cell(dte == null ? '—' : '$dte calendar days'),
       _cell(status),
       _cell(_evidenceDisplay(r)),
     ];
