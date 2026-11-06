@@ -90,21 +90,27 @@ def scan_expiries(store: AirQocStore, *, account_id: str, today: date | None = N
             "stop_loss": None,
             "targets": None,
         })
-    candidates.sort(key=lambda r: (
+    future_candidates = [r for r in candidates if not r["expired"]]
+    expired_candidates = [r for r in candidates if r["expired"]]
+    sort_key = lambda r: (
         0 if r["survivor"] else 1,
         r["days_to_expiry"],
         0 if r["scan_status"] == "LIQUIDITY_SCREEN_PASSED" else 1,
         -(r["volume"] or 0),
-    ))
+    )
+    future_candidates.sort(key=sort_key)
+    expired_candidates.sort(key=lambda r: (r["expiry"], r["symbol"], r["strike"], r["option_type"]))
     return {
         "classification": "EXPIRYSCAN",
         "as_of": today.isoformat(),
         "max_dte": max_dte,
-        "total_contracts": len(candidates),
-        "returned": min(limit, len(candidates)),
-        "survivor_count": sum(r["survivor"] for r in candidates),
-        "expired_count": sum(r["expired"] for r in candidates),
+        "total_contracts": len(future_candidates),
+        "returned": min(limit, len(future_candidates)),
+        "survivor_count": sum(r["survivor"] for r in future_candidates),
+        "expired_count": len(expired_candidates),
+        "expired_rows_returned": min(limit, len(expired_candidates)),
         "qualified_trade_signals": 0,
-        "note": "Contracts with valid past expiry dates are classified EXPIRED; valid future contracts within max_dte remain EXPIRYSCAN. Invalid expiry dates are omitted, never guessed. This is an evidence-only screen, not a qualified trade signal.",
-        "rows": candidates[:limit],
+        "note": "Valid future expiry dates within max_dte remain in EXPIRYSCAN. Valid past expiry dates are separately classified EXPIRED and supplied in expired_rows. Invalid/missing dates are omitted, never guessed. This is an evidence-only screen, not a qualified trade signal.",
+        "rows": future_candidates[:limit],
+        "expired_rows": expired_candidates[:limit],
     }
