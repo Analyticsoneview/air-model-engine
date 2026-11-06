@@ -43,9 +43,9 @@ def test_master_deduplicates_and_declares_deferred_views():
     result = build_master([source, dict(source)])
     assert result["count"] == 1
     assert result["audit"]["deduplicated"] == 1
-    assert "EXPIRY78" in result["vocabulary"]["deferred_views"]
-    assert "ORIGINAL366" in result["vocabulary"]["deferred_views"]
-    assert "RECOVERY" in result["vocabulary"]["deferred_views"]
+    assert "EXPIRY78" in result["vocabulary"]["implemented_views"]
+    assert "ORIGINAL366" in result["vocabulary"]["implemented_views"]
+    assert "RECOVERY" in result["vocabulary"]["implemented_views"]
     assert "MASTER" in MASTER_COMMANDS
 
 
@@ -86,3 +86,45 @@ def test_preserves_original_11_contract_27_oct_expiry_case_study():
     result = build_master(cohort)
     assert result["counts"]["EXPIRED"] == 11
     assert result["summary"]["expired"] == 11
+
+
+def test_strategy_views_are_isolated_and_stock_entry_filter_is_model_scoped():
+    from app.model_engine_strategies import build_strategy_views
+
+    expiry_stock = row("expiry-stock", "NEW", dte=20, entry_price=5)
+    expiry_stock["evidence"] = {"strategy_memberships": ["EXPIRY78"]}
+    original_stock = row("original-stock", "NEW", dte=20, entry_price=12)
+    original_stock["evidence"] = {"strategy_memberships": ["ORIGINAL366"]}
+    index_row = row("original-index", "NEW", dte=20, entry_price=150)
+    index_row["instrument_type"] = "INDEX"
+    index_row["evidence"] = {"strategy_memberships": ["ORIGINAL366"]}
+    recovery_row = row("recovery-stock", "RE-ENTRY", dte=20, entry_price=4)
+    recovery_row["evidence"] = {
+        "strategy_memberships": ["RECOVERY"],
+        "recovery_verified": True,
+        "original_entry_premium": 0.8,
+    }
+    result = build_strategy_views([expiry_stock, original_stock, index_row, recovery_row])
+
+    assert {r["signal_id"] for r in result["EXPIRY78"]["groups"]["NEW"]} == {"expiry-stock"}
+    # Out-of-band new stock candidates are rejected; index options are exempt.
+    assert {r["signal_id"] for r in result["ORIGINAL366"]["groups"]["NEW"]} == {"original-index"}
+    assert result["ORIGINAL366"]["audit"]["stock_candidates_rejected_outside_1_to_10"] == 1
+    assert {r["signal_id"] for r in result["RECOVERY"]["groups"]["REENTRY"]} == {"recovery-stock"}
+    assert result["ORIGINAL366"]["baseline"]["trades"] == 366
+    assert result["ORIGINAL366"]["baseline"]["baseline_status"] == "PRESERVED_NOT_RECALCULATED"
+
+
+def test_recovery_lot_size_rule_is_enforced():
+    from app.model_engine_strategies import build_strategy_views
+
+    recovery = row("recovery-large-lot", "RE-ENTRY", dte=20, entry_price=5)
+    recovery["lot_size"] = 1500
+    recovery["evidence"] = {
+        "strategy_memberships": ["RECOVERY"],
+        "recovery_verified": True,
+        "original_entry_premium": 1.0,
+    }
+    result = build_strategy_views([recovery])
+    assert result["RECOVERY"]["counts"]["REENTRY"] == 0
+    assert result["RECOVERY"]["audit"]["recovery_candidates_rejected_without_verified_recovery_evidence"] == 1
