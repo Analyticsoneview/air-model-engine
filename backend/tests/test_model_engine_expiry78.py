@@ -123,3 +123,35 @@ def test_missing_expiry_is_rejected():
     item["expiry"] = None
     result = evaluate_expiry78_contract(item, as_of="2026-11-05")
     assert result["status"] == "REJECTED"
+
+
+def test_expiry78_rows_require_explicit_membership_and_daily_bars():
+    from app.model_engine_expiry78 import evaluate_expiry78_rows
+
+    tagged = contract(bars=base_bars())
+    tagged["signal_id"] = "tagged"
+    untagged = contract(bars=base_bars())
+    untagged["signal_id"] = "untagged"
+    untagged["evidence"] = {"daily_option_bars": base_bars()}
+    evaluated = evaluate_expiry78_rows([tagged, untagged], as_of="2026-11-05")
+    assert [item["signal_id"] for item in evaluated] == ["tagged"]
+    assert evaluated[0]["expiry78"]["trade_count"] == 1
+
+
+def test_expiry78_strategy_tab_uses_engine_replay_results():
+    from app.model_engine_strategies import build_strategy_views
+
+    item = contract(bars=base_bars())
+    item.update({
+        "signal_id": "engine-entry",
+        "classification": "WAIT",
+        "signal_date": "2026-11-04",
+        "entry_price": None,
+        "entry_date": None,
+        "days_to_expiry": 5,
+    })
+    views = build_strategy_views([item])
+    assert views["EXPIRY78"]["audit"]["engine"] == "AIR_EXPIRY78_SEVEN_RULES"
+    assert views["EXPIRY78"]["counts"]["NEW"] == 1
+    assert views["EXPIRY78"]["counts"]["OPEN"] == 1
+    assert views["EXPIRY78"]["groups"]["NEW"][0]["entry_price"] == 8.0
