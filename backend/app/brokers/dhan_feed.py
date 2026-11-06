@@ -17,9 +17,9 @@ class DhanFeedProtocolError(ValueError):
 _HEADER = struct.Struct("<BHB I")
 _TICKER = struct.Struct("<fI")
 _PREV_CLOSE = struct.Struct("<fI")
-_QUOTE = struct.Struct("<HIfIIIffff")
+_QUOTE = struct.Struct("<fHIfIIIffff")
 _OI = struct.Struct("<I")
-_FULL = struct.Struct("<HIfIIIIIIffff100s")
+_FULL = struct.Struct("<fHIfIIIIIIffff100s")
 _DEPTH_LEVEL = struct.Struct("<IIHHff")
 
 
@@ -60,9 +60,9 @@ def decode_dhan_message(message: bytes) -> list[dict[str, Any]]:
         elif code == 4:
             if len(payload) != _QUOTE.size:
                 raise DhanFeedProtocolError("Invalid quote packet size")
-            ltq, epoch, average, volume, sell_qty, buy_qty, open_price, close_price, high, low = _QUOTE.unpack(payload)
+            ltp, ltq, epoch, average, volume, sell_qty, buy_qty, open_price, close_price, high, low = _QUOTE.unpack(payload)
             item.update(
-                type="quote", ltp=average if False else struct.unpack_from("<f", payload, 0)[0],
+                type="quote", ltp=ltp,
                 last_trade_quantity=ltq,
                 exchange_time=datetime.fromtimestamp(epoch, timezone.utc).isoformat(),
                 average_price=average, volume=volume, total_sell_quantity=sell_qty,
@@ -77,7 +77,7 @@ def decode_dhan_message(message: bytes) -> list[dict[str, Any]]:
         elif code == 8:
             if len(payload) != _FULL.size:
                 raise DhanFeedProtocolError("Invalid full packet size")
-            (ltq, epoch, average, volume, sell_qty, buy_qty, oi, oi_high, oi_low,
+            (ltp, ltq, epoch, average, volume, sell_qty, buy_qty, oi, oi_high, oi_low,
              open_price, close_price, high, low, depth_bytes) = _FULL.unpack(payload)
             depth = []
             for level in range(5):
@@ -89,7 +89,7 @@ def decode_dhan_message(message: bytes) -> list[dict[str, Any]]:
                     "ask_price": _positive_or_none(ask_price),
                 })
             item.update(
-                type="full", ltp=struct.unpack_from("<f", payload, 0)[0],
+                type="full", ltp=ltp,
                 last_trade_quantity=ltq,
                 exchange_time=datetime.fromtimestamp(epoch, timezone.utc).isoformat(),
                 average_price=average, volume=volume, total_sell_quantity=sell_qty,
