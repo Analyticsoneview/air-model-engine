@@ -10,7 +10,7 @@ class ModelEngineScreen extends StatefulWidget {
 
 class _ModelEngineScreenState extends State<ModelEngineScreen> {
   final AirApiClient _api = AirApiClient();
-  static const _sections = ['OPEN', 'NEW', 'HOLD', 'REENTRY', 'SURVIVOR', 'WAIT', 'SLHIT', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN', 'PHYSICAL SETTLEMENT', 'COMBINED', 'EXPIRY78', 'RECOVERED', 'RECOVERY'];
+  static const _sections = ['P&L CALENDAR', 'OPEN', 'NEW', 'HOLD', 'REENTRY', 'SURVIVOR', 'WAIT', 'SLHIT', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN', 'PHYSICAL SETTLEMENT', 'COMBINED', 'EXPIRY78', 'RECOVERED', 'RECOVERY'];
   static const _strategyTabs = ['EXPIRY78', 'RECOVERED', 'RECOVERY'];
 
   String _strategyKey(String section) => section == 'RECOVERED' ? 'ORIGINAL366' : section;
@@ -31,6 +31,9 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   String? _error, _updatedAt;
   String _strategyStatus = 'OPEN';
   String _dataStatus = 'SIGN IN TO LOAD YOUR MODEL ENGINE LEDGER';
+  Map<String, dynamic> _pnlCalendar = {};
+  DateTime _calendarMonth = DateTime(DateTime.now().year, DateTime.now().month);
+  bool _calendarLoading = false;
 
   @override
   void initState() {
@@ -53,7 +56,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     try {
       final result = await _api.modelEngineMaster();
       Map<String, dynamic>? expiryResult;
-      Map<String, dynamic>? settlementResult;
+      Map<String, dynamic>? settlementResult;\n      Map<String, dynamic>? pnlResult;
       try { expiryResult = await _api.expiryScan(); }
       catch (e) { _expiryNote = 'EXPIRYSCAN unavailable: $e'; }
       try { settlementResult = await _api.physicalSettlement(); }
@@ -90,7 +93,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   String _v(Map<String, dynamic> row, String key) => row[key] == null ? '—' : row[key].toString();
 
   String _tabCount(String section) {
-    if (_strategyTabs.contains(section)) {
+    if (section == 'P&L CALENDAR') return '₹';\n    if (_strategyTabs.contains(section)) {
       final data = _strategies[_strategyKey(section)];
       if (data is! Map) return '0';
       if (section == 'RECOVERED') {
@@ -317,7 +320,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final selectedSection = _sections[_selected];
-    final expirySelected = selectedSection == 'EXPIRYSCAN';
+    final pnlSelected = selectedSection == 'P&L CALENDAR';\n    final expirySelected = selectedSection == 'EXPIRYSCAN';
     final settlementSelected = selectedSection == 'PHYSICAL SETTLEMENT';
     final strategySelected = _strategyTabs.contains(selectedSection);
     final strategyData = _strategies[_strategyKey(selectedSection)] as Map<String, dynamic>?;
@@ -368,7 +371,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
             ],
           ))),
           const SizedBox(height: 10),
-          if (strategySelected) ...[
+          if (pnlSelected) _pnlCalendarView(),\n          if (strategySelected) ...[
             if (strategyData?['rules'] is Map) Card(child: Padding(
               padding: const EdgeInsets.all(12), child: Text(
                 (strategyData!['rules'] as Map)['qualification']?.toString() ?? '',
@@ -471,7 +474,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                   'scan_status','observed_at']) DataCell(_cell(_v(r, key))),
               ],
             )).toList()))),
-          if (!settlementSelected && ((!expirySelected && rows.isEmpty) || (expirySelected && _expiryRows.isEmpty))) Card(child: Padding(padding: const EdgeInsets.all(18),
+          if (!pnlSelected && !settlementSelected && ((!expirySelected && rows.isEmpty) || (expirySelected && _expiryRows.isEmpty))) Card(child: Padding(padding: const EdgeInsets.all(18),
             child: Column(children: [
               Icon(Icons.hourglass_empty_rounded, size: 28, color: cs.onSurfaceVariant),
               const SizedBox(height: 8),
@@ -480,7 +483,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
               Text('This section populates only from persisted verified records. No invented sample trades are displayed.',
                 textAlign: TextAlign.center, style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
             ]),
-          )) else if (!expirySelected && !settlementSelected) Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal,
+          )) else if (!pnlSelected && !expirySelected && !settlementSelected) Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal,
             child: DataTable(columnSpacing: 14, headingRowHeight: 38,
               dataRowMinHeight: 38, dataRowMaxHeight: 52,
               columns: _columns, rows: rows.map(_row).toList()))),
