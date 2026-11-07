@@ -70,3 +70,24 @@ def test_expiryscan_routes_valid_past_expiry_to_expired():
     assert row["days_to_expiry"] == -1
     assert row["survivor"] is False
     store.close()
+
+
+
+def test_expiryscan_marks_prior_weekday_close_reminder():
+    store = AirQocStore(":memory:")
+    expiry = "2026-11-10"  # Tuesday; prior weekday is Monday 9-Nov
+    chain = {"oc": {"25000": {"ce": {
+        "security_id": "777", "last_price": 20, "volume": 100,
+        "oi": 300, "previous_oi": 250, "top_bid_price": 19.5,
+        "top_ask_price": 20,
+    }}}}
+    store.save_option_chain(account_id="a", underlying_scrip=13,
+                            underlying_segment="IDX_I", expiry=expiry,
+                            underlying_price=25000, observed_at="2026-11-09T10:00:00+05:30",
+                            chain=chain)
+    result = scan_expiries(store, account_id="a", today=date(2026, 11, 9))
+    assert result["close_alert_count"] == 1
+    alert = result["close_alerts"][0]
+    assert alert["close_alert_due"] is True
+    assert alert["notification"]["type"] == "EXPIRY_CLOSE_REMINDER"
+    store.close()
