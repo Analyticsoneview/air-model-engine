@@ -78,6 +78,11 @@ class MarketDataRouter:
                 raise ValueError(f"Failover provider account is not registered/enabled: {key}")
             if key == active:
                 raise ValueError("Failover candidate cannot duplicate the active source")
+            if active and key[0] != active[0]:
+                raise ValueError(
+                    "Cross-broker failover is blocked until a verified provider-to-provider "
+                    "instrument-token mapping is available; use a secondary account on the same broker"
+                )
         self._failover_accounts[channel] = unique
         self._failover_enabled[channel] = bool(enabled)
 
