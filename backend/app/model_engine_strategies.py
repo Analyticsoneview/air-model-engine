@@ -295,10 +295,7 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
             values.sort(key=_sort_key, reverse=True)
         result["ORIGINAL366"]["groups"] = original_groups
         result["ORIGINAL366"]["counts"] = {key: len(value) for key, value in original_groups.items()}
-        result["ORIGINAL366"]["count"] = sum(
-            len(original_groups[key]) for key in
-            ("OPEN", "WAIT", "SLHIT", "ORIGINAL_SLHIT", "REENTRY", "EXPIRED", "TARGETS", "REJECTED")
-        )
+        result["ORIGINAL366"]["count"] = len(accepted)
         result["ORIGINAL366"]["replay"] = {
             "contracts_replayed": len(original_evaluated),
             "trades_replayed": len(replay_trades),
