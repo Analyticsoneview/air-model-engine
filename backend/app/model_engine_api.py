@@ -428,6 +428,7 @@ async def get_expiry_scan(
 ) -> dict:
     """Read-only scan of captured Dhan option-chain observations owned by this customer."""
     result = _expiry_scan_for_customer(customer_id, max_dte=max_dte, limit=limit)
+    result["execution_policy"] = execution_policy.get()
     # This endpoint currently produces a liquidity-screen pass, not a full QOC
     # trade qualification. Telegram labels these notifications accordingly.
     qualified = [row for row in result.get("rows", [])
