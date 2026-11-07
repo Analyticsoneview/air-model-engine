@@ -44,6 +44,12 @@ jobs:
       - name: Run backend tests
         working-directory: backend
         run: python -m unittest discover -s tests -v
+      - name: Validate production API URL
+        env:
+          AIR_API_BASE_URL: ${{ vars.AIR_API_BASE_URL }}
+        run: |
+          test -n "$AIR_API_BASE_URL"
+          case "$AIR_API_BASE_URL" in https://*) ;; *) echo "AIR_API_BASE_URL must be a public HTTPS URL" >&2; exit 1 ;; esac
       - name: Validate deployment files
         run: |
           test -s backend/Dockerfile
@@ -88,7 +94,7 @@ jobs:
           context: .
           file: ./deploy/pwa.Dockerfile
           build-args: |
-            AIR_API_BASE_URL=${{ vars.AIR_API_BASE_URL || 'https://api.example.invalid' }}
+            AIR_API_BASE_URL=${{ vars.AIR_API_BASE_URL }}
           push: true
           tags: |
             ghcr.io/${{ steps.image.outputs.owner_lc }}/air-model-engine-pwa:${{ github.sha }}
