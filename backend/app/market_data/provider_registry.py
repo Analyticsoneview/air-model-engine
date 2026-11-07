@@ -72,8 +72,8 @@ PROVIDER_CATALOG: tuple[dict[str, Any], ...] = (
         "name": "External Market-Data Vendor (adapter extension)",
         "kind": "vendor",
         "channels": ["historical", "live"],
-        "adapter_ready": {"historical": False, "live": False},
-        "data_scope": "Vendor-neutral adapter contract; vendor-specific adapter and credentials required",
+        "adapter_ready": {"historical": True, "live": True},
+        "data_scope": "AIR JSON vendor contract: HTTPS historical/instrument REST and native JSON WebSocket live feed; vendor-specific schema adapter may still be required",
         "requires_account": True,
     },
 )
