@@ -968,32 +968,27 @@ async def operator_select_market_data_source(
         return {"selection": selected, "runtime": market_data_router.status(),
                 "status": "CONNECTED", "note": "NSE official EOD CM/FO store is the selected historical source."}
 
-    if provider != "dhan":
-        raise HTTPException(status_code=409, detail="This provider is listed but its AIR market-data adapter is not yet implemented and verified.")
-    if channel not in ("historical", "live"):
-        raise HTTPException(status_code=422, detail="Dhan option-chain capture is managed by the dedicated AIR QOC connection.")
     if not account_id:
-        raise HTTPException(status_code=422, detail="Dhan account ID is required")
+        raise HTTPException(status_code=422, detail=f"{provider} account ID is required")
     owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(operator_id)}
     if (provider, account_id) not in owned:
-        raise HTTPException(status_code=404, detail="Dhan account is not assigned to this operator")
+        raise HTTPException(status_code=404, detail=f"{provider} account is not assigned to this operator")
     try:
-        credentials = get_vault().get(operator_id, provider, account_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=409, detail="Save Dhan credentials before enabling this source") from exc
-    client_id = credentials.get("client_id", account_id)
-    access_token = credentials.get("access_token")
-    if not access_token:
-        raise HTTPException(status_code=422, detail="Dhan access token is required")
-    if not market_data_router.is_registered(provider, account_id):
-        market_data_router.register(account_id, DhanMarketDataAdapter(client_id, access_token, market_data_hub))
-    try:
+        if not market_data_router.is_registered(provider, account_id):
+            adapter = _market_adapter_for(operator_id, provider, account_id)
+            market_data_router.register(account_id, adapter)
         await market_data_router.set_source(channel, provider, account_id)
-    except (ValueError, RuntimeError) as exc:
+    except KeyError as exc:
+        raise HTTPException(status_code=409, detail="Provider credentials have not been saved") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=f"Could not enable {channel} source: {str(exc)}") from exc
     selected = market_data_sources.set_source(channel, provider, account_id, True)
     return {"selection": selected, "runtime": market_data_router.status(),
-            "status": "CONNECTED", "note": f"Dhan {channel} source authenticated successfully."}
+            "status": "CONNECTED",
+            "note": f"{provider} {channel} adapter authenticated successfully. Live quote mode: REST polling where applicable."}
+
 
 
 @app.get("/api/v1/operator/telegram/destinations")
