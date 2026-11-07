@@ -61,8 +61,11 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       catch (e) { _expiryNote = 'EXPIRYSCAN unavailable: $e'; }
       try { settlementResult = await _api.physicalSettlement(); }
       catch (e) { _settlementNote = 'Physical settlement review unavailable: $e'; }
+      try { pnlResult = await _api.modelEnginePnlCalendar(year: _calendarMonth.year, month: _calendarMonth.month); }
+      catch (e) { _error = 'P&L calendar unavailable: $e'; }
       if (!mounted) return;
       setState(() {
+        if (pnlResult != null) _pnlCalendar = pnlResult;
         _groups = result['groups'] as Map<String, dynamic>? ?? {};
         _strategies = result['strategies'] as Map<String, dynamic>? ?? {};
         if (expiryResult != null) {
