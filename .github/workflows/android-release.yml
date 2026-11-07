@@ -21,11 +21,11 @@ jobs:
 
       - name: Validate release configuration
         env:
-          AIR_API_BASE_URL: \${{ vars.AIR_API_BASE_URL }}
-          ANDROID_SIGNING_KEY_BASE64: \${{ secrets.ANDROID_SIGNING_KEY_BASE64 }}
-          ANDROID_KEYSTORE_PASSWORD: \${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: \${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: \${{ secrets.ANDROID_KEY_PASSWORD }}
+          AIR_API_BASE_URL: ${{ vars.AIR_API_BASE_URL }}
+          ANDROID_SIGNING_KEY_BASE64: ${{ secrets.ANDROID_SIGNING_KEY_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           test -n "$AIR_API_BASE_URL"
           case "$AIR_API_BASE_URL" in https://*) ;; *) echo "AIR_API_BASE_URL must use HTTPS for customer release." >&2; exit 1 ;; esac
@@ -65,7 +65,7 @@ jobs:
       - name: Build ARM64 release APK
         working-directory: mobile
         env:
-          AIR_API_BASE_URL: \${{ vars.AIR_API_BASE_URL }}
+          AIR_API_BASE_URL: ${{ vars.AIR_API_BASE_URL }}
         run: |
           flutter build apk --release --target-platform android-arm64 \
             --dart-define=APP_ENV=production \
@@ -76,14 +76,14 @@ jobs:
         uses: r0adkll/sign-android-release@v1
         with:
           releaseDirectory: mobile/build/app/outputs/flutter-apk
-          signingKeyBase64: \${{ secrets.ANDROID_SIGNING_KEY_BASE64 }}
-          alias: \${{ secrets.ANDROID_KEY_ALIAS }}
-          keyStorePassword: \${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          keyPassword: \${{ secrets.ANDROID_KEY_PASSWORD }}
+          signingKeyBase64: ${{ secrets.ANDROID_SIGNING_KEY_BASE64 }}
+          alias: ${{ secrets.ANDROID_KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyPassword: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
       - name: Verify signed APK
         env:
-          SIGNED_APK: \${{ steps.sign.outputs.signedReleaseFile }}
+          SIGNED_APK: ${{ steps.sign.outputs.signedReleaseFile }}
         run: |
           test -s "$SIGNED_APK"
           apksigner verify --verbose "$SIGNED_APK"
@@ -94,7 +94,7 @@ jobs:
         with:
           name: AIR-Model-Engine-Android-ARM64-Signed
           path: |
-            \${{ steps.sign.outputs.signedReleaseFile }}
+            ${{ steps.sign.outputs.signedReleaseFile }}
             AIR-Android-Release-SHA256.txt
           if-no-files-found: error
           retention-days: 90
