@@ -96,9 +96,20 @@ class MarketDataSourceRegistry:
                 provider TEXT NOT NULL,
                 account_id TEXT,
                 enabled INTEGER NOT NULL DEFAULT 0,
+                fallback_provider TEXT,
+                fallback_account_id TEXT,
+                failover_enabled INTEGER NOT NULL DEFAULT 0,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        columns = {row["name"] for row in self.db.execute("PRAGMA table_info(market_data_sources)")}
+        for name, declaration in (
+            ("fallback_provider", "TEXT"),
+            ("fallback_account_id", "TEXT"),
+            ("failover_enabled", "INTEGER NOT NULL DEFAULT 0"),
+        ):
+            if name not in columns:
+                self.db.execute(f"ALTER TABLE market_data_sources ADD COLUMN {name} {declaration}")
         self.db.commit()
 
     @staticmethod
@@ -108,11 +119,16 @@ class MarketDataSourceRegistry:
 
     def selections(self) -> dict[str, dict[str, Any] | None]:
         rows = self.db.execute(
-            "SELECT channel, provider, account_id, enabled, updated_at FROM market_data_sources"
+            "SELECT channel, provider, account_id, enabled, fallback_provider, "
+            "fallback_account_id, failover_enabled, updated_at FROM market_data_sources"
         ).fetchall()
         values = {row["channel"]: {
             "provider": row["provider"], "account_id": row["account_id"],
-            "enabled": bool(row["enabled"]), "updated_at": row["updated_at"],
+            "enabled": bool(row["enabled"]),
+            "fallback_provider": row["fallback_provider"],
+            "fallback_account_id": row["fallback_account_id"],
+            "failover_enabled": bool(row["failover_enabled"]),
+            "updated_at": row["updated_at"],
         } for row in rows}
         return {channel: values.get(channel) for channel in CHANNELS}
 
@@ -136,6 +152,36 @@ class MarketDataSourceRegistry:
                 provider=excluded.provider, account_id=excluded.account_id,
                 enabled=excluded.enabled, updated_at=CURRENT_TIMESTAMP
         """, (channel, provider, account_id, int(enabled)))
+        self.db.commit()
+        return self.selections()[channel] or {}
+
+    def set_failover(self, channel: str, fallback_provider: str | None,
+                     fallback_account_id: str | None, enabled: bool) -> dict[str, Any]:
+        if channel not in CHANNELS:
+            raise ValueError("Unsupported data channel")
+        current = self.selections().get(channel)
+        if not current:
+            raise ValueError("Select a primary provider before configuring failover")
+        if enabled:
+            definition = next((item for item in PROVIDER_CATALOG
+                               if item["code"] == fallback_provider), None)
+            if definition is None or not definition["adapter_ready"].get(channel, False):
+                raise ValueError("Fallback provider has no ready adapter for this channel")
+            if fallback_provider == current["provider"] and fallback_account_id == current["account_id"]:
+                raise ValueError("Fallback must be a different provider account")
+            if definition["requires_account"] and not (fallback_account_id or "").strip():
+                raise ValueError("Fallback provider account ID is required")
+            if not definition["requires_account"]:
+                fallback_account_id = None
+        else:
+            fallback_provider = None
+            fallback_account_id = None
+        self.db.execute("""
+            UPDATE market_data_sources
+            SET fallback_provider=?, fallback_account_id=?, failover_enabled=?,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE channel=?
+        """, (fallback_provider, fallback_account_id, int(enabled), channel))
         self.db.commit()
         return self.selections()[channel] or {}
 
