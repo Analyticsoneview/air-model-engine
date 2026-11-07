@@ -75,7 +75,7 @@ def start_telegram_scheduler() -> None:
         CronTrigger(
             day_of_week="mon-fri",
             hour="9-15",
-            minute="0,5,10,15,20,25,30",
+            minute="*/5",
             timezone=IST,
         ),
         id="air-telegram-strategy-poll",
@@ -84,7 +84,7 @@ def start_telegram_scheduler() -> None:
         coalesce=True,
     )
     _scheduler.start()
-    log.info("AIR Telegram strategy polling enabled every 5 minutes, weekdays 09:00-15:30 IST")
+    log.info("AIR Telegram strategy polling enabled every 5 minutes, weekdays 09:00-15:55 IST")
 
 
 def stop_telegram_scheduler() -> None:
