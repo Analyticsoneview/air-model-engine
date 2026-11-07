@@ -89,6 +89,20 @@ class AngelSmartAPI:
         )
         return data if isinstance(data, list) else []
 
+    async def market_data(self, mode: str, exchange_tokens: dict[str, list[str]]) -> dict[str, Any]:
+        """Fetch a SmartAPI market quote snapshot for grouped exchange tokens."""
+        if mode not in {"LTP", "OHLC", "FULL"} or not exchange_tokens:
+            raise ValueError("Angel market-data mode and exchange tokens are required")
+        if sum(len(tokens) for tokens in exchange_tokens.values()) > 500:
+            raise ValueError("Angel market-data request exceeds 500 tokens")
+        data = await self._request(
+            "POST", "/rest/secure/angelbroking/market/v1/quote/",
+            json={"mode": mode, "exchangeTokens": exchange_tokens},
+        )
+        if not isinstance(data, dict):
+            raise AngelAPIError(502, "Unexpected Angel market-data response")
+        return data
+
     async def order_book(self) -> list[dict[str, Any]]:
         data = await self._request("GET", "/rest/secure/angelbroking/order/v1/getOrderBook")
         return data if isinstance(data, list) else []
