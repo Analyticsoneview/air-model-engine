@@ -260,7 +260,7 @@ async def run_account_reports(customer_id: str = Depends(require_customer)) -> d
     from datetime import datetime
     report_date = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
     reports = await account_reporting.run_customer(customer_id, accounts,
-        _collect_broker_account_statement, report_date)
+        _collect_broker_account_statement, report_date, force=True)
     return {"reports": reports}
 
 
