@@ -109,7 +109,7 @@ def _market_adapter_for(operator_id: str, provider: str, account_id: str, hub=No
     if provider == "fyers":
         if not credentials.get("app_id") or not credentials.get("access_token"):
             raise ValueError("FYERS app_id and access_token are required")
-        return FyersWebSocketAdapter(account_id, credentials["app_id"], credentials["access_token"], market_data_hub, poll_seconds)
+        return FyersWebSocketAdapter(account_id, credentials["app_id"], credentials["access_token"], hub, poll_seconds)
     if provider == "angelone":
         required = ("api_key", "jwt_token", "feed_token")
         if any(not credentials.get(key) for key in required):
