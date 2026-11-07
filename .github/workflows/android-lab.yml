@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   android-lab:
-    runs-on: ${{ fromJSON(vars.AIR_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    runs-on: ${{ fromJSON(vars.AIR_CI_RUNNER_LABELS || vars.AIR_RUNNER_LABELS || '["ubuntu-latest"]') }}
     timeout-minutes: 25
     steps:
       - name: Checkout source
