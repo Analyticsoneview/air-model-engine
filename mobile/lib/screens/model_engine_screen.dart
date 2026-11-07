@@ -10,7 +10,7 @@ class ModelEngineScreen extends StatefulWidget {
 
 class _ModelEngineScreenState extends State<ModelEngineScreen> {
   final AirApiClient _api = AirApiClient();
-  static const _sections = ['OPEN', 'NEW', 'HOLD', 'REENTRY', 'SURVIVOR', 'WAIT', 'SLHIT', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN', 'COMBINED', 'EXPIRY78', 'RECOVERED', 'RECOVERY'];
+  static const _sections = ['OPEN', 'NEW', 'HOLD', 'REENTRY', 'SURVIVOR', 'WAIT', 'SLHIT', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN', 'PHYSICAL SETTLEMENT', 'COMBINED', 'EXPIRY78', 'RECOVERED', 'RECOVERY'];
   static const _strategyTabs = ['EXPIRY78', 'RECOVERED', 'RECOVERY'];
 
   String _strategyKey(String section) => section == 'RECOVERED' ? 'ORIGINAL366' : section;
@@ -20,6 +20,9 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   Map<String, dynamic> _summary = {};
   Map<String, dynamic> _breakdowns = {};
   List<Map<String, dynamic>> _expiryRows = [];
+  List<Map<String, dynamic>> _settlementRows = [];
+  Map<String, dynamic> _settlementSummary = {};
+  String? _settlementNote;
   List<Map<String, dynamic>> _expiryAlerts = [];
   String? _expiryNote;
   int _selected = 0;
@@ -50,8 +53,11 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     try {
       final result = await _api.modelEngineMaster();
       Map<String, dynamic>? expiryResult;
+      Map<String, dynamic>? settlementResult;
       try { expiryResult = await _api.expiryScan(); }
       catch (e) { _expiryNote = 'EXPIRYSCAN unavailable: $e'; }
+      try { settlementResult = await _api.physicalSettlement(); }
+      catch (e) { _settlementNote = 'Physical settlement review unavailable: $e'; }
       if (!mounted) return;
       setState(() {
         _groups = result['groups'] as Map<String, dynamic>? ?? {};
@@ -64,6 +70,12 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
           _expiryAlerts = (expiryResult['close_alerts'] as List<dynamic>? ?? const [])
               .whereType<Map<String, dynamic>>().toList();
           _expiryNote = expiryResult['note']?.toString();
+        }
+        if (settlementResult != null) {
+          _settlementRows = (settlementResult['rows'] as List<dynamic>? ?? const [])
+              .whereType<Map<String, dynamic>>().toList();
+          _settlementSummary = settlementResult['summary'] as Map<String, dynamic>? ?? {};
+          _settlementNote = settlementResult['note']?.toString();
         }
         _counts = result['counts'] as Map<String, dynamic>? ?? {};
         _summary = result['summary'] as Map<String, dynamic>? ?? {};
@@ -88,8 +100,23 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       return (data['count'] ?? 0).toString();
     }
     if (section == 'EXPIRYSCAN') return _expiryRows.length.toString();
+    if (section == 'PHYSICAL SETTLEMENT') return _settlementRows.length.toString();
     return (_counts[section] ?? 0).toString();
   }
+  Widget _settlementMetric(String label, dynamic value) => Container(
+    padding: const EdgeInsets.all(9),
+    decoration: BoxDecoration(
+      border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(label, style: const TextStyle(fontSize: 8, fontWeight: FontWeight.w800)),
+      const SizedBox(height: 3),
+      Text(value == null ? '—' : (value is num && label.contains('FUNDS') ? '₹${value.toStringAsFixed(2)}' : value.toString()),
+        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900)),
+    ]),
+  );
+
   Widget _cell(String value) => Padding(
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
     child: Text(value, style: const TextStyle(fontSize: 10)),
@@ -225,6 +252,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     final cs = Theme.of(context).colorScheme;
     final selectedSection = _sections[_selected];
     final expirySelected = selectedSection == 'EXPIRYSCAN';
+    final settlementSelected = selectedSection == 'PHYSICAL SETTLEMENT';
     final strategySelected = _strategyTabs.contains(selectedSection);
     final strategyData = _strategies[_strategyKey(selectedSection)] as Map<String, dynamic>?;
     final strategyGroups = strategyData?['groups'] as Map<String, dynamic>?;
@@ -301,6 +329,46 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
             )).toList()),
           ],
           if (_sections[_selected] == 'WAIT' && !strategySelected) Padding(padding: const EdgeInsets.all(8), child: Text('WAIT is reserved for candidates explicitly marked pending by a verified workflow. Missing data is never treated as WAIT.', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant))),
+          if (settlementSelected) ...[
+            Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('EXPIRY78 • PHYSICAL DELIVERY REVIEW', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
+                const SizedBox(height: 6),
+                Text('27-Oct-2026 expiry • 13 stock-option expiry outcomes from the 45-contract backtest',
+                  style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+                const SizedBox(height: 8),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  _settlementMetric('TAKE SHARES IF CALLS ITM', _settlementSummary['take_delivery_share_quantity_if_all_calls_itm']),
+                  _settlementMetric('GIVE SHARES IF PUTS ITM', _settlementSummary['give_delivery_share_quantity_if_all_puts_itm']),
+                  _settlementMetric('CALL FUNDS PAYABLE', _settlementSummary['provisional_call_funds_payable_if_itm']),
+                  _settlementMetric('PUT FUNDS RECEIVABLE', _settlementSummary['provisional_put_funds_receivable_if_itm']),
+                ]),
+                const SizedBox(height: 8),
+                Text('PROVISIONAL • Underlying expiry closes are not attached. No contract is marked verified ITM. Strike-value amounts are conditional estimates, not confirmed pay-in/pay-out.',
+                  style: TextStyle(fontSize: 10, color: cs.error, fontWeight: FontWeight.w700)),
+                if (_settlementNote != null) Text(_settlementNote!, style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant)),
+              ],
+            ))),
+            if (_settlementRows.isNotEmpty) Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal,
+              child: DataTable(columns: const [
+                DataColumn(label: Text('SYMBOL')), DataColumn(label: Text('CE/PE')),
+                DataColumn(label: Text('STRIKE')), DataColumn(label: Text('QTY SHARES')),
+                DataColumn(label: Text('ENTRY PREMIUM')), DataColumn(label: Text('SOURCE EXIT VALUE')),
+                DataColumn(label: Text('DELIVERY IF ITM')), DataColumn(label: Text('STRIKE NOTIONAL')),
+                DataColumn(label: Text('ITM CHECK')), DataColumn(label: Text('STATUS')),
+              ], rows: _settlementRows.map((r) => DataRow(cells: [
+                DataCell(_cell(_v(r, 'symbol'))),
+                DataCell(_cell(_v(r, 'option_type'))),
+                DataCell(_cell(_v(r, 'strike'))),
+                DataCell(_cell(_v(r, 'quantity_shares'))),
+                DataCell(_cell(_v(r, 'entry_premium'))),
+                DataCell(_cell(_v(r, 'source_recorded_expiry_value'))),
+                DataCell(_cell(_v(r, 'delivery_direction_if_itm'))),
+                DataCell(_cell('₹${_v(r, 'funds_obligation_at_strike_if_itm')}')),
+                DataCell(_cell(_v(r, 'itm_status'))),
+                DataCell(_cell(_v(r, 'settlement_status'))),
+              ])).toList()))),
+          ],
           if (expirySelected && _expiryNote != null) Padding(padding: const EdgeInsets.all(8), child: Text(_expiryNote!, style: const TextStyle(fontSize: 11))),
           if (_expiryAlerts.isNotEmpty) Card(child: Padding(
             padding: const EdgeInsets.all(12),
@@ -337,7 +405,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                   'scan_status','observed_at']) DataCell(_cell(_v(r, key))),
               ],
             )).toList()))),
-          if (!expirySelected && rows.isEmpty || expirySelected && _expiryRows.isEmpty) Card(child: Padding(padding: const EdgeInsets.all(18),
+          if (!settlementSelected && ((!expirySelected && rows.isEmpty) || (expirySelected && _expiryRows.isEmpty))) Card(child: Padding(padding: const EdgeInsets.all(18),
             child: Column(children: [
               Icon(Icons.hourglass_empty_rounded, size: 28, color: cs.onSurfaceVariant),
               const SizedBox(height: 8),
@@ -346,7 +414,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
               Text('This section populates only from persisted verified records. No invented sample trades are displayed.',
                 textAlign: TextAlign.center, style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
             ]),
-          )) else if (!expirySelected) Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal,
+          )) else if (!expirySelected && !settlementSelected) Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal,
             child: DataTable(columnSpacing: 14, headingRowHeight: 38,
               dataRowMinHeight: 38, dataRowMaxHeight: 52,
               columns: _columns, rows: rows.map(_row).toList()))),
