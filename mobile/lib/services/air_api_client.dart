@@ -147,6 +147,14 @@ class AirApiClient {
     return _decode(response);
   }
 
+  Future<Map<String, dynamic>> physicalSettlement() async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/api/v1/model-engine/physical-settlement'),
+      headers: _headers,
+    );
+    return _decode(response);
+  }
+
   Future<Map<String, dynamic>> expiryScan({int maxDte = 45, int limit = 500}) async {
     final response = await _client.get(
       Uri.parse('$baseUrl/api/v1/model-engine/expiryscan?max_dte=$maxDte&limit=$limit'),
