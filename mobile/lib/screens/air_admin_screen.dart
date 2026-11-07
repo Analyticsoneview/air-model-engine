@@ -1108,6 +1108,25 @@ class _AirAdminMarketDataSourcesScreenState
     }
   }
 
+  Future<void> _verifySource() async {
+    setState(() { _loading = true; _error = null; });
+    try {
+      final result = await _api.operatorVerifyMarketDataSource(_channel);
+      if (!mounted) return;
+      final verified = result['verified'] == true;
+      final status = result['status']?.toString() ?? 'UNKNOWN';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${_channel.toUpperCase()} verification: $status')),
+      );
+      if (!verified) setState(() => _error = result['note']?.toString() ?? status);
+      await _load();
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
   Future<void> _saveFailover() async {
     final candidates = <Map<String, String>>[];
     for (final raw in _failoverCandidates.text.split(',')) {
@@ -1267,6 +1286,11 @@ class _AirAdminMarketDataSourcesScreenState
                   OutlinedButton(
                     onPressed: _loading || current == null ? null : () => _save(false),
                     child: const Text('DISABLE SOURCE'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _loading || current == null ? null : _verifySource,
+                    icon: const Icon(Icons.fact_check_outlined),
+                    label: const Text('VERIFY DATA'),
                   ),
                 ]),
                 if (current != null) ...[
