@@ -134,7 +134,7 @@ class AccountReporting:
     @staticmethod
     def _rows(payload: Any) -> list[dict[str, Any]]:
         if isinstance(payload, dict):
-            for key in ("data", "net", "day", "positions", "orders", "holdings", "result"):
+            for key in ("data", "netPositions", "net", "day", "positions", "orders", "holdings", "orderBook", "result"):
                 value = payload.get(key)
                 if isinstance(value, list):
                     return [x for x in value if isinstance(x, dict)]
@@ -154,10 +154,10 @@ class AccountReporting:
                     continue
             return round(sum(found), 2) if found else None
         return {
-            "realized_pnl": total(("realizedProfit", "realized_pnl", "realized", "realisedProfit")),
-            "unrealized_pnl": total(("unrealizedProfit", "unrealized_pnl", "unrealized", "unrealisedProfit", "mtm")),
+            "realized_pnl": total(("realizedProfit", "realized_profit", "realized_pnl", "realized", "realisedProfit", "realised_profit")),
+            "unrealized_pnl": total(("unrealizedProfit", "unrealized_profit", "unrealized_pnl", "unrealized", "unrealisedProfit", "unrealised_profit", "mtm")),
             "day_pnl": total(("dayProfit", "day_pnl", "dayPnL", "realizedProfit", "realized_pnl")),
-            "net_pnl": total(("netProfit", "net_pnl", "pnl", "unrealizedProfit", "mtm")),
+            "net_pnl": total(("netProfit", "net_pnl", "pnl", "pl", "unrealizedProfit", "unrealized_profit", "mtm")),
         }
 
     @staticmethod
