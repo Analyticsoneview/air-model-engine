@@ -227,9 +227,8 @@ class MarketDataService:
             ]
         if not mapped:
             native = await adapter.search_instruments(
-                            symbol, limit=500,
-                            exchange_segment="NSE_FO" if option_type in {"CE", "PE"} else "NSE_CM"
-                        )
+                symbol, limit=500, exchange_segment="NSE_FO"
+            )
             mapped = [{
                 "exchange": x.exchange, "symbol": x.symbol, "token": x.token,
                 "segment": x.segment, "expiry": x.expiry,
