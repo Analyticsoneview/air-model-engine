@@ -493,6 +493,23 @@ class AirApiClient {
     return _decode(await _client.get(uri, headers: _headers));
   }
 
+  Future<Map<String, dynamic>> reportEmail() async => _decode(await _client.get(
+    Uri.parse('$baseUrl/api/v1/customer/reports/email'), headers: _headers));
+
+  Future<Map<String, dynamic>> requestReportEmailVerification(String email) async => _decode(
+    await _client.post(Uri.parse('$baseUrl/api/v1/customer/reports/email/verification'),
+      headers: _headers, body: jsonEncode({'email': email.trim()})));
+
+  Future<Map<String, dynamic>> confirmReportEmailVerification(String code) async => _decode(
+    await _client.post(Uri.parse('$baseUrl/api/v1/customer/reports/email/verification/confirm'),
+      headers: _headers, body: jsonEncode({'code': code.trim()})));
+
+  Future<Map<String, dynamic>> accountReportHistory() async => _decode(await _client.get(
+    Uri.parse('$baseUrl/api/v1/customer/reports/history'), headers: _headers));
+
+  Future<Map<String, dynamic>> runAccountReports() async => _decode(await _client.post(
+    Uri.parse('$baseUrl/api/v1/customer/reports/run'), headers: _headers));
+
   Future<Map<String, dynamic>> physicalSettlement() async {
     final response = await _client.get(
       Uri.parse('$baseUrl/api/v1/model-engine/physical-settlement'),
