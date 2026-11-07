@@ -17,14 +17,15 @@ ORIGINAL366 is a **reference filter**, not an independent expiry-winner strategy
 
 The workbook's `shelf_sessions` field confirms a minimum of 10 sessions for the covered cohort. Stock entries were ₹1–₹10; index contracts are exempt from that stock premium cap. CE and PE remain separately identified. The source MFE/MAE workbook has maximum premium high and low summaries; a maximum high above entry is not sufficient to trigger RECOVERED.
 
-## RECOVERED watch logic
+## RECOVERED watch and alternative exit logic
 
-1. Preserve the original entry and original 5% SL event. The contract remains classified SLHIT.
-2. After the SL exit date, inspect verified daily option candles.
-3. If a subsequent daily option **CLOSE** is strictly greater than the original entry premium, add the contract to the `RECOVERED` watch-only section.
-4. A high or intraday touch above entry without a close above entry does not qualify.
-5. Keep the original SLHIT lifecycle unchanged. RECOVERED is not a re-entry, not an open position, not an order, and not a P&L event.
-6. The separate RECOVERY strategy remains independent and retains its own re-entry, shelf-life and +50% target-qualified expiry-hold rules.
+1. Preserve the original ORIGINAL366 entry price and original 5% SLHIT event.
+2. After the original 5% SL exit date, inspect verified daily option candles.
+3. A subsequent daily option **CLOSE** strictly above the original entry premium qualifies a RECOVERED watch. A HIGH-only touch does not qualify.
+4. For the RECOVERED alternative exit study, use the **same ORIGINAL entry price**; do not create a recovery-day entry or next-session fill.
+5. From the original entry date, replay daily option OHLC with **10% SL** and **45% target**. A later gap through either level exits at observed OPEN. If both SL and target are touched in one daily candle, count SL first.
+6. Expose the alternative outcome, exit date/price, premium points and return percentage on the RECOVERED row. Keep the original 5% SLHIT row unchanged.
+7. RECOVERED is a retrospective watch/backtest view, not a new live position, re-entry, order, or broker instruction. The separate RECOVERY strategy remains independent.
 
 ## API
 
