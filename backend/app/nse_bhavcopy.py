@@ -407,6 +407,14 @@ async def _daily_refresh() -> None:
     await run_nse_bootstrap(force=True)
 
 
+def trigger_nse_bootstrap() -> dict[str, Any]:
+    global _bootstrap_task
+    if _bootstrap_task is not None and not _bootstrap_task.done():
+        return {"status": "RUNNING", "message": "NSE CM/FO bootstrap is already running"}
+    _bootstrap_task = asyncio.create_task(run_nse_bootstrap(force=True))
+    return {"status": "QUEUED", "message": "NSE CM/FO three-month bootstrap has been queued"}
+
+
 def start_nse_data_jobs() -> None:
     global _bootstrap_task, _scheduler
     if os.getenv("AIR_NSE_BOOTSTRAP_ENABLED", "true").lower() == "true":
