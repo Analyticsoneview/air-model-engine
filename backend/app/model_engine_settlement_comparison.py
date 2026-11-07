@@ -215,6 +215,8 @@ async def get_settlement_comparison(
     return {
         "data_status": "POPULATED" if stocks or options else "NO_ROWS_FOR_LATEST_SESSION",
         "trade_date": trade_date,
+        "row_limit_per_market": limit,
+        "coverage_note": "Each market response is capped at row_limit_per_market. Increase the endpoint limit up to 5000 when a broader universe is required.",
         "nse_source": "NSE UDiFF official CM/FO EOD bhavcopy",
         "broker_source": {
             "stocks": cm_provider, "options": fo_provider,
