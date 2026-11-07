@@ -85,6 +85,7 @@ def require_air_admin(x_air_admin_key: str | None = Header(default=None)) -> Non
 def _market_adapter_for(operator_id: str, provider: str, account_id: str):
     """Build a verified broker adapter from operator-owned encrypted credentials."""
     credentials = get_vault().get(operator_id, provider, account_id)
+    poll_seconds = max(2.0, float(os.getenv("AIR_MARKET_DATA_POLL_SECONDS", "3")))
     if provider == "dhan":
         access_token = credentials.get("access_token")
         if not access_token:
@@ -93,15 +94,15 @@ def _market_adapter_for(operator_id: str, provider: str, account_id: str):
     if provider == "zerodha":
         if not credentials.get("api_key") or not credentials.get("access_token"):
             raise ValueError("Zerodha api_key and access_token are required")
-        return ZerodhaMarketDataAdapter(account_id, credentials["api_key"], credentials["access_token"], market_data_hub)
+        return ZerodhaMarketDataAdapter(account_id, credentials["api_key"], credentials["access_token"], market_data_hub, poll_seconds)
     if provider == "upstox":
         if not credentials.get("access_token"):
             raise ValueError("Upstox access_token is required")
-        return UpstoxMarketDataAdapter(account_id, credentials["access_token"], market_data_hub)
+        return UpstoxMarketDataAdapter(account_id, credentials["access_token"], market_data_hub, poll_seconds)
     if provider == "fyers":
         if not credentials.get("app_id") or not credentials.get("access_token"):
             raise ValueError("FYERS app_id and access_token are required")
-        return FyersMarketDataAdapter(account_id, credentials["app_id"], credentials["access_token"], market_data_hub)
+        return FyersMarketDataAdapter(account_id, credentials["app_id"], credentials["access_token"], market_data_hub, poll_seconds)
     if provider == "angelone":
         required = ("api_key", "jwt_token")
         if any(not credentials.get(key) for key in required):
@@ -113,7 +114,7 @@ def _market_adapter_for(operator_id: str, provider: str, account_id: str):
         }
         if not all(network.values()):
             raise ValueError("Angel SmartAPI server network identity headers are not configured")
-        return AngelOneMarketDataAdapter(account_id, credentials, market_data_hub, network)
+        return AngelOneMarketDataAdapter(account_id, credentials, market_data_hub, network, poll_seconds)
     raise ValueError("No market-data adapter is registered for this provider")
 
 
