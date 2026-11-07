@@ -450,7 +450,7 @@ async def test_air_telegram_notifications(
 ) -> dict:
     """Send a test message to all configured AIR Telegram destinations."""
     result = await send_telegram_message(
-        "AIR Model Engine Telegram connection test\\n"
+        "AIR Model Engine Telegram connection test\n"
         "Private and group destinations are configured for strategy alerts."
     )
     if not result.get("configured"):
