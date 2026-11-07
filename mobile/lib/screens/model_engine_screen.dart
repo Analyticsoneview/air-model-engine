@@ -56,7 +56,8 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     try {
       final result = await _api.modelEngineMaster();
       Map<String, dynamic>? expiryResult;
-      Map<String, dynamic>? settlementResult;\n      Map<String, dynamic>? pnlResult;
+      Map<String, dynamic>? settlementResult;
+      Map<String, dynamic>? pnlResult;
       try { expiryResult = await _api.expiryScan(); }
       catch (e) { _expiryNote = 'EXPIRYSCAN unavailable: $e'; }
       try { settlementResult = await _api.physicalSettlement(); }
