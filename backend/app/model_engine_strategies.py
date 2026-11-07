@@ -33,7 +33,7 @@ STRATEGY_RULES = {
         "name": "EXPIRY78",
         "membership": "EXPIRY78",
         "stock_entry_filter": "₹1–₹10 entry premium for stock CE/PE; index options retain existing rules",
-        "qualification": "Seven-rule replay: valid positive option OHLCV; bullish real-body engulfing against the previous valid traded observation; entry limit = 40% of engulfing HIGH; later daily LOW touch strictly before expiry; entry premium >= ₹1 and entry-day quantity >= 10; 5% protected stop with conservative same-day and gap-through handling; only unstopped positions with verified expiry intrinsic valuation qualify as survivors.",
+        "qualification": "Seven-rule replay: valid positive option OHLCV; bullish real-body engulfing against the previous valid traded observation; entry limit = 40% of engulfing HIGH; later daily LOW touch strictly before expiry; entry premium >= ₹1 and entry-day quantity >= 10; initial 5% stop, then ratchet to the prior +20% premium milestone at every +20% gain (+20% locks entry, +40% locks +20%, etc.); conservative same-candle handling and gap-through exits at observed OPEN; only unstopped positions with verified expiry intrinsic valuation qualify as survivors.",
         "candidate_filter_stage": "ENTRY_QUALIFICATION",
     },
     "ORIGINAL366": {
