@@ -5,6 +5,7 @@ import json
 import os
 import re
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,19 @@ _CHAT_ID = re.compile(r"^-?\d{1,20}$")
 
 def _path() -> str:
     return os.getenv("AIR_TELEGRAM_CONFIG_DB_PATH", "data/air_telegram_config.sqlite3")
+
+
+@contextmanager
+def _database():
+    db = _connect()
+    try:
+        yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 
 def _connect() -> sqlite3.Connection:
@@ -69,19 +83,19 @@ def _serialize(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def list_destinations() -> list[dict[str, Any]]:
-    with _connect() as db:
+    with _database() as db:
         rows = db.execute("SELECT * FROM telegram_destinations ORDER BY id").fetchall()
         return [_serialize(row) for row in rows]
 
 
 def has_managed_destinations() -> bool:
-    with _connect() as db:
+    with _database() as db:
         return db.execute("SELECT 1 FROM telegram_destinations LIMIT 1").fetchone() is not None
 
 
 def destinations_for_strategy(strategy: str) -> list[str]:
     strategy = strategy.upper()
-    with _connect() as db:
+    with _database() as db:
         rows = db.execute(
             "SELECT chat_id, strategies_json FROM telegram_destinations WHERE enabled=1"
         ).fetchall()
@@ -96,7 +110,7 @@ def upsert_destination(name: str, chat_id: str, destination_type: str,
     name, chat_id, destination_type, strategies = _validate(
         name, chat_id, destination_type, strategies
     )
-    with _connect() as db:
+    with _database() as db:
         db.execute("""
             INSERT INTO telegram_destinations
                 (name, chat_id, destination_type, strategies_json, enabled)
@@ -120,7 +134,7 @@ def update_destination(destination_id: int, *, name: str, chat_id: str,
     name, chat_id, destination_type, strategies = _validate(
         name, chat_id, destination_type, strategies
     )
-    with _connect() as db:
+    with _database() as db:
         db.execute("""
             UPDATE telegram_destinations SET name=?, chat_id=?, destination_type=?,
                 strategies_json=?, enabled=?, updated_at=CURRENT_TIMESTAMP
@@ -134,6 +148,6 @@ def update_destination(destination_id: int, *, name: str, chat_id: str,
 
 
 def delete_destination(destination_id: int) -> bool:
-    with _connect() as db:
+    with _database() as db:
         cur = db.execute("DELETE FROM telegram_destinations WHERE id=?", (destination_id,))
         return cur.rowcount > 0
