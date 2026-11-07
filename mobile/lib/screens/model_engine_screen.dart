@@ -276,7 +276,8 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                 Text('534 original entries → 366 full-expiry-coverage records', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
                 Text('83 partial-coverage excluded • 85 no post-entry data excluded', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
                 Text('366 original 5% SL hits: 274 same-day • 69 later-session • 23 gap/open', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
-                Text('Watch only: post-SL daily option CLOSE above original entry premium. Not a re-entry or open position.', style: TextStyle(fontSize: 10, color: cs.primary)),
+                Text('RECOVERED trigger: post-SL daily CLOSE above original entry. Alternative replay uses that SAME entry: 10% SL / 45% target; same-candle conflict = SL first.', style: TextStyle(fontSize: 10, color: cs.primary)),
+                Text('Retrospective watch/backtest only — not a new fill, open position or order.', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
               ]),
             )),
             Wrap(spacing: 7, runSpacing: 7, children: (selectedSection == 'RECOVERED'
