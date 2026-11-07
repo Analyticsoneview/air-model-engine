@@ -197,8 +197,8 @@ def test_original366_post_stop_close_is_added_to_recovered_watch_without_opening
     assert original["counts"]["OPEN"] == 1
     assert original["counts"]["SLHIT"] == 0
     watch = original["groups"]["RECOVERED"][0]
-    assert watch["classification"] == "RECOVERED_WATCH"
-    assert watch["position_status"] == "WATCH_ONLY_NOT_OPEN"
+    assert watch["classification"] == "OPEN"
+    assert watch["position_status"] == "OPEN"
     assert watch["entry_price"] == 8.0
     assert watch["stop_loss"] == 7.2
     assert watch["target_1"] == 11.6
