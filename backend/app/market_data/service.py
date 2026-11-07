@@ -2,13 +2,15 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
+import asyncio
+import copy
 from decimal import Decimal
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 from .contracts import HistoricalBar, MarketInstrument
 from .hub import MarketDataHub
 from .router import MarketDataRouter
-from .instrument_registry import MarketInstrumentDirectory
 from .instrument_registry import MarketInstrumentDirectory
 
 
@@ -84,6 +86,8 @@ class MarketDataService:
         source = self.router.resolve("live")
         if source:
             await source[0][2].unsubscribe(instruments)
+        for item in instruments:
+            self._subscriptions.pop(item.token, None)
 
     async def hydrate_strategy_ledger(self, ledger: Any, customer_id: str,
                                       as_of: str) -> dict[str, Any]:
