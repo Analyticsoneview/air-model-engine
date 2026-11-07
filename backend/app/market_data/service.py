@@ -24,6 +24,7 @@ class MarketDataService:
         self.router = router
         self.hub = hub
         self.instruments = instruments
+        self._subscriptions: dict[str, MarketInstrument] = {}
 
     async def historical(self, instrument: MarketInstrument, start: datetime,
                          end: datetime, interval: str) -> list[HistoricalBar]:
@@ -72,7 +73,10 @@ class MarketDataService:
             if not fallback:
                 raise RuntimeError("Live source failover did not establish a connection")
             provider, account_id, adapter = fallback[0]
-            await adapter.subscribe(instruments)
+            await adapter.subscribe(list({item.token: item for item in
+                [*self._subscriptions.values(), *instruments]}.values()))
+        for item in instruments:
+            self._subscriptions[item.token] = item
         return {"provider": provider, "account_id": account_id,
                 "subscribed": len(instruments)}
 
@@ -256,5 +260,9 @@ class MarketDataService:
     async def health(self) -> dict:
         historical = await self.router.check_health("historical")
         live = await self.router.check_health("live")
+        if live.get("failover") == "switched" and self._subscriptions:
+            source = self.router.resolve("live")
+            if source:
+                await source[0][2].subscribe(list(self._subscriptions.values()))
         return {"historical": historical, "live": live,
                 "routing": self.router.status(), "stream": self.hub.status()}
