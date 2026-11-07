@@ -19,6 +19,10 @@ services:
       AIR_ALLOW_CUSTOMER_SIGNUP: "false"
       AIR_CORS_ORIGINS: ${AIR_CORS_ORIGINS:-https://air.example.com}
       AIR_OPERATOR_CUSTOMER_IDS: ${AIR_OPERATOR_CUSTOMER_IDS:?Set operator customer UUIDs}
+      AIR_TELEGRAM_BOT_TOKEN_FILE: /run/secrets/air_telegram_bot_token
+      AIR_TELEGRAM_CHAT_IDS: ${AIR_TELEGRAM_CHAT_IDS:?Set private and group Telegram chat IDs}
+      AIR_TELEGRAM_DEDUPE_DB_PATH: /var/lib/air/air_telegram_notifications.sqlite3
+      AIR_TELEGRAM_SCHEDULER_ENABLED: ${AIR_TELEGRAM_SCHEDULER_ENABLED:-false}
       AIR_CLIENT_LOCAL_IP: ${AIR_CLIENT_LOCAL_IP:-}
       AIR_CLIENT_PUBLIC_IP: ${AIR_CLIENT_PUBLIC_IP:-}
       AIR_CLIENT_MAC_ADDRESS: ${AIR_CLIENT_MAC_ADDRESS:-}
@@ -26,6 +30,7 @@ services:
       - air_jwt_secret
       - air_credential_key
       - air_admin_api_key
+      - air_telegram_bot_token
     volumes:
       - air_data:/var/lib/air
     networks:
@@ -101,4 +106,6 @@ secrets:
   air_credential_key:
     external: true
   air_admin_api_key:
+    external: true
+  air_telegram_bot_token:
     external: true
