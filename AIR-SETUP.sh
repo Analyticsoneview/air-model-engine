@@ -34,7 +34,8 @@ TOKEN="$(gh api --method POST "repos/$REPO/actions/runners/registration-token" -
 if [[ ! -e /opt/air-github-runner/.runner ]]; then
   sudo env AIR_RUNNER_TOKEN="$TOKEN" bash deploy/install-github-runner.sh
 else
-  echo "Runner already configured at /opt/air-github-runner; skipping installation."
+  echo "Runner already configured; ensuring its service is started."
+  sudo /opt/air-github-runner/svc.sh start
 fi
 unset TOKEN
 gh variable set AIR_CI_RUNNER_LABELS --repo "$REPO" --body "$LABELS"
