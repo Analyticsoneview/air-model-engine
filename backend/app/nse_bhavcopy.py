@@ -108,6 +108,24 @@ def _archive_url(market: str, day: date) -> str:
     return f"{NSE_BASE}/{market.lower()}/BhavCopy_NSE_{market}_0_0_0_{stamp}_F_0000.csv.zip"
 
 
+def _expiry_iso(value: Any) -> str | None:
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(raw[:10]).isoformat()
+    except ValueError:
+        pass
+    for fmt in ("%d-%b-%Y", "%d-%b-%y", "%d/%m/%Y", "%d/%m/%y", "%Y%m%d"):
+        try:
+            return datetime.strptime(raw, fmt).date().isoformat()
+        except ValueError:
+            continue
+    return None
+
+
 def _number(value: Any) -> float | None:
     if value is None:
         return None
@@ -148,7 +166,7 @@ def _normalize(market: str, trade_date: str, row: dict[str, Any]) -> dict[str, A
         "instrument_id": instrument_id,
         "symbol": symbol.upper(),
         "instrument_type": instrument_type.upper(),
-        "expiry": expiry,
+        "expiry": _expiry_iso(expiry) or expiry,
         "strike": strike,
         "option_type": option_type.upper() if option_type else None,
         "open": _number(field( "OpnPric", "OpenPrice")),
@@ -216,6 +234,7 @@ class NSEBhavcopyStore:
                     market TEXT NOT NULL, trade_date TEXT NOT NULL,
                     status TEXT NOT NULL, record_count INTEGER NOT NULL DEFAULT 0,
                     source_record_count INTEGER,
+                    expired_removed_count INTEGER NOT NULL DEFAULT 0,
                     archive_path TEXT, source_url TEXT, error TEXT,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (market, trade_date)
@@ -224,6 +243,8 @@ class NSEBhavcopyStore:
             file_columns = {row["name"] for row in db.execute("PRAGMA table_info(nse_bhavcopy_files)")}
             if "source_record_count" not in file_columns:
                 db.execute("ALTER TABLE nse_bhavcopy_files ADD COLUMN source_record_count INTEGER")
+            if "expired_removed_count" not in file_columns:
+                db.execute("ALTER TABLE nse_bhavcopy_files ADD COLUMN expired_removed_count INTEGER NOT NULL DEFAULT 0")
             db.execute("""
                 CREATE TABLE IF NOT EXISTS nse_bhavcopy_meta (
                     key TEXT PRIMARY KEY, value TEXT NOT NULL,
@@ -242,20 +263,22 @@ class NSEBhavcopyStore:
     def set_file_status(self, market: str, trade_date: str, status: str,
                         count: int = 0, archive_path: str | None = None,
                         source_url: str | None = None, error: str | None = None,
-                        source_record_count: int | None = None) -> None:
+                        source_record_count: int | None = None,
+                        expired_removed_count: int = 0) -> None:
         with self._db() as db:
             db.execute("""
                 INSERT INTO nse_bhavcopy_files
                     (market, trade_date, status, record_count, source_record_count,
-                     archive_path, source_url, error, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                     expired_removed_count, archive_path, source_url, error, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(market, trade_date) DO UPDATE SET
                     status=excluded.status, record_count=excluded.record_count,
                     source_record_count=excluded.source_record_count,
+                    expired_removed_count=excluded.expired_removed_count,
                     archive_path=excluded.archive_path, source_url=excluded.source_url,
                     error=excluded.error, updated_at=CURRENT_TIMESTAMP
             """, (market, trade_date, status, count, source_record_count,
-                  archive_path, source_url, error))
+                  expired_removed_count, archive_path, source_url, error))
 
     def actual_record_count(self, market: str, trade_date: str) -> int:
         with self._db() as db:
@@ -273,16 +296,20 @@ class NSEBhavcopyStore:
             actual = self.actual_record_count(market, trade_date)
             source_count = status.get("source_record_count") if status else None
             stored_count = status.get("record_count", 0) if status else 0
+            intentionally_removed = status.get("expired_removed_count", 0) if status else 0
             complete = bool(
                 status and status.get("status") == "IMPORTED"
                 and source_count is not None and source_count > 0
-                and actual == source_count and stored_count == source_count
+                and actual + intentionally_removed == source_count
+                and stored_count == source_count
             )
             mismatch = mismatch or not complete
             checks.append({
                 "market": market, "status": status.get("status") if status else "MISSING",
                 "nse_source_records": source_count, "app_db_records": actual,
-                "imported_record_count": stored_count, "complete": complete,
+                "imported_record_count": stored_count,
+                "expired_contract_records_removed": intentionally_removed,
+                "complete": complete,
             })
         if mismatch:
             self.clear_session_for_repair(trade_date)
@@ -296,6 +323,7 @@ class NSEBhavcopyStore:
             db.execute("""
                 UPDATE nse_bhavcopy_files
                 SET status='PARTIAL', record_count=0, source_record_count=NULL,
+                    expired_removed_count=0,
                     error='Session count mismatch; cleaned for complete NSE re-download',
                     updated_at=CURRENT_TIMESTAMP
                 WHERE trade_date=?
@@ -319,6 +347,56 @@ class NSEBhavcopyStore:
             db.executemany(sql, [[row[column] for column in columns] for row in normalized])
         return len(normalized)
 
+    def cleanup_expired_fo(self, as_of: date) -> dict[str, Any]:
+        """Purge expired contracts from the active FO table without touching strategy ledgers.
+
+        Original NSE ZIPs remain retained. Per-session removal counts are tracked so
+        source-vs-database integrity checks do not mistake intentional expiry cleanup
+        for a partial import.
+        """
+        with self._db() as db:
+            rows = db.execute("""
+                SELECT trade_date, instrument_key, symbol, expiry
+                FROM nse_bhavcopy
+                WHERE market='FO' AND expiry IS NOT NULL
+            """).fetchall()
+            expired_rows = []
+            expired_contracts = set()
+            removed_by_date: dict[str, int] = {}
+            for row in rows:
+                expiry = _expiry_iso(row["expiry"])
+                if expiry and date.fromisoformat(expiry) < as_of:
+                    expired_rows.append((row["trade_date"], row["instrument_key"]))
+                    expired_contracts.add((row["symbol"], expiry, row["instrument_key"]))
+                    removed_by_date[row["trade_date"]] = removed_by_date.get(row["trade_date"], 0) + 1
+            if expired_rows:
+                db.executemany(
+                    "DELETE FROM nse_bhavcopy WHERE market='FO' AND trade_date=? AND instrument_key=?",
+                    expired_rows,
+                )
+                for trade_date, count in removed_by_date.items():
+                    db.execute("""
+                        UPDATE nse_bhavcopy_files
+                        SET expired_removed_count=expired_removed_count+?,
+                            updated_at=CURRENT_TIMESTAMP
+                        WHERE market='FO' AND trade_date=? AND status='IMPORTED'
+                    """, (count, trade_date))
+            result = {
+                "as_of": as_of.isoformat(),
+                "removed_records": len(expired_rows),
+                "removed_contract_keys": len(expired_contracts),
+                "retained_raw_nse_archives": True,
+                "strategy_ledger_modified": False,
+                "updated_at": datetime.now(IST).isoformat(),
+            }
+            db.execute("""
+                INSERT INTO nse_bhavcopy_meta(key, value, updated_at)
+                VALUES ('expired_fo_cleanup', ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(key) DO UPDATE SET
+                    value=excluded.value, updated_at=CURRENT_TIMESTAMP
+            """, (json.dumps(result, separators=(",", ":")),))
+        return result
+
     def set_meta(self, key: str, value: Any) -> None:
         with self._db() as db:
             db.execute("""
@@ -337,6 +415,7 @@ class NSEBhavcopyStore:
         with self._db() as db:
             file_rows = db.execute("""
                 SELECT market, status, COUNT(*) AS files, SUM(record_count) AS records,
+                       SUM(expired_removed_count) AS expired_removed_records,
                        MIN(CASE WHEN status='IMPORTED' THEN trade_date END) AS first_date,
                        MAX(CASE WHEN status='IMPORTED' THEN trade_date END) AS last_date
                 FROM nse_bhavcopy_files GROUP BY market, status
@@ -350,6 +429,7 @@ class NSEBhavcopyStore:
             "bootstrap": self.get_meta("bootstrap") or {"status": "NOT_STARTED"},
             "markets": {row["market"]: dict(row) for row in totals},
             "files": [dict(row) for row in file_rows],
+            "expired_fo_cleanup": self.get_meta("expired_fo_cleanup") or {},
             "updated_at": datetime.now(IST).isoformat(),
             "source": "NSE UDiFF official end-of-day CM and F&O bhavcopy archives",
             "data_scope": "EOD bhavcopy; not intraday ticks or historical bid/ask snapshots",
@@ -563,6 +643,8 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
                 state["updated_at"] = datetime.now(IST).isoformat()
                 store.set_meta("bootstrap", state)
                 await asyncio.sleep(0.15)
+        expired_cleanup = store.cleanup_expired_fo(today)
+        state["expired_fo_cleanup"] = expired_cleanup
         imported_dates = {
             market: {item["date"] for item in results if item["market"] == market and item["status"] in {"IMPORTED", "SKIPPED"}}
             for market in MARKETS
