@@ -483,6 +483,13 @@ class AirApiClient {
   }
 
 
+  Future<Map<String, dynamic>> orbStatus() async => _decode(await _client.get(
+    Uri.parse('$baseUrl/api/v1/orb/status'), headers: _headers));
+
+  Future<Map<String, dynamic>> orbSubscribe(List<String> symbols) async => _decode(
+    await _client.post(Uri.parse('$baseUrl/api/v1/orb/subscribe'),
+      headers: _headers, body: jsonEncode({'symbols': symbols})));
+
   Future<Map<String, dynamic>> modelEnginePnlCalendar({int? year, int? month}) async {
     final query = <String, String>{
       if (year != null) 'year': year.toString(),
