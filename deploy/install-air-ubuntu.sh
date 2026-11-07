@@ -110,6 +110,10 @@ create_secret_if_missing() {
 
 JWT_SECRET="$(openssl rand -hex 48)"
 CREDENTIAL_KEY="$(python3 -c 'import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())')"
+if docker secret inspect air_admin_api_key >/dev/null 2>&1 && [[ ! -s "$ADMIN_KEY_FILE" ]]; then
+  echo "air_admin_api_key already exists but $ADMIN_KEY_FILE is missing. Restore the matching key file before rerunning." >&2
+  exit 1
+fi
 if [[ ! -s "$ADMIN_KEY_FILE" ]]; then
   openssl rand -hex 48 > "$ADMIN_KEY_FILE"
   chmod 600 "$ADMIN_KEY_FILE"
