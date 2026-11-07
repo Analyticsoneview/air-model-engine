@@ -6,6 +6,7 @@ from app.market_data.customer_runtime import CustomerMarketDataRuntime
 
 class FakeBrokerAdapter:
     def __init__(self, provider, hub):
+        self.provider = provider
         self.provider_code = provider
         self.hub = hub
         self.authenticated = 0
