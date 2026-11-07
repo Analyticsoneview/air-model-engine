@@ -24,8 +24,9 @@ The workbook's `shelf_sessions` field confirms a minimum of 10 sessions for the 
 3. A subsequent daily option **CLOSE** strictly above the original entry premium qualifies a RECOVERED watch. A HIGH-only touch does not qualify.
 4. For the RECOVERED alternative exit study, use the **same ORIGINAL entry price**; do not create a recovery-day entry or next-session fill.
 5. From the original entry date, replay daily option OHLC with **10% SL** and **45% target**. A later gap through either level exits at observed OPEN. If both SL and target are touched in one daily candle, count SL first.
-6. Expose the alternative outcome, exit date/price, premium points and return percentage on the RECOVERED row. Keep the original 5% SLHIT row unchanged.
-7. RECOVERED is a retrospective watch/backtest view, not a new live position, re-entry, order, or broker instruction. The separate RECOVERY strategy remains independent.
+6. Route the alternative-model lifecycle into separate RECOVERED groups: **OPEN** while before expiry with no exit hit, **TARGETS** on the 45% target, **SLHIT** on the 10% stop, and **EXPIRED** after verified expiry settlement. If expiry has passed but the required expiry valuation is missing, use **WAIT**, never OPEN.
+7. Preserve the original 5% SL event separately as **ORIGINAL_SLHIT** historical evidence; do not mix it with the alternative-model 10% SLHIT group.
+8. Expose the alternative outcome, exit date/price, premium points and return percentage on each RECOVERED row. RECOVERED is a retrospective watch/backtest view, not a new live position, re-entry, order, or broker instruction. The separate RECOVERY strategy remains independent.
 
 ## API
 
