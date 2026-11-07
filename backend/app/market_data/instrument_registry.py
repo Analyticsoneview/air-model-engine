@@ -111,9 +111,9 @@ class MarketInstrumentDirectory:
                             (provider, account_id))
             self.db.executemany("""
                 INSERT INTO market_instruments(
-                    provider,account_id,exchange,symbol,token,segment,expiry,strike,
+                    provider,account_id,exchange,symbol,underlying_symbol,token,segment,expiry,strike,
                     option_type,lot_size,instrument_type,tick_size,updated_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, [(*row, stamp) for row in values])
             self.db.execute("""
                 INSERT INTO market_master_refresh(provider,account_id,row_count,refreshed_at)
