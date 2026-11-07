@@ -55,7 +55,12 @@ def require_air_operator(customer_id: str = Depends(require_customer)) -> str:
         value.strip() for value in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",")
         if value.strip()
     }
-    if not allowed or customer_id not in allowed:
+    # New mobile tokens use the stable E.164 subject. Accept older beta
+    # tokens whose subject was the device request UUID by resolving it safely.
+    operator_identity = customer_id
+    if customer_id not in allowed:
+        operator_identity = access_store.mobile_for_request_id(customer_id) or ""
+    if not allowed or operator_identity not in allowed:
         raise HTTPException(status_code=403, detail="AIR operator permission is required")
     return customer_id
 
