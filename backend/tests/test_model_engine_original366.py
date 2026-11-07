@@ -131,3 +131,49 @@ def test_post_stop_high_above_entry_without_close_does_not_create_recovered_watc
     trade = evaluate_original366_contract(item, as_of="2026-11-04")["trades"][0]
     assert trade["classification"] == "SLHIT"
     assert trade["recovered_watch"] is None
+
+
+
+def test_recovered_uses_original_entry_with_ten_percent_stop_and_forty_five_target():
+    item = sample_contract(bars=[
+        bar("2026-11-03", 8.0, 8.5, 7.5, 7.6),  # historical ORIGINAL366 5% SL
+        bar("2026-11-04", 8.1, 8.8, 7.9, 8.2),  # RECOVERED signal
+        bar("2026-11-05", 8.3, 11.8, 8.1, 11.2), # 45% target from original 8.0
+    ])
+    trade = evaluate_original366_contract(item, as_of="2026-11-05")["trades"][0]
+    watch = trade["recovered_watch"]
+    model = watch["exit_model"]
+    assert trade["classification"] == "SLHIT"  # original 5% history is preserved
+    assert watch["reference_entry_price"] == 8.0
+    assert model["entry_price"] == 8.0
+    assert model["stop_loss"] == 7.2
+    assert model["target"] == 11.6
+    assert model["outcome"] == "TARGET_FIRST"
+    assert model["pnl_points"] == 3.6
+    assert model["return_pct"] == 45.0
+
+
+def test_recovered_ten_percent_stop_wins_when_hit_before_target():
+    item = sample_contract(bars=[
+        bar("2026-11-03", 8.0, 8.5, 7.5, 7.6),
+        bar("2026-11-04", 8.1, 8.8, 7.9, 8.2),
+        bar("2026-11-05", 7.1, 8.9, 7.0, 7.4),
+    ])
+    trade = evaluate_original366_contract(item, as_of="2026-11-05")["trades"][0]
+    model = trade["recovered_watch"]["exit_model"]
+    assert model["outcome"] == "STOP_FIRST"
+    assert model["exit_price"] == 7.2
+    assert model["pnl_points"] == -0.8
+
+
+def test_recovered_same_candle_target_and_stop_is_conservatively_stop_first():
+    item = sample_contract(bars=[
+        bar("2026-11-03", 8.0, 8.5, 7.5, 7.6),
+        bar("2026-11-04", 8.1, 8.8, 7.9, 8.2),
+        bar("2026-11-05", 8.0, 11.8, 7.0, 9.0),
+    ])
+    trade = evaluate_original366_contract(item, as_of="2026-11-05")["trades"][0]
+    model = trade["recovered_watch"]["exit_model"]
+    assert model["outcome"] == "STOP_FIRST"
+    assert model["exit_reason"] == "SAME_CANDLE_STOP_FIRST"
+    assert model["exit_price"] == 7.2
