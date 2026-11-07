@@ -210,7 +210,7 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
         original_groups = {
             key: [row for row in prior.get(key, [])
                   if str(row.get("signal_id") or "") not in replayed_ids]
-            for key in ("NEW", "HOLD", "WAIT", "SLHIT", "REENTRY", "EXPIRED", "TARGETS", "RECOVERED")
+            for key in ("NEW", "HOLD", "WAIT", "SLHIT", "ORIGINAL_SLHIT", "REENTRY", "EXPIRED", "TARGETS", "RECOVERED")
         }
         original_groups["OPEN"] = []
         original_groups["REJECTED"] = []
@@ -231,7 +231,11 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 item = {**source, **trade, "strategy": "ORIGINAL366"}
                 replay_trades.append(item)
                 status = trade.get("classification")
-                if status in ("EXPIRED_WIN", "EXPIRED_LOSS"):
+                if status == "SLHIT":
+                    # Preserve the original 5% stop as historical evidence,
+                    # separately from the RECOVERED alternative 10% stop.
+                    original_groups["ORIGINAL_SLHIT"].append(item)
+                elif status in ("EXPIRED_WIN", "EXPIRED_LOSS"):
                     original_groups["EXPIRED"].append(item)
                     original_groups[status].append(item)
                 elif status in original_groups:
@@ -239,7 +243,8 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 if trade.get("recovered_watch"):
                     watch = trade["recovered_watch"]
                     exit_model = watch.get("exit_model") or {}
-                    original_groups["RECOVERED"].append({
+                    outcome = str(exit_model.get("outcome") or "UNRESOLVED").upper()
+                    recovered_row = {
                         **item,
                         "classification": "RECOVERED_WATCH",
                         "signal_date": watch.get("trigger_date"),
@@ -252,18 +257,47 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
                         "exit_reason": exit_model.get("exit_reason"),
                         "pnl_points": exit_model.get("pnl_points"),
                         "pnl_pct": exit_model.get("return_pct"),
-                        "recovered_outcome": exit_model.get("outcome"),
+                        "recovered_outcome": outcome,
                         "watch": watch,
                         "position_status": "WATCH_ONLY_NOT_OPEN",
-                    })
-        original_groups["OPEN"] = original_groups["NEW"] + original_groups["HOLD"]
+                    }
+                    original_groups["RECOVERED"].append(recovered_row)
+                    if outcome == "TARGET_FIRST":
+                        recovered_row["classification"] = "TARGETS"
+                        recovered_row["position_status"] = "CLOSED_TARGET"
+                        original_groups["TARGETS"].append(recovered_row)
+                    elif outcome == "STOP_FIRST":
+                        recovered_row["classification"] = "SLHIT"
+                        recovered_row["position_status"] = "CLOSED_STOP"
+                        original_groups["SLHIT"].append(recovered_row)
+                    elif outcome == "EXPIRY_SETTLEMENT":
+                        recovered_row["classification"] = "EXPIRED"
+                        recovered_row["position_status"] = "EXPIRED"
+                        original_groups["EXPIRED"].append(recovered_row)
+                    else:
+                        expiry_text = str(item.get("expiry") or "")[:10]
+                        try:
+                            from datetime import date
+                            still_before_expiry = bool(expiry_text and date.fromisoformat(expiry_text) > date.today())
+                        except ValueError:
+                            still_before_expiry = False
+                        if still_before_expiry:
+                            recovered_row["classification"] = "OPEN"
+                            recovered_row["position_status"] = "OPEN"
+                            original_groups["OPEN"].append(recovered_row)
+                        else:
+                            recovered_row["classification"] = "WAIT"
+                            recovered_row["position_status"] = "WAIT_EXPIRY_VALUATION"
+                            original_groups["WAIT"].append(recovered_row)
+        # OPEN is the active RECOVERED alternative-model cohort, not the
+        # original 5% lifecycle (preserved in ORIGINAL_SLHIT).
         for values in original_groups.values():
             values.sort(key=_sort_key, reverse=True)
         result["ORIGINAL366"]["groups"] = original_groups
         result["ORIGINAL366"]["counts"] = {key: len(value) for key, value in original_groups.items()}
         result["ORIGINAL366"]["count"] = sum(
             len(original_groups[key]) for key in
-            ("NEW", "HOLD", "WAIT", "SLHIT", "REENTRY", "EXPIRED", "TARGETS", "REJECTED")
+            ("OPEN", "WAIT", "SLHIT", "ORIGINAL_SLHIT", "REENTRY", "EXPIRED", "TARGETS", "REJECTED")
         )
         result["ORIGINAL366"]["replay"] = {
             "contracts_replayed": len(original_evaluated),
