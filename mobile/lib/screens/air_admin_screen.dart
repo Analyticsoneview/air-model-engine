@@ -220,11 +220,11 @@ class _AirAdminScreenState extends State<AirAdminScreen> {
                                 ),
                                 const SizedBox(height: 7),
                                 Text('Device: $device', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
-                                Text('Submitted: \${request['created_at'] ?? '—'}', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+                                Text('Submitted: ${request['created_at'] ?? '—'}', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
                                 if ((request['reviewer_note'] ?? '').toString().isNotEmpty)
                                   Padding(
                                     padding: const EdgeInsets.only(top: 5),
-                                    child: Text('Note: \${request['reviewer_note']}', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+                                    child: Text('Note: ${request['reviewer_note']}', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
                                   ),
                                 if (status == 'PENDING' || status == 'APPROVED') ...[
                                   const SizedBox(height: 12),
