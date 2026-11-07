@@ -227,7 +227,9 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     if (section == 'SETTLEMENT UP / DOWN') {
       final options = _dailySettlementComparison['options'] as Map<String, dynamic>?;
       final stocks = _dailySettlementComparison['stocks'] as Map<String, dynamic>?;
-      return ((options?['rows'] as List<dynamic>?)?.length ?? 0 + (stocks?['rows'] as List<dynamic>?)?.length ?? 0).toString();
+      final optionCount = (options?['rows'] as List<dynamic>?)?.length ?? 0;
+      final stockCount = (stocks?['rows'] as List<dynamic>?)?.length ?? 0;
+      return (optionCount + stockCount).toString();
     }
     if (section == 'PHYSICAL SETTLEMENT') return _settlementRows.length.toString();
     return (_counts[section] ?? 0).toString();
@@ -272,12 +274,12 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     final columns = _settlementAsset == 'OPTIONS' ? optionColumns : stockColumns;
     String display(String key, dynamic value) {
       if (value == null) return '—';
+      if (key == 'broker_variance_pct' && value is num) return '${value.toStringAsFixed(2)}%';
       if (key.contains('variance') || key.contains('settlement') ||
           key == 'broker_close' || key == 'nse_settlement' ||
           key == 'previous_nse_settlement') {
         if (value is num) return '₹${value.toStringAsFixed(2)}';
       }
-      if (key == 'broker_variance_pct' && value is num) return '${value.toStringAsFixed(2)}%';
       return value.toString();
     }
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
