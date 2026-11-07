@@ -24,6 +24,18 @@ working feed until its adapter is implemented and verified. AIR currently allows
 only verified adapters to be enabled. This prevents a saved API key or an account
 assignment from being mistaken for a functioning data connection.
 
+## Scope of the first provider-selection milestone
+
+The admin source selector and router now persist and apply independent historical/live
+choices for the market-data gateway. The NSE Bhavcopy choice identifies the existing
+official EOD store; Dhan can be authenticated independently for historical and live
+gateway requests. The existing strategy EOD import/replay remains anchored to the NSE
+CM/FO archive pipeline, and AIR QOC option-chain capture remains on its Dhan-specific
+workflow. A later source-normalization step is still required before every strategy
+can consume arbitrary selected vendor history/live ticks through one provider-neutral
+ingestion path. Do not assume that changing a gateway source changes the NSE EOD
+backfill or QOC capture source.
+
 ## Admin API
 
 - `GET /api/v1/operator/market-data/sources` — provider catalog, saved selections and runtime state.
