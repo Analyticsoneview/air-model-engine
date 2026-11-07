@@ -28,6 +28,22 @@ _CASES = [
 ]
 
 
+
+def classify_stock_option_delivery(option_type: str, position_side: str, strike: float, underlying_expiry_close: float, quantity: int) -> dict[str, Any]:
+    """Classify a verified stock-option expiry position and its physical obligation."""
+    side = str(option_type).upper()
+    position = str(position_side).upper()
+    if side not in {"CE", "PE"} or position not in {"LONG_OPTION", "SHORT_OPTION"}:
+        raise ValueError("option_type must be CE/PE and position_side LONG_OPTION/SHORT_OPTION")
+    if strike <= 0 or underlying_expiry_close <= 0 or quantity <= 0:
+        raise ValueError("strike, underlying close and quantity must be positive")
+    itm = underlying_expiry_close > strike if side == "CE" else underlying_expiry_close < strike
+    if not itm:
+        return {"itm_status": "OTM", "delivery_direction": "NO_DELIVERY", "share_delivery_quantity": 0, "funds_payable": 0.0, "funds_receivable": 0.0}
+    takes_shares = (side == "CE" and position == "LONG_OPTION") or (side == "PE" and position == "SHORT_OPTION")
+    notional = round(strike * quantity, 2)
+    return {"itm_status": "ITM", "delivery_direction": "TAKE_SHARES" if takes_shares else "GIVE_SHARES", "share_delivery_quantity": quantity, "funds_payable": notional if takes_shares else 0.0, "funds_receivable": notional if not takes_shares else 0.0}
+
 def build_physical_settlement_review() -> dict[str, Any]:
     """Return provisional delivery obligations, never treating missing closes as verified ITM."""
     rows = []
@@ -83,6 +99,8 @@ def build_physical_settlement_review() -> dict[str, Any]:
             "long_stock_pe_itm": "GIVE_DELIVERY: deliver quantity shares; funds receivable = strike × quantity",
             "otm": "No physical delivery obligation",
             "itm_test": "CE is ITM only when verified underlying expiry close > strike; PE is ITM only when verified underlying expiry close < strike",
+            "short_stock_ce_itm": "GIVE_DELIVERY: deliver quantity shares; funds receivable = strike × quantity",
+            "short_stock_pe_itm": "TAKE_DELIVERY: buy quantity shares; funds payable = strike × quantity",
             "index_options": "Cash settled; excluded from physical stock delivery",
             "netting": "Only net obligations after matching the same client/UCC, security and settlement context using broker/exchange-confirmed positions",
             "safety": "Never infer ITM from option premium, source exit label or intrinsic proxy. Never place or close an order.",
