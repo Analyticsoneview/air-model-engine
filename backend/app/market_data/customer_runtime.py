@@ -210,12 +210,16 @@ async def get_customer_market_data_status(customer_id: str) -> dict:
         f"{status['effective_source']} (NSE FALLBACK)"
         if status.get("fallback_active") else status["effective_source"]
     )
-    status["connection_message"] = (
-        "Broker unavailable; using NSE EOD data"
-        if status.get("fallback_active") else
-        "NSE EOD default" if not status.get("requested_source") else
-        f"Broker {status.get('connection_status', 'unknown')}"
-    )
+    if status.get("fallback_active") and status["effective_source"] == "MIXED":
+        status["connection_message"] = (
+            "Broker historical unavailable; NSE EOD is active for history while the live broker remains selected"
+        )
+    elif status.get("fallback_active"):
+        status["connection_message"] = "Broker unavailable; using NSE EOD data"
+    elif not status.get("requested_source"):
+        status["connection_message"] = "NSE EOD default"
+    else:
+        status["connection_message"] = f"Broker {status.get('connection_status', 'unknown')}"
     return status
 
 
