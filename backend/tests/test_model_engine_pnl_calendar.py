@@ -85,3 +85,20 @@ def test_expired_contracts_are_retained_in_calendar_and_trade_history_with_win_l
     assert expiry_day["expired_losses"] == 1
     assert expiry_day["expired_breakeven"] == 1
     assert len(result["trades"]) == 3
+
+
+def test_recovery_strategy_is_included_in_pnl_and_expired_trade_history():
+    trade = _trade("REC-EXP", "RECOVERY", "2026-10-05", "2026-10-29", 2, 0, 500, -2)
+    trade.update({
+        "expiry": "2026-10-29", "classification": "EXPIRED",
+        "exit_reason": "EXPIRY_INTRINSIC_SETTLEMENT",
+    })
+    result = build_pnl_calendar({
+        "RECOVERY": {"groups": {"EXPIRED": [trade]}},
+    })
+
+    assert result["summary"]["RECOVERY"]["trade_count"] == 1
+    assert result["summary"]["RECOVERY"]["expired_losses"] == 1
+    assert result["summary"]["overall"]["gross_pnl"] == -1000
+    assert result["expired_trades"][0]["strategy"] == "RECOVERY"
+    assert result["expired_trades"][0]["expiry_outcome"] == "EXPIRED_LOSS"
