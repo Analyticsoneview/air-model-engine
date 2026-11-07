@@ -64,6 +64,13 @@ class CredentialVault:
                 DELETE FROM broker_credentials WHERE customer_id=? AND broker=? AND account_id=?
             """, (customer_id, broker.lower(), account_id))
 
+    def list_for_all_customers(self) -> list[dict]:
+        rows = self._db.execute("""
+            SELECT customer_id,broker,account_id,updated_at FROM broker_credentials
+            ORDER BY customer_id,broker,account_id
+        """).fetchall()
+        return [dict(row) for row in rows]
+
     def list_for_customer(self, customer_id: str) -> list[dict]:
         rows = self._db.execute("""
             SELECT broker,account_id,updated_at FROM broker_credentials
