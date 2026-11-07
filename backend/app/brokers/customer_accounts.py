@@ -59,6 +59,17 @@ class CustomerAccountDirectory:
         except sqlite3.IntegrityError as exc:
             raise ValueError("Broker account is already registered to a customer") from exc
 
+    def list_all(self) -> list[CustomerTradingAccount]:
+        rows = self._connection.execute(
+            "SELECT customer_id, broker, account_id, enabled_for_orders "
+            "FROM customer_trading_accounts ORDER BY customer_id, broker, account_id"
+        ).fetchall()
+        return [
+            CustomerTradingAccount(r["customer_id"], r["broker"], r["account_id"],
+                                   bool(r["enabled_for_orders"]))
+            for r in rows
+        ]
+
     def list_for_customer(self, customer_id: str) -> list[CustomerTradingAccount]:
         rows = self._connection.execute(
             "SELECT customer_id, broker, account_id, enabled_for_orders "
