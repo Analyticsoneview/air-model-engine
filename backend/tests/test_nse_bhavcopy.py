@@ -129,6 +129,51 @@ class NSEBhavcopyTests(unittest.TestCase):
             self.assertFalse(result["repair_triggered"])
             self.assertEqual(store.actual_record_count("CM", day), 2)
 
+    def test_cleanup_expired_fo_removes_expired_contracts_and_preserves_source_count_reconciliation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = NSEBhavcopyStore(str(Path(folder) / "nse.sqlite3"))
+            day = "2026-11-06"
+            rows = [
+                {"FinInstrmId": "1", "TckrSymb": "NIFTY", "FinInstrmTp": "OPTIDX",
+                 "XpryDt": "2026-10-29", "StrkPric": "26000", "OptnTp": "CE"},
+                {"FinInstrmId": "2", "TckrSymb": "NIFTY", "FinInstrmTp": "OPTIDX",
+                 "XpryDt": "2026-11-26", "StrkPric": "26000", "OptnTp": "PE"},
+            ]
+            store.save_rows("FO", day, rows)
+            store.set_file_status("FO", day, "IMPORTED", 2, source_record_count=2)
+
+            cleanup = store.cleanup_expired_fo(date(2026, 11, 7))
+
+            self.assertEqual(cleanup["removed_records"], 1)
+            self.assertEqual(cleanup["removed_contract_keys"], 1)
+            active = store.query("FO")
+            self.assertEqual(len(active), 1)
+            self.assertEqual(active[0]["expiry"], "2026-11-26")
+            status = store.file_status("FO", day)
+            self.assertEqual(status["expired_removed_count"], 1)
+            integrity = store.reconcile_session(day, ("FO",))
+            self.assertEqual(integrity["status"], "COMPLETE")
+            self.assertFalse(integrity["repair_triggered"])
+
+    def test_expired_fo_cleanup_is_idempotent_and_does_not_remove_expiry_day_contracts(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = NSEBhavcopyStore(str(Path(folder) / "nse.sqlite3"))
+            day = "2026-11-06"
+            rows = [
+                {"FinInstrmId": "1", "TckrSymb": "BANKNIFTY", "FinInstrmTp": "OPTIDX",
+                 "XpryDt": "2026-11-07", "StrkPric": "58000", "OptnTp": "CE"},
+            ]
+            store.save_rows("FO", day, rows)
+            store.set_file_status("FO", day, "IMPORTED", 1, source_record_count=1)
+
+            first = store.cleanup_expired_fo(date(2026, 11, 7))
+            second = store.cleanup_expired_fo(date(2026, 11, 7))
+
+            self.assertEqual(first["removed_records"], 0)
+            self.assertEqual(second["removed_records"], 0)
+            self.assertEqual(store.actual_record_count("FO", day), 1)
+
+
     def test_duplicate_instrument_rows_are_counted_once_like_database_primary_key(self):
         with tempfile.TemporaryDirectory() as folder:
             store = NSEBhavcopyStore(str(Path(folder) / "nse.sqlite3"))
