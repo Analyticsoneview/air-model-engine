@@ -199,6 +199,8 @@ class _AirAdminScreenState extends State<AirAdminScreen> {
                         final status = request['status']?.toString() ?? 'UNKNOWN';
                         final mobile = request['mobile_e164']?.toString() ?? 'Unknown number';
                         final device = request['device_id']?.toString() ?? 'Unknown device';
+                        final createdAt = request['created_at']?.toString() ?? '—';
+                        final reviewerNote = request['reviewer_note']?.toString() ?? '';
                         return Card(
                           child: Padding(
                             padding: const EdgeInsets.all(13),
@@ -220,11 +222,11 @@ class _AirAdminScreenState extends State<AirAdminScreen> {
                                 ),
                                 const SizedBox(height: 7),
                                 Text('Device: $device', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
-                                Text('Submitted: ${request['created_at'] ?? '—'}', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
-                                if ((request['reviewer_note'] ?? '').toString().isNotEmpty)
+                                Text('Submitted: $createdAt', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+                                if (reviewerNote.isNotEmpty)
                                   Padding(
                                     padding: const EdgeInsets.only(top: 5),
-                                    child: Text('Note: ${request['reviewer_note']}', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+                                    child: Text('Note: $reviewerNote', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
                                   ),
                                 if (status == 'PENDING' || status == 'APPROVED') ...[
                                   const SizedBox(height: 12),
