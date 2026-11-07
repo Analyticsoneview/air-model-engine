@@ -1,4 +1,5 @@
 import os
+from decimal import Decimal
 from uuid import uuid4
 import secrets
 
