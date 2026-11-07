@@ -128,7 +128,7 @@ async def get_model_engine_ledger(
     limit: int = Query(default=500, ge=1, le=2000),
     customer_id: str = Depends(require_customer),
 ) -> dict:
-    customer_service = await get_customer_market_data_service(customer_id)
+    customer_service = await _customer_market_data_service(customer_id)
     rows = await customer_service.hydrate_strategy_rows(_strategy_rows_for_customer(customer_id, limit))
     groups = {key: [] for key in
               ("SURVIVOR", "NEW", "HOLD", "WAIT", "RE-ENTRY", "SL", "TARGETS", "EXPIRED", "EXPIRYSCAN")}
@@ -160,7 +160,7 @@ async def get_model_engine_master(
     customer_id: str = Depends(require_customer),
 ) -> dict:
     """Canonical MASTER view over verified persisted signals."""
-    customer_service = await get_customer_market_data_service(customer_id)
+    customer_service = await _customer_market_data_service(customer_id)
     rows = await customer_service.hydrate_strategy_rows(_strategy_rows_for_customer(customer_id, limit), max_contracts=2000)
     # Valid past-expiry observations from EXPIRYSCAN also belong in EXPIRED.
     try:
@@ -260,7 +260,7 @@ async def upsert_model_engine_signal(
 
 async def _expiry_scan_for_customer(customer_id: str, *, max_dte: int = 45,
                                      limit: int = 2000) -> dict:
-    service = await get_customer_market_data_service(customer_id)
+    service = await _customer_market_data_service(customer_id)
     source = service.router.resolve("live")
     if not source:
         raise HTTPException(
@@ -284,7 +284,7 @@ async def get_original366_engine(
     customer_id: str = Depends(require_customer),
 ) -> dict:
     """Build the RECOVERED watch from the ORIGINAL366 cohort and post-stop daily closes."""
-    customer_service = await get_customer_market_data_service(customer_id)
+    customer_service = await _customer_market_data_service(customer_id)
     rows = await customer_service.hydrate_strategy_rows(_strategy_rows_for_customer(customer_id, limit), max_contracts=2000)
     contracts = evaluate_original366_rows(rows, as_of=as_of)
     trades = [trade for contract in contracts
@@ -400,7 +400,7 @@ async def get_expiry78_engine(
     customer_id: str = Depends(require_customer),
 ) -> dict:
     """Replay verified daily option OHLCV for explicitly tagged EXPIRY78 contracts."""
-    customer_service = await get_customer_market_data_service(customer_id)
+    customer_service = await _customer_market_data_service(customer_id)
     rows = await customer_service.hydrate_strategy_rows(_strategy_rows_for_customer(customer_id, limit), max_contracts=2000)
     contracts = evaluate_expiry78_rows(rows, as_of=as_of)
     trades = [trade for contract in contracts
@@ -491,7 +491,7 @@ async def get_model_engine_pnl_calendar(
     """Calendar P&L with separate entry-capital and exit-realization dates."""
     from app.model_engine_pnl_calendar import build_pnl_calendar
     from app.model_engine_physical_settlement import build_physical_settlement_review
-    customer_service = await get_customer_market_data_service(customer_id)
+    customer_service = await _customer_market_data_service(customer_id)
     rows = await customer_service.hydrate_strategy_rows(_strategy_rows_for_customer(customer_id, limit), max_contracts=2000)
     master = build_master(rows)
     physical_review = build_physical_settlement_review()
