@@ -59,6 +59,7 @@ if [[ "$OS" == "Linux" ]]; then
   chown -R "$RUNNER_USER:$RUNNER_USER" "$RUNNER_DIR"
 fi
 RUNNER_TOKEN="${AIR_RUNNER_TOKEN:-}"
+unset AIR_RUNNER_TOKEN || true
 if [[ -z "$RUNNER_TOKEN" ]]; then
   read -r -s -p "Short-lived GitHub Actions runner registration token: " RUNNER_TOKEN
   echo
