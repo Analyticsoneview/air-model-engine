@@ -8,6 +8,7 @@ import 'screens/air_connection_screen.dart';
 import 'screens/air_admin_screen.dart';
 import 'screens/air_qoc_screen.dart';
 import 'screens/model_engine_screen.dart';
+import 'screens/orb_strategy_screen.dart';
 import 'screens/nse_data_screen.dart';
 import 'services/air_api_client.dart';
 
@@ -83,6 +84,7 @@ class _AirShellState extends State<AirShell> {
     final pages = [
       AirDashboard(look: widget.look, onLookChanged: widget.onLookChanged),
       const ModelEngineScreen(),
+      const OrbStrategyScreen(),
       const SimplePage(title: 'Options Intelligence', icon: Icons.candlestick_chart_rounded, subtitle: 'Discover option opportunities with strike, expiry, premium and liquidity context.'),
       const AirQocScreen(),
       const NseDataScreen(),
@@ -96,6 +98,7 @@ class _AirShellState extends State<AirShell> {
         destinations: const [
           NavigationDestination(icon: Icon(Icons.grid_view_rounded), label: 'Home'),
           NavigationDestination(icon: Icon(Icons.analytics_rounded), label: 'Model Engine'),
+          NavigationDestination(icon: Icon(Icons.candlestick_chart_rounded), label: 'ORB'),
           NavigationDestination(icon: Icon(Icons.show_chart_rounded), label: 'Options'),
           NavigationDestination(icon: Icon(Icons.radar_rounded), label: 'AIR QOC'),
           NavigationDestination(icon: Icon(Icons.storage_rounded), label: 'Data'),
