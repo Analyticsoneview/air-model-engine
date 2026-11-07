@@ -49,7 +49,7 @@ Use a dedicated SSH key and a restricted deployment account. Do not use your per
 Example \`/etc/air/air.env\` (replace placeholders; values are examples, not working credentials):
 
 \`\`\`bash
-AIR_OPERATOR_CUSTOMER_IDS="<approved-operator-customer-uuid>"
+AIR_OPERATOR_CUSTOMER_IDS="+919876543210"
 AIR_CORS_ORIGINS="https://app.your-domain.example"
 AIR_API_PORT=8000
 AIR_TELEGRAM_CHAT_IDS="<verified-private-chat-id>,<verified-negative-group-chat-id>"
