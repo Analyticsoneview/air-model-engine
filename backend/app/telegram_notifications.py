@@ -198,7 +198,8 @@ async def send_telegram_message(
             try:
                 response = await client.post(
                     f"https://api.telegram.org/bot{token}/sendMessage",
-                    json={"chat_id": chat_id, "text": text, "disable_web_page_preview": True},
+                    json={"chat_id": chat_id, "text": text, "parse_mode": "HTML",
+                          "disable_web_page_preview": True},
                 )
                 response.raise_for_status()
                 payload = response.json()
