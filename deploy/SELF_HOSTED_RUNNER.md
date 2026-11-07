@@ -59,7 +59,7 @@ The Linux installer adds the dedicated runner account to the Docker group. Docke
 
 In repository **Settings → Secrets and variables → Actions → Variables → New repository variable**, create or update:
 
-- Name: AIR_RUNNER_LABELS
+- Name: AIR_CI_RUNNER_LABELS
 - Value: the exact JSON array for the PC OS from section 2 or 3.
 
 The backend and Android workflows use AIR_CI_RUNNER_LABELS first, then AIR_RUNNER_LABELS as a compatibility fallback, then GitHub-hosted ubuntu-latest. Set AIR_CI_RUNNER_LABELS to the exact JSON labels for the PC. Keep AIR_RUNNER_LABELS unset when the PC is Windows or macOS: the separate PWA and Docker Buildx deployment workflows use Linux shell commands and must remain on ubuntu-latest or a Linux self-hosted runner. If the PC is Ubuntu and you also want those Linux workflows on it, set AIR_RUNNER_LABELS to the same Linux label array. Do not route Linux-only workflows to Windows/macOS.
