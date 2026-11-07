@@ -140,7 +140,7 @@ async def start_air_qoc_jobs() -> None:
     _market_health_task = asyncio.create_task(_market_data_health_loop(), name="air-market-data-health")
     _master_refresh_task = asyncio.create_task(_broker_master_refresh_loop(), name="air-broker-master-refresh")
     # Safe by default: the scheduler captures data only for selected, authenticated operator/PAID accounts.
-    start_qoc_scheduler(force=True)
+    start_qoc_scheduler(force=_has_enabled_customer_broker_sources())
     start_telegram_scheduler()
 
 
@@ -154,6 +154,24 @@ async def _market_data_health_loop() -> None:
             # Health monitoring must never take down the API process.
             pass
         await asyncio.sleep(max(3.0, float(os.getenv("AIR_MARKET_HEALTH_INTERVAL_SECONDS", "5"))))
+
+
+def _has_enabled_customer_broker_sources() -> bool:
+    operator_ids = {
+        value.strip() for value in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",")
+        if value.strip()
+    }
+    for account in account_directory.list_all():
+        access = account_directory.get_market_data_access(account.customer_id)
+        eligible = account.customer_id in operator_ids or (
+            access.get("tier") == "PAID" and access.get("broker_data_enabled") is True
+        )
+        selection = account_directory.get_market_data_selection(account.customer_id)
+        if (eligible and selection
+                and selection.get("provider") == account.broker
+                and selection.get("account_id") == account.account_id):
+            return True
+    return False
 
 
 def _broker_master_headers(operator_id: str, provider: str, account_id: str) -> dict[str, str] | None:
@@ -665,6 +683,7 @@ async def customer_select_market_data_account(
             customer_id, selection.provider, selection.account_id
         )
         await invalidate_customer_market_data_service(customer_id)
+        start_qoc_scheduler(force=True)
         return {"selection": row, "effective_source": "BROKER"}
     except KeyError as exc:
         raise HTTPException(status_code=409, detail="Broker credentials have not been saved") from exc
@@ -720,6 +739,7 @@ async def operator_set_customer_market_data_selection(
             target_customer_id, selection.provider, selection.account_id
         )
         await invalidate_customer_market_data_service(target_customer_id)
+        start_qoc_scheduler(force=True)
         return {"selection": row, "access": account_directory.get_market_data_access(target_customer_id)}
     except KeyError as exc:
         raise HTTPException(status_code=409, detail="Broker credentials have not been saved") from exc
