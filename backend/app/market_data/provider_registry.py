@@ -37,7 +37,7 @@ PROVIDER_CATALOG: tuple[dict[str, Any], ...] = (
         "kind": "broker",
         "channels": ["historical", "live"],
         "adapter_ready": {"historical": True, "live": True},
-        "data_scope": "Historical REST candles and native WebSocket live market data",
+        "data_scope": "Historical REST candles and native broker WebSocket streaming with automatic reconnect",
         "requires_account": True,
     },
     {
@@ -46,7 +46,7 @@ PROVIDER_CATALOG: tuple[dict[str, Any], ...] = (
         "kind": "broker",
         "channels": ["historical", "live"],
         "adapter_ready": {"historical": True, "live": True},
-        "data_scope": "Historical REST candles and native WebSocket live market data",
+        "data_scope": "Historical REST candles and native broker WebSocket streaming with automatic reconnect",
         "requires_account": True,
     },
     {
@@ -55,7 +55,7 @@ PROVIDER_CATALOG: tuple[dict[str, Any], ...] = (
         "kind": "broker",
         "channels": ["historical", "live"],
         "adapter_ready": {"historical": True, "live": True},
-        "data_scope": "Historical REST candles and native WebSocket live market data",
+        "data_scope": "Historical REST candles and native broker WebSocket streaming with automatic reconnect",
         "requires_account": True,
     },
     {
@@ -64,7 +64,7 @@ PROVIDER_CATALOG: tuple[dict[str, Any], ...] = (
         "kind": "broker",
         "channels": ["historical", "live"],
         "adapter_ready": {"historical": True, "live": True},
-        "data_scope": "Historical REST candles and native WebSocket live market data",
+        "data_scope": "Historical REST candles and native broker WebSocket streaming with automatic reconnect",
         "requires_account": True,
     },
     {
