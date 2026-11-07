@@ -133,24 +133,23 @@ class TelegramNotificationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_managed_destinations_override_legacy_ids_per_strategy(self):
         FakeClient.sent = []
-        with tempfile.TemporaryDirectory() as folder, \\
-             patch.object(telegram.httpx, "AsyncClient", FakeClient), \\
-             patch.dict(os.environ, {
-                 "AIR_TELEGRAM_BOT_TOKEN": "test-token",
-                 "AIR_TELEGRAM_CHAT_IDS": "legacy-chat",
-                 "AIR_TELEGRAM_DEDUPE_DB_PATH": str(Path(folder) / "dedupe.sqlite3"),
-                 "AIR_TELEGRAM_CONFIG_DB_PATH": str(Path(folder) / "config.sqlite3"),
-             }, clear=False):
-            destinations.upsert_destination(
-                "EXPIRY78 group", "-1009876543210", "GROUP", ["EXPIRY78"], True,
-            )
-            destinations.upsert_destination(
-                "RECOVERED private", "123456789", "PRIVATE", ["RECOVERED"], True,
-            )
-            result = await telegram.notify_candidates("EXPIRY78", [{
-                "signal_id": "EXP78-DYNAMIC", "symbol": "TEST",
-                "option_type": "CE", "strike": 100, "expiry": "2026-11-27",
-            }])
+        with tempfile.TemporaryDirectory() as folder:
+            with patch.object(telegram.httpx, "AsyncClient", FakeClient), patch.dict(os.environ, {
+                "AIR_TELEGRAM_BOT_TOKEN": "test-token",
+                "AIR_TELEGRAM_CHAT_IDS": "legacy-chat",
+                "AIR_TELEGRAM_DEDUPE_DB_PATH": str(Path(folder) / "dedupe.sqlite3"),
+                "AIR_TELEGRAM_CONFIG_DB_PATH": str(Path(folder) / "config.sqlite3"),
+            }, clear=False):
+                destinations.upsert_destination(
+                    "EXPIRY78 group", "-1009876543210", "GROUP", ["EXPIRY78"], True,
+                )
+                destinations.upsert_destination(
+                    "RECOVERED private", "123456789", "PRIVATE", ["RECOVERED"], True,
+                )
+                result = await telegram.notify_candidates("EXPIRY78", [{
+                    "signal_id": "EXP78-DYNAMIC", "symbol": "TEST",
+                    "option_type": "CE", "strike": 100, "expiry": "2026-11-27",
+                }])
 
         self.assertEqual(result["sent"], 1)
         self.assertEqual(len(FakeClient.sent), 1)
