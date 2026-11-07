@@ -58,6 +58,13 @@ class OrbSignalEngine:
         for symbol in symbols:
             self.symbols.setdefault(str(symbol).upper(), self._new_symbol_state())
 
+    def _can_open(self, stamp: datetime) -> bool:
+        day = stamp.date().isoformat()
+        todays = [row for row in self.signals if row.get("session_date") == day]
+        active = [row for row in todays if row.get("status") in {"OPEN", "EXIT_SIGNAL"}]
+        # Retain the user's one-position-at-a-time and three-signals-per-day limits.
+        return not active and len(todays) < 3
+
     def on_tick(self, tick: dict[str, Any]) -> None:
         symbol = str(tick.get("symbol") or "").upper()
         if symbol not in self.symbols:
@@ -93,7 +100,8 @@ class OrbSignalEngine:
             afternoon["low"] = price if afternoon["low"] is None else min(afternoon["low"], price)
         elif time(13, 0) <= clock < time(15, 15):
             high, low = afternoon["high"], afternoon["low"]
-            if high is not None and low is not None and afternoon["entry"] is None and price > high:
+            if (high is not None and low is not None and afternoon["entry"] is None
+                    and price > high and self._can_open(stamp)):
                 signal = self._signal(symbol, "AFTERNOON", stamp, price, low, high)
                 afternoon["entry"] = signal
                 self.signals.append(signal)
@@ -165,9 +173,10 @@ class OrbSignalEngine:
                 state["retested"] = True
             elif state["breakout"] and state["retested"] and close > high:
                 candle_close_at = datetime.fromisoformat(candle["start"]) + timedelta(minutes=3)
-                signal = self._signal(symbol, "MORNING", candle_close_at, close, low, high)
-                state["entry"] = signal
-                self.signals.append(signal)
+                if self._can_open(candle_close_at):
+                    signal = self._signal(symbol, "MORNING", candle_close_at, close, low, high)
+                    state["entry"] = signal
+                    self.signals.append(signal)
         else:
             entry = state["entry"]
             if entry["status"] == "OPEN":
