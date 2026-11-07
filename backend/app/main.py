@@ -1011,6 +1011,7 @@ async def search_market_instruments(
                 strike=Decimal(row["strike"]) if row.get("strike") else None,
                 option_type=row.get("option_type"),
                 lot_size=row.get("lot_size"), instrument_type=row.get("instrument_type"),
+                tick_size=Decimal(str(row["tick_size"])) if row.get("tick_size") else None,
             )
             for row in mapped
             if not segment or row["segment"].upper() == segment.upper()
@@ -1072,7 +1073,7 @@ async def operator_save_market_instrument(
             body.provider, body.account_id, exchange=body.exchange, symbol=body.symbol,
             token=body.token, segment=body.segment, expiry=body.expiry,
             strike=body.strike, option_type=body.option_type, lot_size=body.lot_size,
-            instrument_type=body.instrument_type,
+            instrument_type=body.instrument_type, tick_size=body.tick_size,
         )
         return {"instrument": row, "status": "saved"}
     except ValueError as exc:
@@ -1095,6 +1096,7 @@ async def operator_bulk_save_market_instruments(
                 symbol=item.symbol, token=item.token, segment=item.segment,
                 expiry=item.expiry, strike=item.strike, option_type=item.option_type,
                 lot_size=item.lot_size, instrument_type=item.instrument_type,
+                tick_size=item.tick_size,
             )
             saved += 1
     except ValueError as exc:
