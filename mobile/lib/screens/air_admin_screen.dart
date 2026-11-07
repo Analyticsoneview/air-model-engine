@@ -479,8 +479,7 @@ class _AirAdminBrokerAccountsScreenState
       'upstox': ['client_id', 'client_secret', 'redirect_uri'],
       'fyers': ['app_id', 'app_secret', 'redirect_uri'],
       'angelone': ['api_key', 'pin'],
-      'custom_vendor': ['base_url', 'websocket_url', 'api_key', 'auth_header',
-        'auth_prefix', 'health_path', 'instruments_path', 'historical_path'],
+      'custom_vendor': ['base_url', 'websocket_url', 'api_key'],
     }[broker] ?? const <String>[];
     if (fields.isEmpty) return;
     final controllers = {for (final field in fields) field: TextEditingController()};
