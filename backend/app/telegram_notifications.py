@@ -21,6 +21,12 @@ import httpx
 
 def _settings() -> tuple[str, list[str]]:
     token = os.getenv("AIR_TELEGRAM_BOT_TOKEN", "").strip()
+    token_file = os.getenv("AIR_TELEGRAM_BOT_TOKEN_FILE", "").strip()
+    if token_file:
+        try:
+            token = Path(token_file).read_text(encoding="utf-8").strip()
+        except OSError:
+            token = ""
     chat_ids = [value.strip() for value in
                 os.getenv("AIR_TELEGRAM_CHAT_IDS", "").split(",") if value.strip()]
     return token, chat_ids
