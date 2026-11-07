@@ -98,10 +98,29 @@ class MarketDataService:
         if not source:
             raise RuntimeError("No connected historical market-data source")
         provider, account_id, adapter = source[0]
+        if provider == "nse_bhavcopy":
+            query_symbol = (instrument.underlying_symbol or instrument.symbol).upper()
+            segment = "NSE_FO" if "FO" in instrument.segment.upper() else "NSE_CM"
+            candidates = await adapter.search_instruments(
+                query_symbol, limit=200, exchange_segment=segment
+            )
+            nse_instrument = next((item for item in candidates
+                if item.symbol.upper() == query_symbol
+                and (not instrument.expiry or str(item.expiry or "")[:10] == str(instrument.expiry)[:10])
+                and (instrument.strike is None or item.strike == instrument.strike)
+                and (not instrument.option_type or item.option_type == instrument.option_type)), None)
+            if nse_instrument is None:
+                raise RuntimeError(
+                    f"No matching NSE EOD instrument for {query_symbol} "
+                    f"{instrument.expiry or ''} {instrument.strike or ''} {instrument.option_type or ''}"
+                )
+            instrument = nse_instrument
         try:
             bars = await adapter.get_historical(instrument, start, end, interval)
             return sorted(bars, key=lambda item: item.start_time)
         except Exception as broker_error:
+            if provider == "nse_bhavcopy":
+                raise
             await self.router.mark_unhealthy("historical", "historical_request_failed")
             result = await self.router.check_health("historical")
             if result.get("failover") == "switched":
