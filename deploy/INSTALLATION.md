@@ -186,3 +186,7 @@ Automatic execution policy is persistent and defaults to **OFF**. It has a maste
 
 
 Failover currently permits a secondary account on the same broker only. Cross-broker failover is deliberately rejected until AIR can prove a one-to-one contract mapping between the two vendors' different instrument tokens and symbols. This prevents a backup broker from receiving an invalid or wrong contract subscription.
+
+## Cross-platform local startup and CI runner
+
+The local application startup command is documented in the repository root README and LOCAL_SETUP.md. For a personal Windows, Ubuntu/Linux or macOS PC used as a GitHub Actions runner, follow [SELF_HOSTED_RUNNER.md](SELF_HOSTED_RUNNER.md). It documents the platform-specific install commands, repository labels and PR #7 verification gate. Do not merge PR #7 until the backend and Android workflows pass on the current PR head.
