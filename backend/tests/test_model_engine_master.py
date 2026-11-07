@@ -111,8 +111,8 @@ def test_strategy_views_are_isolated_and_stock_entry_filter_is_model_scoped():
     assert {r["signal_id"] for r in result["ORIGINAL366"]["groups"]["NEW"]} == {"original-index"}
     assert result["ORIGINAL366"]["audit"]["stock_candidates_rejected_outside_1_to_10"] == 1
     assert {r["signal_id"] for r in result["RECOVERY"]["groups"]["REENTRY"]} == {"recovery-stock"}
-    assert result["ORIGINAL366"]["baseline"]["trades"] == 366
-    assert result["ORIGINAL366"]["baseline"]["baseline_status"] == "PRESERVED_NOT_RECALCULATED"
+    assert result["ORIGINAL366"]["baseline"]["full_expiry_coverage_cohort"] == 366
+    assert result["ORIGINAL366"]["baseline"]["baseline_status"] == "COHORT_FILTER_ONLY"
 
 
 def test_recovery_lot_size_rule_is_enforced():
@@ -197,4 +197,8 @@ def test_original366_post_stop_close_is_added_to_recovered_watch_without_opening
     watch = original["groups"]["RECOVERED"][0]
     assert watch["classification"] == "RECOVERED_WATCH"
     assert watch["position_status"] == "WATCH_ONLY_NOT_OPEN"
+    assert watch["entry_price"] == 8.0
+    assert watch["stop_loss"] == 7.2
+    assert watch["target_1"] == 11.6
+    assert watch["watch"]["exit_model"]["simulation_basis"] == "ORIGINAL_ENTRY_PRICE_RETROSPECTIVE_EXIT_MODEL"
     assert original["counts"]["OPEN"] == 0
