@@ -400,3 +400,14 @@ async def get_expiry_scan(
 ) -> dict:
     """Read-only scan of captured Dhan option-chain observations owned by this customer."""
     return _expiry_scan_for_customer(customer_id, max_dte=max_dte, limit=limit)
+
+
+@router.get("/physical-settlement")
+async def get_physical_settlement_review(
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    """Read-only physical-delivery review for the historical EXPIRY78 cohort."""
+    from app.model_engine_physical_settlement import build_physical_settlement_review
+    result = build_physical_settlement_review()
+    result["customer_scope"] = "authenticated_customer"
+    return result
