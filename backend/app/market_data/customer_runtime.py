@@ -34,6 +34,7 @@ class CustomerMarketDataRuntime:
         customer_id = customer_id.strip()
         if not customer_id:
             raise PermissionError("Authenticated customer identity is required")
+        customer_id = access_store.mobile_for_request_id(customer_id) or customer_id
         lock = self._locks.setdefault(customer_id, asyncio.Lock())
         async with lock:
             access = self.accounts.get_market_data_access(customer_id)
@@ -85,6 +86,7 @@ class CustomerMarketDataRuntime:
             await self.invalidate(customer_id)
 
     async def invalidate(self, customer_id: str) -> None:
+        customer_id = access_store.mobile_for_request_id(customer_id) or customer_id
         lock = self._locks.setdefault(customer_id, asyncio.Lock())
         async with lock:
             cached = self._services.pop(customer_id, None)
