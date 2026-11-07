@@ -16,3 +16,7 @@ kiteconnect>=5.0.1
 upstox-python-sdk>=2.23.0
 fyers-apiv3>=3.1.0
 smartapi-python>=1.5.5
+upstox-python-sdk>=2.19.0
+fyers-apiv3>=3.1.4
+protobuf>=5.28,<7
+websocket-client>=1.8
