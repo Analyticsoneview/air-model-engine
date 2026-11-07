@@ -16,6 +16,20 @@ from .router import MarketDataRouter
 from .instrument_registry import MarketInstrumentDirectory
 
 
+_DEFAULT_MARKET_DATA_SERVICE = None
+
+
+def set_default_market_data_service(service):
+    global _DEFAULT_MARKET_DATA_SERVICE
+    _DEFAULT_MARKET_DATA_SERVICE = service
+
+
+def get_default_market_data_service():
+    if _DEFAULT_MARKET_DATA_SERVICE is None:
+        raise RuntimeError("AIR market-data service has not been initialized")
+    return _DEFAULT_MARKET_DATA_SERVICE
+
+
 class MarketDataService:
     """Provider-independent access to selected historical and live sources.
 
@@ -136,7 +150,7 @@ class MarketDataService:
                                      time.min, tzinfo=timezone.utc)
             end = datetime.combine(cutoff + timedelta(days=1), time.min, tzinfo=timezone.utc)
             try:
-                bars = await adapter.get_historical(instrument, start, end, "day")
+                bars = await self.historical(instrument, start, end, "day")
             except Exception:
                 skipped += 1
                 continue
@@ -144,7 +158,7 @@ class MarketDataService:
                 skipped += 1
                 continue
             matched += 1
-            payload = [{"date": bar.start_time.date().isoformat(), "open": str(bar.open),
+            payload = [{"date": bar.start_time.astimezone(ZoneInfo("Asia/Kolkata")).date().isoformat(), "open": str(bar.open),
                         "high": str(bar.high), "low": str(bar.low), "close": str(bar.close),
                         "volume": bar.volume, "open_interest": bar.open_interest}
                        for bar in bars]
