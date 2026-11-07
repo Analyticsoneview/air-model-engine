@@ -991,6 +991,8 @@ class _AirAdminMarketDataSourcesScreenState
   final _instrumentSymbol = TextEditingController();
   final _instrumentToken = TextEditingController();
   final _instrumentSegment = TextEditingController(text: 'NSE_EQ');
+  final _failoverCandidates = TextEditingController();
+  bool _failoverEnabled = false;
   String _channel = 'historical';
   String? _provider;
   String? _error;
@@ -1010,6 +1012,7 @@ class _AirAdminMarketDataSourcesScreenState
     _instrumentSymbol.dispose();
     _instrumentToken.dispose();
     _instrumentSegment.dispose();
+    _failoverCandidates.dispose();
     super.dispose();
   }
 
@@ -1025,6 +1028,14 @@ class _AirAdminMarketDataSourcesScreenState
         _providers = providers;
         _selections = selections;
         _runtime = data['runtime'] as Map<String, dynamic>? ?? {};
+        final failover = (data['failover'] as Map<String, dynamic>? ?? {})[_channel]
+            as Map<String, dynamic>? ?? {};
+        _failoverEnabled = failover['enabled'] == true;
+        final candidates = (failover['candidates'] as List<dynamic>? ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map((item) => '${item['provider']}|${item['account_id']}')
+            .join(', ');
+        _failoverCandidates.text = candidates;
         final current = selections[_channel] as Map<String, dynamic>?;
         _provider = current?['provider']?.toString() ??
             (_providers.isNotEmpty ? _providers.first['code']?.toString() : null);
@@ -1069,6 +1080,29 @@ class _AirAdminMarketDataSourcesScreenState
         accountId: selected['requires_account'] == true ? _account.text.trim() : null,
         enabled: enabled,
       );
+      await _load();
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _saveFailover() async {
+    final candidates = <Map<String, String>>[];
+    for (final raw in _failoverCandidates.text.split(',')) {
+      final parts = raw.trim().split('|');
+      if (raw.trim().isEmpty) continue;
+      if (parts.length != 2 || parts.any((part) => part.trim().isEmpty)) {
+        setState(() => _error = 'Use provider|account_id entries separated by commas.');
+        return;
+      }
+      candidates.add({'provider': parts[0].trim(), 'account_id': parts[1].trim()});
+    }
+    setState(() { _loading = true; _error = null; });
+    try {
+      await _api.operatorConfigureMarketDataFailover(
+          _channel, _failoverEnabled, candidates);
       await _load();
     } catch (error) {
       if (mounted) setState(() => _error = error.toString());
@@ -1225,6 +1259,42 @@ class _AirAdminMarketDataSourcesScreenState
               ]),
             ),
           ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('OPTIONAL AUTOMATIC FAILOVER',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900)),
+                const SizedBox(height: 5),
+                Text('When the primary feed is degraded or stale, AIR can switch to the first authenticated candidate. Keep candidates on the same market and instrument universe.',
+                    style: TextStyle(fontSize: 10, height: 1.4, color: cs.onSurfaceVariant)),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Enable failover', style: TextStyle(fontSize: 12)),
+                  value: _failoverEnabled,
+                  onChanged: _loading ? null : (value) => setState(() => _failoverEnabled = value),
+                ),
+                TextField(
+                  controller: _failoverCandidates,
+                  minLines: 1,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Candidates: provider|account_id, ...',
+                    hintText: 'zerodha|AB1234, upstox|123456',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: _loading ? null : _saveFailover,
+                  icon: const Icon(Icons.alt_route_rounded),
+                  label: const Text('SAVE FAILOVER POLICY'),
+                ),
+              ]),
+            ),
+          ),
+
           if (selectedProvider != null && selectedProvider['requires_account'] == true) ...[
             const SizedBox(height: 12),
             Card(
