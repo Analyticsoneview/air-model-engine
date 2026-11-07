@@ -244,6 +244,40 @@ class AirApiClient {
     return _decode(await _client.post(uri, headers: _headers));
   }
 
+  Future<Map<String, dynamic>> nseDataStatus() async {
+    return _decode(await _client.get(
+      Uri.parse('$baseUrl/api/v1/nse-data/status'),
+      headers: _headers,
+    ));
+  }
+
+  Future<Map<String, dynamic>> nseDataRows({
+    required String market,
+    String? symbol,
+    String? startDate,
+    String? endDate,
+    String? instrumentType,
+    int limit = 100,
+  }) async {
+    final query = <String, String>{
+      'market': market,
+      'limit': limit.toString(),
+      if (symbol != null && symbol.trim().isNotEmpty) 'symbol': symbol.trim(),
+      if (startDate != null) 'start_date': startDate,
+      if (endDate != null) 'end_date': endDate,
+      if (instrumentType != null && instrumentType.isNotEmpty) 'instrument_type': instrumentType,
+    };
+    final uri = Uri.parse('$baseUrl/api/v1/nse-data/rows').replace(queryParameters: query);
+    return _decode(await _client.get(uri, headers: _headers));
+  }
+
+  Future<Map<String, dynamic>> triggerNseBootstrap() async {
+    return _decode(await _client.post(
+      Uri.parse('$baseUrl/api/v1/nse-data/bootstrap'),
+      headers: _headers,
+    ));
+  }
+
   Future<Map<String, dynamic>> modelEngineLedger({int limit = 500}) async {
     final response = await _client.get(
       Uri.parse('$baseUrl/api/v1/model-engine/ledger?limit=$limit'),
