@@ -102,9 +102,9 @@ def _market_adapter_for(operator_id: str, provider: str, account_id: str):
             raise ValueError("FYERS app_id and access_token are required")
         return FyersWebSocketAdapter(account_id, credentials["app_id"], credentials["access_token"], market_data_hub, poll_seconds)
     if provider == "angelone":
-        required = ("api_key", "jwt_token")
+        required = ("api_key", "jwt_token", "feed_token")
         if any(not credentials.get(key) for key in required):
-            raise ValueError("Angel api_key and verified jwt_token are required")
+            raise ValueError("Angel api_key, jwt_token and feed_token are required")
         network = {
             "client_local_ip": os.getenv("AIR_CLIENT_LOCAL_IP", ""),
             "client_public_ip": os.getenv("AIR_CLIENT_PUBLIC_IP", ""),
