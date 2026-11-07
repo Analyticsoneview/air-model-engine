@@ -28,7 +28,7 @@ concurrency:
 jobs:
   verify:
     name: Verify backend and build inputs
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.AIR_RUNNER_LABELS || '["ubuntu-latest"]') }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -61,7 +61,7 @@ jobs:
   build-and-publish:
     name: Build and publish AIR images
     needs: verify
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.AIR_RUNNER_LABELS || '["ubuntu-latest"]') }}
     outputs:
       image_owner: ${{ steps.image.outputs.owner_lc }}
     steps:
@@ -104,7 +104,7 @@ jobs:
     name: Deploy to Ubuntu Docker Swarm
     needs: build-and-publish
     if: github.event_name == 'workflow_dispatch' && inputs.deploy == true && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.AIR_RUNNER_LABELS || '["ubuntu-latest"]') }}
     steps:
       - name: Validate deployment secrets
         env:
