@@ -171,12 +171,27 @@ def _format_message(strategy: str, row: dict[str, Any]) -> str:
 
 
 
-async def send_telegram_message(text: str) -> dict[str, Any]:
-    """Send a test/operational message to every configured destination."""
-    token, chat_ids = _settings()
+def _chat_ids(strategy: str | None = None) -> list[str]:
+    """Prefer persistent operator-managed routes; retain env IDs as legacy fallback."""
+    from app.telegram_destinations import (
+        destinations_for_strategy, has_managed_destinations, list_destinations,
+    )
+    if has_managed_destinations():
+        if strategy:
+            return destinations_for_strategy(strategy)
+        return [row["chat_id"] for row in list_destinations() if row["enabled"]]
+    return _settings()[1]
+
+
+async def send_telegram_message(
+    text: str, destination_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    """Send a test/operational message to selected destinations or all active routes."""
+    token, _ = _settings()
+    chat_ids = list(dict.fromkeys(destination_ids if destination_ids is not None else _chat_ids()))
     if not token or not chat_ids:
         return {"configured": False, "sent": 0,
-                "reason": "Set AIR_TELEGRAM_BOT_TOKEN and AIR_TELEGRAM_CHAT_IDS."}
+                "reason": "Configure AIR_TELEGRAM_BOT_TOKEN and at least one active destination."}
     sent, failures = 0, []
     async with httpx.AsyncClient(timeout=10) as client:
         for chat_id in chat_ids:
@@ -197,7 +212,8 @@ async def send_telegram_message(text: str) -> dict[str, Any]:
 
 async def notify_candidates(strategy: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Notify once per candidate/status/destination; safe to call on repeated API polls."""
-    token, chat_ids = _settings()
+    token, _ = _settings()
+    chat_ids = _chat_ids(strategy)
     if not token or not chat_ids or not rows:
         return {"configured": bool(token and chat_ids), "attempted": 0, "sent": 0}
     attempted = sent = 0
