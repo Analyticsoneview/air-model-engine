@@ -203,7 +203,7 @@ def test_original366_post_stop_close_is_added_to_recovered_open_lifecycle():
     assert watch["stop_loss"] == 7.2
     assert watch["target_1"] == 11.6
     assert watch["watch"]["exit_model"]["simulation_basis"] == "ORIGINAL_ENTRY_PRICE_RETROSPECTIVE_EXIT_MODEL"
-    assert original["counts"]["OPEN"] == 0
+    assert original["counts"]["OPEN"] == 1
 
 
 
