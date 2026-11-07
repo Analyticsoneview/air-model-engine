@@ -128,7 +128,7 @@ jobs:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-          IMAGE_OWNER: ${{ needs.build-and-publish.outputs.image_owner }}
+          IMAGE_OWNER: ${{ needs['build-and-publish'].outputs.image_owner }}
           IMAGE_TAG: ${{ github.sha }}
           DEPLOY_COMMIT: ${{ github.sha }}
         run: |
