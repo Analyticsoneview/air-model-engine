@@ -20,6 +20,7 @@ from app.market_data.hub import MarketDataHub
 from app.market_data.router import MarketDataRouter
 from app.market_data.dhan_adapter import DhanMarketDataAdapter
 from app.market_data.contracts import MarketInstrument
+from app.market_data.provider_registry import MarketDataSourceRegistry
 from app.air_qoc_dhan import router as air_qoc_dhan_router
 from app.model_engine_api import router as model_engine_router
 from app.air_qoc_scheduler import start_qoc_scheduler, stop_qoc_scheduler, capture_dhan_eod_snapshots
@@ -46,6 +47,7 @@ app.add_middleware(
 )
 market_data_router = MarketDataRouter()
 market_data_hub = MarketDataHub()
+market_data_sources = MarketDataSourceRegistry()
 auth_store = AuthStore(os.getenv("AIR_AUTH_DB_PATH", "data/air_auth.sqlite3"))
 account_directory = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3"))
 _credential_vault: CredentialVault | None = None
@@ -147,6 +149,12 @@ class BrokerCredentialInput(BaseModel):
 class MainAccountSelection(BaseModel):
     provider: str
     account_id: str
+
+
+class MarketDataSourceSelection(BaseModel):
+    provider: str = Field(min_length=2, max_length=40)
+    account_id: str | None = Field(default=None, max_length=100)
+    enabled: bool = True
 
 
 class TelegramDestinationInput(BaseModel):
@@ -704,9 +712,9 @@ async def verify_dhan_account(account_id: str, customer_id: str = Depends(requir
 @app.post("/api/v1/customer/accounts/dhan/{account_id}/market-feed")
 async def dhan_market_feed(account_id: str, body: DhanMarketFeedRequest,
                            customer_id: str = Depends(require_air_operator)) -> dict:
-    active = market_data_router.status().get("active_data_account")
+    active = market_data_router.status().get("live_source")
     if active != {"provider": "dhan", "account_id": account_id}:
-        raise HTTPException(status_code=409, detail="Market data requests must use the configured single Main Account")
+        raise HTTPException(status_code=409, detail="Dhan is not the selected live data source")
     client = get_dhan_client(customer_id, account_id)
     try:
         return await client.market_feed(body.mode, body.instruments)
@@ -720,9 +728,9 @@ async def dhan_market_feed(account_id: str, body: DhanMarketFeedRequest,
 @app.post("/api/v1/customer/accounts/dhan/{account_id}/historical")
 async def dhan_historical(account_id: str, body: DhanHistoricalRequest,
                           customer_id: str = Depends(require_air_operator)) -> dict:
-    active = market_data_router.status().get("active_data_account")
+    active = market_data_router.status().get("historical_source")
     if active != {"provider": "dhan", "account_id": account_id}:
-        raise HTTPException(status_code=409, detail="Historical data must use the configured single Main Account")
+        raise HTTPException(status_code=409, detail="Dhan is not the selected historical data source")
     client = get_dhan_client(customer_id, account_id)
     try:
         if body.interval is None:
@@ -839,6 +847,69 @@ async def disconnect_main_account(customer_id: str = Depends(require_air_operato
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {"routing": market_data_router.status()}
+
+
+
+@app.get("/api/v1/operator/market-data/sources")
+async def operator_market_data_sources(
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    return {
+        "providers": market_data_sources.catalog(),
+        "selections": market_data_sources.selections(),
+        "runtime": market_data_router.status(),
+        "channels": ["historical", "live", "option_chain"],
+        "note": "Historical and live sources are selected independently. Only providers with verified adapters can be enabled; catalog entries are not a claim of a working adapter.",
+    }
+
+
+@app.put("/api/v1/operator/market-data/sources/{channel}")
+async def operator_select_market_data_source(
+    channel: str,
+    body: MarketDataSourceSelection,
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    provider = body.provider.strip().lower()
+    account_id = (body.account_id or "").strip() or None
+    if not body.enabled:
+        if channel in ("historical", "live"):
+            await market_data_router.clear_source(channel)
+        selected = market_data_sources.set_source(channel, provider, account_id, False)
+        return {"selection": selected, "runtime": market_data_router.status()}
+
+    if provider == "nse_bhavcopy":
+        if channel != "historical":
+            raise HTTPException(status_code=422, detail="NSE Bhavcopy is an EOD historical source only")
+        selected = market_data_sources.set_source(channel, provider, None, True)
+        return {"selection": selected, "runtime": market_data_router.status(),
+                "status": "CONNECTED", "note": "NSE official EOD CM/FO store is the selected historical source."}
+
+    if provider != "dhan":
+        raise HTTPException(status_code=409, detail="This provider is listed but its AIR market-data adapter is not yet implemented and verified.")
+    if channel not in ("historical", "live"):
+        raise HTTPException(status_code=422, detail="Dhan option-chain capture is managed by the dedicated AIR QOC connection.")
+    if not account_id:
+        raise HTTPException(status_code=422, detail="Dhan account ID is required")
+    owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(operator_id)}
+    if (provider, account_id) not in owned:
+        raise HTTPException(status_code=404, detail="Dhan account is not assigned to this operator")
+    try:
+        credentials = get_vault().get(operator_id, provider, account_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=409, detail="Save Dhan credentials before enabling this source") from exc
+    client_id = credentials.get("client_id", account_id)
+    access_token = credentials.get("access_token")
+    if not access_token:
+        raise HTTPException(status_code=422, detail="Dhan access token is required")
+    if not market_data_router.is_registered(provider, account_id):
+        market_data_router.register(account_id, DhanMarketDataAdapter(client_id, access_token, market_data_hub))
+    try:
+        await market_data_router.set_source(channel, provider, account_id)
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=503, detail=f"Could not enable {channel} source: {str(exc)}") from exc
+    selected = market_data_sources.set_source(channel, provider, account_id, True)
+    return {"selection": selected, "runtime": market_data_router.status(),
+            "status": "CONNECTED", "note": f"Dhan {channel} source authenticated successfully."}
 
 
 @app.get("/api/v1/operator/telegram/destinations")
