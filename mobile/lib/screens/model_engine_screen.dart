@@ -268,7 +268,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       'volume','open_interest','oi_change','liquidity_status'
     ];
     final stockColumns = const [
-      'symbol','broker_close','nse_settlement','broker_variance','broker_variance_pct',
+      'symbol','broker_close','nse_settlement','nse_settlement_basis','broker_variance','broker_variance_pct',
       'previous_nse_settlement','settlement_change','settlement_direction','volume',
       'open_interest','oi_change'
     ];
