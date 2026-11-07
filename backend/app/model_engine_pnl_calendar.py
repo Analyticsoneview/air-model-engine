@@ -157,7 +157,7 @@ def build_pnl_calendar(strategy_views: dict[str, Any], *, year: int | None = Non
                 "estimated_or_actual_charges": 0.0, "net_pnl": 0.0,
                 "capital_deployed": 0.0, "capital_records": 0,
                 "capital_missing_quantity": 0, "charges_estimated_count": 0,
-                "charges_actual_count": 0, "entries_count": 0, "peak_concurrent_capital": 0.0, "trades": []}
+                "charges_actual_count": 0, "net_pending_count": 0, "entries_count": 0, "peak_concurrent_capital": 0.0, "trades": []}
 
     days: dict[str, dict] = defaultdict(blank)
     months: dict[str, dict] = defaultdict(blank)
@@ -178,6 +178,8 @@ def build_pnl_calendar(strategy_views: dict[str, Any], *, year: int | None = Non
                 bucket["gross_pnl"] += trade["gross_pnl"]
                 if trade.get("net_pnl") is not None:
                     bucket["net_pnl"] += trade["net_pnl"]
+                else:
+                    bucket["net_pending_count"] += 1
                 if trade.get("charges"):
                     bucket["estimated_or_actual_charges"] += trade["charges"]["total"]
                     if trade["charges"]["basis"].startswith("ESTIMATED"):
@@ -192,6 +194,8 @@ def build_pnl_calendar(strategy_views: dict[str, Any], *, year: int | None = Non
             exit_bucket["estimated_or_actual_charges"] += (trade.get("charges") or {}).get("total", 0.0)
             if trade.get("net_pnl") is not None:
                 exit_bucket["net_pnl"] += trade["net_pnl"]
+            else:
+                exit_bucket["net_pending_count"] += 1
             exit_bucket["trades"].append(trade)
             month_exit = months[exit_day[:7]]
             month_exit["trade_count"] += 1
@@ -200,6 +204,8 @@ def build_pnl_calendar(strategy_views: dict[str, Any], *, year: int | None = Non
             month_exit["estimated_or_actual_charges"] += (trade.get("charges") or {}).get("total", 0.0)
             if trade.get("net_pnl") is not None:
                 month_exit["net_pnl"] += trade["net_pnl"]
+            else:
+                month_exit["net_pending_count"] += 1
             month_exit["trades"].append(trade)
         # Capital is allocated on entry date, not exit date.
         entry_bucket = days[entry_day]
