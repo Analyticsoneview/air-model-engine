@@ -409,7 +409,14 @@ async def _restore_market_data_source_connections() -> None:
 
 @app.on_event("shutdown")
 async def stop_air_qoc_jobs() -> None:
-    global _market_health_task, _master_refresh_task
+    global _market_health_task, _master_refresh_task, _report_scheduler_task
+    if _report_scheduler_task is not None:
+        _report_scheduler_task.cancel()
+        try:
+            await _report_scheduler_task
+        except asyncio.CancelledError:
+            pass
+        _report_scheduler_task = None
     await close_customer_market_data_runtimes()
     if _master_refresh_task is not None:
         _master_refresh_task.cancel()
@@ -433,6 +440,7 @@ async def stop_air_qoc_jobs() -> None:
     stop_telegram_scheduler()
     stop_qoc_scheduler()
     stop_nse_data_jobs()
+    account_reporting.close()
 
 
 @app.post("/api/v1/air-qoc/run-eod-capture", dependencies=[Depends(require_air_admin)])
