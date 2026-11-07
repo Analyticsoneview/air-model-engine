@@ -194,6 +194,56 @@ class AirApiClient {
     ));
   }
 
+  Future<Map<String, dynamic>> operatorTelegramDestinations() async {
+    return _decode(await _client.get(
+      Uri.parse('$baseUrl/api/v1/operator/telegram/destinations'),
+      headers: _headers,
+    ));
+  }
+
+  Future<Map<String, dynamic>> operatorSaveTelegramDestination({
+    int? id,
+    required String name,
+    required String chatId,
+    required String destinationType,
+    required List<String> strategies,
+    required bool enabled,
+  }) async {
+    final body = jsonEncode({
+      'name': name.trim(),
+      'chat_id': chatId.trim(),
+      'destination_type': destinationType,
+      'strategies': strategies,
+      'enabled': enabled,
+    });
+    final response = id == null
+        ? await _client.post(
+            Uri.parse('$baseUrl/api/v1/operator/telegram/destinations'),
+            headers: _headers,
+            body: body,
+          )
+        : await _client.put(
+            Uri.parse('$baseUrl/api/v1/operator/telegram/destinations/$id'),
+            headers: _headers,
+            body: body,
+          );
+    return _decode(response);
+  }
+
+  Future<Map<String, dynamic>> operatorDeleteTelegramDestination(int id) async {
+    return _decode(await _client.delete(
+      Uri.parse('$baseUrl/api/v1/operator/telegram/destinations/$id'),
+      headers: _headers,
+    ));
+  }
+
+  Future<Map<String, dynamic>> operatorTestTelegramDestination({int? id}) async {
+    final uri = Uri.parse('$baseUrl/api/v1/operator/telegram/test').replace(
+      queryParameters: id == null ? null : {'destination_id': id.toString()},
+    );
+    return _decode(await _client.post(uri, headers: _headers));
+  }
+
   Future<Map<String, dynamic>> modelEngineLedger({int limit = 500}) async {
     final response = await _client.get(
       Uri.parse('$baseUrl/api/v1/model-engine/ledger?limit=$limit'),
