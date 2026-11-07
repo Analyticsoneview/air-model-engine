@@ -23,21 +23,26 @@ DEFAULT_MASTER_URLS = {
     "upstox": "https://assets.upstox.com/market-quote/instruments/exchange/complete.json.gz",
     "angelone": "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json",
     "dhan": "https://images.dhan.co/api-data/api-scrip-master-detailed.csv",
-    "fyers": [\n        "https://public.fyers.in/sym_details/NSE_CM_sym_master.json",\n        "https://public.fyers.in/sym_details/NSE_FO_sym_master.json",\n        "https://public.fyers.in/sym_details/BSE_CM_sym_master.json",\n        "https://public.fyers.in/sym_details/BSE_FO_sym_master.json",\n    ],
+    "fyers": [
+        "https://public.fyers.in/sym_details/NSE_CM_sym_master.json",
+        "https://public.fyers.in/sym_details/NSE_FO_sym_master.json",
+        "https://public.fyers.in/sym_details/BSE_CM_sym_master.json",
+        "https://public.fyers.in/sym_details/BSE_FO_sym_master.json",
+    ],
 }
 
 ALIASES = {
-    "exchange": ("exchange", "exch", "exch_seg", "exchange_code", "sem_exm_exch_id", "exchangeName"),
-    "symbol": ("tradingsymbol", "trading_symbol", "symbol", "sem_trading_symbol", "name", "symbol ticker", "symTicker", "symTicker", "symticker"),
-    "underlying_symbol": ("underlying_symbol", "underlying", "sem_underlying_symbol", "underlying symbol", "underSym", "underSym"),
+    "exchange": ("exchange", "exch", "exch_seg", "exchange_code", "sem_exm_exch_id", "exchangename"),
+    "symbol": ("tradingsymbol", "trading_symbol", "symbol", "sem_trading_symbol", "name", "symbol ticker", "symbol ticker", "symticker"),
+    "underlying_symbol": ("underlying_symbol", "underlying", "sem_underlying_symbol", "underlying symbol", "undersym"),
     "token": ("instrument_token", "instrument_key", "token", "symboltoken", "symbol_token",
-              "security_id", "sem_smst_security_id", "fy_token"),
+              "security_id", "sem_smst_security_id", "fy_token", "fytoken"),
     "segment": ("segment", "exchange_segment", "exch_seg", "sem_segment"),
-    "expiry": ("expiry", "expiry_date", "sem_expiry_date", "expiry date", "expiryDate"),
-    "strike": ("strike", "strike_price", "sem_strike_price", "strike price", "strikePrice"),
-    "option_type": ("option_type", "instrument_type", "instrumenttype", "right", "optt", "sem_option_type", "option type", "optType"),
-    "lot_size": ("lot_size", "lotsize", "sem_lot_units", "minimum lot size", "minLotSize"),
-    "tick_size": ("tick_size", "ticksize", "sem_tick_size", "tick size", "tickSize"),
+    "expiry": ("expiry", "expiry_date", "sem_expiry_date", "expiry date", "expirydate"),
+    "strike": ("strike", "strike_price", "sem_strike_price", "strike price", "strikeprice"),
+    "option_type": ("option_type", "instrument_type", "instrumenttype", "right", "optt", "sem_option_type", "option type", "opttype"),
+    "lot_size": ("lot_size", "lotsize", "sem_lot_units", "minimum lot size", "minlotsize"),
+    "tick_size": ("tick_size", "ticksize", "sem_tick_size", "tick size", "ticksize"),
 }
 
 
@@ -72,11 +77,16 @@ def _normalize(provider: str, row: dict[str, Any]) -> dict[str, Any] | None:
     if not all((exchange, symbol, token, segment)):
         return None
     option_type = {"CE": "CE", "PE": "PE", "CALL": "CE", "PUT": "PE"}.get(raw_type)
-    instrument_type = raw_type or None
+    instrument_type = str(value.get("instrument_type") or raw_type or "").strip() or None
     if option_type is None and raw_type in {"OPTIDX", "OPTSTK"}:
         suffix = re.search(r"(CE|PE)$", symbol)
         option_type = suffix.group(1) if suffix else None
     expiry = str(value.get("expiry") or "").strip() or None
+    if expiry and provider == "fyers" and expiry.isdigit():
+        try:
+            expiry = datetime.fromtimestamp(int(expiry), timezone.utc).date().isoformat()
+        except (ValueError, OverflowError, OSError):
+            pass
     if expiry:
         for fmt in ("%Y-%m-%d", "%d%b%Y", "%d-%m-%Y", "%Y%m%d"):
             try:
@@ -88,6 +98,8 @@ def _normalize(provider: str, row: dict[str, Any]) -> dict[str, Any] | None:
     strike = value.get("strike")
     try:
         strike_value = float(strike) if strike not in (None, "") else None
+        if strike_value is not None and strike_value < 0:
+            strike_value = None
         # Angel SmartAPI publishes option strike in paise; normalize to rupees.
         if provider == "angelone" and strike_value is not None:
             strike_value /= 100
