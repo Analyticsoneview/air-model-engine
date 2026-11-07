@@ -23,11 +23,8 @@ from app.market_data.broker_adapters import (ZerodhaMarketDataAdapter, UpstoxMar
 from app.market_data.broker_streams import (ZerodhaWebSocketAdapter, UpstoxWebSocketAdapter, FyersWebSocketAdapter, AngelOneWebSocketAdapter)
 from app.market_data.nse_adapter import NSEBhavcopyMarketDataAdapter
 from app.market_data.vendor_adapter import GenericVendorMarketDataAdapter
-from app.market_data.instrument_registry import MarketInstrumentDirectory
-from app.market_data.service import MarketDataService, set_default_market_data_service
-from app.market_data.vendor_adapter import GenericVendorMarketDataAdapter
 from app.market_data.contracts import MarketInstrument
-from app.market_data.provider_registry import MarketDataSourceRegistry
+from app.market_data.runtime import (market_data_router, market_data_hub, market_data_sources, market_data_instruments, market_data_service)
 from app.air_qoc_dhan import router as air_qoc_dhan_router
 from app.model_engine_api import router as model_engine_router
 from app.air_qoc_scheduler import start_qoc_scheduler, stop_qoc_scheduler, capture_dhan_eod_snapshots
