@@ -101,6 +101,7 @@ class BrokerPollingAdapter:
             self._poller = None
 
     async def _poll_loop(self) -> None:
+        retry_delay = self.poll_seconds
         while self._symbols:
             try:
                 items = list(self._symbols.values())
@@ -134,21 +135,31 @@ class BrokerPollingAdapter:
                             self._last_tick_at = tick["received_at"]
                 self._state = "connected"
                 self._last_error = None
+                retry_delay = self.poll_seconds
+                await asyncio.sleep(self.poll_seconds)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 self._state = "degraded"
                 self._last_error = type(exc).__name__
-            await asyncio.sleep(self.poll_seconds)
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(30.0, retry_delay * 2)
 
     @property
     def batch_size(self) -> int:
         return 50
 
     def health(self) -> dict[str, Any]:
+        state = self._state
+        if self._symbols and self._last_tick_at:
+            age = (datetime.now(timezone.utc) - _dt(self._last_tick_at)).total_seconds()
+            if age > max(15.0, self.poll_seconds * 5) and state == "connected":
+                state = "stale"
+        elif self._symbols and not self._last_tick_at and state == "connected":
+            state = "awaiting_first_tick"
         return {
             "provider": self.provider_code, "account_id": self.account_id,
-            "feed_state": self._state,
+            "feed_state": state,
             "feed_mode": "REST quote polling",
             "poll_interval_seconds": self.poll_seconds,
             "subscribed_instruments": len(self._symbols),
