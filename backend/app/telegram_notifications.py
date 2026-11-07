@@ -159,5 +159,5 @@ def _format_message(strategy: str, row: dict[str, Any]) -> str:
 
     lines += ["", f"⚠️ <i>{html.escape(disclaimer)}</i>",
               "<i>AIR — Analytical Investment Research</i>"]
-    return "\\n".join(lines)[:3900]
+    return "\n".join(lines)[:3900]
 
