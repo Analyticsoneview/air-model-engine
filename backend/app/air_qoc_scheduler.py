@@ -24,7 +24,7 @@ from app.brokers.customer_accounts import CustomerAccountDirectory
 from app.credential_vault import CredentialVault
 from app.air_qoc_universe import DETAILED_MASTER_URL, parse_dhan_instrument_master
 from app.market_data.runtime import market_data_instruments
-from app.market_data.customer_runtime import get_customer_market_data_service
+from app.market_data.customer_runtime import get_customer_market_data_service, invalidate_customer_market_data_service
 import httpx
 
 log = logging.getLogger("air.qoc.scheduler")
@@ -66,7 +66,7 @@ async def capture_dhan_eod_snapshots(*, force: bool = False, account_id_override
     accounts = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3"))
     owned = {(a.broker, a.account_id) for a in accounts.list_for_customer(customer_id)}
     if ("dhan", account_id) not in owned:
-        raise RuntimeError("Configured AIR QOC Dhan account is not registered to the operator")
+        raise RuntimeError("Selected Dhan account is not assigned to this customer")
     vault = CredentialVault(os.getenv("AIR_CREDENTIAL_DB_PATH", "data/air_credentials.sqlite3"))
     credentials = vault.get(customer_id, "dhan", account_id)
     client_id = credentials.get("client_id", account_id)
@@ -100,6 +100,7 @@ async def capture_dhan_eod_snapshots(*, force: bool = False, account_id_override
             renewed = await client.renew_token()
             credentials["access_token"] = renewed["accessToken"]
             vault.put(customer_id, "dhan", account_id, credentials)
+            await invalidate_customer_market_data_service(customer_id)
             await client.close()
             client = DhanHQClient(client_id, renewed["accessToken"])
             log.info("Renewed active Dhan Web token for configured AIR QOC account")
