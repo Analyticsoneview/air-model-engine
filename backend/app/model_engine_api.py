@@ -39,6 +39,7 @@ def _has_strategy_membership(row: dict, strategy: str) -> bool:
 
 def _strategy_rows_for_customer(customer_id: str, limit: int) -> list[dict]:
     """Share the operator-published strategy feed while retaining tenant overrides."""
+    customer_id = access_store.mobile_for_request_id(customer_id) or customer_id
     publishers = [
         value.strip() for value in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",")
         if value.strip()
@@ -247,6 +248,7 @@ async def upsert_model_engine_signal(
     body: SignalRecord,
     customer_id: str = Depends(_operator),
 ) -> dict:
+    customer_id = access_store.mobile_for_request_id(customer_id) or customer_id
     record = body.model_dump()
     if record.get('sector'):
         record.setdefault('evidence', {})['sector'] = record['sector']
