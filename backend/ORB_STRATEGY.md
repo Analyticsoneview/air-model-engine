@@ -28,4 +28,5 @@ The ORB module publishes live trading signals only. It does not place broker ord
 - The mobile screen displays ranges, qualification state and signals. It refreshes status every five seconds.
 - The current implementation keeps intraday engine state in process memory. Restarting the API clears the current day's partial ranges and signal monitor state; durable recovery is a follow-up requirement before production deployment.
 - Subscribing after a range window has begun captures only ticks received after subscription. The app does not fabricate missing range values from EOD data.
+- Enforce one active ORB position at a time and a maximum of three ORB signals per NSE session.
 - Signals are informational only. No manual or automatic broker order is sent by this module.
