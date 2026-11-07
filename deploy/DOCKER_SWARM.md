@@ -25,10 +25,10 @@ python3 -c "import secrets; print(secrets.token_urlsafe(48))" | docker secret cr
 
 Back up the Fernet key securely. Losing it makes encrypted broker credentials unrecoverable. The API reads all three secrets from Docker's `*_FILE` paths. Keep the admin key private; it is used to review customer requests and run operator-only backend actions.
 
-## 3. Bootstrap the first operator (before deployment)\n\nOn the server, from the checked-out repository, create the first operator in the same persistent auth database path the API will use. For the initial bootstrap, run the script with the data directory mounted at the same host path used by the API volume, or run it inside a one-off container sharing that volume:\n\n```bash\ncd backend\nAIR_AUTH_DB_PATH=/var/lib/air/auth.sqlite3 python scripts/bootstrap_operator.py\n```\n\nThe script prompts for email and password without echoing the password and prints the new customer UUID. Set that UUID as `AIR_OPERATOR_CUSTOMER_IDS` in the API service environment. Do not enable public signup. The bootstrap script must run against the exact auth database that the API will mount; creating a user in a different local file will not provision the deployed service.\n\n## 4. Set deployment variables
+## 3. Bootstrap the first operator (before deployment)\n\nOn the server, from the checked-out repository, create the first operator in the same persistent auth database path the API will use. For the initial bootstrap, run the script with the data directory mounted at the same host path used by the API volume, or run it inside a one-off container sharing that volume:\n\n```bash\ncd backend\nAIR_AUTH_DB_PATH=/var/lib/air/auth.sqlite3 python scripts/bootstrap_operator.py\n```\n\nThe script prompts for email and password without echoing the password and prints the new operator mobile identity. Set that UUID as `AIR_OPERATOR_CUSTOMER_IDS` in the API service environment. Do not enable public signup. The bootstrap script must run against the exact auth database that the API will mount; creating a user in a different local file will not provision the deployed service.\n\n## 4. Set deployment variables
 
 ```bash
-export AIR_OPERATOR_CUSTOMER_IDS="<provisioned-customer-uuid>"
+export AIR_OPERATOR_CUSTOMER_IDS="<operator-mobile-e164>"
 export AIR_API_PORT=8000
 export AIR_BACKEND_IMAGE=air-model-engine-api:lab
 export AIR_PWA_IMAGE=air-model-engine-pwa:lab
