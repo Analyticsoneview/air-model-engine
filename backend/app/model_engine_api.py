@@ -18,7 +18,8 @@ from app.access_control import access_store
 from app.brokers.customer_accounts import CustomerAccountDirectory
 from app.security import require_customer
 from app.telegram_notifications import notify_candidates, send_telegram_message
-from app.market_data.runtime import market_data_service, execution_policy
+from app.market_data.runtime import execution_policy
+from app.market_data.customer_runtime import get_customer_market_data_service
 
 router = APIRouter(prefix="/api/v1/model-engine", tags=["AIR Model Engine"])
 _ledger = ModelEngineLedger()
@@ -97,7 +98,8 @@ async def get_model_engine_ledger(
     limit: int = Query(default=500, ge=1, le=2000),
     customer_id: str = Depends(require_customer),
 ) -> dict:
-    rows = await market_data_service.hydrate_strategy_rows(_ledger.list_signals(customer_id, limit))
+    customer_service = await get_customer_market_data_service(customer_id)
+    rows = await customer_service.hydrate_strategy_rows(_ledger.list_signals(customer_id, limit))
     groups = {key: [] for key in
               ("SURVIVOR", "NEW", "HOLD", "WAIT", "RE-ENTRY", "SL", "TARGETS", "EXPIRED", "EXPIRYSCAN")}
     for row in rows:
@@ -128,10 +130,11 @@ async def get_model_engine_master(
     customer_id: str = Depends(require_customer),
 ) -> dict:
     """Canonical MASTER view over verified persisted signals."""
-    rows = await market_data_service.hydrate_strategy_rows(_ledger.list_signals(customer_id, limit), max_contracts=2000)
+    customer_service = await get_customer_market_data_service(customer_id)
+    rows = await customer_service.hydrate_strategy_rows(_ledger.list_signals(customer_id, limit), max_contracts=2000)
     # Valid past-expiry observations from EXPIRYSCAN also belong in EXPIRED.
     try:
-        scan = _expiry_scan_for_customer(customer_id, max_dte=45, limit=2000)
+        scan = await _expiry_scan_for_customer(customer_id, max_dte=45, limit=2000)
         for item in scan.get("expired_rows", []):
             if item.get("classification") != "EXPIRED":
                 continue
@@ -225,29 +228,23 @@ async def upsert_model_engine_signal(
             "classification": record["classification"].upper()}
 
 
-def _expiry_scan_for_customer(customer_id: str, *, max_dte: int = 45,
-                              limit: int = 2000) -> dict:
-    from app.market_data.runtime import market_data_router
-    source = market_data_router.resolve("live")
+async def _expiry_scan_for_customer(customer_id: str, *, max_dte: int = 45,
+                                     limit: int = 2000) -> dict:
+    service = await get_customer_market_data_service(customer_id)
+    source = service.router.resolve("live")
     if not source:
-        raise HTTPException(status_code=503, detail="No live market-data provider is connected")
+        raise HTTPException(
+            status_code=503,
+            detail="No live broker market-data connection is enabled for this customer",
+        )
     provider, account_id, _adapter = source[0]
-    directory = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3"))
-    try:
-        owned = {(account.broker, account.account_id)
-                 for account in directory.list_for_customer(customer_id)}
-    finally:
-        directory.close()
-    if provider != "nse_bhavcopy" and (provider, account_id) not in owned:
-        raise HTTPException(status_code=403, detail="No access to the selected market-data account")
     store = AirQocStore()
     try:
-        return market_data_service.expiry_scan(
+        return service.expiry_scan(
             store, provider=provider, account_id=account_id,
             max_dte=max_dte, limit=limit)
     finally:
         store.close()
-
 
 
 @router.get("/original366")
@@ -431,7 +428,7 @@ async def get_expiry_scan(
     customer_id: str = Depends(require_customer),
 ) -> dict:
     """Read-only scan of option-chain observations from the selected live provider."""
-    result = _expiry_scan_for_customer(customer_id, max_dte=max_dte, limit=limit)
+    result = await _expiry_scan_for_customer(customer_id, max_dte=max_dte, limit=limit)
     result["execution_policy"] = execution_policy.get()
     # This endpoint currently produces a liquidity-screen pass, not a full QOC
     # trade qualification. Telegram labels these notifications accordingly.
