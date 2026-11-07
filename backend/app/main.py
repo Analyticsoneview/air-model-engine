@@ -26,6 +26,7 @@ from app.air_qoc_scheduler import start_qoc_scheduler, stop_qoc_scheduler, captu
 from app.air_telegram_scheduler import start_telegram_scheduler, stop_telegram_scheduler
 from app.telegram_notifications import send_telegram_message
 from app import telegram_destinations
+from app.nse_bhavcopy import (nse_data_status, nse_data_rows, start_nse_data_jobs, stop_nse_data_jobs, trigger_nse_bootstrap)
 from app.security import create_access_token, hash_password, require_customer, verify_password
 
 app = FastAPI(title="AIR Model Engine API", version="0.3.0",
@@ -78,12 +79,14 @@ def require_air_admin(x_air_admin_key: str | None = Header(default=None)) -> Non
 async def start_air_qoc_jobs() -> None:
     start_qoc_scheduler()
     start_telegram_scheduler()
+    start_nse_data_jobs()
 
 
 @app.on_event("shutdown")
 async def stop_air_qoc_jobs() -> None:
     stop_telegram_scheduler()
     stop_qoc_scheduler()
+    stop_nse_data_jobs()
 
 
 @app.post("/api/v1/air-qoc/run-eod-capture", dependencies=[Depends(require_air_admin)])
@@ -211,6 +214,38 @@ async def broker_catalog(customer_id: str = Depends(require_customer)) -> dict:
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok", "service": "air-model-engine-api"}
+
+@app.get("/api/v1/nse-data/status")
+async def nse_bhavcopy_status(customer_id: str = Depends(require_customer)) -> dict:
+    return nse_data_status()
+
+
+@app.get("/api/v1/nse-data/rows")
+async def nse_bhavcopy_rows(
+    market: str = Query(pattern="^(CM|FO)$"),
+    symbol: str | None = Query(default=None, max_length=40),
+    start_date: str | None = Query(default=None, pattern=r"^\\d{4}-\\d{2}-\\d{2}$"),
+    end_date: str | None = Query(default=None, pattern=r"^\\d{4}-\\d{2}-\\d{2}$"),
+    instrument_type: str | None = Query(default=None, max_length=30),
+    limit: int = Query(default=100, ge=1, le=500),
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(status_code=422, detail="start_date must be before or equal to end_date")
+    rows = nse_data_rows(
+        market, symbol=symbol, start_date=start_date, end_date=end_date,
+        instrument_type=instrument_type, limit=limit,
+    )
+    return {"market": market, "count": len(rows), "rows": rows,
+            "source": "NSE official UDiFF bhavcopy", "data_type": "EOD"}
+
+
+@app.post("/api/v1/nse-data/bootstrap")
+async def trigger_nse_bhavcopy_bootstrap(
+    customer_id: str = Depends(require_air_operator),
+) -> dict:
+    return trigger_nse_bootstrap()
+
 
 
 @app.post("/api/v1/auth/mobile-login")
