@@ -186,7 +186,7 @@ class MarketDataService:
         options = []
         underlying = None
         for item in mapped:
-            if str(item.get("symbol") or "").upper() != symbol:
+            if str(item.get("underlying_symbol") or item.get("symbol") or "").upper() != symbol:
                 continue
             side = str(item.get("option_type") or "").upper()
             if side in {"CE", "PE"} and str(item.get("expiry") or "")[:10] == expiry[:10]:
@@ -283,7 +283,8 @@ class MarketDataService:
                     except Exception:
                         candidates = []
                 found = [item for item in candidates
-                         if str(item.get("expiry") or "")[:10] == expiry
+                         if str(item.get("underlying_symbol") or item.get("symbol") or "").upper() == symbol
+                         and str(item.get("expiry") or "")[:10] == expiry
                          and str(item.get("option_type") or "").upper() == option_type
                          and item.get("strike") is not None
                          and Decimal(str(item["strike"])) == strike]
@@ -370,7 +371,7 @@ class MarketDataService:
             strike = row.get("strike")
             chosen = []
             for item in mapped:
-                if str(item.get("symbol") or "").upper() != symbol:
+                if str(item.get("underlying_symbol") or item.get("symbol") or "").upper() != symbol:
                     continue
                 if not option_type and item.get("option_type"):
                     continue
