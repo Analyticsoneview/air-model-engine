@@ -667,6 +667,8 @@ async def customer_select_market_data_account(
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Broker market-data authentication failed") from exc
 
 
 @app.delete("/api/v1/customer/market-data/selection")
@@ -718,6 +720,8 @@ async def operator_set_customer_market_data_selection(
         raise HTTPException(status_code=409, detail="Broker credentials have not been saved") from exc
     except (PermissionError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Broker market-data authentication failed") from exc
 
 
 @app.get("/api/v1/customer/accounts")
