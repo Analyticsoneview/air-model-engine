@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 from typing import Callable, Any
 
 from app.market_data.hub import MarketDataHub
@@ -25,6 +26,7 @@ class CustomerMarketDataRuntime:
         self._services: dict[str, tuple[tuple[str, str], MarketDataService]] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         self._source_status: dict[str, dict] = {}
+        self._last_broker_attempt: dict[str, float] = {}
 
     def _is_operator(self, customer_id: str) -> bool:
         allowed = {x.strip() for x in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",") if x.strip()}
@@ -54,7 +56,14 @@ class CustomerMarketDataRuntime:
 
             cached = self._services.get(customer_id)
             if cached and cached[0] == key:
-                return cached[1]
+                cached_status = getattr(cached[1], "customer_market_data_status", {})
+                retry_due = (
+                    key[0] != "nse_bhavcopy"
+                    and cached_status.get("fallback_active") is True
+                    and time.monotonic() - self._last_broker_attempt.get(customer_id, 0) >= 60
+                )
+                if not retry_due:
+                    return cached[1]
 
             if cached:
                 old_service = cached[1]
@@ -87,6 +96,7 @@ class CustomerMarketDataRuntime:
                 await router.set_source("historical", key[0], key[1])
             else:
                 router.register("official", nse_adapter)
+                self._last_broker_attempt[customer_id] = time.monotonic()
                 try:
                     adapter = self.adapter_factory(customer_id, key[0], key[1], hub)
                     router.register(key[1], adapter)
@@ -131,6 +141,7 @@ class CustomerMarketDataRuntime:
         async with lock:
             cached = self._services.pop(customer_id, None)
             self._source_status.pop(customer_id, None)
+            self._last_broker_attempt.pop(customer_id, None)
             if cached:
                 for channel in ("historical", "live"):
                     try:
