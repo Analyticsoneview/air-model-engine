@@ -89,6 +89,31 @@ different protocol require a dedicated subclass/mapper and must not be marked ve
 until tested against their actual API. This generic connector does not mean that
 unidentified data vendors are already integrated.
 
+## Native streaming and live verification
+
+- Zerodha uses KiteTicker with the provider's binary tick decoder and reconnect.
+- Upstox uses MarketDataStreamerV3 and its protobuf-decoding SDK.
+- FYERS uses the Data Socket SymbolUpdate stream and SDK reconnect.
+- Angel One uses SmartWebSocketV2 and its retry behavior.
+- Dhan uses the AIR feed socket with reconnect and subscription restoration.
+
+The admin verification API is `POST /api/v1/operator/market-data/verify/{channel}`.
+It tests a mapped instrument. Historical verification requires recent candles. Live
+verification requires a tick for the exact mapped token during the verification
+window. Profile login alone is not proof of a working subscription. Run live
+verification during market hours and with a valid data entitlement.
+
+## Custom vendor connector
+
+A generic encrypted-credential connector supports vendors exposing HTTPS JSON history
+and a JSON WebSocket feed. Add a `custom_vendor` account and save `base_url`,
+`websocket_url`, `api_key`, and optional `health_path`, `instruments_path`,
+and `historical_path`. Endpoints must use HTTPS/WSS. Default JSON responses use
+`data` or `instruments` for instrument lists, `candles`/`bars` for history,
+and `token`, `ltp`, OHLCV, OI and quote fields for ticks. A vendor with a different
+schema requires a provider-specific subclass. This generic connector does not claim
+compatibility with an unnamed vendor or bypass its subscription/licensing terms.
+
 ## Instrument-token mapping
 
 Broker instrument tokens are account/provider-specific. The admin UI supports a
