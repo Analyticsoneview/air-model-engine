@@ -67,9 +67,10 @@ def _normalize(provider: str, row: dict[str, Any]) -> dict[str, Any] | None:
         option_type = suffix.group(1) if suffix else None
     expiry = str(value.get("expiry") or "").strip() or None
     if expiry:
-        for fmt in ("%d%b%Y", "%Y-%m-%d", "%d-%m-%Y", "%Y%m%d"):
+        for fmt in ("%Y-%m-%d", "%d%b%Y", "%d-%m-%Y", "%Y%m%d"):
             try:
-                expiry = datetime.strptime(expiry[:9], fmt).date().isoformat()
+                candidate = expiry if fmt == "%Y-%m-%d" else expiry[:9]
+                expiry = datetime.strptime(candidate, fmt).date().isoformat()
                 break
             except ValueError:
                 continue
