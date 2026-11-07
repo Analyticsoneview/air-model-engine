@@ -377,7 +377,7 @@ async def get_expiry78_engine(
         "expiry_survivors": sum(bool(trade.get("expiry_survivor")) for trade in trades),
         "stop_losses": sum(trade.get("classification") == "SL" for trade in trades),
         "groups": {
-            "OPEN": new_trades + hold_trades,
+            "OPEN": new_trades + hold_trades + verified_reentries,
             "NEW": new_trades,
             "HOLD": hold_trades,
             "WAIT": [trade for trade in trades if trade.get("classification") == "WAIT"],
