@@ -26,6 +26,7 @@ from app.market_data.contracts import MarketInstrument
 from app.market_data.runtime import (market_data_router, market_data_hub, market_data_sources, market_data_instruments, market_data_service, execution_policy)
 from app.market_data.service import set_default_market_data_service
 from app.market_data.master_refresh import BrokerMasterRefresher
+from app.market_data.customer_runtime import configure_customer_market_data_runtime, invalidate_customer_market_data_service
 from app.air_qoc_dhan import router as air_qoc_dhan_router
 from app.model_engine_api import router as model_engine_router
 from app.air_qoc_scheduler import start_qoc_scheduler, stop_qoc_scheduler, capture_dhan_eod_snapshots, capture_selected_provider_option_chains
@@ -82,28 +83,29 @@ def require_air_admin(x_air_admin_key: str | None = Header(default=None)) -> Non
         raise HTTPException(status_code=403, detail="AIR administrator approval is required")
 
 
-def _market_adapter_for(operator_id: str, provider: str, account_id: str):
+def _market_adapter_for(operator_id: str, provider: str, account_id: str, hub=None):
     """Build a verified broker adapter from operator-owned encrypted credentials."""
     credentials = get_vault().get(operator_id, provider, account_id)
     poll_seconds = max(2.0, float(os.getenv("AIR_MARKET_DATA_POLL_SECONDS", "3")))
+    hub = hub or market_data_hub
     if provider == "custom_vendor":
         required = ("base_url", "websocket_url", "api_key")
         if any(not credentials.get(key) for key in required):
             raise ValueError("Custom vendor requires base_url, websocket_url and api_key")
-        return GenericVendorMarketDataAdapter(account_id, credentials, market_data_hub)
+        return GenericVendorMarketDataAdapter(account_id, credentials, hub)
     if provider == "dhan":
         access_token = credentials.get("access_token")
         if not access_token:
             raise ValueError("Dhan access token is missing")
-        return DhanMarketDataAdapter(credentials.get("client_id", account_id), access_token, market_data_hub)
+        return DhanMarketDataAdapter(credentials.get("client_id", account_id), access_token, hub)
     if provider == "zerodha":
         if not credentials.get("api_key") or not credentials.get("access_token"):
             raise ValueError("Zerodha api_key and access_token are required")
-        return ZerodhaWebSocketAdapter(account_id, credentials["api_key"], credentials["access_token"], market_data_hub, poll_seconds)
+        return ZerodhaWebSocketAdapter(account_id, credentials["api_key"], credentials["access_token"], hub, poll_seconds)
     if provider == "upstox":
         if not credentials.get("access_token"):
             raise ValueError("Upstox access_token is required")
-        return UpstoxWebSocketAdapter(account_id, credentials["access_token"], market_data_hub, poll_seconds)
+        return UpstoxWebSocketAdapter(account_id, credentials["access_token"], hub, poll_seconds)
     if provider == "fyers":
         if not credentials.get("app_id") or not credentials.get("access_token"):
             raise ValueError("FYERS app_id and access_token are required")
@@ -119,13 +121,19 @@ def _market_adapter_for(operator_id: str, provider: str, account_id: str):
         }
         if not all(network.values()):
             raise ValueError("Angel SmartAPI server network identity headers are not configured")
-        return AngelOneWebSocketAdapter(account_id, credentials, market_data_hub, network, poll_seconds)
+        return AngelOneWebSocketAdapter(account_id, credentials, hub, network, poll_seconds)
     raise ValueError("No market-data adapter is registered for this provider")
 
 
 @app.on_event("startup")
 async def start_air_qoc_jobs() -> None:
     global _market_health_task, _master_refresh_task
+    configure_customer_market_data_runtime(
+        account_directory, market_data_instruments,
+        lambda customer_id, provider, account_id, hub: _market_adapter_for(
+            customer_id, provider, account_id, hub=hub
+        ),
+    )
     start_nse_data_jobs()
     await _restore_market_data_source_connections()
     _market_health_task = asyncio.create_task(_market_data_health_loop(), name="air-market-data-health")
@@ -341,6 +349,11 @@ class ExecutionPolicyUpdate(BaseModel):
 
 class OrderPermissionUpdate(BaseModel):
     enabled: bool
+
+
+class CustomerMarketDataAccessUpdate(BaseModel):
+    tier: str = Field(pattern="^(STANDARD|PAID)$")
+    broker_data_enabled: bool = False
 
 
 class BrokerCredentialInput(BaseModel):
@@ -595,6 +608,86 @@ async def login_customer(body: CustomerLogin) -> dict:
     token = create_access_token(row["customer_id"])
     return {"access_token": token, "token_type": "bearer", "expires_in": 1800,
             "customer_id": row["customer_id"], "role": "operator"}
+
+
+@app.get("/api/v1/customer/market-data/access")
+async def customer_market_data_access(customer_id: str = Depends(require_customer)) -> dict:
+    access = account_directory.get_market_data_access(customer_id)
+    selection = account_directory.get_market_data_selection(customer_id)
+    operator = customer_id in {
+        value.strip() for value in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",")
+        if value.strip()
+    }
+    return {
+        "access": access,
+        "selection": selection,
+        "effective_source": "BROKER" if (operator or (
+            access["tier"] == "PAID" and access["broker_data_enabled"]
+        )) and selection else "NSE",
+        "note": "STANDARD customers use NSE EOD data. Broker data requires a verified assigned broker account and an enabled PAID entitlement.",
+    }
+
+
+@app.put("/api/v1/customer/market-data/selection")
+async def customer_select_market_data_account(
+    selection: MainAccountSelection,
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    try:
+        row = account_directory.set_market_data_selection(
+            customer_id, selection.provider, selection.account_id
+        )
+        await invalidate_customer_market_data_service(customer_id)
+        return {"selection": row, "effective_source": "BROKER"}
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.delete("/api/v1/customer/market-data/selection")
+async def customer_clear_market_data_selection(
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    account_directory.clear_market_data_selection(customer_id)
+    await invalidate_customer_market_data_service(customer_id)
+    return {"selection": None, "effective_source": "NSE"}
+
+
+@app.put("/api/v1/operator/customers/{target_customer_id}/market-data-access")
+async def operator_set_customer_market_data_access(
+    target_customer_id: str,
+    body: CustomerMarketDataAccessUpdate,
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    try:
+        access = account_directory.set_market_data_access(
+            target_customer_id, body.tier, body.broker_data_enabled
+        )
+        await invalidate_customer_market_data_service(target_customer_id)
+        return {"access": access, "updated": True}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.put("/api/v1/operator/customers/{target_customer_id}/market-data-selection")
+async def operator_set_customer_market_data_selection(
+    target_customer_id: str,
+    selection: MainAccountSelection,
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(target_customer_id)}
+    if (selection.provider.lower(), selection.account_id) not in owned:
+        raise HTTPException(status_code=404, detail="Broker account is not assigned to this customer")
+    try:
+        account_directory.set_market_data_access(target_customer_id, "PAID", True)
+        row = account_directory.set_market_data_selection(
+            target_customer_id, selection.provider, selection.account_id
+        )
+        await invalidate_customer_market_data_service(target_customer_id)
+        return {"selection": row, "access": account_directory.get_market_data_access(target_customer_id)}
+    except (PermissionError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/customer/accounts")
