@@ -100,21 +100,52 @@ class MarketDataService:
         try:
             bars = await adapter.get_historical(instrument, start, end, interval)
             return sorted(bars, key=lambda item: item.start_time)
-        except Exception:
+        except Exception as broker_error:
             await self.router.mark_unhealthy("historical", "historical_request_failed")
             result = await self.router.check_health("historical")
-            if result.get("failover") != "switched":
-                raise
-            fallback = self.router.resolve("historical")
-            if not fallback:
-                raise RuntimeError("Historical source failover did not establish a connection")
-            fallback_provider, fallback_account, fallback_adapter = fallback[0]
-            mapped = await self._remap_instruments(
-                fallback_provider, fallback_account, fallback_adapter, [instrument])
-            return sorted(
-                await fallback_adapter.get_historical(mapped[0], start, end, interval),
-                key=lambda item: item.start_time,
-            )
+            if result.get("failover") == "switched":
+                fallback = self.router.resolve("historical")
+                if fallback:
+                    fallback_provider, fallback_account, fallback_adapter = fallback[0]
+                    mapped = await self._remap_instruments(
+                        fallback_provider, fallback_account, fallback_adapter, [instrument])
+                    return sorted(
+                        await fallback_adapter.get_historical(mapped[0], start, end, interval),
+                        key=lambda item: item.start_time,
+                    )
+            # Never present a failed broker request as broker data. Switch the
+            # historical channel to official NSE EOD and remap by contract identity.
+            try:
+                await self.router.set_source("historical", "nse_bhavcopy", "official")
+                nse_source = self.router.resolve("historical")
+                if not nse_source:
+                    raise RuntimeError("NSE historical fallback did not connect")
+                nse_adapter = nse_source[0][2]
+                segment = "NSE_FO" if "FO" in instrument.segment.upper() else "NSE_CM"
+                candidates = await nse_adapter.search_instruments(
+                    instrument.symbol, limit=200, exchange_segment=segment
+                )
+                match = next((item for item in candidates
+                    if item.symbol.upper() == instrument.symbol.upper()
+                    and (not instrument.expiry or str(item.expiry or "")[:10] == str(instrument.expiry)[:10])
+                    and (instrument.strike is None or item.strike == instrument.strike)
+                    and (not instrument.option_type or item.option_type == instrument.option_type)), None)
+                if match is None:
+                    raise RuntimeError("Matching NSE EOD instrument is unavailable")
+                bars = await nse_adapter.get_historical(match, start, end, interval)
+                state = getattr(self, "customer_market_data_status", None)
+                if isinstance(state, dict):
+                    state.update({
+                        "effective_source": "NSE",
+                        "connection_status": "unavailable",
+                        "fallback_active": True,
+                        "fallback_reason": "historical_request_failed",
+                    })
+                return sorted(bars, key=lambda item: item.start_time)
+            except Exception as nse_error:
+                raise RuntimeError(
+                    "Broker historical data failed and NSE EOD fallback is unavailable"
+                ) from nse_error
 
     async def search_instruments(self, query: str, limit: int = 100,
                                  exchange_segment: str | None = None) -> list[MarketInstrument]:
@@ -132,19 +163,36 @@ class MarketDataService:
         provider, account_id, adapter = source[0]
         try:
             await adapter.subscribe(instruments)
-        except Exception:
+        except Exception as broker_error:
             await self.router.mark_unhealthy("live", "subscription_failed")
             result = await self.router.check_health("live")
-            if result.get("failover") != "switched":
-                raise
-            fallback = self.router.resolve("live")
-            if not fallback:
-                raise RuntimeError("Live source failover did not establish a connection")
-            provider, account_id, adapter = fallback[0]
-            all_instruments = list({(item.symbol, item.expiry, str(item.strike), item.option_type): item
-                                    for item in [*self._subscriptions.values(), *instruments]}.values())
-            mapped = await self._remap_instruments(provider, account_id, adapter, all_instruments)
-            await adapter.subscribe(mapped)
+            if result.get("failover") == "switched":
+                fallback = self.router.resolve("live")
+                if fallback:
+                    provider, account_id, adapter = fallback[0]
+                    all_instruments = list({(item.symbol, item.expiry, str(item.strike), item.option_type): item
+                                            for item in [*self._subscriptions.values(), *instruments]}.values())
+                    mapped = await self._remap_instruments(provider, account_id, adapter, all_instruments)
+                    await adapter.subscribe(mapped)
+            else:
+                # NSE has no live feed. Clear the failed broker live route and
+                # use NSE EOD as the only active strategy source.
+                await self.router.clear_source("live")
+                try:
+                    await self.router.set_source("historical", "nse_bhavcopy", "official")
+                except Exception:
+                    pass
+                state = getattr(self, "customer_market_data_status", None)
+                if isinstance(state, dict):
+                    state.update({
+                        "effective_source": "NSE",
+                        "connection_status": "unavailable",
+                        "fallback_active": True,
+                        "fallback_reason": "live_subscription_failed",
+                    })
+                raise RuntimeError(
+                    "Broker live feed is unavailable; switched to NSE EOD fallback"
+                ) from broker_error
         for item in instruments:
             self._subscriptions[item.token] = item
         return {"provider": provider, "account_id": account_id,
