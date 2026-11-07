@@ -158,8 +158,6 @@ class MarketDataService:
             await adapter.unsubscribe(mapped)
         for item in instruments:
             self._subscriptions.pop(item.token, None)
-        for item in instruments:
-            self._subscriptions.pop(item.token, None)
 
     async def option_chain_snapshot(self, underlying_symbol: str, expiry: str,
                                     *, wait_seconds: float = 3.0) -> dict[str, Any]:
@@ -173,7 +171,12 @@ class MarketDataService:
             raise RuntimeError("No connected live market-data source")
         provider, account_id, adapter = source[0]
         symbol = underlying_symbol.strip().upper()
-        mapped = self.instruments.search(provider, account_id, symbol, 500) if self.instruments else []
+        mapped = []
+        if self.instruments:
+            mapped = [
+                item for item in self.instruments.list_all(provider, account_id, limit=50000)
+                if str(item.get("underlying_symbol") or item.get("symbol") or "").upper() == symbol
+            ]
         if not mapped:
             native = await adapter.search_instruments(symbol, limit=500)
             mapped = [{
@@ -209,43 +212,46 @@ class MarketDataService:
         before = {item.token: self.hub.tick_count_for(item.token) for item in subscriptions}
         request_started = datetime.now(timezone.utc)
         await self.subscribe(subscriptions)
-        deadline = asyncio.get_running_loop().time() + max(0.5, wait_seconds)
-        while asyncio.get_running_loop().time() < deadline:
-            if any(self.hub.tick_count_for(item.token) > before[item.token] for item in options):
-                break
-            await asyncio.sleep(0.1)
-        chain: dict[str, dict[str, Any]] = {}
-        for instrument in options:
-            tick = self.hub.latest_for(instrument.token)
-            if not tick or self.hub.tick_count_for(instrument.token) <= before[instrument.token]:
-                continue
-            strike = str(instrument.strike)
-            side = "ce" if instrument.option_type == "CE" else "pe"
-            chain.setdefault(strike, {})[side] = {
-                "security_id": instrument.token,
-                "last_price": tick.get("ltp"),
-                "previous_close_price": tick.get("close"),
-                "volume": tick.get("volume"),
-                "oi": tick.get("open_interest"),
-                "top_bid_price": tick.get("bid"),
-                "top_ask_price": tick.get("ask"),
+        try:
+            deadline = asyncio.get_running_loop().time() + max(0.5, wait_seconds)
+            while asyncio.get_running_loop().time() < deadline:
+                if any(self.hub.tick_count_for(item.token) > before[item.token] for item in options):
+                    break
+                await asyncio.sleep(0.1)
+            chain: dict[str, dict[str, Any]] = {}
+            for instrument in options:
+                tick = self.hub.latest_for(instrument.token)
+                if not tick or self.hub.tick_count_for(instrument.token) <= before[instrument.token]:
+                    continue
+                strike = str(instrument.strike)
+                side = "ce" if instrument.option_type == "CE" else "pe"
+                chain.setdefault(strike, {})[side] = {
+                    "security_id": instrument.token,
+                    "last_price": tick.get("ltp"),
+                    "previous_close_price": tick.get("close"),
+                    "volume": tick.get("volume"),
+                    "oi": tick.get("open_interest"),
+                    "top_bid_price": tick.get("bid"),
+                    "top_ask_price": tick.get("ask"),
+                }
+            spot_tick = self.hub.latest_for(underlying.token) if underlying else None
+            if spot_tick and datetime.fromisoformat(
+                str(spot_tick.get("received_at")).replace("Z", "+00:00")) < request_started:
+                spot_tick = None
+            if sum(len(sides) for sides in chain.values()) == 0:
+                raise RuntimeError(f"No live option quotes received for {symbol} {expiry}")
+
+            return {
+                "provider": provider, "account_id": account_id,
+                "underlying_symbol": symbol, "expiry": expiry[:10],
+                "underlying_price": spot_tick.get("ltp") if spot_tick else None,
+                "observed_at": datetime.now(timezone.utc).isoformat(),
+                "chain": {"oc": chain},
+                "contracts_received": sum(len(sides) for sides in chain.values()),
+                "contracts_requested": len(options),
             }
-        spot_tick = self.hub.latest_for(underlying.token) if underlying else None
-        if spot_tick and datetime.fromisoformat(
-            str(spot_tick.get("received_at")).replace("Z", "+00:00")) < request_started:
-            spot_tick = None
-        if sum(len(sides) for sides in chain.values()) == 0:
-            raise RuntimeError(f"No live option quotes received for {symbol} {expiry}")
-        await self.unsubscribe(subscriptions)
-        return {
-            "provider": provider, "account_id": account_id,
-            "underlying_symbol": symbol, "expiry": expiry[:10],
-            "underlying_price": spot_tick.get("ltp") if spot_tick else None,
-            "observed_at": datetime.now(timezone.utc).isoformat(),
-            "chain": {"oc": chain},
-            "contracts_received": sum(len(sides) for sides in chain.values()),
-            "contracts_requested": len(options),
-        }
+        finally:
+            await self.unsubscribe(subscriptions)
 
     async def hydrate_strategy_ledger(self, ledger: Any, customer_id: str,
                                       as_of: str) -> dict[str, Any]:
