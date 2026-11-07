@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import json
 from pathlib import Path
 from typing import Any
 
@@ -110,6 +111,14 @@ class MarketDataSourceRegistry:
         ):
             if name not in columns:
                 self.db.execute(f"ALTER TABLE market_data_sources ADD COLUMN {name} {declaration}")
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS market_data_failover (
+                channel TEXT PRIMARY KEY,
+                enabled INTEGER NOT NULL DEFAULT 0,
+                candidates_json TEXT NOT NULL DEFAULT '[]',
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         self.db.commit()
 
     @staticmethod
@@ -184,6 +193,38 @@ class MarketDataSourceRegistry:
         """, (fallback_provider, fallback_account_id, int(enabled), channel))
         self.db.commit()
         return self.selections()[channel] or {}
+
+    def set_failover(self, channel: str, candidates: list[dict[str, str]], enabled: bool) -> dict[str, Any]:
+        if channel not in CHANNELS:
+            raise ValueError("Unsupported data channel")
+        normalized = []
+        for item in candidates:
+            provider = str(item.get("provider", "")).strip().lower()
+            account_id = str(item.get("account_id", "")).strip()
+            if not provider or not account_id:
+                raise ValueError("Failover candidates require provider and account_id")
+            normalized.append({"provider": provider, "account_id": account_id})
+        self.db.execute("""
+            INSERT INTO market_data_failover(channel,enabled,candidates_json,updated_at)
+            VALUES(?,?,?,CURRENT_TIMESTAMP)
+            ON CONFLICT(channel) DO UPDATE SET enabled=excluded.enabled,
+                candidates_json=excluded.candidates_json,updated_at=CURRENT_TIMESTAMP
+        """, (channel, int(enabled), json.dumps(normalized)))
+        self.db.commit()
+        return self.failover()[channel]
+
+    def failover(self) -> dict[str, dict[str, Any]]:
+        rows = self.db.execute(
+            "SELECT channel,enabled,candidates_json,updated_at FROM market_data_failover"
+        ).fetchall()
+        result = {channel: {"enabled": False, "candidates": []} for channel in CHANNELS}
+        for row in rows:
+            result[row["channel"]] = {
+                "enabled": bool(row["enabled"]),
+                "candidates": json.loads(row["candidates_json"] or "[]"),
+                "updated_at": row["updated_at"],
+            }
+        return result
 
     def close(self) -> None:
         self.db.close()
