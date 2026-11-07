@@ -1,5 +1,35 @@
 # AIR installation and operations
 
+
+## Market-data providers
+
+The API persists independent historical and live source selections and broker-specific
+instrument token mappings on the shared AIR data volume:
+
+- `AIR_MARKET_SOURCE_DB_PATH=/var/lib/air/market_sources.sqlite3`
+- `AIR_MARKET_INSTRUMENT_DB_PATH=/var/lib/air/market_instruments.sqlite3`
+- `AIR_MARKET_DATA_POLL_SECONDS=3` (minimum 2 seconds; broker REST rate limits still apply)
+
+These paths are already configured in `docker-stack.yml`. Do not store provider API
+secrets in this file or in a plain-text environment variable; enter them through the
+AIR Admin broker-account credential screen so they are encrypted in the credential
+vault. Dhan is the native WebSocket feed. Zerodha, Upstox, FYERS and Angel One currently
+use normalized historical REST candles and batched live quote REST polling. Polling
+health exposes stale/degraded states and retries with backoff. Provider subscriptions
+require the broker's own instrument token/key; map tokens under **AIR Admin → Market
+Data Sources** from the official broker instrument master.
+
+A profile authentication handshake does not guarantee a market-data subscription
+entitlement. After enabling a provider, subscribe at least one test instrument and
+confirm fresh ticks in `GET /api/v1/market-data/status` before using that feed in
+production. Do not use REST polling as a substitute for tick-by-tick feed requirements
+without checking the provider's rate limits and latency.
+
+The generic external-vendor catalog item is an adapter extension point, not a
+pre-integrated vendor. A vendor must be named and its API/SDK, authentication model,
+instrument master, subscription limits and licensed entitlements supplied before it
+can be marked ready.
+
 ## Prerequisites
 
 - A dedicated Ubuntu 22.04 or 24.04 server or VM.
