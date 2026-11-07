@@ -166,6 +166,42 @@ class AirApiClient {
     ));
   }
 
+  Future<Map<String, dynamic>> operatorSaveMarketInstrument({
+    required String provider,
+    required String accountId,
+    required String exchange,
+    required String symbol,
+    required String token,
+    required String segment,
+  }) async {
+    return _decode(await _client.post(
+      Uri.parse('$baseUrl/api/v1/operator/market-data/instruments'),
+      headers: _headers,
+      body: jsonEncode({
+        'provider': provider,
+        'account_id': accountId,
+        'exchange': exchange,
+        'symbol': symbol,
+        'token': token,
+        'segment': segment,
+      }),
+    ));
+  }
+
+  Future<List<Map<String, dynamic>>> operatorMarketInstruments({
+    String? provider,
+    String? accountId,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/operator/market-data/instruments')
+        .replace(queryParameters: {
+      if (provider != null) 'provider': provider,
+      if (accountId != null) 'account_id': accountId,
+    });
+    final data = _decode(await _client.get(uri, headers: _headers));
+    return (data['instruments'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>().toList(growable: false);
+  }
+
   Future<Map<String, dynamic>> operatorSelectMarketDataSource(
       String channel, String provider, {String? accountId, bool enabled = true}) async {
     return _decode(await _client.put(
