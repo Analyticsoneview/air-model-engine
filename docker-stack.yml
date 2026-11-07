@@ -35,11 +35,6 @@ services:
       - air_data:/var/lib/air
     networks:
       - air_private
-    ports:
-      - target: 8000
-        published: ${AIR_API_PORT:-8000}
-        protocol: tcp
-        mode: ingress
     healthcheck:
       test:
         - CMD
