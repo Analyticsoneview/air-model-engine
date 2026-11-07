@@ -78,6 +78,13 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
           _expiryAlerts = (expiryResult['close_alerts'] as List<dynamic>? ?? const [])
               .whereType<Map<String, dynamic>>().toList();
           _expiryNote = expiryResult['note']?.toString();
+        } else {
+          // Standard NSE-only customers still receive the shared published
+          // EXPIRYSCAN results; only a fresh live bid/ask scan needs a broker feed.
+          _expiryRows = ((result['groups'] as Map<String, dynamic>?)?['EXPIRYSCAN']
+                  as List<dynamic>? ?? const [])
+              .whereType<Map<String, dynamic>>().toList();
+          _expiryNote = 'Showing published NSE EOD EXPIRYSCAN results. Fresh live bid/ask capture requires a connected broker.';
         }
         if (settlementResult != null) {
           _settlementRows = (settlementResult['rows'] as List<dynamic>? ?? const [])
