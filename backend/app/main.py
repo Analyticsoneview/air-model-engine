@@ -23,6 +23,7 @@ from app.market_data.contracts import MarketInstrument
 from app.air_qoc_dhan import router as air_qoc_dhan_router
 from app.model_engine_api import router as model_engine_router
 from app.air_qoc_scheduler import start_qoc_scheduler, stop_qoc_scheduler, capture_dhan_eod_snapshots
+from app.air_telegram_scheduler import start_telegram_scheduler, stop_telegram_scheduler
 from app.security import create_access_token, hash_password, require_customer, verify_password
 
 app = FastAPI(title="AIR Model Engine API", version="0.3.0",
@@ -62,10 +63,12 @@ def require_air_operator(customer_id: str = Depends(require_customer)) -> str:
 @app.on_event("startup")
 async def start_air_qoc_jobs() -> None:
     start_qoc_scheduler()
+    start_telegram_scheduler()
 
 
 @app.on_event("shutdown")
 async def stop_air_qoc_jobs() -> None:
+    stop_telegram_scheduler()
     stop_qoc_scheduler()
 
 
