@@ -4,7 +4,7 @@ from datetime import date
 from pathlib import Path
 
 from app.nse_bhavcopy import (
-    NSEBhavcopyStore, _archive_url, _normalize, _subtract_months,
+    NSEBhavcopyStore, _archive_url, _normalize, _parse_nse_calendar, _subtract_months, _date_range,
 )
 
 
@@ -12,6 +12,19 @@ class NSEBhavcopyTests(unittest.TestCase):
     def test_three_calendar_month_start_date_handles_short_months(self):
         self.assertEqual(_subtract_months(date(2026, 11, 30), 3), date(2026, 8, 30))
         self.assertEqual(_subtract_months(date(2026, 5, 31), 3), date(2026, 2, 28))
+
+
+    def test_nse_calendar_normalizes_cm_and_fo_separately(self):
+        calendar = _parse_nse_calendar({
+            "CM": [{"tradingDate": "10-Nov-2026", "weekDay": "Tuesday", "description": "Diwali"}],
+            "FO": [{"tradingDate": "24-Nov-2026", "weekDay": "Tuesday", "description": "Guru Nanak Jayanti"}],
+        }, 2026)
+        self.assertEqual(calendar["segments"]["CM"][0]["date"], "2026-11-10")
+        self.assertEqual(calendar["segments"]["FO"][0]["date"], "2026-11-24")
+
+    def test_date_range_excludes_nse_holidays(self):
+        days = list(_date_range(date(2026, 11, 9), date(2026, 11, 11), {"2026-11-10"}))
+        self.assertEqual(days, [date(2026, 11, 9), date(2026, 11, 11)])
 
     def test_official_udiff_archive_urls(self):
         day = date(2026, 11, 6)
