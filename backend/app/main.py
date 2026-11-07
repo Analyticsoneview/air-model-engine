@@ -1144,16 +1144,16 @@ async def operator_verify_market_data_source(
                 "status": "HISTORICAL_VERIFIED" if bars else "NO_HISTORICAL_BARS",
                 "verified": bool(bars), "instrument": instrument.symbol,
                 "bars_received": len(bars), "interval": "day"}
-    before = market_data_hub.tick_count
+    before = market_data_hub.tick_count_for(instrument.token)
     try:
         await market_data_service.subscribe([instrument])
         deadline = asyncio.get_running_loop().time() + wait_seconds
         while asyncio.get_running_loop().time() < deadline:
-            if market_data_hub.tick_count > before:
+            if market_data_hub.tick_count_for(instrument.token) > before:
                 return {"provider": provider, "account_id": account_id,
                         "status": "LIVE_TICK_VERIFIED", "verified": True,
                         "instrument": instrument.symbol,
-                        "ticks_received": market_data_hub.tick_count - before}
+                        "ticks_received": market_data_hub.tick_count_for(instrument.token) - before}
             await asyncio.sleep(0.25)
         health = adapter.health() if hasattr(adapter, "health") else {}
         return {"provider": provider, "account_id": account_id,
