@@ -64,11 +64,15 @@ class _NativeStreamMixin:
 
     def _set_open(self) -> None:
         self._stream_open = True
+        self._stream_ready = True
+        self._state = "connected"
+        self._last_stream_error = None
         if self._loop and self._opened:
             self._loop.call_soon_threadsafe(self._opened.set)
 
     def _set_error(self, error: Any) -> None:
         self._last_stream_error = type(error).__name__ if not isinstance(error, str) else error
+        self._stream_open = False
         self._state = "degraded"
 
     async def _wait_open(self, timeout: float = 20.0) -> None:
@@ -224,7 +228,13 @@ class UpstoxWebSocketAdapter(_NativeStreamMixin, UpstoxMarketDataAdapter):
             except Exception as exc:
                 self._set_error(exc)
 
-        streamer.on("open", self._set_open)
+        def on_open():
+            self._set_open()
+            keys = [item.token for item in self._symbols.values()]
+            if keys:
+                streamer.subscribe(keys, "full")
+
+        streamer.on("open", on_open)
         streamer.on("message", on_message)
         streamer.on("error", self._set_error)
         streamer.on("close", lambda *args: self._set_error("Upstox WebSocket closed"))
@@ -347,6 +357,8 @@ class AngelOneWebSocketAdapter(_NativeStreamMixin, AngelOneMarketDataAdapter):
         except ImportError as exc:
             raise RuntimeError("Install smartapi-python to enable Angel One WebSocket streaming") from exc
         credentials = self._credentials
+        if not credentials.get("feed_token"):
+            raise RuntimeError("Angel feed_token is required for SmartAPI WebSocket")
         socket = SmartWebSocketV2(
             credentials["jwt_token"], credentials["api_key"], account_id,
             credentials["feed_token"], max_retry_attempt=50,
