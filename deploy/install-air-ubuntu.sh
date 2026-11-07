@@ -70,6 +70,13 @@ ASKPASS_EOF
   unset GH_TOKEN
 else
   echo "Using existing checkout at ${REPO_DIR}"
+  if [[ -n "$(git -C "$REPO_DIR" status --porcelain)" ]]; then
+    echo "Existing checkout has local changes. Commit or back them up before updating." >&2
+    exit 1
+  fi
+  INSTALL_REF="${AIR_INSTALL_REF:-feat/air-telegram-alerts}"
+  git -C "$REPO_DIR" fetch origin "$INSTALL_REF"
+  git -C "$REPO_DIR" checkout -B "$INSTALL_REF" "origin/$INSTALL_REF"
 fi
 
 cd "$REPO_DIR"
@@ -137,6 +144,7 @@ AIR_CORS_ORIGINS=https://${APP_DOMAIN}
 AIR_OPERATOR_CUSTOMER_IDS="${OPERATOR_MOBILE}"
 AIR_API_PORT=8000
 AIR_TELEGRAM_CHAT_IDS="${CHAT_IDS}"
+AIR_TELEGRAM_SECRET_NAME=air_telegram_bot_token
 AIR_TELEGRAM_SCHEDULER_ENABLED=false
 AIR_QOC_SCHEDULER_ENABLED=false
 AIR_QOC_DHAN_AUTO_RENEW_ENABLED=false
