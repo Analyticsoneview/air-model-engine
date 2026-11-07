@@ -320,8 +320,18 @@ async def _download_one(client: httpx.AsyncClient, semaphore: asyncio.Semaphore,
         return {"market": market, "date": stamp, "status": "FAILED", "error": type(exc).__name__}
 
 
+_store_instance: NSEBhavcopyStore | None = None
+
+
+def _get_store() -> NSEBhavcopyStore:
+    global _store_instance
+    if _store_instance is None:
+        _store_instance = NSEBhavcopyStore()
+    return _store_instance
+
+
 async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
-    store = NSEBhavcopyStore()
+    store = _get_store()
     today = datetime.now(IST).date()
     start = _subtract_months(today, 3)
     days = list(_date_range(start, today))
@@ -399,11 +409,11 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
 
 
 def nse_data_status() -> dict[str, Any]:
-    return NSEBhavcopyStore().status()
+    return _get_store().status()
 
 
 def nse_data_rows(market: str, **filters: Any) -> list[dict[str, Any]]:
-    return NSEBhavcopyStore().query(market, **filters)
+    return _get_store().query(market, **filters)
 
 
 _bootstrap_task: asyncio.Task | None = None
