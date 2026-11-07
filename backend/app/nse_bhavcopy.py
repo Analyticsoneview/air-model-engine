@@ -673,8 +673,6 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
                 state["updated_at"] = datetime.now(IST).isoformat()
                 store.set_meta("bootstrap", state)
                 await asyncio.sleep(0.15)
-        expired_cleanup = store.cleanup_expired_fo(today)
-        state["expired_fo_cleanup"] = expired_cleanup
         imported_dates = {
             market: {item["date"] for item in results if item["market"] == market and item["status"] in {"IMPORTED", "SKIPPED"}}
             for market in MARKETS
@@ -685,6 +683,38 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
         state["status"] = "READY" if paired_sessions >= 45 and not any_failed else (
             "PARTIAL" if any(imported_dates.values()) else "FAILED"
         )
+
+        # Strategy replays must finish before expired FO rows are purged. This
+        # runs after the initial bootstrap and every scheduled/recovery refresh.
+        # A still-partial download is deliberately left intact for the next repair.
+        if state["status"] == "READY":
+            try:
+                from app.model_engine_orchestrator import run_post_import_strategy_cycle
+                strategy_run = run_post_import_strategy_cycle(today.isoformat())
+                state["strategy_run"] = strategy_run
+            except Exception as strategy_exc:  # noqa: BLE001
+                strategy_run = {
+                    "status": "FAILED",
+                    "error": f"{type(strategy_exc).__name__}: {str(strategy_exc)[:200]}",
+                }
+                state["strategy_run"] = strategy_run
+                log.exception("Post-import AIR strategy replay failed; expired FO cleanup deferred")
+            if strategy_run.get("status") == "COMPLETED":
+                state["expired_fo_cleanup"] = store.cleanup_expired_fo(today)
+            else:
+                state["expired_fo_cleanup"] = {
+                    "status": "DEFERRED_STRATEGY_RUN_INCOMPLETE",
+                    "removed_records": 0,
+                    "removed_contract_keys": 0,
+                }
+        else:
+            state["strategy_run"] = {"status": "DEFERRED_DATA_PARTIAL"}
+            state["expired_fo_cleanup"] = {
+                "status": "DEFERRED_DATA_PARTIAL",
+                "removed_records": 0,
+                "removed_contract_keys": 0,
+            }
+
         state["finished_at"] = datetime.now(IST).isoformat()
         state["note"] = (
             "At least three calendar months of paired CM and FO sessions are available."
