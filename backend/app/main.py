@@ -20,6 +20,7 @@ from app.market_data.hub import MarketDataHub
 from app.market_data.router import MarketDataRouter
 from app.market_data.dhan_adapter import DhanMarketDataAdapter
 from app.market_data.broker_adapters import (ZerodhaMarketDataAdapter, UpstoxMarketDataAdapter, FyersMarketDataAdapter, AngelOneMarketDataAdapter)
+from app.market_data.nse_adapter import NSEBhavcopyMarketDataAdapter
 from app.market_data.contracts import MarketInstrument
 from app.market_data.provider_registry import MarketDataSourceRegistry
 from app.air_qoc_dhan import router as air_qoc_dhan_router
@@ -135,6 +136,12 @@ async def _restore_market_data_source_connections() -> None:
         provider = selection.get("provider")
         account_id = selection.get("account_id")
         if provider == "nse_bhavcopy" and channel == "historical":
+            try:
+                if not market_data_router.is_registered(provider, "official"):
+                    market_data_router.register("official", NSEBhavcopyMarketDataAdapter())
+                await market_data_router.set_source(channel, provider, "official")
+            except Exception:
+                continue
             continue
         if not provider or not account_id:
             continue
@@ -996,6 +1003,12 @@ async def operator_select_market_data_source(
         if channel != "historical":
             raise HTTPException(status_code=422, detail="NSE Bhavcopy is an EOD historical source only")
         await market_data_router.clear_source("historical")
+        if not market_data_router.is_registered("nse_bhavcopy", "official"):
+            market_data_router.register("official", NSEBhavcopyMarketDataAdapter())
+        try:
+            await market_data_router.set_source("historical", "nse_bhavcopy", "official")
+        except (ValueError, RuntimeError) as exc:
+            raise HTTPException(status_code=503, detail=f"NSE historical source is not ready: {str(exc)}") from exc
         selected = market_data_sources.set_source(channel, provider, None, True)
         return {"selection": selected, "runtime": market_data_router.status(),
                 "status": "CONNECTED", "note": "NSE official EOD CM/FO store is the selected historical source."}
