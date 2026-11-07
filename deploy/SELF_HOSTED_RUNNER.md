@@ -16,8 +16,7 @@ The repository now includes a one-command setup utility. It uses your local GitH
 From the repository root, on branch `feat/air-telegram-alerts`:
 
 ~~~bash
-chmod +x AIR-SETUP.sh
-./AIR-SETUP.sh
+bash AIR-SETUP.sh
 ~~~
 
 The script requests elevation when it installs the runner service. It registers labels for Linux and CPU architecture, configures `AIR_CI_RUNNER_LABELS`, waits for Online status, then runs `backend-tests.yml` and `android-lab.yml` and waits for their results.
