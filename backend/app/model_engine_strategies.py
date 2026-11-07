@@ -375,21 +375,23 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
             if not isinstance(item, dict):
                 continue
             item["physical_settlement_forecast"] = forecast_physical_settlement(item)
+            setup_date = str(item.get("signal_date") or "")[:10]
             entry_date = str(item.get("entry_date") or "")[:10]
-            if entry_date:
-                item["physical_delivery_at_entry"] = physical_settlement_early_warning(
-                    item, as_of=entry_date
-                )
-            else:
-                item["physical_delivery_at_entry"] = {
-                    "status": "DATA_REQUIRED", "icon": "⚪", "qualified": False,
-                    "reason": "Verified entry date is missing"
-                }
+            item["physical_delivery_at_setup"] = (
+                physical_settlement_early_warning(item, as_of=setup_date)
+                if setup_date else {"status": "DATA_REQUIRED", "icon": "⚪",
+                                    "qualified": False, "reason": "Verified setup date is missing"}
+            )
+            item["physical_delivery_at_entry"] = (
+                physical_settlement_early_warning(item, as_of=entry_date)
+                if entry_date else {"status": "PENDING_ENTRY", "icon": "⚪",
+                                    "qualified": False, "reason": "Limit entry is not filled yet"}
+            )
             item["physical_delivery_current"] = physical_settlement_early_warning(item)
             current = item["physical_delivery_current"]
             item["physical_delivery_qualified"] = bool(
                 current.get("qualified") and
-                str(item.get("classification") or "").upper() in {"NEW", "HOLD", "RE-ENTRY", "REENTRY"}
+                str(item.get("classification") or "").upper() in {"NEW", "HOLD", "WAIT", "RE-ENTRY", "REENTRY"}
             )
             item["physical_delivery_icon"] = current.get("icon", "⚪")
     return result
