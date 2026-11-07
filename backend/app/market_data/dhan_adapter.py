@@ -31,6 +31,7 @@ class DhanMarketDataAdapter:
         self._subscriptions: dict[tuple[str, str], MarketInstrument] = {}
         self._feed_state = "not_connected"
         self._last_feed_error: str | None = None
+        self._last_tick_at: str | None = None
 
     async def authenticate(self, account_id: str) -> None:
         self.account_id = account_id
@@ -81,6 +82,7 @@ class DhanMarketDataAdapter:
                         "feed_type": kind,
                     }
                     await self.hub.publish(tick)
+                    self._last_tick_at = tick["received_at"]
                 raise RuntimeError("Dhan market feed closed")
             except asyncio.CancelledError:
                 self._feed_state = "disconnected"
@@ -118,12 +120,21 @@ class DhanMarketDataAdapter:
                     retry_delay = min(30.0, retry_delay * 2)
 
     def health(self) -> dict[str, Any]:
+        state = self._feed_state
+        if self._subscriptions and self._last_tick_at:
+            age = (datetime.now(timezone.utc) - datetime.fromisoformat(
+                self._last_tick_at.replace("Z", "+00:00"))).total_seconds()
+            if age > 30 and state == "connected":
+                state = "stale"
+        elif self._subscriptions and state == "connected" and not self._last_tick_at:
+            state = "awaiting_first_tick"
         return {
-            "provider": self.provider_code,
-            "account_id": self.account_id,
-            "feed_state": self._feed_state,
+            "provider": self.provider_code, "account_id": self.account_id,
+            "feed_state": state,
+            "websocket_open": self._feed is not None,
             "reader_running": self._reader is not None and not self._reader.done(),
             "subscribed_instruments": len(self._subscriptions),
+            "last_tick_at": self._last_tick_at,
             "last_error_type": self._last_feed_error,
         }
 
