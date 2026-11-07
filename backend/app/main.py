@@ -32,6 +32,7 @@ from app.market_data.master_refresh import BrokerMasterRefresher
 from app.market_data.customer_runtime import (configure_customer_market_data_runtime, invalidate_customer_market_data_service, close_customer_market_data_runtimes, get_customer_market_data_status)
 from app.air_qoc_dhan import router as air_qoc_dhan_router
 from app.model_engine_api import router as model_engine_router
+from app.model_engine_settlement_comparison import router as settlement_comparison_router
 from app.orb_strategy_api import router as orb_strategy_router
 from app.air_qoc_scheduler import start_qoc_scheduler, stop_qoc_scheduler, capture_dhan_eod_snapshots, capture_selected_provider_option_chains
 from app.air_telegram_scheduler import start_telegram_scheduler, stop_telegram_scheduler
@@ -45,6 +46,7 @@ app = FastAPI(title="AIR Model Engine API", version="0.3.0",
               description="Self-hosted AIR authentication, broker account and market-data gateway.")
 app.include_router(air_qoc_dhan_router)
 app.include_router(model_engine_router)
+app.include_router(settlement_comparison_router)
 app.include_router(orb_strategy_router)
 _cors_origins = [
     origin.strip() for origin in os.getenv("AIR_CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
