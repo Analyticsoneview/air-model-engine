@@ -52,7 +52,7 @@ fi
 docker compose -f compose.local.yml ps
 
 PROFILE_FILE="$HOME/.bashrc"
-[[ -n "${ZSH_VERSION:-}" ]] && PROFILE_FILE="$HOME/.zshrc"
+if [[ "$(uname -s)" == "Darwin" ]]; then PROFILE_FILE="$HOME/.zshrc"; fi
 if ! grep -q 'function AIRSTART' "$PROFILE_FILE" 2>/dev/null; then
   printf '\n# AIR one-command local startup\nfunction AIRSTART(){ bash "%s/AIRSTART.sh"; }\n' "$ROOT" >> "$PROFILE_FILE"
 fi
