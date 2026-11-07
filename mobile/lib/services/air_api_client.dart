@@ -517,6 +517,12 @@ class AirApiClient {
   Future<Map<String, dynamic>> runAccountReports() async => _decode(await _client.post(
     Uri.parse('$baseUrl/api/v1/customer/reports/run'), headers: _headers));
 
+  Future<Map<String, dynamic>> settlementComparison({int limit = 500}) async {
+    final uri = Uri.parse('$baseUrl/api/v1/model-engine/settlement-comparison')
+        .replace(queryParameters: {'limit': limit.toString()});
+    return _decode(await _client.get(uri, headers: _headers));
+  }
+
   Future<Map<String, dynamic>> physicalSettlement() async {
     final response = await _client.get(
       Uri.parse('$baseUrl/api/v1/model-engine/physical-settlement'),
