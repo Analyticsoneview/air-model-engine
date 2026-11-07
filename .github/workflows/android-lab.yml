@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   android-lab:
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.AIR_RUNNER_LABELS || '["ubuntu-latest"]') }}
     timeout-minutes: 25
     steps:
       - name: Checkout source
@@ -28,6 +28,9 @@ jobs:
         with:
           channel: stable
           cache: true
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
 
       - name: Set up Java
         uses: actions/setup-java@v5
