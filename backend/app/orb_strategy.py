@@ -108,12 +108,21 @@ class OrbSignalEngine:
         if high is None:
             return
         entry = state["entry"]
+        # Exit signals execute at the next available tick, never at a fabricated close.
+        if entry and entry["status"] == "EXIT_SIGNAL":
+            entry.update({"status": "CLOSED", "exit_price": str(price),
+                          "exit_at": stamp.isoformat()})
+            return
         # A protective stop is tick-monitored; a stop is never moved down.
         if entry and entry["status"] == "OPEN" and price <= Decimal(str(entry["stop_loss"])):
             entry.update({"status": "SL_HIT", "exit_price": str(price),
                           "exit_at": stamp.isoformat(), "exit_reason": "TRAILING_STOP"})
             return
 
+        # Discard the 09:21–09:24 bar because it overlaps the 09:18–09:23 range.
+        # The first eligible confirmation bar starts at 09:24.
+        if stamp.time().replace(tzinfo=None) < time(9, 24):
+            return
         # 3-minute bars are aligned to NSE's 09:15 session open.
         minutes = stamp.hour * 60 + stamp.minute
         offset = minutes - (9 * 60 + 15)
@@ -142,7 +151,8 @@ class OrbSignalEngine:
             elif state["breakout"] and not state["retested"] and low <= high:
                 state["retested"] = True
             elif state["breakout"] and state["retested"] and close > high:
-                signal = self._signal(symbol, "MORNING", next_stamp, close, low, high)
+                candle_close_at = datetime.fromisoformat(candle["start"]) + timedelta(minutes=3)
+                signal = self._signal(symbol, "MORNING", candle_close_at, close, low, high)
                 state["entry"] = signal
                 self.signals.append(signal)
         else:
