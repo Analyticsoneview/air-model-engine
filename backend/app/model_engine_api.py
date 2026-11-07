@@ -34,11 +34,25 @@ def _has_strategy_membership(row: dict, strategy: str) -> bool:
     return strategy.upper().replace(" ", "") in normalized
 
 
-def _operator(customer_id: str = Depends(require_customer)) -> str:
+def _is_operator_customer(customer_id: str) -> bool:
     allowed = {x.strip() for x in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",") if x.strip()}
-    if customer_id not in allowed:
+    return customer_id in allowed
+
+
+def _operator(customer_id: str = Depends(require_customer)) -> str:
+    if not _is_operator_customer(customer_id):
         raise HTTPException(status_code=403, detail="AIR operator permission is required")
     return customer_id
+
+
+async def _notify_operator_candidates(
+    strategy: str, rows: list[dict], customer_id: str
+) -> dict:
+    # Strategy endpoints are customer-authenticated, but Telegram destinations
+    # are operator-owned. Never forward a non-operator customer's records.
+    if not _is_operator_customer(customer_id):
+        return {"configured": False, "attempted": 0, "sent": 0}
+    return await notify_candidates(strategy, rows)
 
 
 class SignalRecord(BaseModel):
@@ -300,7 +314,7 @@ async def get_original366_engine(
         if str(row.get("classification") or "").upper() == "NEW"
         and _has_strategy_membership(row, "ORIGINAL366")
     ]
-    telegram_delivery = await notify_candidates("RECOVERED", recovered_groups["OPEN"])
+    telegram_delivery = await _notify_operator_candidates("RECOVERED", recovered_groups["OPEN"], customer_id)
     return {
         "telegram_notifications": telegram_delivery,
         "strategy": "RECOVERED",
@@ -374,7 +388,7 @@ async def get_expiry78_engine(
     telegram_rows = new_trades + hold_trades + verified_reentries + [
         trade for trade in trades if trade.get("classification") in ("SL", "EXPIRED")
     ]
-    telegram_delivery = await notify_candidates("EXPIRY78", telegram_rows)
+    telegram_delivery = await _notify_operator_candidates("EXPIRY78", telegram_rows, customer_id)
     return {
         "telegram_notifications": telegram_delivery,
         "strategy": "EXPIRY78",
@@ -412,7 +426,7 @@ async def get_expiry_scan(
     # trade qualification. Telegram labels these notifications accordingly.
     qualified = [row for row in result.get("rows", [])
                  if row.get("scan_status") == "LIQUIDITY_SCREEN_PASSED"]
-    result["telegram_notifications"] = await notify_candidates("EXPIRYSCAN", qualified)
+    result["telegram_notifications"] = await _notify_operator_candidates("EXPIRYSCAN", qualified, customer_id)
     return result
 
 
