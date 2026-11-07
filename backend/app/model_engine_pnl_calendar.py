@@ -106,6 +106,19 @@ def _trade_record(row: dict[str, Any], strategy: str) -> dict[str, Any] | None:
         charges = _charges(row, qty, entry, exit_price, exit_date)
     net = round(gross - charges["total"], 2) if gross is not None and charges else None
     status = str(row.get("classification") or row.get("position_status") or "UNKNOWN").upper()
+    expiry_settlement = (
+        status.startswith("EXPIRED")
+        or str(row.get("exit_reason") or "").upper().startswith("EXPIRY")
+    )
+    expiry_result = gross if gross is not None else points
+    expiry_outcome = None
+    if expiry_settlement:
+        expiry_outcome = (
+            "EXPIRED_PNL_PENDING" if expiry_result is None else
+            "EXPIRED_WIN" if expiry_result > 0 else
+            "EXPIRED_LOSS" if expiry_result < 0 else
+            "EXPIRED_BREAKEVEN"
+        )
     return {
         "strategy": strategy, "signal_id": row.get("signal_id"),
         "symbol": row.get("symbol"), "instrument_type": row.get("instrument_type"),
@@ -116,6 +129,7 @@ def _trade_record(row: dict[str, Any], strategy: str) -> dict[str, Any] | None:
         "classification": status, "pnl_points": points,
         "exit_reason": row.get("exit_reason"),
         "gross_pnl": gross, "charges": charges, "net_pnl": net,
+        "expiry_outcome": expiry_outcome,
         "pnl_status": ("REALIZED" if gross is not None and exit_date else
                        "OPEN_UNREALIZED" if status in ("NEW", "HOLD", "OPEN") else
                        "PENDING_VERIFICATION"),
@@ -163,7 +177,10 @@ def build_pnl_calendar(strategy_views: dict[str, Any], *, physical_review: dict[
                 "capital_missing_quantity": 0, "charges_estimated_count": 0,
                 "charges_actual_count": 0, "net_pending_count": 0, "entries_count": 0,
                 "physical_settlement_gross_pnl": 0.0, "physical_settlement_contracts": 0,
-                "peak_concurrent_capital": 0.0, "trades": []}
+                "peak_concurrent_capital": 0.0,
+                "expired_contract_count": 0, "expired_wins": 0,
+                "expired_losses": 0, "expired_breakeven": 0,
+                "expired_pnl_pending": 0, "trades": []}
 
     days: dict[str, dict] = defaultdict(blank)
     months: dict[str, dict] = defaultdict(blank)
@@ -179,6 +196,15 @@ def build_pnl_calendar(strategy_views: dict[str, Any], *, physical_review: dict[
                 bucket["capital_records"] += 1
             else:
                 bucket["capital_missing_quantity"] += 1
+            if trade.get("expiry_outcome"):
+                bucket["expired_contract_count"] += 1
+                outcome_key = {
+                    "EXPIRED_WIN": "expired_wins",
+                    "EXPIRED_LOSS": "expired_losses",
+                    "EXPIRED_BREAKEVEN": "expired_breakeven",
+                    "EXPIRED_PNL_PENDING": "expired_pnl_pending",
+                }[trade["expiry_outcome"]]
+                bucket[outcome_key] += 1
             if trade.get("gross_pnl") is not None and exit_day:
                 bucket["realized_trade_count"] += 1
                 bucket["gross_pnl"] += trade["gross_pnl"]
@@ -195,6 +221,15 @@ def build_pnl_calendar(strategy_views: dict[str, Any], *, physical_review: dict[
         if exit_day:
             exit_bucket = days[exit_day]
             exit_bucket["trade_count"] += 1
+            if trade.get("expiry_outcome"):
+                exit_bucket["expired_contract_count"] += 1
+                outcome_key = {
+                    "EXPIRED_WIN": "expired_wins",
+                    "EXPIRED_LOSS": "expired_losses",
+                    "EXPIRED_BREAKEVEN": "expired_breakeven",
+                    "EXPIRED_PNL_PENDING": "expired_pnl_pending",
+                }[trade["expiry_outcome"]]
+                exit_bucket[outcome_key] += 1
             exit_bucket["realized_trade_count"] += int(trade.get("gross_pnl") is not None)
             exit_bucket["gross_pnl"] += trade.get("gross_pnl") or 0.0
             exit_bucket["estimated_or_actual_charges"] += (trade.get("charges") or {}).get("total", 0.0)
@@ -205,6 +240,15 @@ def build_pnl_calendar(strategy_views: dict[str, Any], *, physical_review: dict[
             exit_bucket["trades"].append(trade)
             month_exit = months[exit_day[:7]]
             month_exit["trade_count"] += 1
+            if trade.get("expiry_outcome"):
+                month_exit["expired_contract_count"] += 1
+                outcome_key = {
+                    "EXPIRED_WIN": "expired_wins",
+                    "EXPIRED_LOSS": "expired_losses",
+                    "EXPIRED_BREAKEVEN": "expired_breakeven",
+                    "EXPIRED_PNL_PENDING": "expired_pnl_pending",
+                }[trade["expiry_outcome"]]
+                month_exit[outcome_key] += 1
             month_exit["realized_trade_count"] += int(trade.get("gross_pnl") is not None)
             month_exit["gross_pnl"] += trade.get("gross_pnl") or 0.0
             month_exit["estimated_or_actual_charges"] += (trade.get("charges") or {}).get("total", 0.0)
@@ -303,6 +347,14 @@ def build_pnl_calendar(strategy_views: dict[str, Any], *, physical_review: dict[
         "physical_settlement": {"summary": physical_summary, "rows": physical_rows},
         "days": day_items, "months": month_items,
         "trades": selected,
+        "expired_trades": [trade for trade in selected if trade.get("expiry_outcome")],
+        "expired_trade_summary": {
+            "count": sum(1 for trade in selected if trade.get("expiry_outcome")),
+            "wins": sum(1 for trade in selected if trade.get("expiry_outcome") == "EXPIRED_WIN"),
+            "losses": sum(1 for trade in selected if trade.get("expiry_outcome") == "EXPIRED_LOSS"),
+            "breakeven": sum(1 for trade in selected if trade.get("expiry_outcome") == "EXPIRED_BREAKEVEN"),
+            "pnl_pending": sum(1 for trade in selected if trade.get("expiry_outcome") == "EXPIRED_PNL_PENDING"),
+        },
         "charge_model": {
             "basis": "Indicative NSE equity-options model; broker-specific tariff/actual contract note overrides estimate",
             "rates": dict(RATES),
