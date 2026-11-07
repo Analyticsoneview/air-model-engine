@@ -174,3 +174,12 @@ The Home screen shows download progress and CM/FO record counts. Open the Data t
 Allow several GB of free disk space for the initial history and ongoing data. The app can be opened while the background bootstrap runs, but the Data screen must show READY before treating the full three-month history as available. READY requires at least 45 paired CM/FO sessions and no failed archive downloads.
 
 This is daily EOD bhavcopy history. It does not contain intraday candles, tick history, bid/ask history or full intraday option-chain snapshots. See `backend/NSE_DATA_SETUP.md` for API details, fields and data-quality boundaries.
+
+
+## Broker instrument masters and execution policy
+
+AIR refreshes configured broker instrument masters on weekdays at 07:00 IST. The operator can also run a refresh from **AIR Admin → Execution & Broker Masters**. A downloaded master is parsed and validated before an atomic provider/account snapshot replacement; failed or undersized downloads preserve the last known-good master. Successful replacement removes obsolete tokens for that broker account. The master includes broker token, symbol, exchange/segment, expiry, option type, strike, lot size and tick size where published.
+
+Default master sources are configured for Dhan, Zerodha, Upstox and Angel One. FYERS requires an official URL in the Docker secret/environment JSON `AIR_BROKER_MASTER_URLS`, for example `{"fyers":"https://public.fyers.in/sym_details/NSE_FO.csv"}`; confirm the correct segment-specific file for the instruments being traded. If the broker publishes multiple segment files, use a provider-specific adapter or a consolidated official master rather than merging arbitrary third-party data. Keep credentials and URLs out of source control.
+
+Automatic execution policy is persistent and defaults to **OFF**. It has a master switch plus independent EXPIRY78, EXPIRYSCAN and RECOVERED switches. Effective automatic eligibility requires both the master and strategy switch to be ON. With the master OFF, strategy views remain available for manual handling. This policy does not itself enable live order submission: each broker account remains separately order-disabled until broker execution adapters, account authorization, risk controls, and explicit confirmation workflows are verified. No automatic orders are sent by this policy service.
