@@ -47,7 +47,7 @@ def _strategy_rows_for_customer(customer_id: str, limit: int) -> list[dict]:
     published = _ledger.list_signals(publisher_id, limit)
     if publisher_id == customer_id:
         return published
-    customer_rows = _strategy_rows_for_customer(customer_id, limit)
+    customer_rows = _ledger.list_signals(customer_id, limit)
     merged = {str(row.get("signal_id")): row for row in published}
     # Tenant-owned records override the published baseline only for that tenant.
     for row in customer_rows:
@@ -57,7 +57,7 @@ def _strategy_rows_for_customer(customer_id: str, limit: int) -> list[dict]:
 
 async def _customer_market_data_service(customer_id: str):
     try:
-        return await _customer_market_data_service(customer_id)
+        return await get_customer_market_data_service(customer_id)
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except Exception as exc:
