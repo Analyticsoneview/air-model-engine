@@ -26,6 +26,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   String _settlementAsset = 'OPTIONS';
   String _settlementDirection = 'ALL';
   String? _settlementNote;
+  String? _dailySettlementNote;
   List<Map<String, dynamic>> _expiryAlerts = [];
   String? _expiryNote;
   int _selected = 0;
@@ -74,8 +75,8 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       catch (e) { _expiryNote = 'EXPIRYSCAN unavailable: $e'; }
       try { settlementResult = await _api.physicalSettlement(); }
       catch (e) { _settlementNote = 'Physical settlement review unavailable: $e'; }
-      try { dailySettlementResult = await _api.settlementComparison(); }
-      catch (e) { _settlementNote = 'Settlement UP / DOWN unavailable: $e'; }
+      try { dailySettlementResult = await _api.settlementComparison(); _dailySettlementNote = dailySettlementResult['note']?.toString(); }
+      catch (e) { _dailySettlementNote = 'Settlement UP / DOWN unavailable: $e'; }
       try { pnlResult = await _api.modelEnginePnlCalendar(year: _calendarMonth.year, month: _calendarMonth.month); }
       catch (e) { _error = 'P&L calendar unavailable: $e'; }
       if (!mounted) return;
@@ -300,7 +301,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
             style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Theme.of(context).colorScheme.primary)),
           Text('Day-over-day NSE settlement movement is a separate field. Broker close is populated only from the selected broker historical feed and exact instrument-master match.',
             style: TextStyle(fontSize: 9, color: Theme.of(context).colorScheme.onSurfaceVariant)),
-          Text((options['broker_close_note'] ?? stocks['broker_close_note'] ?? _dailySettlementComparison['note'] ?? 'Broker close unavailable').toString(),
+          Text((_dailySettlementNote ?? options['broker_close_note'] ?? stocks['broker_close_note'] ?? _dailySettlementComparison['note'] ?? 'Broker close unavailable').toString(),
             style: TextStyle(fontSize: 9, color: Theme.of(context).colorScheme.onSurfaceVariant)),
           Text('Bid/ask is not part of NSE EOD bhavcopy. Volume/OI are context only and do not imply liquidity qualification.',
             style: TextStyle(fontSize: 9, color: Theme.of(context).colorScheme.error)),
