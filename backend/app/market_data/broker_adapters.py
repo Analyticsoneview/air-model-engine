@@ -9,7 +9,8 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any, Callable
+from typing import Any
+from zoneinfo import ZoneInfo
 
 from app.brokers.zerodha import KiteConnectClient
 from app.brokers.upstox import UpstoxClient
@@ -39,7 +40,7 @@ def _dt(value: Any) -> datetime:
     else:
         stamp = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     if stamp.tzinfo is None:
-        stamp = stamp.replace(tzinfo=timezone.utc)
+        stamp = stamp.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
     return stamp.astimezone(timezone.utc)
 
 
