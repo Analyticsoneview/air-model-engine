@@ -47,6 +47,15 @@ def _connect() -> sqlite3.Connection:
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS telegram_destination_state (
+            singleton_id INTEGER PRIMARY KEY CHECK(singleton_id=1),
+            managed_mode INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    db.execute(
+        "INSERT OR IGNORE INTO telegram_destination_state(singleton_id, managed_mode) VALUES (1, 0)"
+    )
     db.commit()
     return db
 
@@ -89,8 +98,16 @@ def list_destinations() -> list[dict[str, Any]]:
 
 
 def has_managed_destinations() -> bool:
+    """True after an operator first saves or removes a managed route.
+
+    The state persists even when the last destination is deleted, preventing
+    legacy environment IDs from unexpectedly becoming active again.
+    """
     with _database() as db:
-        return db.execute("SELECT 1 FROM telegram_destinations LIMIT 1").fetchone() is not None
+        row = db.execute(
+            "SELECT managed_mode FROM telegram_destination_state WHERE singleton_id=1"
+        ).fetchone()
+        return bool(row and row["managed_mode"])
 
 
 def destinations_for_strategy(strategy: str) -> list[str]:
@@ -111,6 +128,9 @@ def upsert_destination(name: str, chat_id: str, destination_type: str,
         name, chat_id, destination_type, strategies
     )
     with _database() as db:
+        db.execute(
+            "UPDATE telegram_destination_state SET managed_mode=1 WHERE singleton_id=1"
+        )
         db.execute("""
             INSERT INTO telegram_destinations
                 (name, chat_id, destination_type, strategies_json, enabled)
@@ -135,6 +155,9 @@ def update_destination(destination_id: int, *, name: str, chat_id: str,
         name, chat_id, destination_type, strategies
     )
     with _database() as db:
+        db.execute(
+            "UPDATE telegram_destination_state SET managed_mode=1 WHERE singleton_id=1"
+        )
         db.execute("""
             UPDATE telegram_destinations SET name=?, chat_id=?, destination_type=?,
                 strategies_json=?, enabled=?, updated_at=CURRENT_TIMESTAMP
@@ -149,5 +172,8 @@ def update_destination(destination_id: int, *, name: str, chat_id: str,
 
 def delete_destination(destination_id: int) -> bool:
     with _database() as db:
+        db.execute(
+            "UPDATE telegram_destination_state SET managed_mode=1 WHERE singleton_id=1"
+        )
         cur = db.execute("DELETE FROM telegram_destinations WHERE id=?", (destination_id,))
         return cur.rowcount > 0
