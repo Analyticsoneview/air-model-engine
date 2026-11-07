@@ -158,7 +158,7 @@ class MarketInstrumentDirectory:
         rows = self.db.execute(
             "SELECT * FROM market_instruments" + where +
             " ORDER BY provider,account_id,symbol,expiry,strike LIMIT ?",
-            (*params, max(1, min(limit, 2000))),
+            (*params, max(1, min(limit, 50000))),
         ).fetchall()
         return [dict(row) for row in rows]
 
