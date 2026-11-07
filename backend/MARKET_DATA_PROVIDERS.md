@@ -71,6 +71,23 @@ authentication handshake. Failed authentication leaves the runtime channel offli
 Historical and live channels can point to different accounts/providers. No automatic
 provider failover is performed.
 
+## Instrument-token mapping
+
+Broker instrument tokens are account/provider-specific. The admin UI supports a
+single mapping at a time; for full broker masters, the operator API also supports
+bulk import:
+
+- `GET /api/v1/operator/market-data/instruments?provider=zerodha&account_id=...`
+- `POST /api/v1/operator/market-data/instruments`
+- `POST /api/v1/operator/market-data/instruments/bulk` (up to 5,000 rows per request)
+- `DELETE /api/v1/operator/market-data/instruments/{provider}/{account_id}/{token}`
+
+Bulk import accepts provider account ID plus rows containing exchange, trading
+symbol, provider token/key and segment. Optional expiry, strike, option type, lot
+size and instrument type can also be stored in the directory. The common instrument
+search endpoint checks this directory before asking the provider adapter for its
+native instrument master.
+
 ## Vendor adapter contract
 
 Every additional broker/vendor adapter must implement the common AIR
