@@ -17,6 +17,8 @@ class MarketDataHub:
         self._lock = asyncio.Lock()
         self.last_tick_at: datetime | None = None
         self.tick_count = 0
+        self._tick_counts_by_token: dict[str, int] = {}
+        self._latest_by_token: dict[str, dict[str, Any]] = {}
 
     async def connect(self, websocket: WebSocket) -> None:
         await websocket.accept()
@@ -30,6 +32,10 @@ class MarketDataHub:
     async def publish(self, tick: dict[str, Any]) -> None:
         self.last_tick_at = datetime.now(timezone.utc)
         self.tick_count += 1
+        token = str(tick.get("token") or "")
+        if token:
+            self._tick_counts_by_token[token] = self._tick_counts_by_token.get(token, 0) + 1
+            self._latest_by_token[token] = dict(tick)
         payload = json.dumps(tick, default=_json_value)
         async with self._lock:
             clients = list(self._clients)
@@ -43,6 +49,12 @@ class MarketDataHub:
             async with self._lock:
                 for client in stale:
                     self._clients.discard(client)
+
+    def tick_count_for(self, token: str) -> int:
+        return self._tick_counts_by_token.get(str(token), 0)
+
+    def latest_for(self, token: str) -> dict[str, Any] | None:
+        return self._latest_by_token.get(str(token))
 
     def status(self) -> dict[str, Any]:
         return {"connected_clients": len(self._clients), "tick_count": self.tick_count,
