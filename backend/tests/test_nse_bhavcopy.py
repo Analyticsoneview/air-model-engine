@@ -86,5 +86,57 @@ class NSEBhavcopyTests(unittest.TestCase):
             self.assertEqual(len(store.query("FO", symbol="NIFTY", instrument_type="FUT")), 1)
 
 
+    def test_session_reconciliation_detects_partial_count_and_cleans_both_markets(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = NSEBhavcopyStore(str(Path(folder) / "nse.sqlite3"))
+            day = "2026-11-06"
+            cm_rows = [
+                {"FinInstrmId": "1", "TckrSymb": "INFY", "FinInstrmTp": "STK"},
+                {"FinInstrmId": "2", "TckrSymb": "TCS", "FinInstrmTp": "STK"},
+            ]
+            fo_rows = [
+                {"FinInstrmId": "3", "TckrSymb": "NIFTY", "FinInstrmTp": "OPTIDX",
+                 "XpryDt": "2026-11-27", "StrkPric": "26000", "OptnTp": "CE"},
+            ]
+            store.save_rows("CM", day, cm_rows)
+            store.save_rows("FO", day, fo_rows)
+            store.set_file_status("CM", day, "IMPORTED", 2, source_record_count=2)
+            store.set_file_status("FO", day, "IMPORTED", 1, source_record_count=2)
+
+            result = store.reconcile_session(day, ("CM", "FO"))
+
+            self.assertEqual(result["status"], "PARTIAL")
+            self.assertTrue(result["repair_triggered"])
+            self.assertEqual(store.actual_record_count("CM", day), 0)
+            self.assertEqual(store.actual_record_count("FO", day), 0)
+            self.assertEqual(store.file_status("CM", day)["status"], "PARTIAL")
+            self.assertEqual(store.file_status("FO", day)["status"], "PARTIAL")
+
+    def test_session_reconciliation_accepts_matching_nse_and_database_counts(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = NSEBhavcopyStore(str(Path(folder) / "nse.sqlite3"))
+            day = "2026-11-06"
+            rows = [
+                {"FinInstrmId": "1", "TckrSymb": "INFY", "FinInstrmTp": "STK"},
+                {"FinInstrmId": "2", "TckrSymb": "TCS", "FinInstrmTp": "STK"},
+            ]
+            store.save_rows("CM", day, rows)
+            store.set_file_status("CM", day, "IMPORTED", 2, source_record_count=2)
+
+            result = store.reconcile_session(day, ("CM",))
+
+            self.assertEqual(result["status"], "COMPLETE")
+            self.assertFalse(result["repair_triggered"])
+            self.assertEqual(store.actual_record_count("CM", day), 2)
+
+    def test_duplicate_instrument_rows_are_counted_once_like_database_primary_key(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = NSEBhavcopyStore(str(Path(folder) / "nse.sqlite3"))
+            day = "2026-11-06"
+            row = {"FinInstrmId": "1", "TckrSymb": "INFY", "FinInstrmTp": "STK"}
+            self.assertEqual(store.save_rows("CM", day, [row, row]), 1)
+            self.assertEqual(store.actual_record_count("CM", day), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
