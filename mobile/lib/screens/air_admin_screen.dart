@@ -487,6 +487,50 @@ class _AirAdminBrokerAccountsScreenState
     }
   }
 
+  Future<void> _useBrokerMarketData(Map<String, dynamic> row) async {
+    final customer = row['customer_id'].toString();
+    final broker = row['broker'].toString();
+    final account = row['account_id'].toString();
+    if (row['credentials_saved'] != true) {
+      setState(() => _error = 'Save broker credentials before enabling this data source.');
+      return;
+    }
+    setState(() { _loading = true; _error = null; });
+    try {
+      await _api.operatorSetCustomerMarketDataSelection(customer, broker, account);
+      await _load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Broker market data enabled for $customer using $broker · $account.')),
+        );
+      }
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _revokeBrokerMarketData(Map<String, dynamic> row) async {
+    final customer = row['customer_id'].toString();
+    setState(() { _loading = true; _error = null; });
+    try {
+      await _api.operatorSetCustomerMarketDataAccess(
+        customer, tier: 'STANDARD', brokerDataEnabled: false,
+      );
+      await _load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$customer returned to the standard NSE data path.')),
+        );
+      }
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
   Future<void> _credentials(Map<String, dynamic> row) async {
     final broker = row['broker'].toString();
     final fields = <String, List<String>>{
@@ -625,7 +669,9 @@ class _AirAdminBrokerAccountsScreenState
             child: ListTile(
               title: Text('${row['broker']} · ${row['account_id']}'),
               subtitle: Text('Customer: ${row['customer_id']}\n'
-                  '${row['credentials_saved'] == true ? 'Encrypted credentials saved' : 'Credentials not saved'}'),
+                  '${row['credentials_saved'] == true ? 'Encrypted credentials saved' : 'Credentials not saved'}\n'
+                  'Market data: ${row['market_data_access']?['tier'] ?? 'STANDARD'} · '
+                  '${row['market_data_selection']?['provider'] == row['broker'] && row['market_data_selection']?['account_id'] == row['account_id'] ? 'ACTIVE BROKER SOURCE' : 'NSE DEFAULT'}'),
               isThreeLine: true,
               leading: const Icon(Icons.account_balance_wallet_outlined),
               trailing: Wrap(
@@ -642,6 +688,19 @@ class _AirAdminBrokerAccountsScreenState
                         row['broker'] == 'custom_vendor'
                         ? null : () => _authorize(row),
                     icon: const Icon(Icons.verified_user_outlined),
+                  ),
+                  IconButton(
+                    tooltip: 'Use this broker for the customer strategy feed',
+                    onPressed: _loading || row['credentials_saved'] != true
+                        ? null : () => _useBrokerMarketData(row),
+                    icon: const Icon(Icons.candlestick_chart_rounded),
+                  ),
+                  IconButton(
+                    tooltip: 'Revert customer to standard NSE data',
+                    onPressed: _loading ||
+                        row['market_data_access']?['tier'] != 'PAID'
+                        ? null : () => _revokeBrokerMarketData(row),
+                    icon: const Icon(Icons.public_rounded),
                   ),
                   IconButton(
                     tooltip: 'Remove account',
