@@ -19,6 +19,24 @@ class CustomerAccountDirectoryTests(unittest.TestCase):
             self.assertEqual(sum(r.broker == "dhan" for r in rows), 2)
             directory.close()
 
+    def test_admin_inventory_lists_accounts_across_customers(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = CustomerAccountDirectory(str(Path(temp) / "accounts.sqlite3"))
+            directory.add(CustomerTradingAccount("+919000000001", "Dhan", "D001", False))
+            directory.add(CustomerTradingAccount("+919000000002", "Dhan", "D002", False))
+            directory.add(CustomerTradingAccount("+919000000001", "Zerodha", "Z001", False))
+            rows = directory.list_all()
+            self.assertEqual(len(rows), 3)
+            self.assertEqual(
+                {(row.customer_id, row.broker, row.account_id) for row in rows},
+                {
+                    ("+919000000001", "dhan", "D001"),
+                    ("+919000000002", "dhan", "D002"),
+                    ("+919000000001", "zerodha", "Z001"),
+                },
+            )
+            directory.close()
+
     def test_account_ownership_is_unique_and_tenant_scoped(self):
         with tempfile.TemporaryDirectory() as temp:
             directory = CustomerAccountDirectory(str(Path(temp) / "accounts.sqlite3"))
