@@ -348,7 +348,7 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 engine_trade_count += 1
                 engine_survivors += int(bool(trade.get("expiry_survivor")))
                 engine_stops += int(trade.get("classification") == "SL")
-        engine_groups["OPEN"] = engine_groups["NEW"] + engine_groups["HOLD"]
+        engine_groups["OPEN"] = engine_groups["NEW"] + engine_groups["HOLD"] + engine_groups["REENTRY"]
         for values in engine_groups.values():
             values.sort(key=_sort_key, reverse=True)
         result["EXPIRY78"]["groups"] = engine_groups
