@@ -358,7 +358,6 @@ class AngelOneMarketDataAdapter(BrokerPollingAdapter):
                  poll_seconds: float = 3.0):
         super().__init__(account_id, hub, poll_seconds)
         self._credentials = dict(credentials)
-        self._credentials = dict(credentials)
         self.client = AngelSmartAPI(
             credentials["api_key"], account_id,
             client_local_ip=network["client_local_ip"],
