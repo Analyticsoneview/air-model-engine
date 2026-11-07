@@ -20,7 +20,7 @@ case "$ARCH" in x86_64|amd64) LABEL_ARCH="x64";; aarch64|arm64) LABEL_ARCH="ARM6
 if [[ "$OS" == "Linux" ]]; then
   [[ -f /etc/os-release ]] || fail "Cannot identify Linux distribution."
   . /etc/os-release
-  [[ "$ID" == "ubuntu" ]] || fail "This installer currently supports Ubuntu. Other Linux distributions need a matching package/service setup."
+  case "$ID" in ubuntu|debian|fedora|rhel|rocky|almalinux) ;; *) fail "Unsupported Linux distribution: $ID. Supported: Ubuntu, Debian, Fedora, RHEL, Rocky Linux and AlmaLinux." ;; esac
   LABELS='["self-hosted","linux","'"${LABEL_ARCH}"'","air"]'
   RUNNER_NAME="$(hostname)-air"
 elif [[ "$OS" == "Darwin" ]]; then
