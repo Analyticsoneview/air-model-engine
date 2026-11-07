@@ -407,6 +407,7 @@ class MarketInstrumentMapping(BaseModel):
     option_type: str | None = None
     lot_size: int | None = Field(default=None, ge=1)
     instrument_type: str | None = None
+    tick_size: str | None = None
 
 
 class MarketInstrumentMappingItem(BaseModel):
@@ -419,6 +420,7 @@ class MarketInstrumentMappingItem(BaseModel):
     option_type: str | None = None
     lot_size: int | None = Field(default=None, ge=1)
     instrument_type: str | None = None
+    tick_size: str | None = None
 
 
 class MarketInstrumentMappingBatch(BaseModel):
