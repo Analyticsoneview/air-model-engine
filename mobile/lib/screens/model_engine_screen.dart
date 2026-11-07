@@ -179,6 +179,16 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     return '$quantity qty';
   }
 
+  String _stopDisplay(Map<String, dynamic> r) {
+    final stop = _v(r, 'stop_loss');
+    final trailing = r['trailing_stop'];
+    final history = r['trail_history'];
+    if (trailing != null || (history is List && history.isNotEmpty)) {
+      return '$stop • TRAILED';
+    }
+    return stop;
+  }
+
   String _targets(Map<String, dynamic> r) {
     final values = [r['target_1'], r['target_2'], r['target_3']]
         .where((value) => value != null).map((value) => value.toString()).toList();
@@ -265,7 +275,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       _cell(_v(r, 'entry_price')),
       _cell(_v(r, 'latest_price')),
       _cell(_quantityLots(r)),
-      _cell(_v(r, 'stop_loss')),
+      _cell(_stopDisplay(r)),
       _cell(_targets(r)),
       _cell(_pnlDisplay(r)),
       _cell(dte == null ? '—' : '$dte calendar days'),
