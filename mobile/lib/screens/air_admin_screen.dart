@@ -368,7 +368,7 @@ class _AirAdminBrokerAccountsScreenState
 
   Future<void> _credentials(Map<String, dynamic> row) async {
     final broker = row['broker'].toString();
-    final fields = <String>{
+    final fields = <String, List<String>>{
       'dhan': ['client_id', 'access_token'],
       'zerodha': ['api_key', 'api_secret'],
       'upstox': ['client_id', 'client_secret', 'redirect_uri'],
