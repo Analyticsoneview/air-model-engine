@@ -1,4 +1,4 @@
-# AIR one-command self-hosted setup (Windows 10/11 and Ubuntu)
+# AIR one-command self-hosted setup (Windows 10/11 and Linux)
 
 The repository now includes a one-command setup utility. It uses your local GitHub CLI sign-in to request a short-lived runner token directly from GitHub, registers this PC, sets the CI runner label variable, waits for the runner to come online, then dispatches and watches the backend and Android workflows.
 
@@ -11,7 +11,7 @@ The repository now includes a one-command setup utility. It uses your local GitH
 - The first run opens GitHub browser authentication if `gh` is not already signed in. Complete that approval locally.
 - Do not paste any token into chat. AIR-SETUP requests and handles the short-lived runner token locally.
 
-## Run on Ubuntu 22.04/24.04
+## Run on Linux
 
 From the repository root, on branch `feat/air-telegram-alerts`:
 
@@ -22,7 +22,7 @@ chmod +x AIR-SETUP.sh
 
 The script requests elevation when it installs the runner service. It registers labels for Linux and CPU architecture, configures `AIR_CI_RUNNER_LABELS`, waits for Online status, then runs `backend-tests.yml` and `android-lab.yml` and waits for their results.
 
-The current Linux installer is Ubuntu-specific. Other Linux distributions are not yet supported by this installer.
+Supported Linux distributions are Ubuntu, Debian, Fedora, RHEL, Rocky Linux and AlmaLinux with systemd. Alpine, non-systemd installations and unlisted distributions are not supported by this installer.
 
 ## Run on Windows 10/11
 
