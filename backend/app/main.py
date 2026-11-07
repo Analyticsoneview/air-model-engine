@@ -119,10 +119,10 @@ def _market_adapter_for(operator_id: str, provider: str, account_id: str):
 
 @app.on_event("startup")
 async def start_air_qoc_jobs() -> None:
+    start_nse_data_jobs()
     await _restore_market_data_source_connections()
     start_qoc_scheduler()
     start_telegram_scheduler()
-    start_nse_data_jobs()
 
 
 async def _restore_market_data_source_connections() -> None:
@@ -996,11 +996,13 @@ async def market_data_historical(
 
 @app.get("/api/v1/market-data/status")
 async def market_data_status(customer_id: str = Depends(require_air_operator)) -> dict:
-    resolved = market_data_router.resolve("live")
-    provider_health = resolved[0][2].health() if resolved and hasattr(resolved[0][2], "health") else None
+    live = market_data_router.resolve("live")
+    historical = market_data_router.resolve("historical")
+    live_health = live[0][2].health() if live and hasattr(live[0][2], "health") else None
+    historical_health = historical[0][2].health() if historical and hasattr(historical[0][2], "health") else None
     return {
         "routing": market_data_router.status(),
-        "provider_health": provider_health,
+        "provider_health": {"live": live_health, "historical": historical_health},
         "stream": market_data_hub.status(),
         "note": "Historical and live channels can use different providers. Instrument subscriptions and fresh ticks must still be checked.",
     }
