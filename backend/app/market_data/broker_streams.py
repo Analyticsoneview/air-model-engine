@@ -45,6 +45,7 @@ class _NativeStreamMixin:
         self._last_stream_error = None
         self._stream_open = False
         self._stream_ready = False
+        self._stream_opened_at: datetime | None = None
 
     def _schedule_tick(self, tick: dict[str, Any]) -> None:
         if not self._loop or not tick.get("ltp"):
@@ -88,6 +89,12 @@ class _NativeStreamMixin:
 
     def health(self) -> dict[str, Any]:
         base = super().health()
+        if self._stream_open and self._symbols and not self._last_tick_at and self._stream_opened_at:
+            age = (datetime.now(timezone.utc) - self._stream_opened_at).total_seconds()
+            if age > 30:
+                base["feed_state"] = "stale"
+            else:
+                base["feed_state"] = "awaiting_first_tick"
         base.update({
             "feed_mode": "native_websocket",
             "websocket_open": self._stream_open,
