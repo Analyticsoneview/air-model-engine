@@ -23,7 +23,7 @@ async def _engine_for(customer_id: str) -> tuple[OrbSignalEngine, object]:
         service = await get_customer_market_data_service(customer_id)
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Market-data service unavailable: {type(exc).__name__}") from exc
-    engine = _engines.setdefault(customer_id, OrbSignalEngine(["NIFTY", "BANKNIFTY"]))
+    engine = _engines.setdefault(customer_id, OrbSignalEngine())
     hub = service.hub
     if id(hub) not in _attached_hubs:
         hub.add_listener(engine.on_tick)
