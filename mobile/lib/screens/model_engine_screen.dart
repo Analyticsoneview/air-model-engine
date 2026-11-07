@@ -122,7 +122,12 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       case 'SL': return 'SL HIT';
       case 'TARGETS': return 'TARGET HIT';
       case 'EXPIRED': return 'EXPIRED';
-      case 'RECOVERED_WATCH': return '👀 RECOVERED WATCH';
+      case 'RECOVERED_WATCH':
+        final outcome = (r['recovered_outcome'] ?? '').toString().toUpperCase();
+        if (outcome == 'TARGET_FIRST') return '👀 RECOVERED • TARGET HIT';
+        if (outcome == 'STOP_FIRST') return '👀 RECOVERED • SL HIT';
+        if (outcome == 'EXPIRY_SETTLEMENT') return '👀 RECOVERED • EXPIRY';
+        return '👀 RECOVERED WATCH';
       default: return _v(r, 'classification');
     }
   }
