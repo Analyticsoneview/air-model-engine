@@ -146,6 +146,16 @@ async def _market_data_health_loop() -> None:
         await asyncio.sleep(max(3.0, float(os.getenv("AIR_MARKET_HEALTH_INTERVAL_SECONDS", "5"))))
 
 
+def _broker_master_headers(operator_id: str, provider: str, account_id: str) -> dict[str, str] | None:
+    if provider != "zerodha":
+        return None
+    credentials = get_vault().get(operator_id, provider, account_id)
+    api_key, access_token = credentials.get("api_key"), credentials.get("access_token")
+    if not api_key or not access_token:
+        raise ValueError("Zerodha API key/access token required to download the authenticated instrument master")
+    return {"Authorization": f"token {api_key}:{access_token}", "X-Kite-Version": "3"}
+
+
 async def _broker_master_refresh_loop() -> None:
     """Refresh configured broker masters once per NSE trading date at 07:00 IST."""
     from zoneinfo import ZoneInfo
@@ -166,7 +176,8 @@ async def _broker_master_refresh_loop() -> None:
                         if account.broker not in {"dhan", "zerodha", "upstox", "fyers", "angelone"}:
                             continue
                         try:
-                            await refresher.refresh(account.broker, account.account_id)
+                            headers = _broker_master_headers(operator_id, account.broker, account.account_id)
+                            await refresher.refresh(account.broker, account.account_id, headers=headers)
                         except Exception:
                             # Preserve the previous known-good master and report failure in status.
                             continue
@@ -1296,7 +1307,8 @@ async def refresh_broker_masters(operator_id: str = Depends(require_air_operator
             if account.broker not in {"dhan", "zerodha", "upstox", "fyers", "angelone"}:
                 continue
             try:
-                results.append(await refresher.refresh(account.broker, account.account_id))
+                headers = _broker_master_headers(operator_id, account.broker, account.account_id)
+                results.append(await refresher.refresh(account.broker, account.account_id, headers=headers))
             except Exception as exc:
                 results.append({"provider": account.broker, "account_id": account.account_id,
                                 "status": "FAILED", "error_type": type(exc).__name__})
