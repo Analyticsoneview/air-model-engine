@@ -1,4 +1,7 @@
-from app.model_engine_physical_settlement import build_physical_settlement_review
+from app.model_engine_physical_settlement import (
+    build_physical_settlement_review,
+    classify_stock_option_delivery,
+)
 
 
 def test_expiry78_physical_settlement_cohort_is_provisional_until_underlying_close():
@@ -25,3 +28,12 @@ def test_long_stock_option_delivery_direction_and_strike_notional():
     assert result["summary"]["take_delivery_share_quantity_if_all_calls_itm"] == 7025
     assert result["summary"]["give_delivery_share_quantity_if_all_puts_itm"] == 9300
     assert result["summary"]["gross_strike_value_exposure_if_all_itm"] == 7770725.0
+
+
+
+def test_full_long_short_call_put_delivery_matrix_and_otm():
+    assert classify_stock_option_delivery("CE", "LONG_OPTION", 100, 110, 50)["delivery_direction"] == "TAKE_SHARES"
+    assert classify_stock_option_delivery("CE", "SHORT_OPTION", 100, 110, 50)["delivery_direction"] == "GIVE_SHARES"
+    assert classify_stock_option_delivery("PE", "LONG_OPTION", 100, 90, 50)["delivery_direction"] == "GIVE_SHARES"
+    assert classify_stock_option_delivery("PE", "SHORT_OPTION", 100, 90, 50)["delivery_direction"] == "TAKE_SHARES"
+    assert classify_stock_option_delivery("CE", "LONG_OPTION", 100, 95, 50)["delivery_direction"] == "NO_DELIVERY"
