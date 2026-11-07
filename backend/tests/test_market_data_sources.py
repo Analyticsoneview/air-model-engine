@@ -114,12 +114,11 @@ class MarketDataRouterTests(unittest.IsolatedAsyncioTestCase):
 
         primary = HealthAdapter("stale")
         backup = HealthAdapter("connected")
-        backup.provider_code = "backup"
         router.register("primary-account", primary)
         router.register("backup-account", backup)
         await router.set_source("live", "fake", "primary-account")
         await router.configure_failover(
-            "live", [("backup", "backup-account")], enabled=True
+            "live", [("fake", "backup-account")], enabled=True
         )
         result = await router.check_health("live")
         self.assertEqual(result["failover"], "switched")
