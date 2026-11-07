@@ -135,13 +135,14 @@ class BrokerMasterRefresher:
         configured = json.loads(os.getenv("AIR_BROKER_MASTER_URLS", "{}"))
         return str(configured.get(provider) or DEFAULT_MASTER_URLS.get(provider) or "").strip()
 
-    async def refresh(self, provider: str, account_id: str) -> dict[str, Any]:
+    async def refresh(self, provider: str, account_id: str,
+                      headers: dict[str, str] | None = None) -> dict[str, Any]:
         provider = provider.strip().lower()
         url = self.url_for(provider)
         if not url:
             return {"provider": provider, "account_id": account_id,
                     "status": "NOT_CONFIGURED", "reason": "official_master_url_not_configured"}
-        response = await self.client.get(url)
+        response = await self.client.get(url, headers=headers)
         response.raise_for_status()
         rows = parse_master(provider, response.content, url.split("?")[0])
         # Validate first, then atomically replace the snapshot. A failed or tiny
