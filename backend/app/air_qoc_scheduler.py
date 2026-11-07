@@ -23,6 +23,7 @@ from app.brokers.dhan import DhanHQClient, DhanAPIError
 from app.brokers.customer_accounts import CustomerAccountDirectory
 from app.credential_vault import CredentialVault
 from app.air_qoc_universe import DETAILED_MASTER_URL, parse_dhan_instrument_master
+from app.market_data.runtime import market_data_router, market_data_instruments, market_data_service
 import httpx
 
 log = logging.getLogger("air.qoc.scheduler")
@@ -165,6 +166,75 @@ async def capture_dhan_eod_snapshots(*, force: bool = False) -> dict:
         accounts.close()
 
 
+async def capture_selected_provider_option_chains(*, force: bool = False) -> dict:
+    """Capture option-chain observations using the selected normalized live provider.
+
+    Non-Dhan providers must have their official F&O instrument master imported into
+    AIR's provider/account-scoped instrument directory. Dhan keeps its dedicated
+    exchange option-chain endpoint as the fallback where no complete master exists.
+    """
+    if not force and os.getenv("AIR_QOC_SCHEDULER_ENABLED", "false").lower() != "true":
+        return {"status": "disabled"}
+    source = market_data_router.resolve("live")
+    if not source:
+        raise RuntimeError("No connected live market-data provider is selected")
+    provider, account_id, _adapter = source[0]
+    mappings = market_data_instruments.list_all(provider, account_id, limit=50000)
+    if not mappings and provider == "dhan":
+        return await capture_dhan_eod_snapshots(force=force)
+    option_rows = [row for row in mappings
+                   if str(row.get("option_type") or "").upper() in {"CE", "PE"}
+                   and row.get("expiry")]
+    groups: dict[tuple[str, str], list[dict]] = {}
+    for row in option_rows:
+        groups.setdefault((str(row["symbol"]).upper(), str(row["expiry"])[:10]), []).append(row)
+    if not groups:
+        raise RuntimeError(
+            f"No F&O instrument master is loaded for {provider}/{account_id}; "
+            "import the provider's official instrument master first."
+        )
+    store = AirQocStore()
+    captured = errors = 0
+    failed = []
+    try:
+        for (symbol, expiry), rows in sorted(groups.items()):
+            try:
+                snapshot = await market_data_service.option_chain_snapshot(
+                    symbol, expiry, wait_seconds=float(os.getenv("AIR_QOC_LIVE_WAIT_SECONDS", "4")))
+                underlying_segment = "IDX_I" if any(
+                    "INDEX" in str(row.get("instrument_type") or "").upper()
+                    for row in rows) else "NSE_FNO"
+                captured += store.save_option_chain(
+                    provider=provider, account_id=account_id,
+                    underlying_scrip=symbol, underlying_segment=underlying_segment,
+                    expiry=expiry, underlying_price=snapshot.get("underlying_price"),
+                    observed_at=snapshot["observed_at"], chain=snapshot["chain"],
+                )
+            except Exception as exc:
+                errors += 1
+                failed.append({"symbol": symbol, "expiry": expiry,
+                               "error_type": type(exc).__name__})
+                log.exception("AIR option-chain capture failed for %s %s", symbol, expiry)
+        expiry_scan = scan_expiries(
+            store, provider=provider, account_id=account_id,
+            max_dte=int(os.getenv("AIR_EXPIRYSCAN_MAX_DTE", "45")),
+            limit=int(os.getenv("AIR_EXPIRYSCAN_MAX_ROWS", "2000")),
+        )
+        return {
+            "status": "completed_with_errors" if errors else "completed",
+            "provider": provider, "account_id": account_id,
+            "underlying_expiry_groups": len(groups),
+            "contract_observations": captured, "failed_groups": failed,
+            "expiry_scan": {"contracts": expiry_scan["total_contracts"],
+                            "survivors_0_7_dte": expiry_scan["survivor_count"],
+                            "expired": expiry_scan["expired_count"]},
+            "observed_at": datetime.now(IST).isoformat(),
+            "classification": "DATA_CAPTURE_ONLY_NOT_A_SIGNAL",
+        }
+    finally:
+        store.close()
+
+
 _scheduler: AsyncIOScheduler | None = None
 
 
@@ -177,15 +247,15 @@ def start_qoc_scheduler() -> None:
         return
     _scheduler = AsyncIOScheduler(timezone=IST)
     _scheduler.add_job(
-        capture_dhan_eod_snapshots,
-        CronTrigger(hour=15, minute=45, day_of_week="mon-fri", timezone=IST),
-        id="air-qoc-dhan-eod-snapshots",
+        capture_selected_provider_option_chains,
+        CronTrigger(hour=15, minute=20, day_of_week="mon-fri", timezone=IST),
+        id="air-qoc-selected-provider-eod-snapshots",
         replace_existing=True,
         max_instances=1,
         coalesce=True,
     )
     _scheduler.start()
-    log.info("AIR QOC Dhan snapshot scheduler enabled for 15:45 IST weekdays")
+    log.info("AIR QOC selected-provider snapshot scheduler enabled for 15:20 IST weekdays")
 
 
 def stop_qoc_scheduler() -> None:
