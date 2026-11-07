@@ -849,7 +849,7 @@ async def market_data_status(customer_id: str = Depends(require_air_operator)) -
         "routing": market_data_router.status(),
         "provider_health": provider_health,
         "stream": market_data_hub.status(),
-        "note": "Feed state reflects the selected Main Account adapter. Instrument subscriptions and fresh ticks must still be checked.",
+        "note": "Historical and live channels can use different providers. Instrument subscriptions and fresh ticks must still be checked.",
     }
 
 
@@ -903,7 +903,7 @@ async def operator_market_data_sources(
         "providers": market_data_sources.catalog(),
         "selections": market_data_sources.selections(),
         "runtime": market_data_router.status(),
-        "channels": ["historical", "live", "option_chain"],
+        "channels": ["historical", "live"],
         "note": "Historical and live sources are selected independently. Only providers with verified adapters can be enabled; catalog entries are not a claim of a working adapter.",
     }
 
