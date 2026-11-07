@@ -37,6 +37,36 @@ def _has_strategy_membership(row: dict, strategy: str) -> bool:
     return strategy.upper().replace(" ", "") in normalized
 
 
+def _strategy_rows_for_customer(customer_id: str, limit: int) -> list[dict]:
+    """Share the operator-published strategy feed while retaining tenant overrides."""
+    publishers = [
+        value.strip() for value in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",")
+        if value.strip()
+    ]
+    publisher_id = publishers[0] if publishers else customer_id
+    published = _ledger.list_signals(publisher_id, limit)
+    if publisher_id == customer_id:
+        return published
+    customer_rows = _strategy_rows_for_customer(customer_id, limit)
+    merged = {str(row.get("signal_id")): row for row in published}
+    # Tenant-owned records override the published baseline only for that tenant.
+    for row in customer_rows:
+        merged[str(row.get("signal_id"))] = row
+    return list(merged.values())[:limit]
+
+
+async def _customer_market_data_service(customer_id: str):
+    try:
+        return await _customer_market_data_service(customer_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Customer market-data source is unavailable: {type(exc).__name__}",
+        ) from exc
+
+
 def _is_operator_customer(customer_id: str) -> bool:
     allowed = {x.strip() for x in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",") if x.strip()}
     if customer_id in allowed:
@@ -131,7 +161,7 @@ async def get_model_engine_master(
 ) -> dict:
     """Canonical MASTER view over verified persisted signals."""
     customer_service = await get_customer_market_data_service(customer_id)
-    rows = await customer_service.hydrate_strategy_rows(_ledger.list_signals(customer_id, limit), max_contracts=2000)
+    rows = await customer_service.hydrate_strategy_rows(_strategy_rows_for_customer(customer_id, limit), max_contracts=2000)
     # Valid past-expiry observations from EXPIRYSCAN also belong in EXPIRED.
     try:
         scan = await _expiry_scan_for_customer(customer_id, max_dte=45, limit=2000)
