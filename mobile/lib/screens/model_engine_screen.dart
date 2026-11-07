@@ -20,6 +20,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   Map<String, dynamic> _summary = {};
   Map<String, dynamic> _breakdowns = {};
   List<Map<String, dynamic>> _expiryRows = [];
+  List<Map<String, dynamic>> _expiryAlerts = [];
   String? _expiryNote;
   int _selected = 0;
   bool _authenticated = false, _loading = false;
@@ -57,6 +58,8 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
         _strategies = result['strategies'] as Map<String, dynamic>? ?? {};
         if (expiryResult != null) {
           _expiryRows = (expiryResult['rows'] as List<dynamic>? ?? const [])
+              .whereType<Map<String, dynamic>>().toList();
+          _expiryAlerts = (expiryResult['close_alerts'] as List<dynamic>? ?? const [])
               .whereType<Map<String, dynamic>>().toList();
           _expiryNote = expiryResult['note']?.toString();
         }
@@ -297,6 +300,21 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
           ],
           if (_sections[_selected] == 'WAIT' && !strategySelected) Padding(padding: const EdgeInsets.all(8), child: Text('WAIT is reserved for candidates explicitly marked pending by a verified workflow. Missing data is never treated as WAIT.', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant))),
           if (expirySelected && _expiryNote != null) Padding(padding: const EdgeInsets.all(8), child: Text(_expiryNote!, style: const TextStyle(fontSize: 11))),
+          if (expirySelected && _expiryAlerts.isNotEmpty) Card(child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('EXPIRYSCAN • CLOSE-BEFORE-EXPIRY REMINDERS', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11)),
+              const SizedBox(height: 6),
+              ..._expiryAlerts.map((r) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Text(
+                  '${r['symbol']} ${r['option_type']} ${r['strike']} • Expiry ${r['expiry']} • Review/close before expiry',
+                  style: TextStyle(fontSize: 10, color: cs.error, fontWeight: FontWeight.w700),
+                ),
+              )),
+              const Text('Reminder is shown on the prior weekday when the app refreshes. Exchange holidays are not yet calendar-adjusted. No order is placed.', style: TextStyle(fontSize: 9)),
+            ]),
+          )),
           if (expirySelected && _expiryRows.isNotEmpty) Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal,
             child: DataTable(columns: const [
               DataColumn(label: Text('CLASSIFICATION')), DataColumn(label: Text('PRIORITY')), DataColumn(label: Text('UNDERLYING ID')),
