@@ -641,6 +641,8 @@ async def customer_select_market_data_account(
         )
         await invalidate_customer_market_data_service(customer_id)
         return {"selection": row, "effective_source": "BROKER"}
+    except KeyError as exc:
+        raise HTTPException(status_code=409, detail="Broker credentials have not been saved") from exc
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
@@ -689,6 +691,8 @@ async def operator_set_customer_market_data_selection(
         )
         await invalidate_customer_market_data_service(target_customer_id)
         return {"selection": row, "access": account_directory.get_market_data_access(target_customer_id)}
+    except KeyError as exc:
+        raise HTTPException(status_code=409, detail="Broker credentials have not been saved") from exc
     except (PermissionError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
