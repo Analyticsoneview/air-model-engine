@@ -54,11 +54,13 @@ def _charges(trade: dict[str, Any], quantity: float, entry: float,
                 "basis": "ACTUAL_REPORTED_TOTAL_BREAKDOWN_UNAVAILABLE"}
 
     buy_turnover = entry * quantity
-    exercised = str(trade.get("exit_reason") or "").upper() == "EXPIRY_INTRINSIC_SETTLEMENT"
-    sell_turnover = 0.0 if exercised else exit_price * quantity
+    expiry_settlement = str(trade.get("exit_reason") or "").upper().startswith("EXPIRY_INTRINSIC")
+    exercised = expiry_settlement and exit_price > 0
+    sell_turnover = 0.0 if expiry_settlement else exit_price * quantity
     turnover = buy_turnover + sell_turnover
-    # SEBI guidance: brokerage is not levied on expiry exercise/assignment.
-    brokerage = (1 if exercised else 2) * RATES["brokerage_per_order"]
+    # SEBI guidance: brokerage is not levied on expiry exercise/assignment;
+    # an OTM worthless expiry also has no closing sell order.
+    brokerage = (1 if expiry_settlement else 2) * RATES["brokerage_per_order"]
     exchange = turnover * RATES["nse_options_transaction"]
     sebi = turnover * RATES["sebi_turnover"]
     stamp = buy_turnover * RATES["stamp_buy"]
@@ -67,6 +69,8 @@ def _charges(trade: dict[str, Any], quantity: float, entry: float,
         stt_rate = (RATES["stt_exercise_from_2026_04_01"] if date.fromisoformat(exit_day) >= cutoff
                     else RATES["stt_exercise_before_2026_04_01"])
         stt = exit_price * quantity * stt_rate
+    elif expiry_settlement:
+        stt = 0.0
     else:
         stt_rate = (RATES["stt_sell_from_2026_04_01"] if date.fromisoformat(exit_day) >= cutoff
                     else RATES["stt_sell_before_2026_04_01"])
