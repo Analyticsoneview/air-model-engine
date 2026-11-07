@@ -53,7 +53,9 @@ class TelegramNotificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(first["sent"], 2)
         self.assertEqual(second["sent"], 0)
         self.assertEqual(len(FakeClient.sent), 2)
-        self.assertTrue(all("AIR EXPIRY78" in item[1]["text"] for item in FakeClient.sent))
+        self.assertTrue(all("AIR STRATEGY:</b> EXPIRY78" in item[1]["text"] for item in FakeClient.sent))
+        self.assertTrue(all("PRICE LEVELS" in item[1]["text"] for item in FakeClient.sent))
+        self.assertTrue(all(item[1]["parse_mode"] == "HTML" for item in FakeClient.sent))
 
     async def test_expiryscan_message_is_not_misrepresented_as_qoc_trade(self):
         FakeClient.sent = []
@@ -71,6 +73,19 @@ class TelegramNotificationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(FakeClient.sent), 1)
         self.assertIn("Liquidity-screen pass only", FakeClient.sent[0][1]["text"])
+        self.assertIn("SCREEN PASSED", FakeClient.sent[0][1]["text"])
+
+
+    def test_recovered_is_explicitly_watch_only_and_escaped(self):
+        message = telegram._format_message("RECOVERED", {
+            "symbol": "TEST<STOCK>", "option_type": "CE", "strike": 100,
+            "expiry": "2026-12-31", "entry_price": 12.5, "stop_loss": 10,
+            "target_1": 20, "reason": "Post-stop recovery",
+        })
+        self.assertIn("WATCH ONLY", message)
+        self.assertIn("NOT a live position", message)
+        self.assertIn("TEST&lt;STOCK&gt;", message)
+        self.assertIn("🎯 Target 1", message)
 
     def test_settings_supports_docker_secret_file(self):
         with tempfile.TemporaryDirectory() as folder:
