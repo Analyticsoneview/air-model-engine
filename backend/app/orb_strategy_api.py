@@ -51,9 +51,13 @@ async def orb_subscribe(body: OrbSubscribeRequest,
     engine, service = await _engine_for(customer_id)
     instruments: list[MarketInstrument] = []
     missing = []
+    live_source = service.router.resolve("live")
+    if not live_source:
+        raise HTTPException(status_code=503, detail="A verified live broker feed is required for ORB. NSE EOD is not a live feed.")
+    live_adapter = live_source[0][2]
     for symbol in symbols:
         try:
-            matches = await service.search_instruments(symbol, limit=500)
+            matches = await live_adapter.search_instruments(symbol, limit=500)
             exact = [item for item in matches
                      if item.symbol.upper() == symbol
                      or (item.underlying_symbol or "").upper() == symbol]
