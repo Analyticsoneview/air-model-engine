@@ -23,7 +23,7 @@ The bootstrap status includes the number of sessions checked, partial sessions d
 
 ## Expired-contract strategy and P&L history
 
-The active FO table contains only contracts that have not passed their expiry date. Expired contracts are removed after the daily import cycle. Strategy records are stored separately in the AIR Model Engine ledger and are not subject to NSE FO cleanup. Strategy replays must persist the verified contract bars, entry/exit details, quantity and expiry valuation in the strategy evidence/ledger before relying on them for historical reporting. The P&L calendar returns expired trade history separately and classifies known expiry outcomes as win, loss or breakeven; unknown quantity/valuation remains pending rather than being estimated.
+The active FO table contains only contracts that have not passed their expiry date. Before expired rows are removed, AIR matches them to existing strategy ledger signals by symbol, expiry, strike and CE/PE, and snapshots missing daily option bars into each matching signal's `evidence.daily_option_bars`. The snapshot adds OHLC, traded quantity and underlying close through expiry. It does not overwrite the signal lifecycle, entry/exit fields, quantity or existing P&L values. If no matching strategy signal exists, original NSE ZIPs remain available for later reprocessing. The P&L calendar returns expired trade history separately and classifies known expiry outcomes as win, loss or breakeven; unknown quantity/valuation remains pending rather than being estimated.
 
 ## Data included
 
