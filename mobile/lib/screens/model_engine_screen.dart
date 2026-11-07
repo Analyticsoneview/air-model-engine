@@ -184,7 +184,14 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     final trailing = r['trailing_stop'];
     final history = r['trail_history'];
     if (trailing != null || (history is List && history.isNotEmpty)) {
-      return '$stop • TRAILED';
+      if (history is List && history.isNotEmpty && history.last is Map) {
+        final last = history.last as Map;
+        final milestone = last['milestone_gain_pct'];
+        final locked = last['locked_gain_pct'];
+        final steps = history.length;
+        return '$stop • 🔒 +${milestone ?? '—'}% HIT • LOCK +${locked ?? '—'}% • ${steps} STEP(S)';
+      }
+      return '$stop • 🔒 TRAILED';
     }
     return stop;
   }
@@ -253,7 +260,13 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     final entryStatus = entry is Map ? (entry['status']?.toString() ?? 'UNKNOWN') : 'UNKNOWN';
     final distance = current['distance_to_strike_pct'];
     final dte = current['days_to_expiry'];
-    final parts = <String>['$icon $status', 'Setup: $setupStatus', 'Entry: $entryStatus'];
+    final qualified = current['qualified'] == true;
+    final parts = <String>[
+      '$icon $status',
+      if (qualified) '🟢 PHYSICAL SETTLEMENT QUALIFIED',
+      'Setup: $setupStatus',
+      'Entry: $entryStatus',
+    ];
     if (distance != null) parts.add('Strike gap: $distance%');
     if (dte != null) parts.add('DTE: $dte');
     return parts.join(' • ');
