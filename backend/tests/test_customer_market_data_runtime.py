@@ -68,11 +68,9 @@ class CustomerMarketDataRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(status["fallback_active"])
         accounts.close()
 
-    async def test_selected_broker_without_paid_entitlement_stays_on_nse(self):
+    async def test_standard_customer_defaults_to_nse_without_broker_selection(self):
         accounts = CustomerAccountDirectory(":memory:")
         accounts.add(CustomerTradingAccount("standard-2", "dhan", "D002"))
-        accounts.set_market_data_access("standard-2", "PAID", True)
-        accounts.set_market_data_selection("standard-2", "dhan", "D002")
         accounts.set_market_data_access("standard-2", "STANDARD", False)
         runtime = CustomerMarketDataRuntime(
             accounts, None,
@@ -83,9 +81,9 @@ class CustomerMarketDataRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(service.router.resolve("historical")[0][0:2],
                          ("nse_bhavcopy", "official"))
         status = service.customer_market_data_status
-        self.assertEqual(status["connection_status"], "not_entitled")
-        self.assertEqual(status["fallback_reason"], "paid_entitlement_required")
-        self.assertTrue(status["fallback_active"])
+        self.assertEqual(status["connection_status"], "not_requested")
+        self.assertIsNone(status["requested_source"])
+        self.assertFalse(status["fallback_active"])
         accounts.close()
 
     async def test_non_paid_customer_cannot_activate_assigned_broker(self):
