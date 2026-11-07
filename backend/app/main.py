@@ -175,20 +175,19 @@ async def _broker_master_refresh_loop() -> None:
         if now.weekday() < 5 and now.hour >= 7 and last_run != now.date():
             refresher = BrokerMasterRefresher(market_data_instruments)
             try:
-                for operator_id in {
-                    value.strip() for value in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",")
-                    if value.strip()
-                }:
-                    accounts = account_directory.list_for_customer(operator_id)
-                    for account in accounts:
-                        if account.broker not in {"dhan", "zerodha", "upstox", "fyers", "angelone"}:
-                            continue
-                        try:
-                            headers = _broker_master_headers(operator_id, account.broker, account.account_id)
-                            await refresher.refresh(account.broker, account.account_id, headers=headers)
-                        except Exception:
-                            # Preserve the previous known-good master and report failure in status.
-                            continue
+                # Refresh every assigned customer's broker-specific master, not only
+                # the operator's account. Tokens and master snapshots remain account-scoped.
+                for account in account_directory.list_all():
+                    if account.broker not in {"dhan", "zerodha", "upstox", "fyers", "angelone"}:
+                        continue
+                    try:
+                        headers = _broker_master_headers(
+                            account.customer_id, account.broker, account.account_id
+                        )
+                        await refresher.refresh(account.broker, account.account_id, headers=headers)
+                    except Exception:
+                        # Preserve the previous known-good master and report failure in status.
+                        continue
             finally:
                 await refresher.close()
             last_run = now.date()
