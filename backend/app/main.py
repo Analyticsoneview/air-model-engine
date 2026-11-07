@@ -27,7 +27,7 @@ from app.market_data.contracts import MarketInstrument
 from app.market_data.runtime import (market_data_router, market_data_hub, market_data_sources, market_data_instruments, market_data_service, execution_policy)
 from app.market_data.service import set_default_market_data_service
 from app.market_data.master_refresh import BrokerMasterRefresher
-from app.market_data.customer_runtime import (configure_customer_market_data_runtime, invalidate_customer_market_data_service, close_customer_market_data_runtimes)
+from app.market_data.customer_runtime import (configure_customer_market_data_runtime, invalidate_customer_market_data_service, close_customer_market_data_runtimes, get_customer_market_data_status)
 from app.air_qoc_dhan import router as air_qoc_dhan_router
 from app.model_engine_api import router as model_engine_router
 from app.air_qoc_scheduler import start_qoc_scheduler, stop_qoc_scheduler, capture_dhan_eod_snapshots, capture_selected_provider_option_chains
@@ -675,16 +675,15 @@ async def customer_select_market_data_account(
         access = account_directory.get_market_data_access(customer_id)
         if access["tier"] != "PAID" or not access["broker_data_enabled"]:
             raise PermissionError("Broker market data requires an enabled paid entitlement")
-        get_vault().get(customer_id, selection.provider.lower(), selection.account_id)
-        await _verify_customer_market_data_connection(
-            customer_id, selection.provider.lower(), selection.account_id
-        )
         row = account_directory.set_market_data_selection(
             customer_id, selection.provider, selection.account_id
         )
         await invalidate_customer_market_data_service(customer_id)
         start_qoc_scheduler(force=True)
-        return {"selection": row, "effective_source": "BROKER"}
+        return {
+            "selection": row,
+            "market_data_source": await get_customer_market_data_status(customer_id),
+        }
     except KeyError as exc:
         raise HTTPException(status_code=409, detail="Broker credentials have not been saved") from exc
     except PermissionError as exc:
@@ -730,17 +729,17 @@ async def operator_set_customer_market_data_selection(
     if (selection.provider.lower(), selection.account_id) not in owned:
         raise HTTPException(status_code=404, detail="Broker account is not assigned to this customer")
     try:
-        get_vault().get(target_customer_id, selection.provider.lower(), selection.account_id)
-        await _verify_customer_market_data_connection(
-            target_customer_id, selection.provider.lower(), selection.account_id
-        )
         account_directory.set_market_data_access(target_customer_id, "PAID", True)
         row = account_directory.set_market_data_selection(
             target_customer_id, selection.provider, selection.account_id
         )
         await invalidate_customer_market_data_service(target_customer_id)
         start_qoc_scheduler(force=True)
-        return {"selection": row, "access": account_directory.get_market_data_access(target_customer_id)}
+        return {
+            "selection": row,
+            "access": account_directory.get_market_data_access(target_customer_id),
+            "market_data_source": await get_customer_market_data_status(target_customer_id),
+        }
     except KeyError as exc:
         raise HTTPException(status_code=409, detail="Broker credentials have not been saved") from exc
     except (PermissionError, ValueError) as exc:
