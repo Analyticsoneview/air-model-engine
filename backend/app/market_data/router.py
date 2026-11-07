@@ -22,6 +22,14 @@ class MarketDataRouter:
         self._lock = asyncio.Lock()
         self._connection_state = {"historical": "not_configured", "live": "not_configured"}
         self._last_error: dict[str, str | None] = {"historical": None, "live": None}
+        self._fallback_accounts: dict[str, tuple[str, str] | None] = {
+            "historical": None, "live": None,
+        }
+        self._primary_accounts: dict[str, tuple[str, str] | None] = {
+            "historical": None, "live": None,
+        }
+        self._failover_enabled = {"historical": False, "live": False}
+        self._failover_events: list[dict] = []
         self._failover_enabled = {"historical": False, "live": False}
         self._failover_events: list[dict] = []
         self._forced_unhealthy: dict[str, str | None] = {"historical": None, "live": None}
@@ -55,6 +63,8 @@ class MarketDataRouter:
                 if not shared:
                     await self._adapters[key].authenticate(key[1])
                 self._channel_accounts[channel] = key
+                if self._primary_accounts[channel] is None or self._primary_accounts[channel] == previous:
+                    self._primary_accounts[channel] = key
                 self._connection_state[channel] = "connected"
                 self._last_error[channel] = None
             except Exception as exc:
@@ -140,6 +150,9 @@ class MarketDataRouter:
         async with self._lock:
             previous = self._channel_accounts[channel]
             self._channel_accounts[channel] = None
+            self._primary_accounts[channel] = None
+            self._fallback_accounts[channel] = None
+            self._failover_enabled[channel] = False
             self._connection_state[channel] = "not_configured"
             self._last_error[channel] = None
             if previous and previous not in self._channel_accounts.values():
@@ -158,6 +171,57 @@ class MarketDataRouter:
                 if self._channel_accounts[channel] == key:
                     await self.clear_source(channel)
         self._bindings[key] = ProviderBinding(*key, enabled=enabled)
+
+    def configure_failover(self, channel: Literal["historical", "live"],
+                           provider: str | None, account_id: str | None,
+                           enabled: bool) -> None:
+        if channel not in ("historical", "live"):
+            raise ValueError("Unsupported data channel")
+        if enabled and (not provider or not account_id):
+            raise ValueError("Fallback provider and account are required")
+        fallback = (provider.strip().lower(), account_id.strip()) if enabled else None
+        if fallback and fallback not in self._adapters:
+            raise ValueError("Fallback adapter must be registered and authenticated first")
+        self._fallback_accounts[channel] = fallback
+        self._failover_enabled[channel] = bool(enabled)
+
+    async def check_health(self) -> dict:
+        """Check active channels and switch to configured fallback on feed failure."""
+        results = {}
+        for channel in ("historical", "live"):
+            key = self._channel_accounts[channel]
+            if key is None:
+                results[channel] = {"state": "not_configured", "failover": "not_applicable"}
+                continue
+            adapter = self._adapters[key]
+            health = adapter.health() if hasattr(adapter, "health") else {"feed_state": "connected"}
+            state = str(health.get("feed_state", "connected")).lower()
+            failed = state in {"error", "outage", "degraded", "stale", "disconnected"}
+            if failed and self._failover_enabled[channel]:
+                fallback = self._fallback_accounts[channel]
+                if fallback and fallback != key and fallback in self._adapters:
+                    try:
+                        await self._adapters[fallback].authenticate(fallback[1])
+                        self._channel_accounts[channel] = fallback
+                        self._connection_state[channel] = "connected"
+                        event = {
+                            "channel": channel, "from": {"provider": key[0], "account_id": key[1]},
+                            "to": {"provider": fallback[0], "account_id": fallback[1]},
+                            "reason": state, "at": asyncio.get_running_loop().time(),
+                        }
+                        self._failover_events.append(event)
+                        self._failover_events = self._failover_events[-50:]
+                        if key not in self._channel_accounts.values():
+                            await adapter.close()
+                        results[channel] = {"state": "failed_over", "primary_health": health,
+                                             "active": {"provider": fallback[0], "account_id": fallback[1]}}
+                        continue
+                    except Exception as exc:
+                        self._last_error[channel] = f"Failover failed: {type(exc).__name__}"
+            results[channel] = {"state": state, "health": health,
+                                "failover_enabled": self._failover_enabled[channel],
+                                "fallback": self._fallback_accounts[channel]}
+        return results
 
     def resolve(self, channel: Literal["historical", "live"]) -> list[tuple[str, str, MarketDataAdapter]]:
         if channel not in ("historical", "live"):
