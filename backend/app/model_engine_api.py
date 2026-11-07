@@ -16,6 +16,7 @@ from app.expiry_case_study_27oct2026 import historical_expired_contracts
 from app.air_qoc_store import AirQocStore
 from app.brokers.customer_accounts import CustomerAccountDirectory
 from app.security import require_customer
+from app.telegram_notifications import notify_candidates, send_telegram_message
 
 router = APIRouter(prefix="/api/v1/model-engine", tags=["AIR Model Engine"])
 _ledger = ModelEngineLedger()
@@ -299,7 +300,9 @@ async def get_original366_engine(
         if str(row.get("classification") or "").upper() == "NEW"
         and _has_strategy_membership(row, "ORIGINAL366")
     ]
+    telegram_delivery = await notify_candidates("RECOVERED", recovered_groups["OPEN"])
     return {
+        "telegram_notifications": telegram_delivery,
         "strategy": "RECOVERED",
         "cohort_id": "ORIGINAL366",
         "as_of": as_of,
@@ -368,7 +371,12 @@ async def get_expiry78_engine(
     ]
     new_trades = [trade for trade in trades if trade.get("classification") == "NEW"]
     hold_trades = [trade for trade in trades if trade.get("classification") == "HOLD"]
+    telegram_rows = new_trades + hold_trades + verified_reentries + [
+        trade for trade in trades if trade.get("classification") in ("SL", "EXPIRED")
+    ]
+    telegram_delivery = await notify_candidates("EXPIRY78", telegram_rows)
     return {
+        "telegram_notifications": telegram_delivery,
         "strategy": "EXPIRY78",
         "as_of": as_of,
         "rules": EXPIRY78_RULES,
@@ -399,7 +407,13 @@ async def get_expiry_scan(
     customer_id: str = Depends(require_customer),
 ) -> dict:
     """Read-only scan of captured Dhan option-chain observations owned by this customer."""
-    return _expiry_scan_for_customer(customer_id, max_dte=max_dte, limit=limit)
+    result = _expiry_scan_for_customer(customer_id, max_dte=max_dte, limit=limit)
+    # This endpoint currently produces a liquidity-screen pass, not a full QOC
+    # trade qualification. Telegram labels these notifications accordingly.
+    qualified = [row for row in result.get("rows", [])
+                 if row.get("scan_status") == "LIQUIDITY_SCREEN_PASSED"]
+    result["telegram_notifications"] = await notify_candidates("EXPIRYSCAN", qualified)
+    return result
 
 
 @router.get("/physical-settlement")
@@ -428,3 +442,17 @@ async def get_model_engine_pnl_calendar(
     physical_review = build_physical_settlement_review()
     return build_pnl_calendar(master.get("strategies") or {},
                               physical_review=physical_review, year=year, month=month)
+
+
+@router.post("/telegram/test")
+async def test_air_telegram_notifications(
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    """Send a test message to all configured AIR Telegram destinations."""
+    result = await send_telegram_message(
+        "AIR Model Engine Telegram connection test\\n"
+        "Private and group destinations are configured for strategy alerts."
+    )
+    if not result.get("configured"):
+        raise HTTPException(status_code=503, detail=result.get("reason"))
+    return {"status": "sent" if result.get("sent") else "failed", **result}
