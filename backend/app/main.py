@@ -26,7 +26,7 @@ from app.market_data.contracts import MarketInstrument
 from app.market_data.runtime import (market_data_router, market_data_hub, market_data_sources, market_data_instruments, market_data_service, execution_policy)
 from app.market_data.service import set_default_market_data_service
 from app.market_data.master_refresh import BrokerMasterRefresher
-from app.market_data.customer_runtime import configure_customer_market_data_runtime, invalidate_customer_market_data_service
+from app.market_data.customer_runtime import (configure_customer_market_data_runtime, invalidate_customer_market_data_service, close_customer_market_data_runtimes)
 from app.air_qoc_dhan import router as air_qoc_dhan_router
 from app.model_engine_api import router as model_engine_router
 from app.air_qoc_scheduler import start_qoc_scheduler, stop_qoc_scheduler, capture_dhan_eod_snapshots, capture_selected_provider_option_chains
@@ -271,6 +271,7 @@ async def _restore_market_data_source_connections() -> None:
 @app.on_event("shutdown")
 async def stop_air_qoc_jobs() -> None:
     global _market_health_task, _master_refresh_task
+    await close_customer_market_data_runtimes()
     if _master_refresh_task is not None:
         _master_refresh_task.cancel()
         try:
@@ -634,6 +635,7 @@ async def customer_select_market_data_account(
     customer_id: str = Depends(require_customer),
 ) -> dict:
     try:
+        get_vault().get(customer_id, selection.provider.lower(), selection.account_id)
         row = account_directory.set_market_data_selection(
             customer_id, selection.provider, selection.account_id
         )
@@ -680,6 +682,7 @@ async def operator_set_customer_market_data_selection(
     if (selection.provider.lower(), selection.account_id) not in owned:
         raise HTTPException(status_code=404, detail="Broker account is not assigned to this customer")
     try:
+        get_vault().get(target_customer_id, selection.provider.lower(), selection.account_id)
         account_directory.set_market_data_access(target_customer_id, "PAID", True)
         row = account_directory.set_market_data_selection(
             target_customer_id, selection.provider, selection.account_id
