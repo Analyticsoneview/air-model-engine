@@ -320,6 +320,14 @@ class MarketDataService:
                 "strategy_records_updated": updated, "daily_bars_added": added,
                 "skipped": skipped}
 
+    def expiry_scan(self, store: Any, *, account_id: str, provider: str = "dhan",
+                    max_dte: int = 45, limit: int = 2000,
+                    today: date | None = None) -> dict[str, Any]:
+        """Run the EXPIRYSCAN liquidity screen over normalized persisted option observations."""
+        from app.model_engine_expiryscan import scan_expiries
+        return scan_expiries(store, account_id=account_id, provider=provider,
+                             max_dte=max_dte, limit=limit, today=today)
+
     async def hydrate_strategy_rows(self, rows: list[dict],
                                     *, max_contracts: int = 150) -> list[dict]:
         """Attach normalized provider history to strategy evidence without overwriting it.
