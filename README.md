@@ -55,3 +55,8 @@ For the end-to-end Ubuntu installer, Caddy HTTPS setup, self-hosted GitHub runne
 - Configure TLS, firewalling, backups, monitoring and restore testing before any internet-facing deployment.
 
 Never treat a placeholder, sample response or unverified broker connection as a live market signal.
+
+
+## One-command cross-platform local startup
+
+Use Docker Compose v2 for the same local AIR stack on Windows, macOS and Linux. Follow [Local Setup](LOCAL_SETUP.md). After the one-time bootstrap, open a terminal in the repository and run the single command `AIRSTART`. The launcher generates local secrets, builds the backend and Flutter PWA, starts services, waits for API health and opens the local app. Local trading execution remains disabled; QOC and Telegram schedulers remain off until deliberately configured.
