@@ -172,3 +172,76 @@ def _delivery(option_type: str, position_side: str) -> str:
         return "UNKNOWN_POSITION_SIDE"
     takes = (option_type == "CE" and position_side == "LONG_OPTION") or (option_type == "PE" and position_side == "SHORT_OPTION")
     return "TAKE_SHARES" if takes else "GIVE_SHARES"
+
+
+def physical_settlement_early_warning(
+    record: dict[str, Any], *, as_of: str | None = None
+) -> dict[str, Any]:
+    """Classify early stock-delivery exposure from spot/strike distance and DTE.
+
+    This deterministic proximity alert is deliberately separate from the
+    uncalibrated expiry-price scenario forecast. It can operate with one verified
+    underlying daily close and never treats an option premium as stock spot.
+    """
+    evidence = record.get("evidence") if isinstance(record.get("evidence"), dict) else {}
+    instrument = str(record.get("instrument_type") or "").upper()
+    side = str(record.get("option_type") or "").upper()
+    if instrument in {"INDEX", "INDICES", "OPTIDX", "INDEX_OPTION"}:
+        return {"status": "NOT_APPLICABLE", "icon": "⚪", "qualified": False,
+                "reason": "Index options are cash-settled"}
+    if instrument not in {"STOCK", "EQUITY", "OPTSTK", "STOCK_OPTION"} or side not in {"CE", "PE"}:
+        return {"status": "UNKNOWN", "icon": "⚪", "qualified": False,
+                "reason": "Stock option contract metadata unavailable"}
+    strike = _number(record.get("strike"))
+    expiry_text = str(record.get("expiry") or "")[:10]
+    if strike is None or strike <= 0:
+        return {"status": "UNKNOWN", "icon": "⚪", "qualified": False,
+                "reason": "Valid strike is missing"}
+    bars = _bars(evidence)
+    try:
+        expiry = date.fromisoformat(expiry_text)
+        cutoff = date.fromisoformat(str(as_of)[:10]) if as_of else date.fromisoformat(bars[-1]["date"])
+    except (ValueError, IndexError):
+        return {"status": "DATA_REQUIRED", "icon": "⚪", "qualified": False,
+                "reason": "Underlying daily close or valid expiry date is missing"}
+    eligible = [bar for bar in bars if date.fromisoformat(bar["date"]) <= cutoff]
+    if not eligible:
+        return {"status": "DATA_REQUIRED", "icon": "⚪", "qualified": False,
+                "reason": "No verified underlying close available at this checkpoint"}
+    spot = eligible[-1]["close"]
+    dte = (expiry - cutoff).days
+    if dte < 0:
+        return {"status": "EXPIRED", "icon": "⚪", "qualified": False,
+                "reason": "Contract has passed expiry; use official expiry close"}
+    distance = abs((spot - strike) / strike) * 100.0
+    itm_now = spot > strike if side == "CE" else spot < strike
+    # Operational alert bands; not calibrated probabilities.
+    if dte <= 5 and (itm_now or distance <= 0.5):
+        status, icon = "CRITICAL", "🔴"
+    elif dte <= 15 and (itm_now or distance <= 1.0):
+        status, icon = "QUALIFIED", "🟢"
+    elif dte <= 30 and distance <= 3.0:
+        status, icon = "WATCH", "🟠"
+    elif dte <= 45 and distance <= 5.0:
+        status, icon = "MONITOR", "🟡"
+    else:
+        status, icon = "CLEAR", "⚪"
+    quantity = _number(record.get("position_quantity") or record.get("quantity") or evidence.get("position_quantity"))
+    quantity = int(quantity) if quantity is not None and quantity > 0 else None
+    position_side = str(record.get("position_side") or "LONG_OPTION").upper()
+    direction = _delivery(side, position_side) if itm_now else "NO_DELIVERY_IF_EXPIRY_NOW"
+    return {
+        "status": status, "icon": icon,
+        "qualified": status in {"QUALIFIED", "CRITICAL"},
+        "underlying_price": round(spot, 2), "strike": strike,
+        "distance_to_strike_pct": round(distance, 2),
+        "underlying_itm_now": itm_now, "days_to_expiry": dte,
+        "delivery_direction_if_itm": direction,
+        "delivery_quantity": quantity,
+        "strike_notional_if_itm": round(strike * quantity, 2) if quantity and itm_now else None,
+        "checkpoint_date": cutoff.isoformat(),
+        "reason": ("Near-expiry ITM exposure" if itm_now else
+                   "Near-expiry; underlying is close to strike" if status in {"QUALIFIED", "CRITICAL", "WATCH"} else
+                   "Underlying/expiry proximity watch"),
+        "rule_note": "Distance/DTE alert bands; not a probability or guarantee of expiry ITM.",
+    }
