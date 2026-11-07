@@ -28,7 +28,7 @@ from app.market_data.service import set_default_market_data_service
 from app.market_data.master_refresh import BrokerMasterRefresher
 from app.air_qoc_dhan import router as air_qoc_dhan_router
 from app.model_engine_api import router as model_engine_router
-from app.air_qoc_scheduler import start_qoc_scheduler, stop_qoc_scheduler, capture_dhan_eod_snapshots
+from app.air_qoc_scheduler import start_qoc_scheduler, stop_qoc_scheduler, capture_dhan_eod_snapshots, capture_selected_provider_option_chains
 from app.air_telegram_scheduler import start_telegram_scheduler, stop_telegram_scheduler
 from app.telegram_notifications import send_telegram_message
 from app import telegram_destinations
@@ -279,7 +279,7 @@ async def stop_air_qoc_jobs() -> None:
 @app.post("/api/v1/air-qoc/run-eod-capture", dependencies=[Depends(require_air_admin)])
 async def run_air_qoc_eod_capture() -> dict:
     try:
-        return await capture_dhan_eod_snapshots(force=True)
+        return await capture_selected_provider_option_chains(force=True)
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"AIR QOC data capture failed: {type(exc).__name__}") from exc
 
