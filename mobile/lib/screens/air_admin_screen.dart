@@ -894,6 +894,10 @@ class _AirAdminMarketDataSourcesScreenState
   Map<String, dynamic> _selections = {};
   Map<String, dynamic> _runtime = {};
   final _account = TextEditingController();
+  final _instrumentExchange = TextEditingController(text: 'NSE');
+  final _instrumentSymbol = TextEditingController();
+  final _instrumentToken = TextEditingController();
+  final _instrumentSegment = TextEditingController(text: 'NSE_EQ');
   String _channel = 'historical';
   String? _provider;
   String? _error;
@@ -909,6 +913,10 @@ class _AirAdminMarketDataSourcesScreenState
   void dispose() {
     _api.dispose();
     _account.dispose();
+    _instrumentExchange.dispose();
+    _instrumentSymbol.dispose();
+    _instrumentToken.dispose();
+    _instrumentSegment.dispose();
     super.dispose();
   }
 
@@ -968,6 +976,35 @@ class _AirAdminMarketDataSourcesScreenState
         accountId: selected['requires_account'] == true ? _account.text.trim() : null,
         enabled: enabled,
       );
+      await _load();
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _saveInstrumentMapping() async {
+    if (_provider == null || _account.text.trim().isEmpty ||
+        _instrumentExchange.text.trim().isEmpty ||
+        _instrumentSymbol.text.trim().isEmpty ||
+        _instrumentToken.text.trim().isEmpty ||
+        _instrumentSegment.text.trim().isEmpty) {
+      setState(() => _error = 'Complete provider, account and all instrument mapping fields.');
+      return;
+    }
+    setState(() { _loading = true; _error = null; });
+    try {
+      await _api.operatorSaveMarketInstrument(
+        provider: _provider!,
+        accountId: _account.text.trim(),
+        exchange: _instrumentExchange.text.trim(),
+        symbol: _instrumentSymbol.text.trim(),
+        token: _instrumentToken.text.trim(),
+        segment: _instrumentSegment.text.trim(),
+      );
+      _instrumentSymbol.clear();
+      _instrumentToken.clear();
       await _load();
     } catch (error) {
       if (mounted) setState(() => _error = error.toString());
@@ -1095,6 +1132,39 @@ class _AirAdminMarketDataSourcesScreenState
               ]),
             ),
           ),
+          if (selectedProvider != null && selectedProvider['requires_account'] == true) ...[
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('BROKER INSTRUMENT TOKEN MAPPING',
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 5),
+                  Text('Broker instrument tokens are provider-specific. Add the symbol and token from the selected broker instrument master before requesting history or subscribing to live quotes.',
+                      style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant, height: 1.4)),
+                  const SizedBox(height: 10),
+                  TextField(controller: _instrumentExchange,
+                      decoration: const InputDecoration(labelText: 'Exchange', border: OutlineInputBorder())),
+                  const SizedBox(height: 8),
+                  TextField(controller: _instrumentSymbol,
+                      decoration: const InputDecoration(labelText: 'Trading symbol', border: OutlineInputBorder())),
+                  const SizedBox(height: 8),
+                  TextField(controller: _instrumentToken,
+                      decoration: const InputDecoration(labelText: 'Broker instrument token / key', border: OutlineInputBorder())),
+                  const SizedBox(height: 8),
+                  TextField(controller: _instrumentSegment,
+                      decoration: const InputDecoration(labelText: 'Broker exchange segment', border: OutlineInputBorder())),
+                  const SizedBox(height: 10),
+                  FilledButton.icon(
+                    onPressed: _loading ? null : _saveInstrumentMapping,
+                    icon: const Icon(Icons.save_outlined),
+                    label: const Text('SAVE INSTRUMENT MAPPING'),
+                  ),
+                ]),
+              ),
+            ),
+          ],
           const SizedBox(height: 12),
           const Text('PROVIDER READINESS', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900)),
           const SizedBox(height: 7),
