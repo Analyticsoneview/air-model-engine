@@ -693,8 +693,10 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
         # A still-partial download is deliberately left intact for the next repair.
         if state["status"] == "READY":
             try:
-                from app.model_engine_orchestrator import run_post_import_strategy_cycle
-                strategy_run = run_post_import_strategy_cycle(today.isoformat())
+                from app.model_engine_orchestrator import run_post_import_strategy_cycle_async
+                from app.market_data.service import get_default_market_data_service
+                strategy_run = await run_post_import_strategy_cycle_async(
+                    today.isoformat(), get_default_market_data_service())
                 state["strategy_run"] = strategy_run
             except Exception as strategy_exc:  # noqa: BLE001
                 strategy_run = {
