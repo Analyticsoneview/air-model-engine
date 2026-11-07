@@ -190,26 +190,27 @@ class _AirConnectionScreenState extends State<AirConnectionScreen> {
             const SizedBox(height: 14),
             const Text('BROKER ACCOUNTS', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: .8)),
             const SizedBox(height: 8),
-            DropdownButtonFormField<String>(
-              initialValue: _selectedBroker,
-              decoration: const InputDecoration(labelText: 'Broker', border: OutlineInputBorder()),
-              items: _brokers.map((broker) => DropdownMenuItem<String>(
-                value: broker['code'] as String,
-                child: Text(broker['name'] as String? ?? broker['code'] as String),
-              )).toList(),
-              onChanged: (value) => setState(() => _selectedBroker = value),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.lock_outline_rounded),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Broker accounts are assigned and managed only by AIR Admin. '
+                        'This customer view is read-only; contact the administrator '
+                        'to add, change or remove an account.',
+                        style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _accountId,
-              decoration: const InputDecoration(labelText: 'Broker account ID', border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: _loading ? null : _addAccount,
-              icon: const Icon(Icons.add_link),
-              label: const Text('REGISTER BROKER ACCOUNT'),
-            ),
+            const SizedBox(height: 14),
             const SizedBox(height: 14),
             if (_accounts.isEmpty)
               const Text('No broker accounts registered yet.')
@@ -221,15 +222,11 @@ class _AirConnectionScreenState extends State<AirConnectionScreen> {
                   subtitle: Text(account['credentials_saved'] == true
                       ? 'Encrypted credentials saved'
                       : 'Account registered · credentials not saved'),
-                  trailing: IconButton(
-                    tooltip: 'Save encrypted broker credentials',
-                    onPressed: _loading ? null : () => _editCredentials(account),
-                    icon: Icon(
-                      account['credentials_saved'] == true
-                          ? Icons.verified_user_outlined
-                          : Icons.vpn_key_outlined,
-                      color: cs.primary,
-                    ),
+                  trailing: Icon(
+                    account['credentials_saved'] == true
+                        ? Icons.verified_user_outlined
+                        : Icons.lock_outline_rounded,
+                    color: cs.onSurfaceVariant,
                   ),
                 ),
               )),
