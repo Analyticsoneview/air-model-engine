@@ -115,6 +115,15 @@ class _AirAdminScreenState extends State<AirAdminScreen> {
             icon: const Icon(Icons.account_balance_rounded),
           ),
           IconButton(
+            tooltip: 'Telegram destinations',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const AirAdminTelegramScreen(),
+              ),
+            ),
+            icon: const Icon(Icons.telegram_rounded),
+          ),
+          IconButton(
             tooltip: 'Refresh requests',
             onPressed: _loading ? null : _load,
             icon: const Icon(Icons.refresh_rounded),
@@ -521,6 +530,339 @@ class _AirAdminBrokerAccountsScreenState
               ),
             ),
           )),
+        ],
+      ),
+    );
+  }
+}
+
+
+class AirAdminTelegramScreen extends StatefulWidget {
+  const AirAdminTelegramScreen({super.key});
+
+  @override
+  State<AirAdminTelegramScreen> createState() => _AirAdminTelegramScreenState();
+}
+
+class _AirAdminTelegramScreenState extends State<AirAdminTelegramScreen> {
+  final AirApiClient _api = AirApiClient();
+  List<Map<String, dynamic>> _destinations = [];
+  bool _loading = false;
+  String? _error;
+  bool _botConfigured = false;
+  bool _legacyFallback = false;
+
+  static const _strategies = ['RECOVERED', 'EXPIRY78', 'EXPIRYSCAN'];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _api.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final data = await _api.operatorTelegramDestinations();
+      if (!mounted) return;
+      setState(() {
+        _destinations = (data['destinations'] as List<dynamic>? ?? const [])
+            .whereType<Map<String, dynamic>>().toList();
+        _botConfigured = data['bot_configured'] == true;
+        _legacyFallback = data['legacy_env_fallback'] == true;
+      });
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _edit([Map<String, dynamic>? existing]) async {
+    final name = TextEditingController(text: existing?['name']?.toString() ?? '');
+    final chatId = TextEditingController(text: existing?['chat_id']?.toString() ?? '');
+    var type = existing?['destination_type']?.toString() ?? 'GROUP';
+    var enabled = existing?['enabled'] != false;
+    final selected = <String>{
+      ...((existing?['strategies'] as List<dynamic>? ?? _strategies)
+          .map((value) => value.toString())),
+    };
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, refreshDialog) => AlertDialog(
+          title: Text(existing == null ? 'Add Telegram destination' : 'Edit Telegram destination'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: name,
+                  maxLength: 80,
+                  decoration: const InputDecoration(
+                    labelText: 'Destination name',
+                    hintText: 'AIR QOC group',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: chatId,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Telegram chat ID',
+                    hintText: '-1001234567890',
+                    helperText: 'Private chat: positive ID • Group: negative ID',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  value: type,
+                  decoration: const InputDecoration(labelText: 'Destination type'),
+                  items: const [
+                    DropdownMenuItem(value: 'PRIVATE', child: Text('Private chat')),
+                    DropdownMenuItem(value: 'GROUP', child: Text('Group / supergroup')),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) refreshDialog(() => type = value);
+                  },
+                ),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('Receive strategies', style: Theme.of(context).textTheme.titleSmall),
+                ),
+                ..._strategies.map((strategy) => CheckboxListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(strategy),
+                  value: selected.contains(strategy),
+                  onChanged: (checked) => refreshDialog(() {
+                    if (checked == true) {
+                      selected.add(strategy);
+                    } else {
+                      selected.remove(strategy);
+                    }
+                  }),
+                )),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Destination enabled'),
+                  value: enabled,
+                  onChanged: (value) => refreshDialog(() => enabled = value),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('CANCEL'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, {
+                'name': name.text,
+                'chat_id': chatId.text,
+                'destination_type': type,
+                'strategies': selected.toList(),
+                'enabled': enabled,
+              }),
+              child: const Text('SAVE'),
+            ),
+          ],
+        ),
+      ),
+    );
+    name.dispose();
+    chatId.dispose();
+    if (result == null) return;
+    try {
+      await _api.operatorSaveTelegramDestination(
+        id: existing?['id'] as int?,
+        name: result['name'] as String,
+        chatId: result['chat_id'] as String,
+        destinationType: result['destination_type'] as String,
+        strategies: (result['strategies'] as List<dynamic>).cast<String>(),
+        enabled: result['enabled'] as bool,
+      );
+      await _load();
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    }
+  }
+
+  Future<void> _test([int? id]) async {
+    setState(() => _loading = true);
+    try {
+      final result = await _api.operatorTestTelegramDestination(id: id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Telegram test delivered to ${result['sent']} destination(s).')),
+      );
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+        await _load();
+      }
+    }
+  }
+
+  Future<void> _delete(Map<String, dynamic> row) async {
+    final id = row['id'] as int?;
+    if (id == null) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove destination?'),
+        content: Text('Remove ${row['name']} (${row['chat_id']}) from Telegram routing?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('CANCEL')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('REMOVE')),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    try {
+      await _api.operatorDeleteTelegramDestination(id);
+      await _load();
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('TELEGRAM ROUTING'),
+        actions: [
+          IconButton(
+            tooltip: 'Test all enabled destinations',
+            onPressed: _loading ? null : () => _test(),
+            icon: const Icon(Icons.send_rounded),
+          ),
+          IconButton(
+            tooltip: 'Refresh',
+            onPressed: _loading ? null : _load,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _loading ? null : () => _edit(),
+        icon: const Icon(Icons.add),
+        label: const Text('ADD DESTINATION'),
+      ),
+      body: Column(
+        children: [
+          if (_loading) const LinearProgressIndicator(minHeight: 2),
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      Icon(Icons.telegram_rounded, color: cs.primary),
+                      const SizedBox(width: 8),
+                      const Expanded(child: Text('BOT CONNECTION', style: TextStyle(fontWeight: FontWeight.w900))),
+                      Text(_botConfigured ? 'TOKEN SET' : 'TOKEN MISSING',
+                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900,
+                              color: _botConfigured ? Colors.green : cs.error)),
+                    ]),
+                    const SizedBox(height: 6),
+                    Text(
+                      _legacyFallback
+                          ? 'No managed destinations yet. Legacy environment chat IDs remain active until the first destination is saved.'
+                          : 'Destinations are stored on the AIR server. Bot token remains in Docker secrets and is never shown here.',
+                      style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant, height: 1.4),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: Text(_error!, style: TextStyle(color: cs.error, fontSize: 11)),
+            ),
+          Expanded(
+            child: _destinations.isEmpty
+                ? Center(
+                    child: Text('No managed destinations. Add a private chat or group.',
+                        style: TextStyle(color: cs.onSurfaceVariant)),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(14, 0, 14, 90),
+                    itemCount: _destinations.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (context, index) {
+                      final row = _destinations[index];
+                      final strategies = (row['strategies'] as List<dynamic>? ?? const [])
+                          .map((value) => value.toString()).join(' • ');
+                      final enabled = row['enabled'] == true;
+                      final id = row['id'] as int?;
+                      return Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(13),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(children: [
+                                Icon(row['destination_type'] == 'GROUP'
+                                    ? Icons.groups_rounded : Icons.person_outline_rounded),
+                                const SizedBox(width: 8),
+                                Expanded(child: Text(row['name']?.toString() ?? 'Telegram destination',
+                                    style: const TextStyle(fontWeight: FontWeight.w900))),
+                                Text(enabled ? 'ACTIVE' : 'DISABLED',
+                                    style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900,
+                                        color: enabled ? Colors.green : cs.onSurfaceVariant)),
+                              ]),
+                              const SizedBox(height: 6),
+                              SelectableText(row['chat_id']?.toString() ?? '—',
+                                  style: const TextStyle(fontFeatures: [])),
+                              const SizedBox(height: 5),
+                              Text('Routes: $strategies',
+                                  style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+                              const SizedBox(height: 10),
+                              Wrap(spacing: 6, children: [
+                                TextButton.icon(
+                                  onPressed: _loading || !enabled ? null : () => _test(id),
+                                  icon: const Icon(Icons.send_outlined, size: 16),
+                                  label: const Text('TEST'),
+                                ),
+                                TextButton.icon(
+                                  onPressed: _loading ? null : () => _edit(row),
+                                  icon: const Icon(Icons.edit_outlined, size: 16),
+                                  label: const Text('EDIT'),
+                                ),
+                                TextButton.icon(
+                                  onPressed: _loading ? null : () => _delete(row),
+                                  icon: Icon(Icons.delete_outline, size: 16, color: cs.error),
+                                  label: Text('REMOVE', style: TextStyle(color: cs.error)),
+                                ),
+                              ]),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
         ],
       ),
     );
