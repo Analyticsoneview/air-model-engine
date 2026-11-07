@@ -277,10 +277,10 @@ async def capture_selected_provider_option_chains(*, force: bool = False) -> dic
 _scheduler: AsyncIOScheduler | None = None
 
 
-def start_qoc_scheduler() -> None:
+def start_qoc_scheduler(*, force: bool = False) -> None:
     global _scheduler
-    if os.getenv("AIR_QOC_SCHEDULER_ENABLED", "false").lower() != "true":
-        log.info("AIR QOC scheduler disabled")
+    if not force and os.getenv("AIR_QOC_SCHEDULER_ENABLED", "false").lower() != "true":
+        log.info("AIR QOC scheduler disabled; no explicit broker-data activation")
         return
     if _scheduler is not None:
         return
@@ -288,6 +288,7 @@ def start_qoc_scheduler() -> None:
     _scheduler.add_job(
         capture_selected_provider_option_chains,
         CronTrigger(hour=15, minute=20, day_of_week="mon-fri", timezone=IST),
+        kwargs={"force": True},
         id="air-qoc-selected-provider-eod-snapshots",
         replace_existing=True,
         max_instances=1,
