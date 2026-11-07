@@ -204,9 +204,11 @@ async def mobile_login(body: MobileAccessRequest) -> dict:
     if request["status"] != "APPROVED":
         return {"status": request["status"], "message": "AIR access is not currently available for this request."}
     session_id = access_store.create_session(request["request_id"])
-    token = create_access_token(request["request_id"], expires_minutes=525600, session_id=session_id)
+    # Use the approved E.164 identity as the stable customer/operator subject.
+    # Each device still has its own revocable session (jti) in AccessStore.
+    token = create_access_token(body.mobile_e164, expires_minutes=525600, session_id=session_id)
     return {"status": "APPROVED", "access_token": token, "token_type": "bearer",
-            "expires_in": 31536000, "customer_id": request["request_id"]}
+            "expires_in": 31536000, "customer_id": body.mobile_e164}
 
 
 @app.get("/api/v1/auth/mobile-status")
@@ -236,6 +238,25 @@ async def list_access_requests(status: str | None = Query(default=None, pattern=
 
 @app.put("/api/v1/admin/access-requests/{request_id}", dependencies=[Depends(require_air_admin)])
 async def review_access_request(request_id: str, body: AccessReview) -> dict:
+    if not access_store.review(request_id, body.status, body.note):
+        raise HTTPException(status_code=404, detail="Access request not found")
+    return {"request_id": request_id, "status": body.status, "updated": True}
+
+
+@app.get("/api/v1/operator/access-requests")
+async def operator_list_access_requests(
+    status: str | None = Query(default=None, pattern="^(PENDING|APPROVED|REJECTED|BLOCKED)$"),
+    customer_id: str = Depends(require_air_operator),
+) -> dict:
+    return {"requests": [dict(row) for row in access_store.list_requests(status)]}
+
+
+@app.put("/api/v1/operator/access-requests/{request_id}")
+async def operator_review_access_request(
+    request_id: str,
+    body: AccessReview,
+    customer_id: str = Depends(require_air_operator),
+) -> dict:
     if not access_store.review(request_id, body.status, body.note):
         raise HTTPException(status_code=404, detail="Access request not found")
     return {"request_id": request_id, "status": body.status, "updated": True}
