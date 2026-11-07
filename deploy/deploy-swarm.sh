@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-STACK_NAME="\${AIR_STACK_NAME:-air}"
-ENV_FILE="\${AIR_DEPLOY_ENV_FILE:-/etc/air/air.env}"
+STACK_NAME="${AIR_STACK_NAME:-air}"
+ENV_FILE="${AIR_DEPLOY_ENV_FILE:-/etc/air/air.env}"
 
 if [[ ! -r "$ENV_FILE" ]]; then
   echo "Required server environment file is missing or unreadable: $ENV_FILE" >&2
@@ -14,10 +14,10 @@ set -a
 source "$ENV_FILE"
 set +a
 
-: "\${AIR_BACKEND_IMAGE:?AIR_BACKEND_IMAGE must be supplied by the deployment workflow}"
-: "\${AIR_PWA_IMAGE:?AIR_PWA_IMAGE must be supplied by the deployment workflow}"
-: "\${AIR_OPERATOR_CUSTOMER_IDS:?Set AIR_OPERATOR_CUSTOMER_IDS in $ENV_FILE}"
-: "\${AIR_TELEGRAM_CHAT_IDS:?Set AIR_TELEGRAM_CHAT_IDS in $ENV_FILE}"
+: "${AIR_BACKEND_IMAGE:?AIR_BACKEND_IMAGE must be supplied by the deployment workflow}"
+: "${AIR_PWA_IMAGE:?AIR_PWA_IMAGE must be supplied by the deployment workflow}"
+: "${AIR_OPERATOR_CUSTOMER_IDS:?Set AIR_OPERATOR_CUSTOMER_IDS in $ENV_FILE}"
+: "${AIR_TELEGRAM_CHAT_IDS:?Set AIR_TELEGRAM_CHAT_IDS in $ENV_FILE}"
 
 state="$(docker info --format '{{.Swarm.LocalNodeState}}')"
 if [[ "$state" != "active" ]]; then
@@ -40,7 +40,7 @@ docker pull "$AIR_PWA_IMAGE"
 echo "Applying Docker Swarm stack '$STACK_NAME'..."
 docker stack deploy --with-registry-auth --prune -c docker-stack.yml "$STACK_NAME"
 
-for service in "\${STACK_NAME}_air-api" "\${STACK_NAME}_air-pwa"; do
+for service in "${STACK_NAME}_air-api" "${STACK_NAME}_air-pwa"; do
   ready=0
   replicas=""
   for attempt in $(seq 1 36); do
@@ -52,7 +52,7 @@ for service in "\${STACK_NAME}_air-api" "\${STACK_NAME}_air-pwa"; do
     sleep 5
   done
   if [[ "$ready" -ne 1 ]]; then
-    echo "Service did not reach 1/1 replicas: $service (last state: \${replicas:-not found})" >&2
+    echo "Service did not reach 1/1 replicas: $service (last state: ${replicas:-not found})" >&2
     docker service ps "$service" --no-trunc || true
     exit 1
   fi
