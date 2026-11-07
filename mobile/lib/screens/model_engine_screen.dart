@@ -261,7 +261,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                 selected: _sections[_selected] == s,
                 onSelected: (_) => setState(() {
                   _selected = _sections.indexOf(s);
-                  _strategyStatus = s == 'RECOVERED' ? 'RECOVERED' : 'OPEN';
+                  _strategyStatus = s == 'RECOVERED' ? 'OPEN' : 'OPEN';
                 }),
               )).toList()),
             ],
@@ -282,11 +282,11 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                 Text('83 partial-coverage excluded • 85 no post-entry data excluded', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
                 Text('366 original 5% SL hits: 274 same-day • 69 later-session • 23 gap/open', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
                 Text('RECOVERED trigger: post-SL daily CLOSE above original entry. Alternative replay uses that SAME entry: 10% SL / 45% target; same-candle conflict = SL first.', style: TextStyle(fontSize: 10, color: cs.primary)),
-                Text('Retrospective watch/backtest only — not a new fill, open position or order.', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+                Text('OPEN / TARGETS / SLHIT / EXPIRED are alternative-model outcomes. Original 5% SL history remains separately preserved.', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
               ]),
             )),
             Wrap(spacing: 7, runSpacing: 7, children: (selectedSection == 'RECOVERED'
-              ? ['RECOVERED', 'SLHIT', 'WAIT']
+              ? ['OPEN', 'TARGETS', 'SLHIT', 'EXPIRED', 'WAIT']
               : ['OPEN', 'NEW', 'HOLD', 'WAIT', 'SLHIT', 'REENTRY']).map((status) => ChoiceChip(
               label: Text('$status  ${((strategyData?['counts'] as Map?)?[status] ?? 0)}', style: const TextStyle(fontSize: 10)),
               selected: _strategyStatus == status,
