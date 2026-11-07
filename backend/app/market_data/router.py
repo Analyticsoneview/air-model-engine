@@ -56,20 +56,21 @@ class MarketDataRouter:
             if current == key and self._connection_state[channel] == "connected":
                 return
             previous = current
-            self._channel_accounts[channel] = None
             self._connection_state[channel] = "switching"
             self._last_error[channel] = None
-            still_used = key in self._channel_accounts.values()
+            still_used = key in (
+                value for selected_channel, value in self._channel_accounts.items()
+                if selected_channel != channel
+            )
             try:
                 if not still_used:
                     await self._adapters[key].authenticate(key[1])
                 self._channel_accounts[channel] = key
                 self._connection_state[channel] = "connected"
             except Exception as exc:
-                self._connection_state[channel] = "outage"
+                self._connection_state[channel] = "connected" if previous else "outage"
                 self._last_error[channel] = f"Authentication failed: {type(exc).__name__}"
-                self._channel_accounts[channel] = None
-                raise RuntimeError("Provider authentication failed; selected channel remains offline") from exc
+                raise RuntimeError("Provider authentication failed; previous channel source was retained") from exc
             if previous is not None and previous != key and previous not in self._channel_accounts.values():
                 try:
                     await self._adapters[previous].close()
