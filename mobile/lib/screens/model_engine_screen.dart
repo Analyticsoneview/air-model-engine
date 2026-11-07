@@ -140,6 +140,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     DataColumn(label: Text('CURRENT P&L')),
     DataColumn(label: Text('DAYS TO EXPIRY')),
     DataColumn(label: Text('STATUS')),
+    if (_sections[_selected] == 'EXPIRY78') const DataColumn(label: Text('DELIVERY ALERT • ENTRY / LIVE')),
     if (_sections[_selected] == 'EXPIRY78') const DataColumn(label: Text('PHYSICAL SETTLEMENT FORECAST')),
     const DataColumn(label: Text('LATEST EVIDENCE')),
   ];
@@ -231,6 +232,21 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     return parts.join(' • ');
   }
 
+  String _physicalDeliveryAlertDisplay(Map<String, dynamic> r) {
+    final entry = r['physical_delivery_at_entry'];
+    final current = r['physical_delivery_current'];
+    if (current is! Map) return '⚪ DATA REQUIRED';
+    final icon = current['icon']?.toString() ?? '⚪';
+    final status = current['status']?.toString() ?? 'UNKNOWN';
+    final entryStatus = entry is Map ? (entry['status']?.toString() ?? 'UNKNOWN') : 'UNKNOWN';
+    final distance = current['distance_to_strike_pct'];
+    final dte = current['days_to_expiry'];
+    final parts = <String>['$icon $status', 'Entry: $entryStatus'];
+    if (distance != null) parts.add('Strike gap: $distance%');
+    if (dte != null) parts.add('DTE: $dte');
+    return parts.join(' • ');
+  }
+
   DataRow _row(Map<String, dynamic> r) {
     final survivor = _isSurvivor(r);
     final dte = r['days_to_expiry'];
@@ -241,7 +257,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       _cell(_v(r, 'entry_date')),
       _cell(_classificationLabel(r)),
       _cell(instrument),
-      _cell(_v(r, 'symbol')),
+      _cell('${r['physical_delivery_icon'] ?? ''} ${_v(r, 'symbol')}'),
       _cell(_v(r, 'sector')),
       _cell(_v(r, 'option_type')),
       _cell(_v(r, 'strike')),
@@ -254,14 +270,20 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       _cell(_pnlDisplay(r)),
       _cell(dte == null ? '—' : '$dte calendar days'),
       _cell(status),
+      if (_sections[_selected] == 'EXPIRY78') _cell(_physicalDeliveryAlertDisplay(r)),
       if (_sections[_selected] == 'EXPIRY78') _cell(_physicalForecastDisplay(r)),
       _cell(_evidenceDisplay(r)),
     ];
+    final deliveryCurrent = r['physical_delivery_current'];
+    final deliveryCritical = deliveryCurrent is Map && deliveryCurrent['status'] == 'CRITICAL';
+    final deliveryQualified = r['physical_delivery_qualified'] == true;
     return DataRow(
-      color: survivor
-          ? WidgetStateProperty.resolveWith<Color?>((states) =>
-              Theme.of(context).colorScheme.tertiary.withValues(alpha: 0.18))
-          : null,
+      color: WidgetStateProperty.resolveWith<Color?>((states) {
+        if (deliveryCritical) return Theme.of(context).colorScheme.errorContainer.withValues(alpha: 0.48);
+        if (deliveryQualified) return Theme.of(context).colorScheme.tertiaryContainer.withValues(alpha: 0.45);
+        if (survivor) return Theme.of(context).colorScheme.tertiary.withValues(alpha: 0.18);
+        return null;
+      }),
       cells: cells.map((cell) => DataCell(cell)).toList(),
     );
   }
