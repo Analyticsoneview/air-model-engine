@@ -256,7 +256,7 @@ async def run_account_reports(customer_id: str = Depends(require_customer)) -> d
     if not accounts:
         raise HTTPException(status_code=404, detail="No broker accounts are assigned to this customer")
     from datetime import datetime
-    report_date = datetime.now().astimezone().date().isoformat()
+    report_date = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
     reports = await account_reporting.run_customer(customer_id, accounts,
         _collect_broker_account_statement, report_date)
     return {"reports": reports}
