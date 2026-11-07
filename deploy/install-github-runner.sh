@@ -9,14 +9,29 @@ case "$ARCH" in
 esac
 REPO_URL="https://github.com/Analyticsoneview/air-model-engine"
 if [[ "$OS" == "Linux" ]]; then
-  if [[ "$EUID" -ne 0 ]]; then echo "Run on Ubuntu with sudo: sudo bash deploy/install-github-runner.sh" >&2; exit 1; fi
+  if [[ "$EUID" -ne 0 ]]; then echo "Run with sudo: sudo bash deploy/install-github-runner.sh" >&2; exit 1; fi
   . /etc/os-release
-  if [[ "$ID" != "ubuntu" ]]; then echo "Linux runner installer currently supports Ubuntu 22.04/24.04." >&2; exit 1; fi
   RUNNER_USER="airrunner"; RUNNER_DIR="/opt/air-github-runner"
   if ! id "$RUNNER_USER" >/dev/null 2>&1; then useradd --create-home --shell /bin/bash "$RUNNER_USER"; fi
-  usermod -aG docker "$RUNNER_USER" 2>/dev/null || true
-  apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates jq openjdk-17-jdk python3 sudo
+  case "$ID" in
+    ubuntu|debian)
+      command -v apt-get >/dev/null || { echo "apt-get is required for $ID." >&2; exit 1; }
+      apt-get update
+      DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates jq openjdk-17-jdk python3 sudo
+      ;;
+    fedora|rhel|rocky|almalinux)
+      if command -v dnf >/dev/null 2>&1; then
+        dnf install -y curl ca-certificates jq java-17-openjdk-devel python3 sudo
+      elif command -v yum >/dev/null 2>&1; then
+        yum install -y curl ca-certificates jq java-17-openjdk-devel python3 sudo
+      else echo "dnf or yum is required for $ID." >&2; exit 1; fi
+      ;;
+    *)
+      echo "Unsupported Linux distribution: $ID. Supported: Ubuntu, Debian, Fedora, RHEL, Rocky Linux and AlmaLinux." >&2
+      exit 1
+      ;;
+  esac
+  command -v systemctl >/dev/null || { echo "systemd is required to install the runner as a service." >&2; exit 1; }
 elif [[ "$OS" == "Darwin" ]]; then
   if [[ "$EUID" -eq 0 ]]; then echo "Do not run this macOS installer with sudo; run it as the signed-in user." >&2; exit 1; fi
   RUNNER_USER="$(id -un)"; RUNNER_DIR="$HOME/air-github-runner"
@@ -60,7 +75,7 @@ unset RUNNER_TOKEN
 if [[ "$OS" == "Linux" ]]; then
   chown -R "$RUNNER_USER:$RUNNER_USER" "$RUNNER_DIR"
   "$RUNNER_DIR/svc.sh" install "$RUNNER_USER"; "$RUNNER_DIR/svc.sh" start
-  echo 'Set AIR_CI_RUNNER_LABELS to ["self-hosted","linux","x64","air"] (or ARM64 for an ARM64 host). Set AIR_RUNNER_LABELS to the same value too if this Linux PC should run the PWA and Docker Buildx workflows.'
+  echo 'Set AIR_CI_RUNNER_LABELS to ["self-hosted","linux","x64","air"] (or ARM64 for an ARM64 host). Linux-only PWA/Docker workflows remain on their existing runner unless configured separately.'
 else
   "$RUNNER_DIR/svc.sh" install; "$RUNNER_DIR/svc.sh" start
   echo 'Set AIR_CI_RUNNER_LABELS to ["self-hosted","macOS","X64","air"] (or ARM64 for Apple Silicon). Keep AIR_RUNNER_LABELS unset; Linux-only workflows remain on ubuntu-latest.'
