@@ -12,3 +12,4 @@ market_data_instruments = MarketInstrumentDirectory()
 market_data_service = MarketDataService(market_data_router, market_data_hub, market_data_instruments)
 
 set_default_market_data_service(market_data_service)
+execution_policy = ExecutionPolicy()
