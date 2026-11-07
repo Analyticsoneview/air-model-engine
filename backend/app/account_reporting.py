@@ -211,7 +211,7 @@ class AccountReporting:
             SELECT status,detail FROM account_report_runs
             WHERE customer_id=? AND broker=? AND account_id=? AND report_date=?
         """, key).fetchone()
-        if existing and existing["status"] == "SENT":
+        if existing and (existing["status"] == "SENT" or (existing["status"] == "FAILED" and not force)):
             return {"broker": account.broker, "account_id": account.account_id, "status": "already_sent"}
         try:
             payload = await collector(customer_id, account.broker, account.account_id)
@@ -227,7 +227,7 @@ class AccountReporting:
             attachments = self._artifacts(report_date,
                 {"broker": account.broker, "account_id": account.account_id},
                 summary, positions, orders, holdings)
-            self._send_email(recipient["email"],
+            await asyncio.to_thread(self._send_email, recipient["email"],
                 f"AIR daily P&L | {account.broker} | {account.account_id} | {report_date}",
                 "Attached is your account-specific AIR broker report. P&L values are taken from "
                 "the broker's returned position fields; unavailable values are not estimated. "
@@ -247,9 +247,9 @@ class AccountReporting:
                 "status": status, "detail": detail}
 
     async def run_customer(self, customer_id: str, accounts: list[Any], collector,
-                           report_date: str) -> list[dict[str, Any]]:
+                           report_date: str, force: bool = False) -> list[dict[str, Any]]:
         return await asyncio.gather(*[
-            self.report_account(customer_id, account, collector, report_date)
+            self.report_account(customer_id, account, collector, report_date, force=force)
             for account in accounts
         ])
 
