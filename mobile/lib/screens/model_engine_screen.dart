@@ -97,7 +97,8 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   String _v(Map<String, dynamic> row, String key) => row[key] == null ? '—' : row[key].toString();
 
   String _tabCount(String section) {
-    if (section == 'P&L CALENDAR') return '₹';\n    if (_strategyTabs.contains(section)) {
+    if (section == 'P&L CALENDAR') return '₹';
+    if (_strategyTabs.contains(section)) {
       final data = _strategies[_strategyKey(section)];
       if (data is! Map) return '0';
       if (section == 'RECOVERED') {
@@ -320,11 +321,178 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     );
   }
 
+
+  String _money(dynamic value) => value is num
+      ? '₹${value.toStringAsFixed(2)}' : '—';
+
+  Future<void> _changeCalendarMonth(int delta) async {
+    final next = DateTime(_calendarMonth.year, _calendarMonth.month + delta);
+    setState(() { _calendarMonth = next; _calendarLoading = true; });
+    try {
+      final result = await _api.modelEnginePnlCalendar(year: next.year, month: next.month);
+      if (mounted) setState(() => _pnlCalendar = result);
+    } catch (e) {
+      if (mounted) setState(() => _error = 'P&L calendar: $e');
+    } finally {
+      if (mounted) setState(() => _calendarLoading = false);
+    }
+  }
+
+  void _showPnlDate(DateTime date) {
+    final key = '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    final all = (_pnlCalendar['trades'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .where((trade) => trade['entry_date'] == key || trade['exit_date'] == key)
+        .toList();
+    final dayRows = (_pnlCalendar['days'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>().where((row) => row['date'] == key).toList();
+    final day = dayRows.isEmpty ? <String, dynamic>{} : dayRows.first;
+    showDialog<void>(context: context, builder: (context) => AlertDialog(
+      title: Text('TRADE HISTORY • $key'),
+      content: SizedBox(width: 620, child: SingleChildScrollView(child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            _settlementMetric('GROSS P&L • EXIT DATE', _money(day['gross_pnl'])),
+            _settlementMetric('CHARGES', _money(day['estimated_or_actual_charges'])),
+            _settlementMetric('NET P&L', _money(day['net_pnl'])),
+            _settlementMetric('CAPITAL DEPLOYED • ENTRY DATE', _money(day['capital_deployed'])),
+          ]),
+          const SizedBox(height: 10),
+          Text('Trades entered or exited on this date: ${all.length}', style: const TextStyle(fontWeight: FontWeight.w800)),
+          const SizedBox(height: 8),
+          ...all.map((trade) {
+            final charge = trade['charges'] is Map ? trade['charges'] as Map : const {};
+            final components = charge['components'] is Map ? charge['components'] as Map : const {};
+            return Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('${trade['strategy'] ?? '—'} • ${trade['symbol'] ?? '—'} ${trade['option_type'] ?? ''} ${trade['strike'] ?? ''}',
+                  style: const TextStyle(fontWeight: FontWeight.w900)),
+                Text('Entry ${trade['entry_date'] ?? '—'} @ ₹${trade['entry_price'] ?? '—'} • Qty ${trade['quantity'] ?? '—'} • Capital ${_money(trade['capital_deployed'])}',
+                  style: const TextStyle(fontSize: 11)),
+                Text('Exit ${trade['exit_date'] ?? 'OPEN'} @ ₹${trade['exit_price'] ?? '—'} • ${trade['classification'] ?? '—'}',
+                  style: const TextStyle(fontSize: 11)),
+                const Divider(),
+                Text('Gross ${_money(trade['gross_pnl'])}  |  Charges ${_money(charge['total'])}  |  Net ${_money(trade['net_pnl'])}',
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+                if (components.isNotEmpty) ...[
+                  const SizedBox(height: 5),
+                  const Text('CHARGES BREAKUP', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 10)),
+                  ...components.entries.map((entry) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 1),
+                    child: Row(children: [
+                      Expanded(child: Text(entry.key.toString().replaceAll('_', ' ').toUpperCase(), style: const TextStyle(fontSize: 10))),
+                      Text(_money(entry.value), style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700)),
+                    ]),
+                  )),
+                  Text('Basis: ${charge['basis'] ?? '—'}', style: const TextStyle(fontSize: 9, fontStyle: FontStyle.italic)),
+                ] else
+                  const Text('Charges / quantity / exit valuation not available; net P&L remains unverified.',
+                    style: TextStyle(fontSize: 10)),
+              ],
+            )));
+          }),
+          if (all.isEmpty) const Text('No trade entries or exits recorded for this date.'),
+        ],
+      ))),
+      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('CLOSE'))],
+    ));
+  }
+
+  Widget _pnlCalendarView() {
+    final summary = _pnlCalendar['summary'] is Map
+        ? _pnlCalendar['summary'] as Map : const {};
+    final overall = summary['overall'] is Map ? summary['overall'] as Map : const {};
+    final expiry = summary['EXPIRY78'] is Map ? summary['EXPIRY78'] as Map : const {};
+    final recovered = summary['RECOVERED'] is Map ? summary['RECOVERED'] as Map : const {};
+    final monthRows = (_pnlCalendar['months'] as List<dynamic>? ?? const []).whereType<Map<String, dynamic>>();
+    final monthKey = '${_calendarMonth.year.toString().padLeft(4, '0')}-${_calendarMonth.month.toString().padLeft(2, '0')}';
+    final month = monthRows.firstWhere((r) => r['month'] == monthKey, orElse: () => <String, dynamic>{});
+    final days = (_pnlCalendar['days'] as List<dynamic>? ?? const []).whereType<Map<String, dynamic>>();
+    final dayMap = {for (final row in days) row['date'].toString(): row};
+    final firstWeekday = DateTime(_calendarMonth.year, _calendarMonth.month, 1).weekday % 7;
+    final count = DateTime(_calendarMonth.year, _calendarMonth.month + 1, 0).day;
+    final cells = <Widget>[];
+    for (var i = 0; i < firstWeekday; i++) { cells.add(const SizedBox(height: 86)); }
+    for (var d = 1; d <= count; d++) {
+      final date = DateTime(_calendarMonth.year, _calendarMonth.month, d);
+      final key = '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${d.toString().padLeft(2, '0')}';
+      final row = dayMap[key] ?? const {};
+      final gross = row['gross_pnl'];
+      final net = row['net_pnl'];
+      final cap = row['capital_deployed'];
+      cells.add(InkWell(onTap: () => _showPnlDate(date), child: Container(
+        height: 86, padding: const EdgeInsets.all(5),
+        decoration: BoxDecoration(border: Border.all(color: Theme.of(context).colorScheme.outlineVariant), borderRadius: BorderRadius.circular(7)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('$d', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 11)),
+          if (gross != null && gross != 0) Text('G ${_money(gross)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 8)),
+          if (net != null && net != 0) Text('N ${_money(net)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: (net as num) >= 0 ? Colors.green : Colors.red)),
+          if (cap != null && cap != 0) Text('C ${_money(cap)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 8)),
+          if ((row['trade_count'] ?? 0) != 0 || (row['entries_count'] ?? 0) != 0)
+            Text('Trades ${row['trade_count'] ?? 0} • Entry ${row['entries_count'] ?? 0}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 7)),
+        ]),
+      )));
+    }
+    while (cells.length % 7 != 0) { cells.add(const SizedBox(height: 86)); }
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('AIR • P&L CALENDAR', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14)),
+        const SizedBox(height: 5),
+        const Text('Realized P&L is assigned to exit date. Capital deployed is assigned to entry date. Tap any date for trade history and charge details.', style: TextStyle(fontSize: 10)),
+        const SizedBox(height: 10),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          _settlementMetric('CUMULATIVE CAPITAL DEPLOYED', _money(overall['capital_deployed'])),
+          _settlementMetric('PEAK CONCURRENT CAPITAL', _money(overall['peak_concurrent_capital'])),
+          _settlementMetric('GROSS REALIZED', _money(overall['gross_pnl'])),
+          _settlementMetric('CHARGES', _money(overall['estimated_or_actual_charges'])),
+          _settlementMetric('NET REALIZED', _money(overall['net_pnl'])),
+        ]),
+        Text('Missing net values: ${overall['net_pending_count'] ?? 0} trades • Estimated charges: ${overall['charges_estimated_count'] ?? 0} • Actual charge records: ${overall['charges_actual_count'] ?? 0}',
+          style: const TextStyle(fontSize: 9)),
+      ]))),
+      Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(children: [
+        Row(children: [
+          IconButton(onPressed: _calendarLoading ? null : () => _changeCalendarMonth(-1), icon: const Icon(Icons.chevron_left)),
+          Expanded(child: Text(monthKey, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15))),
+          IconButton(onPressed: _calendarLoading ? null : () => _changeCalendarMonth(1), icon: const Icon(Icons.chevron_right)),
+        ]),
+        if (_calendarLoading) const LinearProgressIndicator(),
+        Row(children: ['SUN','MON','TUE','WED','THU','FRI','SAT'].map((d) =>
+          Expanded(child: Center(child: Text(d, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800))))).toList()),
+        const SizedBox(height: 5),
+        GridView.count(crossAxisCount: 7, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 3, crossAxisSpacing: 3, childAspectRatio: 0.82, children: cells),
+      ]))),
+      Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('MONTH SUMMARY • $monthKey', style: const TextStyle(fontWeight: FontWeight.w900)),
+        const SizedBox(height: 6),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          _settlementMetric('CAPITAL DEPLOYED', _money(month['capital_deployed'])),
+          _settlementMetric('GROSS', _money(month['gross_pnl'])),
+          _settlementMetric('CHARGES', _money(month['estimated_or_actual_charges'])),
+          _settlementMetric('NET', _money(month['net_pnl'])),
+        ]),
+      ]))),
+      Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('STRATEGY-WISE', style: TextStyle(fontWeight: FontWeight.w900)),
+        Text('EXPIRY78 • Capital ${_money(expiry['capital_deployed'])} • Gross ${_money(expiry['gross_pnl'])} • Charges ${_money(expiry['estimated_or_actual_charges'])} • Net ${_money(expiry['net_pnl'])}', style: const TextStyle(fontSize: 10)),
+        Text('RECOVERED • Capital ${_money(recovered['capital_deployed'])} • Gross ${_money(recovered['gross_pnl'])} • Charges ${_money(recovered['estimated_or_actual_charges'])} • Net ${_money(recovered['net_pnl'])}', style: const TextStyle(fontSize: 10)),
+      ]))),
+      Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('ESTIMATED CHARGES MODEL', style: TextStyle(fontWeight: FontWeight.w900)),
+        ...((_pnlCalendar['charge_model'] as Map?)?['notes'] as List<dynamic>? ?? const [])
+            .map((note) => Padding(padding: const EdgeInsets.symmetric(vertical: 2), child: Text('• $note', style: const TextStyle(fontSize: 9)))),
+        const Text('Broker contract-note charges override estimates. Physical settlement charges are separately reviewed and excluded from these strategy totals.', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700)),
+      ]))),
+    ]);
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final selectedSection = _sections[_selected];
-    final pnlSelected = selectedSection == 'P&L CALENDAR';\n    final expirySelected = selectedSection == 'EXPIRYSCAN';
+    final pnlSelected = selectedSection == 'P&L CALENDAR';
+    final expirySelected = selectedSection == 'EXPIRYSCAN';
     final settlementSelected = selectedSection == 'PHYSICAL SETTLEMENT';
     final strategySelected = _strategyTabs.contains(selectedSection);
     final strategyData = _strategies[_strategyKey(selectedSection)] as Map<String, dynamic>?;
@@ -375,7 +543,8 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
             ],
           ))),
           const SizedBox(height: 10),
-          if (pnlSelected) _pnlCalendarView(),\n          if (strategySelected) ...[
+          if (pnlSelected) _pnlCalendarView(),
+          if (strategySelected) ...[
             if (strategyData?['rules'] is Map) Card(child: Padding(
               padding: const EdgeInsets.all(12), child: Text(
                 (strategyData!['rules'] as Map)['qualification']?.toString() ?? '',
