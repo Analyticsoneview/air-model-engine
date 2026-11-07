@@ -525,6 +525,27 @@ class MarketDataService:
     async def health(self) -> dict:
         historical = await self.router.check_health("historical")
         live = await self.router.check_health("live")
+        failed_states = {
+            "error", "outage", "degraded", "stale", "disconnected",
+            "reconnecting", "historical_request_failed", "subscription_failed",
+        }
+        if historical.get("failover") != "switched" and historical.get("state") in failed_states:
+            await self.router.set_source("historical", "nse_bhavcopy", "official")
+            state = getattr(self, "customer_market_data_status", None)
+            if isinstance(state, dict):
+                state.update({
+                    "effective_source": "NSE", "connection_status": "unavailable",
+                    "fallback_active": True, "fallback_reason": "historical_feed_unhealthy",
+                })
+        if live.get("failover") != "switched" and live.get("state") in failed_states:
+            await self.router.clear_source("live")
+            await self.router.set_source("historical", "nse_bhavcopy", "official")
+            state = getattr(self, "customer_market_data_status", None)
+            if isinstance(state, dict):
+                state.update({
+                    "effective_source": "NSE", "connection_status": "unavailable",
+                    "fallback_active": True, "fallback_reason": "live_feed_unhealthy",
+                })
         if live.get("failover") == "switched" and self._subscriptions:
             source = self.router.resolve("live")
             if source:
