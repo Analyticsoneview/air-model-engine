@@ -185,6 +185,39 @@ class ModelEngineLedger:
             result.append(item)
         return result
 
+    def attach_market_data_bars(self, signal_id: str, bars: list[dict[str, Any]],
+                                source: dict[str, Any]) -> int:
+        """Merge normalized daily bars into one signal's evidence without lifecycle writes."""
+        row = self.db.execute(
+            "SELECT evidence_json FROM model_signals WHERE signal_id=?", (signal_id,)
+        ).fetchone()
+        if not row:
+            return 0
+        evidence = json.loads(row["evidence_json"] or "{}")
+        current = evidence.get("daily_option_bars") or evidence.get("daily_bars") or []
+        merged = {str(item.get("date") or item.get("time"))[:10]: item
+                  for item in current if item.get("date") or item.get("time")}
+        added = 0
+        for bar in bars:
+            day = str(bar.get("date") or bar.get("time") or "")[:10]
+            if not day or day in merged:
+                continue
+            merged[day] = {
+                "date": day, "open": bar.get("open"), "high": bar.get("high"),
+                "low": bar.get("low"), "close": bar.get("close"),
+                "quantity": bar.get("volume"), "open_interest": bar.get("open_interest"),
+            }
+            added += 1
+        if added:
+            evidence["daily_option_bars"] = [merged[key] for key in sorted(merged)]
+            evidence["market_data_source"] = dict(source)
+            with self.db:
+                self.db.execute(
+                    "UPDATE model_signals SET evidence_json=?, updated_at=? WHERE signal_id=?",
+                    (json.dumps(evidence, default=str), datetime.now(timezone.utc).isoformat(), signal_id),
+                )
+        return added
+
     def attach_expired_fo_bars(self, fo_rows: list[dict[str, Any]]) -> dict[str, int]:
         """Snapshot NSE FO daily bars into matching strategy signals before market-data purge.
 
