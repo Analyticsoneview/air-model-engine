@@ -6,8 +6,8 @@ BRANCH="feat/air-telegram-alerts"
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 fail(){ echo "AIR-SETUP: $*" >&2; exit 1; }
-[[ "$(git branch --show-current)" == "$BRANCH" ]] || fail "Check out branch $BRANCH first."
 command -v git >/dev/null || fail "Git is required to run AIR-SETUP. Install Git, clone the AIR repository, and rerun."
+[[ "$(git branch --show-current)" == "$BRANCH" ]] || fail "Check out branch $BRANCH first."
 OS="$(uname -s)"
 if ! command -v gh >/dev/null 2>&1; then
   echo "GitHub CLI is missing. Installing it now..."
