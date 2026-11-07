@@ -102,6 +102,8 @@ class MarketDataService:
             await source[0][2].unsubscribe(instruments)
         for item in instruments:
             self._subscriptions.pop(item.token, None)
+        for item in instruments:
+            self._subscriptions.pop(item.token, None)
 
     async def hydrate_strategy_ledger(self, ledger: Any, customer_id: str,
                                       as_of: str) -> dict[str, Any]:
