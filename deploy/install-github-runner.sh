@@ -1,72 +1,66 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-
-if [[ "$EUID" -ne 0 ]]; then
-  echo "Run with sudo: sudo bash deploy/install-github-runner.sh" >&2
-  exit 1
-fi
-. /etc/os-release
-if [[ "$ID" != "ubuntu" ]]; then
-  echo "AIR self-hosted runner installer supports Ubuntu." >&2
-  exit 1
-fi
-
-RUNNER_USER="airrunner"
-RUNNER_DIR="/opt/air-github-runner"
+OS="$(uname -s)"
+ARCH="$(uname -m)"
+case "$ARCH" in
+  x86_64|amd64) RUNNER_ARCH="x64"; LABEL_ARCH="x64" ;;
+  arm64|aarch64) RUNNER_ARCH="arm64"; LABEL_ARCH="ARM64" ;;
+  *) echo "Unsupported CPU architecture: $ARCH" >&2; exit 1 ;;
+esac
 REPO_URL="https://github.com/Analyticsoneview/air-model-engine"
-
-if id "$RUNNER_USER" >/dev/null 2>&1; then
-  echo "Runner account already exists."
+if [[ "$OS" == "Linux" ]]; then
+  if [[ "$EUID" -ne 0 ]]; then echo "Run on Ubuntu with sudo: sudo bash deploy/install-github-runner.sh" >&2; exit 1; fi
+  . /etc/os-release
+  if [[ "$ID" != "ubuntu" ]]; then echo "Linux runner installer currently supports Ubuntu 22.04/24.04." >&2; exit 1; fi
+  RUNNER_USER="airrunner"; RUNNER_DIR="/opt/air-github-runner"
+  if ! id "$RUNNER_USER" >/dev/null 2>&1; then useradd --create-home --shell /bin/bash "$RUNNER_USER"; fi
+  usermod -aG docker "$RUNNER_USER" 2>/dev/null || true
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates python3 sudo
+elif [[ "$OS" == "Darwin" ]]; then
+  if [[ "$EUID" -eq 0 ]]; then echo "Do not run this macOS installer with sudo; run it as the signed-in user." >&2; exit 1; fi
+  RUNNER_USER="$(id -un)"; RUNNER_DIR="$HOME/air-github-runner"
+  command -v curl >/dev/null || { echo "curl is required." >&2; exit 1; }
+  command -v python3 >/dev/null || { echo "Install Python 3 (for example with Homebrew) and retry." >&2; exit 1; }
 else
-  useradd --create-home --shell /bin/bash "$RUNNER_USER"
+  echo "Unsupported OS: $OS. Use deploy/install-github-runner.ps1 on Windows." >&2; exit 1
 fi
-usermod -aG docker "$RUNNER_USER"
-apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates jq openjdk-17-jdk sudo
-
-if [[ -e "$RUNNER_DIR/.runner" ]]; then
-  echo "A runner is already configured in $RUNNER_DIR."
-  exit 0
-fi
-
-read -r -s -p "Short-lived GitHub Actions runner registration token (repo Settings > Actions > Runners > New self-hosted runner): " RUNNER_TOKEN
-echo
-if [[ -z "$RUNNER_TOKEN" ]]; then
-  echo "A runner registration token is required." >&2
-  exit 1
-fi
-
+if [[ -e "$RUNNER_DIR/.runner" ]]; then echo "A runner is already configured in $RUNNER_DIR."; exit 0; fi
 RELEASE_JSON="$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest)"
-ASSET_URL="$(printf '%s' "$RELEASE_JSON" | python3 -c 'import json,sys; j=json.load(sys.stdin); print(next(a["browser_download_url"] for a in j["assets"] if a["name"].startswith("actions-runner-linux-x64-") and a["name"].endswith(".tar.gz")))')"
-ASSET_DIGEST="$(printf '%s' "$RELEASE_JSON" | python3 -c 'import json,sys; j=json.load(sys.stdin); a=next(a for a in j["assets"] if a["name"].startswith("actions-runner-linux-x64-") and a["name"].endswith(".tar.gz")); print(a.get("digest") or "")')"
-
-install -d -o "$RUNNER_USER" -g "$RUNNER_USER" "$RUNNER_DIR"
+if [[ "$OS" == "Linux" ]]; then ASSET_PREFIX="actions-runner-linux-\${RUNNER_ARCH}-"; else ASSET_PREFIX="actions-runner-osx-\${RUNNER_ARCH}-"; fi
+ASSET_URL="$(printf '%s' "$RELEASE_JSON" | python3 -c 'import json,sys; j=json.load(sys.stdin); p=sys.argv[1]; print(next(a["browser_download_url"] for a in j["assets"] if a["name"].startswith(p) and a["name"].endswith(".tar.gz")))' "$ASSET_PREFIX")"
+ASSET_DIGEST="$(printf '%s' "$RELEASE_JSON" | python3 -c 'import json,sys; j=json.load(sys.stdin); p=sys.argv[1]; a=next(a for a in j["assets"] if a["name"].startswith(p) and a["name"].endswith(".tar.gz")); print(a.get("digest") or "")' "$ASSET_PREFIX")"
+if [[ "$OS" == "Linux" ]]; then install -d -o "$RUNNER_USER" -g "$RUNNER_USER" "$RUNNER_DIR"; else install -d "$RUNNER_DIR"; fi
 curl -fsSL "$ASSET_URL" -o "$RUNNER_DIR/runner.tar.gz"
 if [[ "$ASSET_DIGEST" == sha256:* ]]; then
-  echo "${ASSET_DIGEST#sha256:}  $RUNNER_DIR/runner.tar.gz" | sha256sum -c -
-else
-  echo "GitHub release did not provide a SHA-256 digest; verify the downloaded runner package before production use." >&2
+  EXPECTED_DIGEST="\${ASSET_DIGEST#sha256:}"
+  if command -v sha256sum >/dev/null 2>&1; then echo "$EXPECTED_DIGEST  $RUNNER_DIR/runner.tar.gz" | sha256sum -c -
+  else echo "$EXPECTED_DIGEST  $RUNNER_DIR/runner.tar.gz" | shasum -a 256 -c -; fi
+else echo "GitHub release did not provide a SHA-256 digest; verify the downloaded runner package before production use." >&2; fi
+tar -xzf "$RUNNER_DIR/runner.tar.gz" -C "$RUNNER_DIR"; rm -f "$RUNNER_DIR/runner.tar.gz"
+if [[ "$OS" == "Linux" ]]; then
+  chown -R "$RUNNER_USER:$RUNNER_USER" "$RUNNER_DIR"
+  "$RUNNER_DIR/bin/installdependencies.sh"
+  chown -R "$RUNNER_USER:$RUNNER_USER" "$RUNNER_DIR"
 fi
-tar -xzf "$RUNNER_DIR/runner.tar.gz" -C "$RUNNER_DIR"
-rm -f "$RUNNER_DIR/runner.tar.gz"
-chown -R "$RUNNER_USER:$RUNNER_USER" "$RUNNER_DIR"
-"$RUNNER_DIR/bin/installdependencies.sh"
-chown -R "$RUNNER_USER:$RUNNER_USER" "$RUNNER_DIR"
-
-sudo -u "$RUNNER_USER" "$RUNNER_DIR/config.sh" \
-  --url "$REPO_URL" \
-  --token "$RUNNER_TOKEN" \
-  --name "$(hostname)-air" \
-  --labels air,linux,x64 \
-  --work _work \
-  --unattended
-unset RUNNER_TOKEN
-
-"$RUNNER_DIR/svc.sh" install "$RUNNER_USER"
-"$RUNNER_DIR/svc.sh" start
-
+read -r -s -p "Short-lived GitHub Actions runner registration token (repo Settings > Actions > Runners > New self-hosted runner): " RUNNER_TOKEN
 echo
-echo "AIR GitHub runner installed and started."
-echo "Set repository variable AIR_RUNNER_LABELS to:"
-echo '["self-hosted","linux","x64","air"]'
-echo "This grants the runner Docker access; protect the Ubuntu host as a privileged CI machine."
+if [[ -z "$RUNNER_TOKEN" ]]; then echo "A runner registration token is required." >&2; exit 1; fi
+if [[ "$OS" == "Linux" ]]; then
+  if [[ "$LABEL_ARCH" == "ARM64" ]]; then LABELS="air,linux,ARM64"; else LABELS="air,linux,x64"; fi
+  sudo -u "$RUNNER_USER" "$RUNNER_DIR/config.sh" --url "$REPO_URL" --token "$RUNNER_TOKEN" --name "$(hostname)-air" --labels "$LABELS" --work _work --unattended
+else
+  if [[ "$LABEL_ARCH" == "ARM64" ]]; then LABELS="air,macOS,ARM64"; else LABELS="air,macOS,X64"; fi
+  "$RUNNER_DIR/config.sh" --url "$REPO_URL" --token "$RUNNER_TOKEN" --name "$(hostname)-air" --labels "$LABELS" --work _work --unattended
+fi
+unset RUNNER_TOKEN
+if [[ "$OS" == "Linux" ]]; then
+  chown -R "$RUNNER_USER:$RUNNER_USER" "$RUNNER_DIR"
+  "$RUNNER_DIR/svc.sh" install "$RUNNER_USER"; "$RUNNER_DIR/svc.sh" start
+  echo 'Set AIR_RUNNER_LABELS to ["self-hosted","linux","x64","air"] (or ARM64 for an ARM64 host).'
+else
+  "$RUNNER_DIR/svc.sh" install; "$RUNNER_DIR/svc.sh" start
+  echo 'Set AIR_RUNNER_LABELS to ["self-hosted","macOS","X64","air"] (or ARM64 for Apple Silicon).'
+fi
+echo
+echo "AIR GitHub runner installed and started. Verify Online/Idle in repository Settings > Actions > Runners."
