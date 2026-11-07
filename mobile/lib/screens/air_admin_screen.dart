@@ -1508,7 +1508,7 @@ class _AirAdminExecutionScreenState extends State<AirAdminExecutionScreen> {
                     style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
                 const SizedBox(height: 6),
                 Text(
-                  'OFF = manual order tickets only. ON = automatic execution is eligible only for strategies enabled below and broker accounts separately approved for orders.',
+                  'OFF = manual review only; no automatic orders. ON = automatic execution becomes eligible only for strategies enabled below and broker accounts separately approved. Live order submission is still locked pending broker execution verification.',
                   style: TextStyle(color: cs.onSurfaceVariant, fontSize: 11, height: 1.4),
                 ),
                 SwitchListTile(
@@ -1544,7 +1544,7 @@ class _AirAdminExecutionScreenState extends State<AirAdminExecutionScreen> {
                   label: const Text('SAVE EXECUTION POLICY'),
                 ),
                 const SizedBox(height: 8),
-                Text('Live broker order submission is not enabled by this policy screen. It remains locked until execution adapters, risk checks and account verification are completed.',
+                Text('Manual and automatic broker submission are not yet enabled. This screen controls eligibility only; broker-specific order adapters, risk checks and account verification must pass first.',
                     style: TextStyle(color: cs.error, fontSize: 10, height: 1.4)),
               ]),
             ),
