@@ -43,7 +43,7 @@ class OrbSignalEngineTests(unittest.TestCase):
         self.assertEqual(signals[0]["strategy"], "ORB_MORNING")
         self.assertEqual(signals[0]["entry_price"], "107")
         self.assertEqual(signals[0]["stop_loss"], "106")
-        self.assertEqual(signals[0]["entry_at"], "2026-11-06T09:27:00+05:30" if False else "2026-11-06T09:33:00+05:30")
+        self.assertEqual(signals[0]["entry_at"], "2026-11-06T09:33:00+05:30")
 
     def test_afternoon_stop_is_the_range_candle_low(self):
         engine = OrbSignalEngine(["BANKNIFTY"])
