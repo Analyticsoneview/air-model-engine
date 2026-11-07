@@ -13,10 +13,7 @@ class _AirConnectionScreenState extends State<AirConnectionScreen> {
   final AirApiClient _api = AirApiClient();
   final _email = TextEditingController();
   final _password = TextEditingController();
-  final _accountId = TextEditingController();
-  List<Map<String, dynamic>> _brokers = [];
   List<Map<String, dynamic>> _accounts = [];
-  String? _selectedBroker;
   String? _error;
   bool _loading = false;
   bool _authenticated = false;
@@ -25,7 +22,6 @@ class _AirConnectionScreenState extends State<AirConnectionScreen> {
   void dispose() {
     _email.dispose();
     _password.dispose();
-    _accountId.dispose();
     _api.dispose();
     super.dispose();
   }
@@ -34,106 +30,12 @@ class _AirConnectionScreenState extends State<AirConnectionScreen> {
     setState(() { _loading = true; _error = null; });
     try {
       await _api.login(_email.text, _password.text);
-      final brokers = await _api.brokerCatalog();
       final accounts = await _api.accounts();
       if (!mounted) return;
       setState(() {
-        _brokers = brokers;
         _accounts = accounts;
         _authenticated = true;
-        _selectedBroker = _brokers.isNotEmpty ? _brokers.first['code'] as String : null;
       });
-    } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _addAccount() async {
-    final broker = _selectedBroker;
-    if (broker == null || _accountId.text.trim().isEmpty) return;
-    setState(() { _loading = true; _error = null; });
-    try {
-      await _api.addAccount(broker, _accountId.text);
-      final accounts = await _api.accounts();
-      if (!mounted) return;
-      setState(() {
-        _accounts = accounts;
-        _accountId.clear();
-      });
-    } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-
-  Future<void> _editCredentials(Map<String, dynamic> account) async {
-    final broker = account['broker'] as String;
-    final accountId = account['account_id'] as String;
-    final fields = <String, List<String>>{
-      'angelone': ['api_key', 'pin'],
-      'dhan': ['client_id', 'access_token'],
-      'zerodha': ['api_key', 'api_secret'],
-      'upstox': ['client_id', 'client_secret', 'redirect_uri'],
-      'fyers': ['app_id', 'app_secret', 'redirect_uri'],
-    }[broker] ?? const <String>[];
-    if (fields.isEmpty) return;
-    final controllers = {
-      for (final field in fields) field: TextEditingController(),
-    };
-    final values = await showDialog<Map<String, String>>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('Secure $broker credentials'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: fields.map((field) => Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: TextField(
-                controller: controllers[field],
-                obscureText: field.contains('secret') || field == 'pin' || field.contains('token'),
-                decoration: InputDecoration(
-                  labelText: field.replaceAll('_', ' ').toUpperCase(),
-                  border: const OutlineInputBorder(),
-                ),
-              ),
-            )).toList(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('CANCEL'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final result = <String, String>{
-                for (final field in fields)
-                  if (controllers[field]!.text.trim().isNotEmpty)
-                    field: controllers[field]!.text.trim(),
-              };
-              if (result.length != fields.length) return;
-              Navigator.pop(dialogContext, result);
-            },
-            child: const Text('SAVE ENCRYPTED'),
-          ),
-        ],
-      ),
-    );
-    for (final controller in controllers.values) {
-      controller.dispose();
-    }
-    if (values == null) return;
-    setState(() { _loading = true; _error = null; });
-    try {
-      await _api.saveCredentials(broker, accountId, values);
-      final accounts = await _api.accounts();
-      if (!mounted) return;
-      setState(() => _accounts = accounts);
     } catch (error) {
       if (mounted) setState(() => _error = error.toString());
     } finally {
@@ -182,7 +84,6 @@ class _AirConnectionScreenState extends State<AirConnectionScreen> {
                   _api.logout();
                   _authenticated = false;
                   _accounts = [];
-                  _brokers = [];
                 }),
                 child: const Text('SIGN OUT'),
               ),
@@ -210,7 +111,6 @@ class _AirConnectionScreenState extends State<AirConnectionScreen> {
                 ),
               ),
             ),
-            const SizedBox(height: 14),
             const SizedBox(height: 14),
             if (_accounts.isEmpty)
               const Text('No broker accounts registered yet.')
