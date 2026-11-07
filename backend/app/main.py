@@ -25,6 +25,8 @@ from app.market_data.vendor_adapter import GenericVendorMarketDataAdapter
 from app.market_data.contracts import MarketInstrument
 from app.market_data.runtime import (market_data_router, market_data_hub, market_data_sources, market_data_instruments, market_data_service)
 from app.market_data.service import set_default_market_data_service
+from app.market_data.master_refresh import BrokerMasterRefresher
+from app.services.execution_policy import ExecutionPolicy, STRATEGIES
 from app.air_qoc_dhan import router as air_qoc_dhan_router
 from app.model_engine_api import router as model_engine_router
 from app.air_qoc_scheduler import start_qoc_scheduler, stop_qoc_scheduler, capture_dhan_eod_snapshots
@@ -50,7 +52,9 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "Accept", "X-AIR-ADMIN-KEY"],
 )
 _market_health_task: asyncio.Task | None = None
+_master_refresh_task: asyncio.Task | None = None
 set_default_market_data_service(market_data_service)
+execution_policy = ExecutionPolicy()
 auth_store = AuthStore(os.getenv("AIR_AUTH_DB_PATH", "data/air_auth.sqlite3"))
 account_directory = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3"))
 _credential_vault: CredentialVault | None = None
@@ -123,10 +127,11 @@ def _market_adapter_for(operator_id: str, provider: str, account_id: str):
 
 @app.on_event("startup")
 async def start_air_qoc_jobs() -> None:
-    global _market_health_task
+    global _market_health_task, _master_refresh_task
     start_nse_data_jobs()
     await _restore_market_data_source_connections()
     _market_health_task = asyncio.create_task(_market_data_health_loop(), name="air-market-data-health")
+    _master_refresh_task = asyncio.create_task(_broker_master_refresh_loop(), name="air-broker-master-refresh")
     start_qoc_scheduler()
     start_telegram_scheduler()
 
@@ -141,6 +146,36 @@ async def _market_data_health_loop() -> None:
             # Health monitoring must never take down the API process.
             pass
         await asyncio.sleep(max(3.0, float(os.getenv("AIR_MARKET_HEALTH_INTERVAL_SECONDS", "5"))))
+
+
+async def _broker_master_refresh_loop() -> None:
+    """Refresh configured broker masters once per NSE trading date at 07:00 IST."""
+    from zoneinfo import ZoneInfo
+    from datetime import datetime
+    ist = ZoneInfo("Asia/Kolkata")
+    last_run = None
+    while True:
+        now = datetime.now(ist)
+        if now.weekday() < 5 and now.hour >= 7 and last_run != now.date():
+            refresher = BrokerMasterRefresher(market_data_instruments)
+            try:
+                for operator_id in {
+                    value.strip() for value in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",")
+                    if value.strip()
+                }:
+                    accounts = account_directory.list_for_customer(operator_id)
+                    for account in accounts:
+                        if account.broker not in {"dhan", "zerodha", "upstox", "fyers", "angelone"}:
+                            continue
+                        try:
+                            await refresher.refresh(account.broker, account.account_id)
+                        except Exception:
+                            # Preserve the previous known-good master and report failure in status.
+                            continue
+            finally:
+                await refresher.close()
+            last_run = now.date()
+        await asyncio.sleep(60)
 
 
 async def _restore_market_data_source_connections() -> None:
@@ -218,7 +253,14 @@ async def _restore_market_data_source_connections() -> None:
 
 @app.on_event("shutdown")
 async def stop_air_qoc_jobs() -> None:
-    global _market_health_task
+    global _market_health_task, _master_refresh_task
+    if _master_refresh_task is not None:
+        _master_refresh_task.cancel()
+        try:
+            await _master_refresh_task
+        except asyncio.CancelledError:
+            pass
+        _master_refresh_task = None
     if _market_health_task is not None:
         _market_health_task.cancel()
         try:
@@ -281,6 +323,11 @@ class TradingAccountCreate(BaseModel):
 
 class AdminTradingAccountAssignment(TradingAccountCreate):
     customer_id: str = Field(min_length=3, max_length=100)
+
+
+class ExecutionPolicyUpdate(BaseModel):
+    master_auto_enabled: bool = False
+    strategies: dict[str, bool] = Field(default_factory=dict)
 
 
 class OrderPermissionUpdate(BaseModel):
@@ -1208,6 +1255,50 @@ async def disconnect_main_account(customer_id: str = Depends(require_air_operato
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {"routing": market_data_router.status()}
 
+
+
+@app.get("/api/v1/operator/execution-policy")
+async def get_execution_policy(operator_id: str = Depends(require_air_operator)) -> dict:
+    return execution_policy.get()
+
+
+@app.put("/api/v1/operator/execution-policy")
+async def update_execution_policy(
+    body: ExecutionPolicyUpdate,
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    try:
+        return execution_policy.update(body.master_auto_enabled, body.strategies)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/operator/market-data/master-status")
+async def get_broker_master_status(operator_id: str = Depends(require_air_operator)) -> dict:
+    return {"masters": market_data_instruments.master_status(),
+            "refresh_time_ist": "07:00 weekdays",
+            "configured_urls": {
+                provider: bool(BrokerMasterRefresher(market_data_instruments).url_for(provider))
+                for provider in ("dhan", "zerodha", "upstox", "fyers", "angelone")
+            }}
+
+
+@app.post("/api/v1/operator/market-data/masters/refresh")
+async def refresh_broker_masters(operator_id: str = Depends(require_air_operator)) -> dict:
+    refresher = BrokerMasterRefresher(market_data_instruments)
+    results = []
+    try:
+        for account in account_directory.list_for_customer(operator_id):
+            if account.broker not in {"dhan", "zerodha", "upstox", "fyers", "angelone"}:
+                continue
+            try:
+                results.append(await refresher.refresh(account.broker, account.account_id))
+            except Exception as exc:
+                results.append({"provider": account.broker, "account_id": account.account_id,
+                                "status": "FAILED", "error_type": type(exc).__name__})
+    finally:
+        await refresher.close()
+    return {"results": results, "masters": market_data_instruments.master_status()}
 
 
 @app.get("/api/v1/operator/market-data/sources")
