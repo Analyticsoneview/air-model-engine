@@ -137,6 +137,19 @@ class _NseDataScreenState extends State<NseDataScreen> {
     return text.length >= 10 ? text.substring(0, 10) : text;
   }
 
+  List<Map<String, dynamic>> _upcomingHolidays() {
+    final calendar = _status['trading_calendar'] as Map<String, dynamic>? ?? const {};
+    final segments = calendar['segments'] as Map<String, dynamic>? ?? const {};
+    final cm = segments['CM'] as List<dynamic>? ?? const [];
+    final today = DateTime.now();
+    final rows = cm.whereType<Map<String, dynamic>>().where((item) {
+      final parsed = DateTime.tryParse(item['date']?.toString() ?? '');
+      return parsed != null && !parsed.isBefore(DateTime(today.year, today.month, today.day));
+    }).toList();
+    rows.sort((a, b) => (a['date'] ?? '').toString().compareTo((b['date'] ?? '').toString()));
+    return rows.take(5).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -203,6 +216,38 @@ class _NseDataScreenState extends State<NseDataScreen> {
                 ),
               ),
             ),
+            if (_upcomingHolidays().isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(13),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(children: [
+                        Icon(Icons.event_available_rounded, color: cs.primary, size: 18),
+                        const SizedBox(width: 7),
+                        const Expanded(child: Text('NSE TRADING CALENDAR · CM',
+                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: .5))),
+                        Text('OFFICIAL', style: TextStyle(fontSize: 8, color: cs.onSurfaceVariant)),
+                      ]),
+                      const SizedBox(height: 7),
+                      ..._upcomingHolidays().map((holiday) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 3),
+                        child: Row(children: [
+                          SizedBox(width: 82, child: Text(holiday['date']?.toString() ?? '',
+                              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800))),
+                          Expanded(child: Text(holiday['description']?.toString() ?? 'Trading holiday',
+                              style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant))),
+                        ]),
+                      )),
+                      Text('Calendar refreshes with the nightly NSE data cycle. Special sessions follow separate NSE circulars.',
+                          style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
             Row(children: [
               Expanded(child: _MarketChoice(
