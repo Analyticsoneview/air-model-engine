@@ -36,6 +36,24 @@ confirmed after valid instrument subscriptions produce fresh ticks. AIR never tr
 an account assignment or saved API key alone as a connected feed. Upstox V3 uses its
 official Protobuf-aware SDK, not an assumed JSON feed.
 
+## Broker outage and source disclosure
+
+A saved account or selected broker preference is not treated as an active data source.
+At customer runtime initialization AIR authenticates the selected broker's historical
+and live channels. Missing credentials, rejected authentication or an unavailable
+provider automatically routes historical strategy data to the official NSE EOD
+adapter. The API reports both `requested_source` and the actual `historical_source`
+and `live_source`, together with `connection_status`, `fallback_active` and
+`fallback_reason`. Failed broker historical requests switch the historical route
+to NSE before returning fallback bars. Failed live subscriptions clear the broker
+live route; NSE is never represented as a live feed. The Model Engine and AIR Admin
+screens show the effective source and connection/fallback status.
+
+Normal and non-entitled customers always remain on NSE EOD. Admin and paid customers
+use broker data only while their selected broker is available; otherwise NSE EOD is
+the visible and effective default. Broker-derived results are not labelled as such
+when the active historical route is NSE.
+
 ## Customer strategy data paths (Point 9)
 
 AIR exposes one shared strategy feed and two data-source paths. Strategy rules,
