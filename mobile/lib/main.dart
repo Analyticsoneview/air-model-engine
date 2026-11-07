@@ -6,6 +6,7 @@ import 'screens/air_connection_screen.dart';
 import 'screens/air_admin_screen.dart';
 import 'screens/air_qoc_screen.dart';
 import 'screens/model_engine_screen.dart';
+import 'screens/nse_data_screen.dart';
 
 void main() => runApp(const AirModelEngineApp());
 
@@ -81,7 +82,7 @@ class _AirShellState extends State<AirShell> {
       const ModelEngineScreen(),
       const SimplePage(title: 'Options Intelligence', icon: Icons.candlestick_chart_rounded, subtitle: 'Discover option opportunities with strike, expiry, premium and liquidity context.'),
       const AirQocScreen(),
-      const SimplePage(title: 'Market Data Center', icon: Icons.dataset_rounded, subtitle: 'Historical datasets, market breadth and research workspaces.'),
+      const NseDataScreen(),
       const AirAdminScreen(),
     ];
     return Scaffold(
