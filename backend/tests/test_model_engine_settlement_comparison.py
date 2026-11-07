@@ -39,11 +39,12 @@ class SettlementComparisonTests(unittest.TestCase):
         self.assertEqual(rows[1]["previous_nse_settlement"], None)
         self.assertEqual(rows[1]["settlement_direction"], "DATA MISSING")
 
-    def test_stock_settlement_tracks_up_down_without_option_trade_action(self):
-        current = [{"symbol": "INFY", "trade_date": "2026-11-06", "settlement": 1500}]
-        previous = [{"symbol": "INFY", "trade_date": "2026-11-05", "settlement": 1490}]
+    def test_stock_close_is_explicit_cash_market_settlement_reference_when_settlement_missing(self):
+        current = [{"symbol": "INFY", "trade_date": "2026-11-06", "close": 1500}]
+        previous = [{"symbol": "INFY", "trade_date": "2026-11-05", "close": 1490}]
         rows = _build_rows("CM", current, previous, {("INFY",): 1510})
         self.assertEqual(rows[0]["settlement_direction"], "UP")
+        self.assertEqual(rows[0]["nse_settlement_basis"], "NSE CM CLOSE (CASH MARKET REFERENCE)")
         self.assertEqual(rows[0]["action"], "—")
         self.assertEqual(rows[0]["broker_variance"], 10.0)
 
