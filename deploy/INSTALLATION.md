@@ -14,11 +14,15 @@ The installer creates a single-node Docker Swarm deployment. It is not a multi-n
 
 ## One-command Ubuntu installation
 
-On a fresh Ubuntu server, obtain this private repository using a GitHub fine-grained token with read-only Contents permission. The installer can clone the repository itself and prompt for the token without saving it in the Git remote:
+On a fresh Ubuntu server, first clone the private repository. Git prompts for your GitHub username and a fine-grained token with read-only Contents permission; do not put the token in the command or remote URL:
 
 ~~~bash
+git clone --branch feat/air-telegram-alerts https://github.com/Analyticsoneview/air-model-engine.git
+cd air-model-engine
 sudo bash deploy/install-air-ubuntu.sh
 ~~~
+
+The installer detects and updates this clean checkout. Once PR #7 is merged, use the main branch instead. If you already have a clean checkout, the installer can also clone into /opt/air-model-engine when run from a copied script outside the repository.
 
 The installer:
 1. Installs Docker Engine and initializes single-node Swarm if needed.
