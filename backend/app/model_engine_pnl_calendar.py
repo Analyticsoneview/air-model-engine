@@ -142,7 +142,11 @@ def build_pnl_calendar(strategy_views: dict[str, Any], *, physical_review: dict[
                        year: int | None = None, month: int | None = None) -> dict[str, Any]:
     """Aggregate distinct strategy backtests; physical-delivery view is excluded."""
     selected: list[dict[str, Any]] = []
-    sources = (("EXPIRY78", "EXPIRY78"), ("ORIGINAL366", "RECOVERED"))
+    sources = (
+        ("EXPIRY78", "EXPIRY78"),
+        ("ORIGINAL366", "RECOVERED"),
+        ("RECOVERY", "RECOVERY"),
+    )
     seen: set[tuple] = set()
     for strategy, group_name in sources:
         view = strategy_views.get(strategy) or {}
@@ -166,8 +170,10 @@ def build_pnl_calendar(strategy_views: dict[str, Any], *, physical_review: dict[
                 if strategy == "ORIGINAL366":
                     item["strategy"] = "RECOVERED"
                     item["accounting_basis"] = "RETROSPECTIVE_ALTERNATIVE_MODEL_NOT_NEW_ORDER"
-                else:
+                elif strategy == "EXPIRY78":
                     item["accounting_basis"] = "EXPIRY78_REPLAY"
+                else:
+                    item["accounting_basis"] = "RECOVERY_STRATEGY_REPLAY"
                 selected.append(item)
 
     def blank():
@@ -184,7 +190,10 @@ def build_pnl_calendar(strategy_views: dict[str, Any], *, physical_review: dict[
 
     days: dict[str, dict] = defaultdict(blank)
     months: dict[str, dict] = defaultdict(blank)
-    totals = {"overall": blank(), "EXPIRY78": blank(), "RECOVERED": blank()}
+    totals = {
+        "overall": blank(), "EXPIRY78": blank(),
+        "RECOVERED": blank(), "RECOVERY": blank(),
+    }
     for trade in selected:
         strategy = trade["strategy"]
         exit_day = trade.get("exit_date")
