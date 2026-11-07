@@ -46,6 +46,7 @@ class GenericVendorMarketDataAdapter:
         self.headers = {header: f"{prefix} {token}".strip(), "Accept": "application/json"}
         self._http = httpx.AsyncClient(base_url=self.base_url, headers=self.headers, timeout=20)
         self._ws = None
+        self._ws_open = False
         self._reader: asyncio.Task | None = None
         self._instruments: dict[str, MarketInstrument] = {}
         self._state = "not_connected"
@@ -110,6 +111,7 @@ class GenericVendorMarketDataAdapter:
             self.websocket_url, additional_headers=self.headers,
             ping_interval=20, ping_timeout=20, close_timeout=5,
         )
+        self._ws_open = True
         if self._instruments:
             await self._send_subscribe(list(self._instruments.values()))
         self._state = "connected"
@@ -153,6 +155,7 @@ class GenericVendorMarketDataAdapter:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
+                self._ws_open = False
                 self._state = "degraded"
                 self._last_error = type(exc).__name__
                 if self._stop:
@@ -170,14 +173,14 @@ class GenericVendorMarketDataAdapter:
         if not instruments:
             raise ValueError("At least one vendor instrument is required")
         self._instruments.update({item.token: item for item in instruments})
-        if self._ws is None or self._ws.closed:
+        if self._ws is None or not self._ws_open:
             await self._connect()
         else:
             await self._send_subscribe(instruments)
 
     async def unsubscribe(self, instruments: list[MarketInstrument]) -> None:
         tokens = [item.token for item in instruments]
-        if self._ws is not None and not self._ws.closed:
+        if self._ws is not None and self._ws_open:
             async with self._send_lock:
                 await self._ws.send(json.dumps({"action": "unsubscribe", "tokens": tokens}))
         for token in tokens:
@@ -192,7 +195,7 @@ class GenericVendorMarketDataAdapter:
         return {
             "provider": self.provider_code, "account_id": self.account_id,
             "feed_state": state, "feed_mode": "vendor_json_websocket",
-            "websocket_open": self._ws is not None and not self._ws.closed,
+            "websocket_open": self._ws is not None and self._ws_open,
             "subscribed_instruments": len(self._instruments),
             "last_tick_at": self._last_tick_at, "last_error_type": self._last_error,
         }
@@ -209,5 +212,6 @@ class GenericVendorMarketDataAdapter:
         if self._ws is not None:
             await self._ws.close()
             self._ws = None
+            self._ws_open = False
         await self._http.aclose()
         self._state = "disconnected"
