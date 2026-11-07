@@ -39,9 +39,9 @@ async def poll_air_strategy_alerts() -> dict:
     results = []
     for customer_id in customer_ids:
         for strategy, operation in (
-            ("RECOVERED", lambda: get_original366_engine(customer_id=customer_id)),
-            ("EXPIRY78", lambda: get_expiry78_engine(customer_id=customer_id)),
-            ("EXPIRYSCAN", lambda: get_expiry_scan(customer_id=customer_id)),
+            ("RECOVERED", lambda: get_original366_engine(limit=2000, as_of=None, customer_id=customer_id)),
+            ("EXPIRY78", lambda: get_expiry78_engine(limit=2000, as_of=None, customer_id=customer_id)),
+            ("EXPIRYSCAN", lambda: get_expiry_scan(max_dte=45, limit=500, customer_id=customer_id)),
         ):
             try:
                 result = await operation()
