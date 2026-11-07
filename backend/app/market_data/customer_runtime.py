@@ -168,7 +168,25 @@ async def get_customer_market_data_status(customer_id: str) -> dict:
     if _runtime is None:
         raise RuntimeError("Customer market-data runtime has not been configured")
     service = await _runtime.get_service(customer_id)
-    await service.health()
+    try:
+        await service.health()
+    except Exception as exc:
+        # A health probe failure is itself a broker outage. Never let a status
+        # endpoint report the previously selected broker as if it were usable.
+        if service.router.is_registered("nse_bhavcopy", "official"):
+            try:
+                await service.router.clear_source("live")
+                await service.router.set_source("historical", "nse_bhavcopy", "official")
+            except Exception:
+                pass
+        state = getattr(service, "customer_market_data_status", None)
+        if isinstance(state, dict):
+            state.update({
+                "effective_source": "NSE",
+                "connection_status": "unavailable",
+                "fallback_active": True,
+                "fallback_reason": type(exc).__name__,
+            })
     status = dict(getattr(service, "customer_market_data_status", {}))
     status.update(service.router.status())
     historical = status.get("historical_source") or {}
