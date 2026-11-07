@@ -749,6 +749,7 @@ async def save_customer_broker_credentials(broker: str, account_id: str, body: B
         if (broker.lower(), account_id) not in owned:
             raise PermissionError("Customer does not own this broker account")
         get_vault().put(customer_id, broker, account_id, body.credentials)
+        await invalidate_customer_market_data_service(customer_id)
     except PermissionError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -763,6 +764,7 @@ async def remove_customer_account(broker: str, account_id: str,
     try:
         vault.delete(customer_id, broker, account_id)
         account_directory.remove(customer_id, broker, account_id)
+        await invalidate_customer_market_data_service(customer_id)
     except PermissionError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"status": "removed", "broker": broker.lower(), "account_id": account_id}
@@ -822,6 +824,7 @@ async def operator_save_broker_credentials(
         raise HTTPException(status_code=404, detail="Assigned broker account not found")
     try:
         get_vault().put(customer_id, broker, account_id, body.credentials)
+        await invalidate_customer_market_data_service(customer_id)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"customer_id": customer_id, "broker": broker.lower(),
@@ -836,6 +839,7 @@ async def operator_remove_broker_account(
     try:
         get_vault().delete(customer_id, broker, account_id)
         account_directory.remove(customer_id, broker, account_id)
+        await invalidate_customer_market_data_service(customer_id)
     except PermissionError as exc:
         raise HTTPException(status_code=404, detail="Assigned broker account not found") from exc
     return {"status": "removed", "customer_id": customer_id,
@@ -877,6 +881,7 @@ async def angel_login(account_id: str, body: AngelLoginRequest,
         credentials["refresh_token"] = session.get("refreshToken", "")
         credentials["feed_token"] = session.get("feedToken", "")
         get_vault().put(customer_id, "angelone", account_id, credentials)
+        await invalidate_customer_market_data_service(customer_id)
         return {"broker": "angelone", "account_id": account_id, "verified": True,
                 "feed_token_saved": bool(session.get("feedToken")),
                 "note": "Angel session verified and tokens stored encrypted. Session normally expires at midnight; TOTP was not stored. Live order permission remains disabled."}
@@ -923,6 +928,7 @@ async def fyers_exchange(account_id: str, body: FyersTokenExchangeRequest,
         profile = await client.profile()
         credentials["access_token"] = session["access_token"]
         get_vault().put(customer_id, "fyers", account_id, credentials)
+        await invalidate_customer_market_data_service(customer_id)
         return {"broker": "fyers", "account_id": account_id, "verified": True,
                 "profile": profile.get("data", profile), "access_token_saved": True,
                 "note": "FYERS profile verified and token stored encrypted. Standard access tokens expire daily at 6:30 AM. Trading-app static IP eligibility is separate; AIR order permission remains disabled."}
@@ -967,6 +973,7 @@ async def zerodha_exchange_token(account_id: str, body: ZerodhaTokenExchangeRequ
             raise HTTPException(status_code=409, detail="Authenticated Zerodha user does not match registered account ID")
         credentials["access_token"] = session["access_token"]
         get_vault().put(customer_id, "zerodha", account_id, credentials)
+        await invalidate_customer_market_data_service(customer_id)
         return {"broker": "zerodha", "account_id": account_id, "verified": True,
                 "user_id": broker_user_id, "access_token_saved": True,
                 "note": "Token is stored encrypted. Kite access tokens expire at the next daily session boundary; repeat the login flow when expired. Order permission remains disabled."}
@@ -1029,6 +1036,7 @@ async def upstox_exchange(account_id: str, body: UpstoxTokenExchangeRequest,
         profile = profile_data.get("user_id") or profile_data.get("user_name")
         credentials["access_token"] = session["access_token"]
         get_vault().put(customer_id, "upstox", account_id, credentials)
+        await invalidate_customer_market_data_service(customer_id)
         return {"broker": "upstox", "account_id": account_id, "verified": True,
                 "broker_user": profile, "access_token_saved": True,
                 "note": "Authorization code exchanged and token stored encrypted. Standard access tokens expire at 3:30 AM the following day; order permission remains disabled."}
@@ -1408,14 +1416,15 @@ async def refresh_broker_masters(operator_id: str = Depends(require_air_operator
     refresher = BrokerMasterRefresher(market_data_instruments)
     results = []
     try:
-        for account in account_directory.list_for_customer(operator_id):
+        for account in account_directory.list_all():
             if account.broker not in {"dhan", "zerodha", "upstox", "fyers", "angelone"}:
                 continue
             try:
-                headers = _broker_master_headers(operator_id, account.broker, account.account_id)
+                headers = _broker_master_headers(account.customer_id, account.broker, account.account_id)
                 results.append(await refresher.refresh(account.broker, account.account_id, headers=headers))
             except Exception as exc:
-                results.append({"provider": account.broker, "account_id": account.account_id,
+                results.append({"customer_id": account.customer_id, "provider": account.broker,
+                                "account_id": account.account_id,
                                 "status": "FAILED", "error_type": type(exc).__name__})
     finally:
         await refresher.close()
