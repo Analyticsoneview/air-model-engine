@@ -53,3 +53,12 @@ The scheduler is disabled by default. Configure the Dhan account and enable the 
 ## Security
 
 Never commit the bot token, send it in Telegram, or expose it to the frontend. If the token is rotated, update the Swarm secret and redeploy the service.
+
+
+## Dynamic private and group destinations
+
+For production, keep `AIR_TELEGRAM_BOT_TOKEN` in a Docker secret and manage destination routing from **AIR Admin → Telegram destinations**. The operator can add multiple private chats and groups, select RECOVERED / EXPIRY78 / EXPIRYSCAN per destination, test delivery, edit, disable or remove routes without a redeploy.
+
+Managed routing is persisted in `AIR_TELEGRAM_CONFIG_DB_PATH` (default `data/air_telegram_config.sqlite3`, mounted in the persistent `air_data` volume in Docker Swarm). The legacy `AIR_TELEGRAM_CHAT_IDS` setting remains a fallback only until the operator first saves a managed destination. Once managed mode is activated, an empty or fully disabled route list means no strategy notifications are sent; deleting the final destination never silently re-enables legacy recipients.
+
+Use numeric Telegram chat IDs: positive for private chats and negative for groups/supergroups. The bot must have permission to post in every destination. The Admin test action verifies the Telegram send API accepts the message. The bot token is never returned to the app.
