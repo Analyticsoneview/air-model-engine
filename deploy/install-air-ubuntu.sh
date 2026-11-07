@@ -18,7 +18,13 @@ if [[ "${ID:-}" != "ubuntu" || ! "${VERSION_ID:-}" =~ ^(22\.04|24\.04)$ ]]; then
   exit 1
 fi
 
-REPO_DIR="${AIR_INSTALL_DIR:-/opt/air-model-engine}"
+SCRIPT_REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ -d "${SCRIPT_REPO_ROOT}/.git" ]]; then
+  DEFAULT_REPO_DIR="$SCRIPT_REPO_ROOT"
+else
+  DEFAULT_REPO_DIR="/opt/air-model-engine"
+fi
+REPO_DIR="${AIR_INSTALL_DIR:-$DEFAULT_REPO_DIR}"
 ENV_DIR="/etc/air"
 ENV_FILE="${ENV_DIR}/air.env"
 ADMIN_KEY_FILE="${ENV_DIR}/admin-api-key"
