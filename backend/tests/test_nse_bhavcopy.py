@@ -1,8 +1,10 @@
+import os
 import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
 
+from app.model_engine_ledger import ModelEngineLedger
 from app.nse_bhavcopy import (
     NSEBhavcopyStore, _archive_url, _normalize, _parse_nse_calendar, _subtract_months, _date_range,
 )
@@ -154,6 +156,66 @@ class NSEBhavcopyTests(unittest.TestCase):
             integrity = store.reconcile_session(day, ("FO",))
             self.assertEqual(integrity["status"], "COMPLETE")
             self.assertFalse(integrity["repair_triggered"])
+
+    def test_cleanup_snapshots_expired_fo_daily_bars_into_strategy_ledger_before_delete(self):
+        with tempfile.TemporaryDirectory() as folder:
+            previous_path = os.environ.get("AIR_MODEL_LEDGER_DB_PATH")
+            ledger_path = str(Path(folder) / "model-ledger.sqlite3")
+            os.environ["AIR_MODEL_LEDGER_DB_PATH"] = ledger_path
+            try:
+                ledger = ModelEngineLedger(ledger_path)
+                ledger.upsert("customer-1", {
+                    "signal_id": "EXPIRY78:NIFTY:2026-10-29:26000:CE",
+                    "classification": "EXPIRED",
+                    "signal_date": "2026-10-27",
+                    "entry_date": "2026-10-28",
+                    "symbol": "NIFTY",
+                    "instrument_type": "INDEX",
+                    "option_type": "CE",
+                    "expiry": "2026-10-29",
+                    "strike": 26000,
+                    "entry_price": 5,
+                    "quantity": 50,
+                    "evidence": {"strategy_memberships": ["EXPIRY78"]},
+                })
+                ledger.close()
+
+                store = NSEBhavcopyStore(str(Path(folder) / "nse.sqlite3"))
+                daily_rows = [
+                    {"FinInstrmId": "1", "TckrSymb": "NIFTY", "FinInstrmTp": "OPTIDX",
+                     "XpryDt": "2026-10-29", "StrkPric": "26000", "OptnTp": "CE",
+                     "OpnPric": "5", "HghPric": "6", "LwPric": "4", "ClsPric": "5.5",
+                     "TtlTradgVol": "1000", "UndrlygPric": "26010"},
+                    {"FinInstrmId": "1", "TckrSymb": "NIFTY", "FinInstrmTp": "OPTIDX",
+                     "XpryDt": "2026-10-29", "StrkPric": "26000", "OptnTp": "CE",
+                     "OpnPric": "5.5", "HghPric": "7", "LwPric": "5", "ClsPric": "6.5",
+                     "TtlTradgVol": "1500", "UndrlygPric": "26020"},
+                ]
+                for day, raw in zip(("2026-10-27", "2026-10-28"), daily_rows):
+                    store.save_rows("FO", day, [raw])
+                    store.set_file_status("FO", day, "IMPORTED", 1, source_record_count=1)
+
+                cleanup = store.cleanup_expired_fo(date(2026, 11, 7))
+
+                self.assertEqual(cleanup["strategy_snapshot"]["status"], "SNAPSHOTTED")
+                self.assertEqual(cleanup["strategy_snapshot"]["strategy_rows_updated"], 1)
+                self.assertEqual(cleanup["strategy_snapshot"]["daily_bars_attached"], 2)
+                self.assertEqual(store.query("FO"), [])
+                ledger = ModelEngineLedger(ledger_path)
+                try:
+                    saved = ledger.list_signals("customer-1")[0]
+                    self.assertEqual(len(saved["evidence"]["daily_option_bars"]), 2)
+                    self.assertEqual(saved["evidence"]["daily_option_bars"][1]["underlying_close"], 26020.0)
+                    self.assertEqual(saved["classification"], "EXPIRED")
+                    self.assertEqual(saved["pnl_points"], None)
+                finally:
+                    ledger.close()
+            finally:
+                if previous_path is None:
+                    os.environ.pop("AIR_MODEL_LEDGER_DB_PATH", None)
+                else:
+                    os.environ["AIR_MODEL_LEDGER_DB_PATH"] = previous_path
+
 
     def test_expired_fo_cleanup_is_idempotent_and_does_not_remove_expiry_day_contracts(self):
         with tempfile.TemporaryDirectory() as folder:
