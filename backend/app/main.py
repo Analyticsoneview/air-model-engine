@@ -844,8 +844,6 @@ async def search_market_instruments(
     if not resolved:
         raise HTTPException(status_code=409, detail="No connected Main Account market-data adapter")
     provider, account_id, adapter = resolved[0]
-    if provider != "dhan":
-        raise HTTPException(status_code=409, detail="Instrument search is not yet implemented for this Main Account provider")
     try:
         rows = await adapter.search_instruments(q, limit=limit, exchange_segment=segment)
     except Exception as exc:
@@ -860,8 +858,6 @@ async def subscribe_market_data(body: MarketSubscriptionRequest,
     if not resolved:
         raise HTTPException(status_code=409, detail="No connected Main Account market-data adapter")
     provider, account_id, adapter = resolved[0]
-    if provider != "dhan":
-        raise HTTPException(status_code=409, detail="Instrument subscription route is not yet implemented for this Main Account provider")
     try:
         instruments = [
             MarketInstrument(
@@ -875,6 +871,42 @@ async def subscribe_market_data(body: MarketSubscriptionRequest,
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"provider": provider, "account_id": account_id,
             "subscribed_count": len(instruments), "status": "subscription_sent"}
+
+
+@app.post("/api/v1/market-data/historical")
+async def market_data_historical(
+    body: MarketHistoricalRequest,
+    customer_id: str = Depends(require_air_operator),
+) -> dict:
+    resolved = market_data_router.resolve("historical")
+    if not resolved:
+        raise HTTPException(status_code=409, detail="No connected historical market-data source")
+    provider, account_id, adapter = resolved[0]
+    from datetime import datetime
+    try:
+        instrument = MarketInstrument(
+            exchange=body.exchange, symbol=body.symbol, token=body.token,
+            segment=body.segment,
+        )
+        start = datetime.fromisoformat(body.start.replace("Z", "+00:00"))
+        end = datetime.fromisoformat(body.end.replace("Z", "+00:00"))
+        if start >= end:
+            raise ValueError("Historical start must be before end")
+        bars = await adapter.get_historical(instrument, start, end, body.interval)
+        return {
+            "provider": provider, "account_id": account_id,
+            "symbol": body.symbol, "interval": body.interval,
+            "count": len(bars),
+            "bars": [{
+                "time": bar.start_time.isoformat(), "open": str(bar.open),
+                "high": str(bar.high), "low": str(bar.low), "close": str(bar.close),
+                "volume": bar.volume, "open_interest": bar.open_interest,
+            } for bar in bars],
+        }
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Historical data request failed: {type(exc).__name__}") from exc
 
 
 @app.get("/api/v1/market-data/status")
