@@ -229,6 +229,9 @@ class MarketDataService:
                 "top_ask_price": tick.get("ask"),
             }
         spot_tick = self.hub.latest_for(underlying.token) if underlying else None
+        if sum(len(sides) for sides in chain.values()) == 0:
+            raise RuntimeError(f"No live option quotes received for {symbol} {expiry}")
+        await self.unsubscribe(subscriptions)
         return {
             "provider": provider, "account_id": account_id,
             "underlying_symbol": symbol, "expiry": expiry[:10],
