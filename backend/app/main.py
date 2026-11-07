@@ -65,6 +65,13 @@ def require_air_operator(customer_id: str = Depends(require_customer)) -> str:
     return customer_id
 
 
+def require_air_admin(x_air_admin_key: str | None = Header(default=None)) -> None:
+    key_file = os.getenv("AIR_ADMIN_API_KEY_FILE")
+    configured = open(key_file, encoding="utf-8").read().strip() if key_file else os.getenv("AIR_ADMIN_API_KEY", "")
+    if len(configured) < 32 or not x_air_admin_key or not secrets.compare_digest(x_air_admin_key, configured):
+        raise HTTPException(status_code=403, detail="AIR administrator approval is required")
+
+
 @app.on_event("startup")
 async def start_air_qoc_jobs() -> None:
     start_qoc_scheduler()
@@ -113,13 +120,6 @@ class MobileAccessRequest(BaseModel):
 class AccessReview(BaseModel):
     status: str = Field(pattern="^(APPROVED|REJECTED|BLOCKED)$")
     note: str = Field(default="", max_length=500)
-
-
-def require_air_admin(x_air_admin_key: str | None = Header(default=None)) -> None:
-    key_file = os.getenv("AIR_ADMIN_API_KEY_FILE")
-    configured = open(key_file, encoding="utf-8").read().strip() if key_file else os.getenv("AIR_ADMIN_API_KEY", "")
-    if len(configured) < 32 or not x_air_admin_key or not secrets.compare_digest(x_air_admin_key, configured):
-        raise HTTPException(status_code=403, detail="AIR administrator approval is required")
 
 
 class TradingAccountCreate(BaseModel):
