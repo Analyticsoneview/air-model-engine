@@ -296,6 +296,24 @@ class MarketInstrumentMapping(BaseModel):
     instrument_type: str | None = None
 
 
+class MarketInstrumentMappingItem(BaseModel):
+    exchange: str = Field(min_length=2, max_length=20)
+    symbol: str = Field(min_length=1, max_length=100)
+    token: str = Field(min_length=1, max_length=100)
+    segment: str = Field(min_length=2, max_length=30)
+    expiry: str | None = None
+    strike: str | None = None
+    option_type: str | None = None
+    lot_size: int | None = Field(default=None, ge=1)
+    instrument_type: str | None = None
+
+
+class MarketInstrumentMappingBatch(BaseModel):
+    provider: str = Field(min_length=2, max_length=40)
+    account_id: str = Field(min_length=2, max_length=100)
+    instruments: list[MarketInstrumentMappingItem] = Field(min_length=1, max_length=5000)
+
+
 class MarketHistoricalRequest(BaseModel):
     exchange: str = Field(min_length=2, max_length=20)
     symbol: str = Field(min_length=1, max_length=100)
@@ -944,6 +962,30 @@ async def operator_save_market_instrument(
         return {"instrument": row, "status": "saved"}
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/operator/market-data/instruments/bulk", status_code=201)
+async def operator_bulk_save_market_instruments(
+    body: MarketInstrumentMappingBatch,
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(operator_id)}
+    if (body.provider.lower(), body.account_id) not in owned:
+        raise HTTPException(status_code=404, detail="Provider account is not assigned to this operator")
+    saved = 0
+    try:
+        for item in body.instruments:
+            market_data_instruments.upsert(
+                body.provider, body.account_id, exchange=item.exchange,
+                symbol=item.symbol, token=item.token, segment=item.segment,
+                expiry=item.expiry, strike=item.strike, option_type=item.option_type,
+                lot_size=item.lot_size, instrument_type=item.instrument_type,
+            )
+            saved += 1
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"provider": body.provider, "account_id": body.account_id,
+            "saved_count": saved, "status": "saved"}
 
 
 @app.delete("/api/v1/operator/market-data/instruments/{provider}/{account_id}/{token}")
