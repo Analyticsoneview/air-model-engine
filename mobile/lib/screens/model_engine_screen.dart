@@ -302,7 +302,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
           ],
           if (_sections[_selected] == 'WAIT' && !strategySelected) Padding(padding: const EdgeInsets.all(8), child: Text('WAIT is reserved for candidates explicitly marked pending by a verified workflow. Missing data is never treated as WAIT.', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant))),
           if (expirySelected && _expiryNote != null) Padding(padding: const EdgeInsets.all(8), child: Text(_expiryNote!, style: const TextStyle(fontSize: 11))),
-          if (expirySelected && _expiryAlerts.isNotEmpty) Card(child: Padding(
+          if (_expiryAlerts.isNotEmpty) Card(child: Padding(
             padding: const EdgeInsets.all(12),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               const Text('EXPIRYSCAN • CLOSE-BEFORE-EXPIRY REMINDERS', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11)),
