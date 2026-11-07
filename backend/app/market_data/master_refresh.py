@@ -23,21 +23,21 @@ DEFAULT_MASTER_URLS = {
     "upstox": "https://assets.upstox.com/market-quote/instruments/exchange/complete.json.gz",
     "angelone": "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json",
     "dhan": "https://images.dhan.co/api-data/api-scrip-master-detailed.csv",
-    "fyers": "",
+    "fyers": [\n        "https://public.fyers.in/sym_details/NSE_CM_sym_master.json",\n        "https://public.fyers.in/sym_details/NSE_FO_sym_master.json",\n        "https://public.fyers.in/sym_details/BSE_CM_sym_master.json",\n        "https://public.fyers.in/sym_details/BSE_FO_sym_master.json",\n    ],
 }
 
 ALIASES = {
-    "exchange": ("exchange", "exch", "exch_seg", "exchange_code", "sem_exm_exch_id"),
-    "symbol": ("tradingsymbol", "trading_symbol", "symbol", "sem_trading_symbol", "name"),
-    "underlying_symbol": ("underlying_symbol", "underlying", "sem_underlying_symbol"),
+    "exchange": ("exchange", "exch", "exch_seg", "exchange_code", "sem_exm_exch_id", "exchangeName"),
+    "symbol": ("tradingsymbol", "trading_symbol", "symbol", "sem_trading_symbol", "name", "symbol ticker", "symTicker", "symTicker", "symticker"),
+    "underlying_symbol": ("underlying_symbol", "underlying", "sem_underlying_symbol", "underlying symbol", "underSym", "underSym"),
     "token": ("instrument_token", "instrument_key", "token", "symboltoken", "symbol_token",
               "security_id", "sem_smst_security_id", "fy_token"),
     "segment": ("segment", "exchange_segment", "exch_seg", "sem_segment"),
-    "expiry": ("expiry", "expiry_date", "sem_expiry_date"),
-    "strike": ("strike", "strike_price", "sem_strike_price"),
-    "option_type": ("option_type", "instrument_type", "instrumenttype", "right", "optt", "sem_option_type"),
-    "lot_size": ("lot_size", "lotsize", "sem_lot_units"),
-    "tick_size": ("tick_size", "ticksize", "sem_tick_size"),
+    "expiry": ("expiry", "expiry_date", "sem_expiry_date", "expiry date", "expiryDate"),
+    "strike": ("strike", "strike_price", "sem_strike_price", "strike price", "strikePrice"),
+    "option_type": ("option_type", "instrument_type", "instrumenttype", "right", "optt", "sem_option_type", "option type", "optType"),
+    "lot_size": ("lot_size", "lotsize", "sem_lot_units", "minimum lot size", "minLotSize"),
+    "tick_size": ("tick_size", "ticksize", "sem_tick_size", "tick size", "tickSize"),
 }
 
 
@@ -63,6 +63,12 @@ def _normalize(provider: str, row: dict[str, Any]) -> dict[str, Any] | None:
     underlying_symbol = str(underlying_raw or symbol).strip().upper()
     token = str(value.get("token") or "").strip()
     segment = str(value.get("segment") or "").strip().upper()
+    if provider == "fyers":
+        exchange = {"10": "NSE", "11": "MCX", "12": "BSE"}.get(exchange, exchange)
+        segment = {
+            "10": f"{exchange}_CM", "11": f"{exchange}_FO",
+            "12": f"{exchange}_CD", "20": f"{exchange}_COM",
+        }.get(segment, segment)
     if not all((exchange, symbol, token, segment)):
         return None
     option_type = {"CE": "CE", "PE": "PE", "CALL": "CE", "PUT": "PE"}.get(raw_type)
@@ -114,6 +120,12 @@ def parse_master(provider: str, content: bytes, filename: str = "", *, min_rows:
                 if isinstance(payload.get(key), list):
                     payload = payload[key]
                     break
+            else:
+                # FYERS publishes each symbol-master JSON as a ticker-keyed object.
+                payload = [
+                    {**value, "symTicker": value.get("symTicker") or ticker}
+                    for ticker, value in payload.items() if isinstance(value, dict)
+                ]
         rows = payload if isinstance(payload, list) else []
     else:
         rows = list(csv.DictReader(io.StringIO(text)))
