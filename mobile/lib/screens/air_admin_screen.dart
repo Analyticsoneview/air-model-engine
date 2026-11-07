@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../services/air_api_client.dart';
 
@@ -354,6 +355,92 @@ class _AirAdminBrokerAccountsScreenState
     }
   }
 
+  Future<String?> _promptValue(String title, String label, {bool secret = false}) async {
+    final controller = TextEditingController();
+    final value = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: controller,
+          obscureText: secret,
+          decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('CANCEL')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
+              child: const Text('CONTINUE')),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (value == null || value.isEmpty) return null;
+    return value;
+  }
+
+  Future<void> _authorize(Map<String, dynamic> row) async {
+    final broker = row['broker'].toString();
+    final accountId = row['account_id'].toString();
+    setState(() { _loading = true; _error = null; });
+    try {
+      if (broker == 'dhan') {
+        final result = await _api.verifyDhan(accountId);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Dhan verified · ${result['data_validity'] ?? result['verified']}')),
+          );
+        }
+      } else if (broker == 'angelone') {
+        final totp = await _promptValue('Angel One verification', 'Current TOTP', secret: true);
+        if (totp == null) return;
+        final result = await _api.loginAngel(accountId, totp);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Angel One verified · ${result['verified'] == true ? 'session saved' : 'check status'}')),
+          );
+        }
+      } else {
+        final login = await _api.brokerLoginUrl(broker, accountId);
+        final loginUrl = login['login_url']?.toString() ?? '';
+        if (loginUrl.isEmpty) throw Exception('Broker did not return a login URL.');
+        final uri = Uri.tryParse(loginUrl);
+        if (uri == null || uri.scheme != 'https') {
+          throw Exception('Broker returned an invalid secure login URL.');
+        }
+        final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+        if (!launched && mounted) {
+          await showDialog<void>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: const Text('Open broker login'),
+              content: SelectableText(loginUrl),
+              actions: [TextButton(onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('CLOSE'))],
+            ),
+          );
+        }
+        final codeLabel = broker == 'zerodha' ? 'Request token' : 'Authorization code';
+        final code = await _promptValue('$broker authorization', codeLabel);
+        if (code == null) return;
+        final result = await _api.brokerExchange(
+          broker, accountId, code,
+          state: login['state']?.toString(),
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('${broker.toUpperCase()} authorization verified: ${result['verified'] == true}')),
+          );
+        }
+      }
+      await _load();
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
   Future<void> _remove(Map<String, dynamic> row) async {
     final customer = row['customer_id'].toString();
     final broker = row['broker'].toString();
@@ -529,6 +616,12 @@ class _AirAdminBrokerAccountsScreenState
                     tooltip: 'Save credentials',
                     onPressed: _loading ? null : () => _credentials(row),
                     icon: const Icon(Icons.vpn_key_outlined),
+                  ),
+                  IconButton(
+                    tooltip: 'Authorize / verify broker connection',
+                    onPressed: _loading || row['credentials_saved'] != true
+                        ? null : () => _authorize(row),
+                    icon: const Icon(Icons.verified_user_outlined),
                   ),
                   IconButton(
                     tooltip: 'Remove account',
