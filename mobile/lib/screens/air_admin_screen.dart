@@ -125,6 +125,15 @@ class _AirAdminScreenState extends State<AirAdminScreen> {
             icon: const Icon(Icons.candlestick_chart_rounded),
           ),
           IconButton(
+            tooltip: 'Execution controls and broker masters',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const AirAdminExecutionScreen(),
+              ),
+            ),
+            icon: const Icon(Icons.tune_rounded),
+          ),
+          IconButton(
             tooltip: 'Telegram destinations',
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
@@ -1353,6 +1362,202 @@ class _AirAdminMarketDataSourcesScreenState
             Text(_error!, style: TextStyle(color: cs.error, fontSize: 11)),
           ],
           if (_loading) const LinearProgressIndicator(),
+        ],
+      ),
+    );
+  }
+}
+
+
+class AirAdminExecutionScreen extends StatefulWidget {
+  const AirAdminExecutionScreen({super.key});
+
+  @override
+  State<AirAdminExecutionScreen> createState() => _AirAdminExecutionScreenState();
+}
+
+class _AirAdminExecutionScreenState extends State<AirAdminExecutionScreen> {
+  final AirApiClient _api = AirApiClient();
+  bool _loading = false;
+  bool _masterAuto = false;
+  bool _expiry78 = false;
+  bool _expiryScan = false;
+  bool _recovered = false;
+  String? _error;
+  Map<String, dynamic> _masterStatus = const {};
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _api.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    setState(() { _loading = true; _error = null; });
+    try {
+      final policy = await _api.operatorExecutionPolicy();
+      final strategies = policy['strategies'] as Map<String, dynamic>? ?? {};
+      final masters = await _api.brokerMasterStatus();
+      if (!mounted) return;
+      setState(() {
+        _masterAuto = policy['master_auto_enabled'] == true;
+        _expiry78 = strategies['EXPIRY78'] == true;
+        _expiryScan = strategies['EXPIRYSCAN'] == true;
+        _recovered = strategies['RECOVERED'] == true;
+        _masterStatus = masters;
+      });
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _save() async {
+    setState(() { _loading = true; _error = null; });
+    try {
+      await _api.updateOperatorExecutionPolicy(
+        masterAutoEnabled: _masterAuto,
+        strategies: {
+          'EXPIRY78': _expiry78,
+          'EXPIRYSCAN': _expiryScan,
+          'RECOVERED': _recovered,
+        },
+      );
+      await _load();
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _refreshMasters() async {
+    setState(() { _loading = true; _error = null; });
+    try {
+      await _api.refreshBrokerMasters();
+      final masters = await _api.brokerMasterStatus();
+      if (mounted) setState(() => _masterStatus = masters);
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final masters = (_masterStatus['masters'] as List<dynamic>? ?? const []);
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('EXECUTION & BROKER MASTERS'),
+        actions: [
+          IconButton(
+            tooltip: 'Refresh',
+            onPressed: _loading ? null : _load,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('AUTOMATIC ORDER CONTROL',
+                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
+                const SizedBox(height: 6),
+                Text(
+                  'OFF = manual order tickets only. ON = automatic execution is eligible only for strategies enabled below and broker accounts separately approved for orders.',
+                  style: TextStyle(color: cs.onSurfaceVariant, fontSize: 11, height: 1.4),
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('MASTER AUTO EXECUTION'),
+                  subtitle: Text(_masterAuto ? 'Automatic mode eligible' : 'Manual-only mode'),
+                  value: _masterAuto,
+                  onChanged: _loading ? null : (value) => setState(() => _masterAuto = value),
+                ),
+                const Divider(),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('EXPIRY78'),
+                  value: _expiry78,
+                  onChanged: _loading ? null : (value) => setState(() => _expiry78 = value),
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('EXPIRYSCAN'),
+                  value: _expiryScan,
+                  onChanged: _loading ? null : (value) => setState(() => _expiryScan = value),
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('RECOVERED'),
+                  value: _recovered,
+                  onChanged: _loading ? null : (value) => setState(() => _recovered = value),
+                ),
+                const SizedBox(height: 8),
+                FilledButton.icon(
+                  onPressed: _loading ? null : _save,
+                  icon: const Icon(Icons.save_rounded),
+                  label: const Text('SAVE EXECUTION POLICY'),
+                ),
+                const SizedBox(height: 8),
+                Text('Live broker order submission is not enabled by this policy screen. It remains locked until execution adapters, risk checks and account verification are completed.',
+                    style: TextStyle(color: cs.error, fontSize: 10, height: 1.4)),
+              ]),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('BROKER INSTRUMENT MASTERS',
+                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
+                const SizedBox(height: 5),
+                Text('Daily refresh is scheduled for 07:00 IST on weekdays. Refresh validates the downloaded master before replacing the last good snapshot.',
+                    style: TextStyle(color: cs.onSurfaceVariant, fontSize: 11, height: 1.4)),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: _loading ? null : _refreshMasters,
+                  icon: const Icon(Icons.sync_rounded),
+                  label: const Text('REFRESH BROKER MASTERS NOW'),
+                ),
+                const SizedBox(height: 8),
+                for (final item in masters.whereType<Map<String, dynamic>>())
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text('${item['provider']} · ${item['account_id']}',
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                    subtitle: Text('${item['row_count']} instruments · ${item['refreshed_at']}',
+                        style: const TextStyle(fontSize: 10)),
+                    trailing: const Icon(Icons.verified_outlined, size: 17),
+                  ),
+                if (masters.isEmpty)
+                  const Text('No successful broker master refresh recorded yet.',
+                      style: TextStyle(fontSize: 11)),
+                const SizedBox(height: 6),
+                const Text('FYERS and custom broker deployments may require an official master URL configured by the operator. Failed imports keep the previous master.',
+                    style: TextStyle(fontSize: 10)),
+              ]),
+            ),
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 10),
+            Text(_error!, style: TextStyle(color: cs.error, fontSize: 11)),
+          ],
         ],
       ),
     );
