@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -241,12 +242,16 @@ async def get_original366_engine(
     expiry_losses = [trade for trade in trades if trade.get("classification") == "EXPIRED_LOSS"]
     stopped = [trade for trade in trades if trade.get("classification") == "SLHIT"]
     recovered_watch = []
+    recovered_groups = {key: [] for key in ("OPEN", "TARGETS", "SLHIT", "EXPIRED", "WAIT")}
+    original_sl_hits = stopped
+    cutoff_day = date.fromisoformat(as_of[:10]) if as_of else date.today()
     for trade in stopped:
         watch = trade.get("recovered_watch")
         if not watch:
             continue
         exit_model = watch.get("exit_model") or {}
-        recovered_watch.append({
+        outcome = str(exit_model.get("outcome") or "UNRESOLVED").upper()
+        row = {
             **trade, "classification": "RECOVERED_WATCH", "watch": watch,
             "signal_date": watch["trigger_date"],
             "latest_price": watch["trigger_close"],
@@ -258,10 +263,37 @@ async def get_original366_engine(
             "exit_reason": exit_model.get("exit_reason"),
             "pnl_points": exit_model.get("pnl_points"),
             "pnl_pct": exit_model.get("return_pct"),
-            "recovered_outcome": exit_model.get("outcome"),
+            "recovered_outcome": outcome,
             "position_status": "WATCH_ONLY_NOT_OPEN",
-            "reason": "Post-stop daily close above original entry; retrospective exits use original entry with 10% SL / 45% target",
-        })
+            "reason": "Post-stop close above original entry; alternative exits use original entry with 10% SL / 45% target",
+        }
+        recovered_watch.append(row)
+        if outcome == "TARGET_FIRST":
+            row["classification"] = "TARGETS"
+            row["position_status"] = "CLOSED_TARGET"
+            recovered_groups["TARGETS"].append(row)
+        elif outcome == "STOP_FIRST":
+            row["classification"] = "SLHIT"
+            row["position_status"] = "CLOSED_STOP"
+            recovered_groups["SLHIT"].append(row)
+        elif outcome == "EXPIRY_SETTLEMENT":
+            row["classification"] = "EXPIRED"
+            row["position_status"] = "EXPIRED"
+            recovered_groups["EXPIRED"].append(row)
+        else:
+            expiry_text = str(trade.get("expiry") or "")[:10]
+            try:
+                active = bool(expiry_text and date.fromisoformat(expiry_text) > cutoff_day)
+            except ValueError:
+                active = False
+            if active:
+                row["classification"] = "OPEN"
+                row["position_status"] = "OPEN"
+                recovered_groups["OPEN"].append(row)
+            else:
+                row["classification"] = "WAIT"
+                row["position_status"] = "WAIT_EXPIRY_VALUATION"
+                recovered_groups["WAIT"].append(row)
     new_rows = [
         row for row in rows
         if str(row.get("classification") or "").upper() == "NEW"
@@ -280,13 +312,14 @@ async def get_original366_engine(
         "expiry_losses": len(expiry_losses),
         "stop_losses": len(stopped),
         "recovered_watch_count": len(recovered_watch),
+        "counts": {**{key: len(value) for key, value in recovered_groups.items()},
+                   "RECOVERED": len(recovered_watch), "ORIGINAL_SLHIT": len(original_sl_hits)},
         "groups": {
-            "OPEN": [trade for trade in trades if trade.get("classification") in ("NEW", "HOLD")],
+            **recovered_groups,
+            "ORIGINAL_SLHIT": original_sl_hits,
+            "RECOVERED": recovered_watch,
             "NEW": [trade for trade in trades if trade.get("classification") == "NEW"],
             "HOLD": [trade for trade in trades if trade.get("classification") == "HOLD"],
-            "WAIT": [trade for trade in trades if trade.get("classification") == "WAIT"],
-            "SLHIT": stopped,
-            "RECOVERED": recovered_watch,
             "REENTRY": [
                 row for row in rows
                 if str(row.get("classification") or "").upper() in ("RE-ENTRY", "REENTRY")
