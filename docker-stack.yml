@@ -20,7 +20,8 @@ services:
       AIR_CORS_ORIGINS: ${AIR_CORS_ORIGINS:-https://air.example.com}
       AIR_OPERATOR_CUSTOMER_IDS: ${AIR_OPERATOR_CUSTOMER_IDS:?Set operator customer UUIDs}
       AIR_TELEGRAM_BOT_TOKEN_FILE: /run/secrets/air_telegram_bot_token
-      AIR_TELEGRAM_CHAT_IDS: ${AIR_TELEGRAM_CHAT_IDS:?Set private and group Telegram chat IDs}
+      AIR_TELEGRAM_CHAT_IDS: ${AIR_TELEGRAM_CHAT_IDS:-}
+      AIR_TELEGRAM_CONFIG_DB_PATH: /var/lib/air/air_telegram_config.sqlite3
       AIR_TELEGRAM_DEDUPE_DB_PATH: /var/lib/air/air_telegram_notifications.sqlite3
       AIR_TELEGRAM_SCHEDULER_ENABLED: ${AIR_TELEGRAM_SCHEDULER_ENABLED:-false}
       AIR_CLIENT_LOCAL_IP: ${AIR_CLIENT_LOCAL_IP:-}
