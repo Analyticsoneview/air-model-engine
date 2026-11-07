@@ -1,0 +1,100 @@
+name: AIR Android Customer Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: air-android-customer-release
+  cancel-in-progress: false
+
+jobs:
+  signed-release:
+    name: Build and sign Android ARM64 APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Validate release configuration
+        env:
+          AIR_API_BASE_URL: \${{ vars.AIR_API_BASE_URL }}
+          ANDROID_SIGNING_KEY_BASE64: \${{ secrets.ANDROID_SIGNING_KEY_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: \${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: \${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: \${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          test -n "$AIR_API_BASE_URL"
+          case "$AIR_API_BASE_URL" in https://*) ;; *) echo "AIR_API_BASE_URL must use HTTPS for customer release." >&2; exit 1 ;; esac
+          test -n "$ANDROID_SIGNING_KEY_BASE64"
+          test -n "$ANDROID_KEYSTORE_PASSWORD"
+          test -n "$ANDROID_KEY_ALIAS"
+          test -n "$ANDROID_KEY_PASSWORD"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Generate Android platform
+        working-directory: mobile
+        run: flutter create . --platforms=android --org com.analyticalstocks
+
+      - name: Resolve packages
+        working-directory: mobile
+        run: flutter pub get
+
+      - name: Analyze Flutter app
+        working-directory: mobile
+        run: flutter analyze lib
+
+      - name: Run Flutter tests
+        working-directory: mobile
+        run: flutter test
+
+      - name: Build ARM64 release APK
+        working-directory: mobile
+        env:
+          AIR_API_BASE_URL: \${{ vars.AIR_API_BASE_URL }}
+        run: |
+          flutter build apk --release --target-platform android-arm64 \
+            --dart-define=APP_ENV=production \
+            --dart-define=AIR_API_BASE_URL="$AIR_API_BASE_URL"
+
+      - name: Sign APK with customer release keystore
+        id: sign
+        uses: r0adkll/sign-android-release@v1
+        with:
+          releaseDirectory: mobile/build/app/outputs/flutter-apk
+          signingKeyBase64: \${{ secrets.ANDROID_SIGNING_KEY_BASE64 }}
+          alias: \${{ secrets.ANDROID_KEY_ALIAS }}
+          keyStorePassword: \${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyPassword: \${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - name: Verify signed APK
+        env:
+          SIGNED_APK: \${{ steps.sign.outputs.signedReleaseFile }}
+        run: |
+          test -s "$SIGNED_APK"
+          apksigner verify --verbose "$SIGNED_APK"
+          sha256sum "$SIGNED_APK" | tee AIR-Android-Release-SHA256.txt
+
+      - name: Upload signed customer APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AIR-Model-Engine-Android-ARM64-Signed
+          path: |
+            \${{ steps.sign.outputs.signedReleaseFile }}
+            AIR-Android-Release-SHA256.txt
+          if-no-files-found: error
+          retention-days: 90
