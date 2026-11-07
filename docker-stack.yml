@@ -24,6 +24,11 @@ services:
       AIR_TELEGRAM_CONFIG_DB_PATH: /var/lib/air/air_telegram_config.sqlite3
       AIR_TELEGRAM_DEDUPE_DB_PATH: /var/lib/air/air_telegram_notifications.sqlite3
       AIR_TELEGRAM_SCHEDULER_ENABLED: ${AIR_TELEGRAM_SCHEDULER_ENABLED:-false}
+      AIR_SMTP_HOST: ${AIR_SMTP_HOST:-}
+      AIR_SMTP_PORT: ${AIR_SMTP_PORT:-587}
+      AIR_SMTP_USERNAME: ${AIR_SMTP_USERNAME:-}
+      AIR_REPORT_FROM_EMAIL: ${AIR_REPORT_FROM_EMAIL:-}
+      AIR_SMTP_PASSWORD_FILE: /run/secrets/air_smtp_password
       AIR_MARKET_SOURCE_DB_PATH: /var/lib/air/market_sources.sqlite3
       AIR_MARKET_INSTRUMENT_DB_PATH: /var/lib/air/market_instruments.sqlite3
       AIR_MARKET_DATA_POLL_SECONDS: ${AIR_MARKET_DATA_POLL_SECONDS:-3}
@@ -38,6 +43,7 @@ services:
       - air_credential_key
       - air_admin_api_key
       - air_telegram_bot_token
+      - air_smtp_password
     volumes:
       - air_data:/var/lib/air
     networks:
@@ -173,3 +179,5 @@ secrets:
   air_telegram_bot_token:
     external: true
     name: ${AIR_TELEGRAM_SECRET_NAME:-air_telegram_bot_token}
+  air_smtp_password:
+    external: true
