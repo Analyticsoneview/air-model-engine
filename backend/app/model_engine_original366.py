@@ -1,4 +1,4 @@
-"""AIR ORIGINAL366: recovered 366-cohort entry gates and 5%/expiry lifecycle."""
+"""AIR ORIGINAL366: original-entry RECOVERED watch with retrospective 10%/45% exits."""
 from __future__ import annotations
 
 from datetime import date
@@ -9,8 +9,8 @@ ORIGINAL366_RULES = {
     "entry": "Use actual filled entry_date and entry_price. CE and PE contracts are evaluated independently.",
     "stock_premium": "New stock CE/PE entries require premium ₹1–₹10 inclusive. Index options are exempt from the ₹10 cap.",
     "minimum_shelf_life": "At least 10 verified NSE trading sessions must remain from actual filled entry to expiry. Supply remaining_trading_sessions on the row or in evidence; calendar days and weekday estimates are not substituted.",
-    "stop_loss": "5% below actual entry premium. Check daily option LOW from entry day through expiry. Same-day breach exits at stop; later gap-through exits at observed OPEN when below stop; otherwise at stop.",
-    "recovered_watch": "After the original 5% stop is hit, add the contract to the RECOVERED watch-only section when a subsequent verified daily option CLOSE is above the original entry premium. Keep the original SLHIT classification. This is not a re-entry, open position, order, or P&L event.",
+    "stop_loss": "The original ORIGINAL366 lifecycle retains its historical 5% stop and SLHIT classification.",
+    "recovered_watch": "After the original 5% stop, a subsequent verified daily option CLOSE strictly above original entry qualifies a RECOVERED watch. For this retrospective alternative exit model, retain the ORIGINAL366 entry price and replay all daily bars from original entry with 10% SL and 45% target. If both touch in one candle, stop first. Keep original 5% SLHIT unchanged; this watch is not a new entry or order.",
     "expiry": "If no 5% stop occurs, settle using verified expiry-day underlying reference close and CE/PE intrinsic value. Keep expiry winners and losses under EXPIRED.",
     "unresolved": "Missing entry qualification, daily option bars, or verified expiry reference remains WAIT/UNRESOLVED and is never presented as a qualified active contract or completed historical trade.",
     "pnl": "Rupee P&L requires explicit position_quantity; net P&L additionally requires explicit charges_rupees.",
@@ -47,6 +47,57 @@ def _remaining_sessions(contract: dict[str, Any], evidence: dict[str, Any]) -> f
     if value is None:
         value = evidence.get("shelf_sessions")
     return _number(value)
+
+
+def _recovered_exit_model(bars: list[dict[str, Any]], *, entry_price: float, option_type: str, strike: float, expiry_day: date, cutoff: date) -> dict[str, Any]:
+    """Retrospective alternate exits from ORIGINAL entry price, never a new fill."""
+    stop = round(entry_price * 0.90, 4)
+    target = round(entry_price * 1.45, 4)
+    for bar in bars:
+        day = date.fromisoformat(bar["date"])
+        if day > cutoff:
+            continue
+        op, high, low = float(bar["open"]), float(bar["high"]), float(bar["low"])
+        if op <= stop:
+            exit_price, reason, outcome = op, "GAP_THROUGH_10_PERCENT_STOP", "STOP_FIRST"
+        elif op >= target:
+            exit_price, reason, outcome = op, "GAP_THROUGH_45_PERCENT_TARGET", "TARGET_FIRST"
+        elif low <= stop and high >= target:
+            exit_price, reason, outcome = stop, "SAME_CANDLE_STOP_FIRST", "STOP_FIRST"
+        elif low <= stop:
+            exit_price, reason, outcome = stop, "10_PERCENT_STOP", "STOP_FIRST"
+        elif high >= target:
+            exit_price, reason, outcome = target, "45_PERCENT_TARGET", "TARGET_FIRST"
+        else:
+            continue
+        return {
+            "entry_price": entry_price, "stop_loss": stop, "target": target,
+            "exit_date": bar["date"], "exit_price": round(exit_price, 4),
+            "exit_reason": reason, "outcome": outcome,
+            "pnl_points": round(exit_price - entry_price, 4),
+            "return_pct": round((exit_price / entry_price - 1) * 100, 4),
+            "simulation_basis": "ORIGINAL_ENTRY_PRICE_RETROSPECTIVE_EXIT_MODEL",
+            "same_candle_policy": "STOP_FIRST",
+        }
+    expiry_bar = next((b for b in bars if b["date"] == expiry_day.isoformat() and date.fromisoformat(b["date"]) <= cutoff), None)
+    if expiry_bar and _number(expiry_bar.get("underlying_close")) is not None:
+        intrinsic = _intrinsic(option_type, strike, float(expiry_bar["underlying_close"]))
+        return {
+            "entry_price": entry_price, "stop_loss": stop, "target": target,
+            "exit_date": expiry_bar["date"], "exit_price": round(intrinsic, 4),
+            "exit_reason": "EXPIRY_INTRINSIC_NO_TARGET_OR_STOP",
+            "outcome": "EXPIRY_SETTLEMENT", "pnl_points": round(intrinsic - entry_price, 4),
+            "return_pct": round((intrinsic / entry_price - 1) * 100, 4),
+            "simulation_basis": "ORIGINAL_ENTRY_PRICE_RETROSPECTIVE_EXIT_MODEL",
+            "same_candle_policy": "STOP_FIRST",
+        }
+    return {
+        "entry_price": entry_price, "stop_loss": stop, "target": target,
+        "exit_date": None, "exit_price": None, "exit_reason": None,
+        "outcome": "UNRESOLVED", "pnl_points": None, "return_pct": None,
+        "simulation_basis": "ORIGINAL_ENTRY_PRICE_RETROSPECTIVE_EXIT_MODEL",
+        "same_candle_policy": "STOP_FIRST",
+    }
 
 
 def evaluate_original366_contract(contract: dict[str, Any], *, as_of: str | None = None) -> dict[str, Any]:
@@ -116,6 +167,10 @@ def evaluate_original366_contract(contract: dict[str, Any], *, as_of: str | None
                     "trigger_close": float(bar["close"]),
                     "reference_entry_price": entry_price,
                     "condition": "DAILY_CLOSE_ABOVE_ORIGINAL_ENTRY_AFTER_5_PERCENT_SL",
+                    "exit_model": _recovered_exit_model(
+                        bars, entry_price=entry_price, option_type=option_type,
+                        strike=strike, expiry_day=expiry_day, cutoff=cutoff,
+                    ),
                     "watch_only": True,
                     "is_reentry": False,
                     "is_open_position": False,
