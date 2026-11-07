@@ -108,6 +108,12 @@ class BrokerPollingAdapter:
                     for quote in await self._quotes(batch):
                         token = str(quote.get("token") or quote.get("symbol_token") or "")
                         instrument = self._symbols.get(token)
+                        if instrument is None and quote.get("symbol"):
+                            symbol_key = str(quote["symbol"])
+                            instrument = next((item for item in self._symbols.values()
+                                if item.symbol == symbol_key or f"{item.exchange}:{item.symbol}" == symbol_key), None)
+                            if instrument is not None:
+                                token = instrument.token
                         if instrument is None:
                             continue
                         tick = {
@@ -300,7 +306,7 @@ class FyersMarketDataAdapter(BrokerPollingAdapter):
         for row in rows:
             values = row.get("v", {})
             result.append({
-                "token": row.get("n") or values.get("symbol"),
+                "symbol": row.get("n") or values.get("symbol"),
                 "ltp": values.get("lp"), "open": values.get("open_price"),
                 "high": values.get("high_price"), "low": values.get("low_price"),
                 "close": values.get("prev_close_price"),
