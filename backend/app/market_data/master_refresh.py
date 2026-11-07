@@ -98,7 +98,7 @@ def _normalize(provider: str, row: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def parse_master(provider: str, content: bytes, filename: str = "") -> list[dict[str, Any]]:
+def parse_master(provider: str, content: bytes, filename: str = "", *, min_rows: int = 100) -> list[dict[str, Any]]:
     raw = gzip.decompress(content) if content[:2] == b"\x1f\x8b" or filename.endswith(".gz") else content
     text = raw.decode("utf-8-sig", errors="replace")
     if filename.lower().endswith(".json") or text.lstrip().startswith(("[", "{")):
@@ -120,7 +120,7 @@ def parse_master(provider: str, content: bytes, filename: str = "") -> list[dict
         if item and item["token"] not in seen:
             normalized.append(item)
             seen.add(item["token"])
-    if len(normalized) < 100:
+    if len(normalized) < min_rows:
         raise ValueError(f"{provider} master validation failed: only {len(normalized)} normalized rows")
     return normalized
 
@@ -131,25 +131,37 @@ class BrokerMasterRefresher:
         self.client = httpx.AsyncClient(timeout=90, follow_redirects=True,
                                         headers={"User-Agent": "AIR-Model-Engine/1.0"})
 
-    def url_for(self, provider: str) -> str:
+    def urls_for(self, provider: str) -> list[str]:
         configured = json.loads(os.getenv("AIR_BROKER_MASTER_URLS", "{}"))
-        return str(configured.get(provider) or DEFAULT_MASTER_URLS.get(provider) or "").strip()
+        value = configured.get(provider) or DEFAULT_MASTER_URLS.get(provider) or ""
+        values = value if isinstance(value, list) else [value]
+        return [str(item).strip() for item in values if str(item).strip()]
+
+    def url_for(self, provider: str) -> str:
+        return self.urls_for(provider)[0] if self.urls_for(provider) else ""
 
     async def refresh(self, provider: str, account_id: str,
                       headers: dict[str, str] | None = None) -> dict[str, Any]:
         provider = provider.strip().lower()
-        url = self.url_for(provider)
-        if not url:
+        urls = self.urls_for(provider)
+        if not urls:
             return {"provider": provider, "account_id": account_id,
                     "status": "NOT_CONFIGURED", "reason": "official_master_url_not_configured"}
-        response = await self.client.get(url, headers=headers)
-        response.raise_for_status()
-        rows = parse_master(provider, response.content, url.split("?")[0])
-        # Validate first, then atomically replace the snapshot. A failed or tiny
-        # download never deletes the last known-good token directory.
+        combined: dict[str, dict[str, Any]] = {}
+        for url in urls:
+            response = await self.client.get(url, headers=headers)
+            response.raise_for_status()
+            rows = parse_master(provider, response.content, url.split("?")[0], min_rows=0)
+            for item in rows:
+                combined[item["token"]] = item
+        rows = list(combined.values())
+        if len(rows) < 100:
+            raise ValueError(f"{provider} combined master validation failed: only {len(rows)} normalized rows")
+        # Validate all URLs before atomically replacing the previous snapshot.
         imported = self.directory.replace_snapshot(provider, account_id, rows)
         return {"provider": provider, "account_id": account_id, "status": "REFRESHED",
-                "rows": imported, "source": url, "refreshed_at": datetime.now(timezone.utc).isoformat()}
+                "rows": imported, "sources": urls,
+                "refreshed_at": datetime.now(timezone.utc).isoformat()}
 
     async def close(self) -> None:
         await self.client.aclose()
