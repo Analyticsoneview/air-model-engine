@@ -122,7 +122,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     child: Text(value, style: const TextStyle(fontSize: 10)),
   );
 
-  List<DataColumn> get _columns => const [
+  List<DataColumn> get _columns => [
     DataColumn(label: Text('MODEL SIGNAL DATE')),
     DataColumn(label: Text('ENTRY DATE')),
     DataColumn(label: Text('CLASSIFICATION')),
@@ -140,7 +140,8 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     DataColumn(label: Text('CURRENT P&L')),
     DataColumn(label: Text('DAYS TO EXPIRY')),
     DataColumn(label: Text('STATUS')),
-    DataColumn(label: Text('LATEST EVIDENCE')),
+    if (_sections[_selected] == 'EXPIRY78') const DataColumn(label: Text('PHYSICAL SETTLEMENT FORECAST')),
+    const DataColumn(label: Text('LATEST EVIDENCE')),
   ];
 
   bool _isSurvivor(Map<String, dynamic> r) =>
@@ -213,6 +214,23 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     return parts.isEmpty ? '—' : parts.join(' | ');
   }
 
+  String _physicalForecastDisplay(Map<String, dynamic> r) {
+    final forecast = r['physical_settlement_forecast'];
+    if (forecast is! Map) return 'UNKNOWN • forecast unavailable';
+    final risk = forecast['physical_settlement_risk']?.toString() ?? 'UNKNOWN';
+    final itm = forecast['forecast_itm']?.toString() ?? 'UNKNOWN';
+    final probability = forecast['itm_probability_pct'];
+    final price = forecast['forecast_stock_price'];
+    final direction = forecast['delivery_direction_if_itm']?.toString() ?? '—';
+    final status = forecast['forecast_status']?.toString() ?? '';
+    final parts = <String>[risk, 'ITM: $itm'];
+    if (probability != null) parts.add('P(ITM): $probability%');
+    if (price != null) parts.add('Expiry est: ₹$price');
+    parts.add(direction);
+    if (status == 'INSUFFICIENT_UNDERLYING_OHLCV') parts.add('Underlying OHLCV missing');
+    return parts.join(' • ');
+  }
+
   DataRow _row(Map<String, dynamic> r) {
     final survivor = _isSurvivor(r);
     final dte = r['days_to_expiry'];
@@ -236,6 +254,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       _cell(_pnlDisplay(r)),
       _cell(dte == null ? '—' : '$dte calendar days'),
       _cell(status),
+      if (_sections[_selected] == 'EXPIRY78') _cell(_physicalForecastDisplay(r)),
       _cell(_evidenceDisplay(r)),
     ];
     return DataRow(
