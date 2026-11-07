@@ -25,7 +25,7 @@ PROVIDER_CATALOG: tuple[dict[str, Any], ...] = (
         "code": "dhan",
         "name": "DhanHQ",
         "kind": "broker",
-        "channels": ["historical", "live", "option_chain"],
+        "channels": ["historical", "live"],
         "adapter_ready": {"historical": True, "live": True, "option_chain": True},
         "data_scope": "Historical candles, live market feed and Dhan option-chain snapshots",
         "requires_account": True,
@@ -77,7 +77,7 @@ PROVIDER_CATALOG: tuple[dict[str, Any], ...] = (
     },
 )
 
-CHANNELS = ("historical", "live", "option_chain")
+CHANNELS = ("historical", "live")
 
 
 class MarketDataSourceRegistry:
