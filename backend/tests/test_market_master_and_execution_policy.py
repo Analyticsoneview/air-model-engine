@@ -1,3 +1,4 @@
+import json
 from app.market_data.master_refresh import parse_master
 from app.market_data.instrument_registry import MarketInstrumentDirectory
 from app.services.execution_policy import ExecutionPolicy
@@ -54,3 +55,32 @@ def test_execution_policy_defaults_to_manual_and_requires_both_switches():
     else:
         raise AssertionError("Master OFF must force manual mode")
     policy.close()
+
+def test_fyers_official_symbol_master_json_is_normalized():
+    payload = {
+        "NSE:SBIN-EQ": {
+            "fyToken": "1001", "symTicker": "NSE:SBIN-EQ",
+            "exchange": 10, "segment": 10, "minLotSize": 1,
+            "tickSize": 0.05, "expiryDate": "", "strikePrice": -1,
+            "optType": "XX", "underSym": "SBIN",
+        },
+        "NSE:NIFTY27NOV26C25000": {
+            "fyToken": "1002", "symTicker": "NSE:NIFTY27NOV26C25000",
+            "exchange": 10, "segment": 11, "minLotSize": 65,
+            "tickSize": 0.05, "expiryDate": "1795737600",
+            "strikePrice": 25000, "optType": "CE", "underSym": "NIFTY",
+        },
+    }
+    rows = parse_master("fyers", json.dumps(payload).encode(), "NSE_FO_sym_master.json", min_rows=0)
+    equity = next(row for row in rows if row["token"] == "1001")
+    option = next(row for row in rows if row["token"] == "1002")
+    assert equity["exchange"] == "NSE"
+    assert equity["segment"] == "NSE_CM"
+    assert equity["strike"] is None
+    assert option["exchange"] == "NSE"
+    assert option["segment"] == "NSE_FO"
+    assert option["symbol"] == "NSE:NIFTY27NOV26C25000"
+    assert option["underlying_symbol"] == "NIFTY"
+    assert option["option_type"] == "CE"
+    assert option["strike"] == "25000.0"
+    assert option["expiry"] == "2026-11-27"
