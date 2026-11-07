@@ -10,7 +10,7 @@ from typing import Any
 
 from app.model_engine_expiry78 import evaluate_expiry78_rows
 from app.model_engine_original366 import evaluate_original366_rows
-from app.model_engine_physical_forecast import forecast_physical_settlement
+from app.model_engine_physical_forecast import forecast_physical_settlement, physical_settlement_early_warning
 
 STOCK_ENTRY_MIN = 1.0
 STOCK_ENTRY_MAX = 10.0
@@ -372,6 +372,24 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
     # including persisted lifecycle rows without an engine replay.
     for bucket_rows in result.get("EXPIRY78", {}).get("groups", {}).values():
         for item in bucket_rows:
-            if isinstance(item, dict):
-                item["physical_settlement_forecast"] = forecast_physical_settlement(item)
+            if not isinstance(item, dict):
+                continue
+            item["physical_settlement_forecast"] = forecast_physical_settlement(item)
+            entry_date = str(item.get("entry_date") or "")[:10]
+            if entry_date:
+                item["physical_delivery_at_entry"] = physical_settlement_early_warning(
+                    item, as_of=entry_date
+                )
+            else:
+                item["physical_delivery_at_entry"] = {
+                    "status": "DATA_REQUIRED", "icon": "⚪", "qualified": False,
+                    "reason": "Verified entry date is missing"
+                }
+            item["physical_delivery_current"] = physical_settlement_early_warning(item)
+            current = item["physical_delivery_current"]
+            item["physical_delivery_qualified"] = bool(
+                current.get("qualified") and
+                str(item.get("classification") or "").upper() in {"NEW", "HOLD", "RE-ENTRY", "REENTRY"}
+            )
+            item["physical_delivery_icon"] = current.get("icon", "⚪")
     return result
