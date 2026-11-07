@@ -40,7 +40,7 @@ STRATEGY_RULES = {
         "name": "RECOVERED",
         "membership": "ORIGINAL366",
         "stock_entry_filter": "Reference cohort was filtered using actual entry premium ₹1–₹10 for stock CE/PE; index options exempt; shelf_sessions at least 10",
-        "qualification": "Display the 366 full-expiry-coverage records selected from the original 534-entry population. Preserve original 5% SLHIT. After SL, add a watch-only RECOVERED row when a verified daily option CLOSE is above original entry premium. This is not RECOVERY re-entry or an open position.",
+        "qualification": "Display the 366 full-expiry-coverage records selected from the original 534-entry population. Preserve original 5% SLHIT history. After SL, a verified daily option CLOSE above original entry adds a RECOVERED watch. Evaluate that watch retrospectively from the SAME ORIGINAL entry price using 10% SL and 45% target; target/stop are checked chronologically and same-candle ambiguity is stop-first. This is not a new fill, re-entry or order.",
         "candidate_filter_stage": "NEW_CANDIDATE_QUALIFICATION",
     },
     "RECOVERY": {
@@ -237,10 +237,22 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 elif status in original_groups:
                     original_groups[status].append(item)
                 if trade.get("recovered_watch"):
+                    watch = trade["recovered_watch"]
+                    exit_model = watch.get("exit_model") or {}
                     original_groups["RECOVERED"].append({
                         **item,
                         "classification": "RECOVERED_WATCH",
-                        "watch": trade["recovered_watch"],
+                        "entry_price": watch.get("reference_entry_price", item.get("entry_price")),
+                        "stop_loss": exit_model.get("stop_loss"),
+                        "target_1": exit_model.get("target"),
+                        "latest_price": watch.get("trigger_close"),
+                        "exit_date": exit_model.get("exit_date"),
+                        "exit_price": exit_model.get("exit_price"),
+                        "exit_reason": exit_model.get("exit_reason"),
+                        "pnl_points": exit_model.get("pnl_points"),
+                        "pnl_pct": exit_model.get("return_pct"),
+                        "recovered_outcome": exit_model.get("outcome"),
+                        "watch": watch,
                         "position_status": "WATCH_ONLY_NOT_OPEN",
                     })
         original_groups["OPEN"] = original_groups["NEW"] + original_groups["HOLD"]
