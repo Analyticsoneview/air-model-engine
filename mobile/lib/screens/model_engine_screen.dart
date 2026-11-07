@@ -172,6 +172,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
           style: TextStyle(fontSize: 10)),
         const SizedBox(height: 8),
         TextField(controller: _reportEmailController, keyboardType: TextInputType.emailAddress,
+          onChanged: (_) => setState(() {}),
           decoration: const InputDecoration(labelText: 'Report email address', border: OutlineInputBorder(), isDense: true)),
         const SizedBox(height: 7),
         if (needsVerification) ...[
