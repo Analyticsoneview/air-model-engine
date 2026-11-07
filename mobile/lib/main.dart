@@ -7,6 +7,7 @@ import 'screens/air_admin_screen.dart';
 import 'screens/air_qoc_screen.dart';
 import 'screens/model_engine_screen.dart';
 import 'screens/nse_data_screen.dart';
+import 'services/air_api_client.dart';
 
 void main() => runApp(const AirModelEngineApp());
 
@@ -164,6 +165,8 @@ class AirDashboard extends StatelessWidget {
           const SizedBox(width: 9),
           Expanded(child: _CompactIndexCard(name: 'SENSEX', panel: panel, muted: muted)),
         ]),
+        const SizedBox(height: 12),
+        const NseBootstrapSummaryCard(),
         const SizedBox(height: 18),
         Row(children: [
           const Expanded(child: Text('YOUR WORKSPACE', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1))),
@@ -1087,6 +1090,108 @@ class ModelEngineRecordsTable extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+
+class NseBootstrapSummaryCard extends StatefulWidget {
+  const NseBootstrapSummaryCard({super.key});
+
+  @override
+  State<NseBootstrapSummaryCard> createState() => _NseBootstrapSummaryCardState();
+}
+
+class _NseBootstrapSummaryCardState extends State<NseBootstrapSummaryCard> {
+  final AirApiClient _api = AirApiClient();
+  late Future<Map<String, dynamic>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _api.nseDataStatus();
+  }
+
+  @override
+  void dispose() {
+    _api.dispose();
+    super.dispose();
+  }
+
+  void _refresh() => setState(() => _future = _api.nseDataStatus());
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return FutureBuilder<Map<String, dynamic>>(
+      future: _future,
+      builder: (context, snapshot) {
+        final data = snapshot.data ?? const <String, dynamic>{};
+        final bootstrap = data['bootstrap'] as Map<String, dynamic>? ?? const {};
+        final markets = data['markets'] as Map<String, dynamic>? ?? const {};
+        final cm = markets['CM'] as Map<String, dynamic>? ?? const {};
+        final fo = markets['FO'] as Map<String, dynamic>? ?? const {};
+        final status = bootstrap['status']?.toString() ?? 'CONNECTING';
+        final running = status == 'RUNNING';
+        final ready = status == 'READY';
+        final progress = ((bootstrap['progress_pct'] as num?)?.toDouble() ?? 0) / 100;
+        return Card(
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const NseDataScreen()),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Icon(Icons.storage_rounded, color: cs.primary, size: 19),
+                  const SizedBox(width: 8),
+                  const Expanded(child: Text('NSE HISTORICAL DATA', style: TextStyle(
+                    fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: .7))),
+                  Text(ready ? '3-MONTH DATA READY' : status,
+                    style: TextStyle(fontSize: 8, fontWeight: FontWeight.w900,
+                      color: ready ? Colors.green : cs.primary)),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    tooltip: 'Refresh data status',
+                    onPressed: _refresh,
+                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                  ),
+                ]),
+                const SizedBox(height: 4),
+                if (snapshot.hasError)
+                  Text('Historical data status is temporarily unavailable.',
+                    style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant))
+                else ...[
+                  Text(
+                    running ? 'CM and F&O archives are being downloaded and indexed on the AIR server.'
+                      : ready ? 'Cash-market equities and F&O futures/options are ready to explore.'
+                      : 'The AIR server prepares three calendar months of CM and F&O history automatically.',
+                    style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant, height: 1.35),
+                  ),
+                  if (running) ...[
+                    const SizedBox(height: 8),
+                    LinearProgressIndicator(value: progress > 0 ? progress : null),
+                  ],
+                  const SizedBox(height: 9),
+                  Row(children: [
+                    Expanded(child: Text('CM  ${cm['records'] ?? 0} rows',
+                      style: TextStyle(fontSize: 10, color: cs.primary, fontWeight: FontWeight.w800))),
+                    Expanded(child: Text('FO  ${fo['records'] ?? 0} rows',
+                      style: TextStyle(fontSize: 10, color: cs.tertiary, fontWeight: FontWeight.w800))),
+                    Text('${bootstrap['paired_sessions'] ?? 0} sessions',
+                      style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant)),
+                  ]),
+                ],
+                const SizedBox(height: 4),
+                Align(alignment: Alignment.centerRight, child: Text('OPEN DATA CENTER  ›',
+                  style: TextStyle(fontSize: 8, color: cs.primary, fontWeight: FontWeight.w900))),
+              ]),
+            ),
+          ),
+        );
+      },
     );
   }
 }
