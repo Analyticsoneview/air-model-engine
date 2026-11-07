@@ -36,6 +36,8 @@ python -m pytest -q
 
 Follow [Docker Swarm deployment](deploy/DOCKER_SWARM.md). It covers Docker secrets, first-operator provisioning, PWA/API routing and the current single-replica limits.
 
+For the end-to-end Ubuntu installer, Caddy HTTPS setup, self-hosted GitHub runner and first operator activation, follow [AIR Installation](deploy/INSTALLATION.md). For the signed Android customer APK, follow [Android Release](deploy/ANDROID_RELEASE.md).
+
 ## AIR MASTER lifecycle layer
 
 - `GET /api/v1/model-engine/master` exposes a canonical, customer-scoped MASTER aggregation over persisted verified ledger rows.
