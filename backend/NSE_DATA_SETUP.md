@@ -4,15 +4,17 @@ AIR downloads the official NSE UDiFF Common Bhavcopy Final archives for both Cap
 
 ## Initial bootstrap
 
-On API service startup, `AIR_NSE_BOOTSTRAP_ENABLED=true` (default in Docker Swarm) queues a background bootstrap for the previous **three calendar months**. It checks weekdays, imports available NSE sessions, skips weekends/holidays where NSE publishes no archive, and retries transient HTTP errors. CM and FO downloads are paired by trading date.
+On API service startup, `AIR_NSE_BOOTSTRAP_ENABLED=true` (default in Docker Swarm) queues a background bootstrap for the previous **three calendar months**. It refreshes the official NSE trading-holiday calendar for CM and FO, checks eligible weekdays, excludes notified CM holidays, imports available sessions, and retries transient HTTP errors. CM and FO holiday lists are stored separately because the segments can differ. CM and FO downloads are paired by trading date.
 
 The original ZIP archives are retained under `/var/lib/air/nse_archives/{CM,FO}/YYYY-MM-DD.zip`. Normalized EOD rows, import status and coverage metadata are persisted in `/var/lib/air/nse_bhavcopy.sqlite3`, on the same persistent `air_data` volume as the rest of AIR. A service restart does not re-download successfully imported files. Failed dates can be retried by the operator.
 
-The API performs the initial download in the background so health checks and login can come up while history is being prepared. The Home dashboard and Data tab show the bootstrap progress and coverage. The app polls progress while the bootstrap is running. The Data tab provides separate CM and FO views, symbol search, and FO Options/Futures filters.
+The API performs the initial download in the background so health checks and login can come up while history is being prepared. A restart also performs missed-session recovery; already imported archives are skipped. The Home dashboard and Data tab show the bootstrap progress and coverage. The app polls progress while the bootstrap is running. The Data tab provides separate CM and FO views, symbol search, and FO Options/Futures filters.
 
 ## Automatic refresh and operator retry
 
-- Daily refresh: 18:15 Asia/Kolkata, Monday to Friday.
+- Daily post-market refresh: 21:00 Asia/Kolkata, Monday to Friday (only when the exchange calendar indicates a trading day).
+- Startup recovery: every API restart queues an idempotent reconciliation. It resumes from the last paired CM+FO imported session while preserving the rolling three-calendar-month window, so missed sessions are backfilled after downtime.
+- Calendar cache: NSE `holiday-master?type=trading` for CM and FO, persisted in the same SQLite metadata store and shown in the Data Center. If NSE is temporarily unreachable, the last persisted calendar is used and the refresh error is surfaced in status.
 - Authenticated status: `GET /api/v1/nse-data/status`
 - Authenticated rows: `GET /api/v1/nse-data/rows?market=CM|FO&symbol=NIFTY&limit=150`
 - Operator-only retry: `POST /api/v1/nse-data/bootstrap`
