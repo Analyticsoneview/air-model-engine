@@ -153,11 +153,19 @@ class AccountReporting:
                 except (TypeError, ValueError):
                     continue
             return round(sum(found), 2) if found else None
+
+        realized = total(("realizedProfit", "realized_profit", "realized_pnl",
+                          "realized", "realisedProfit", "realised_profit"))
+        unrealized = total(("unrealizedProfit", "unrealized_profit", "unrealized_pnl",
+                            "unrealized", "unrealisedProfit", "unrealised_profit", "mtm"))
+        net = total(("netProfit", "net_pnl", "pnl", "pl"))
+        if net is None and realized is not None and unrealized is not None:
+            net = round(realized + unrealized, 2)
         return {
-            "realized_pnl": total(("realizedProfit", "realized_profit", "realized_pnl", "realized", "realisedProfit", "realised_profit")),
-            "unrealized_pnl": total(("unrealizedProfit", "unrealized_profit", "unrealized_pnl", "unrealized", "unrealisedProfit", "unrealised_profit", "mtm")),
-            "day_pnl": total(("dayProfit", "day_pnl", "dayPnL", "realizedProfit", "realized_pnl")),
-            "net_pnl": total(("netProfit", "net_pnl", "pnl", "pl", "unrealizedProfit", "unrealized_profit", "mtm")),
+            "realized_pnl": realized,
+            "unrealized_pnl": unrealized,
+            "day_pnl": total(("dayProfit", "day_pnl", "dayPnL", "day_pnl_rupees")),
+            "net_pnl": net,
         }
 
     @staticmethod
