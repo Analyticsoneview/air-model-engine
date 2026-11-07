@@ -19,7 +19,7 @@ The API performs the initial download in the background so health checks and log
 - Authenticated rows: `GET /api/v1/nse-data/rows?market=CM|FO&symbol=NIFTY&limit=150`
 - Operator-only retry: `POST /api/v1/nse-data/bootstrap`
 
-The system reports READY only when at least 45 paired CM/FO sessions are present in the three-calendar-month window and there are no failed downloads. A PARTIAL/FAILED state is visible and can be retried; AIR must not represent incomplete coverage as ready.
+The bootstrap status includes the number of sessions checked, partial sessions detected, automatic repairs triggered, and the per-market NSE-source-versus-app-DB counts for mismatches. The Data Center refreshes visible rows when a reconciliation/download batch changes, even if the overall row count stays the same. The system reports READY only when at least 45 paired CM/FO sessions are present in the three-calendar-month window and there are no failed downloads. A PARTIAL/FAILED state is visible and can be retried; AIR must not represent incomplete coverage as ready.
 
 ## Data included
 
