@@ -146,7 +146,7 @@ class MarketDataService:
                 segment = "NSE_FO" if "FO" in instrument.segment.upper() else "NSE_CM"
                 query_symbol = (instrument.underlying_symbol or instrument.symbol).upper()
                 candidates = await nse_adapter.search_instruments(
-                    query_symbol, limit=200, exchange_segment=segment
+                    query_symbol, limit=50000, exchange_segment=segment
                 )
                 match = next((item for item in candidates
                     if item.symbol.upper() == query_symbol
