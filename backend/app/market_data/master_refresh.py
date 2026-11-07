@@ -25,14 +25,14 @@ DEFAULT_MASTER_URLS = {
 }
 
 ALIASES = {
-    "exchange": ("exchange", "exch", "exchange_code", "sem_exm_exch_id"),
+    "exchange": ("exchange", "exch", "exch_seg", "exchange_code", "sem_exm_exch_id"),
     "symbol": ("tradingsymbol", "trading_symbol", "symbol", "sem_trading_symbol", "name"),
     "token": ("instrument_token", "instrument_key", "token", "symboltoken", "symbol_token",
               "security_id", "sem_smst_security_id", "fy_token"),
     "segment": ("segment", "exchange_segment", "exch_seg", "sem_segment"),
     "expiry": ("expiry", "expiry_date", "sem_expiry_date"),
     "strike": ("strike", "strike_price", "sem_strike_price"),
-    "option_type": ("option_type", "instrument_type", "right", "optt", "sem_option_type"),
+    "option_type": ("option_type", "instrument_type", "instrumenttype", "right", "optt", "sem_option_type"),
     "lot_size": ("lot_size", "lotsize", "sem_lot_units"),
     "tick_size": ("tick_size", "ticksize", "sem_tick_size"),
 }
@@ -63,7 +63,11 @@ def _normalize(provider: str, row: dict[str, Any]) -> dict[str, Any] | None:
     expiry = str(value.get("expiry") or "").strip() or None
     strike = value.get("strike")
     try:
-        strike = str(float(strike)) if strike not in (None, "") else None
+        strike_value = float(strike) if strike not in (None, "") else None
+        # Angel SmartAPI publishes option strike in paise; normalize to rupees.
+        if provider == "angelone" and strike_value is not None:
+            strike_value /= 100
+        strike = str(strike_value) if strike_value is not None else None
     except (TypeError, ValueError):
         strike = None
     try:
