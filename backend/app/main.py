@@ -419,6 +419,7 @@ class MarketInstrumentMapping(BaseModel):
     lot_size: int | None = Field(default=None, ge=1)
     instrument_type: str | None = None
     tick_size: str | None = None
+    underlying_symbol: str | None = None
 
 
 class MarketInstrumentMappingItem(BaseModel):
@@ -1087,6 +1088,7 @@ async def operator_save_market_instrument(
             token=body.token, segment=body.segment, expiry=body.expiry,
             strike=body.strike, option_type=body.option_type, lot_size=body.lot_size,
             instrument_type=body.instrument_type, tick_size=body.tick_size,
+            underlying_symbol=body.underlying_symbol,
         )
         return {"instrument": row, "status": "saved"}
     except ValueError as exc:
@@ -1109,7 +1111,7 @@ async def operator_bulk_save_market_instruments(
                 symbol=item.symbol, token=item.token, segment=item.segment,
                 expiry=item.expiry, strike=item.strike, option_type=item.option_type,
                 lot_size=item.lot_size, instrument_type=item.instrument_type,
-                tick_size=item.tick_size,
+                tick_size=item.tick_size, underlying_symbol=item.underlying_symbol,
             )
             saved += 1
     except ValueError as exc:
