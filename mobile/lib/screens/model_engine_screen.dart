@@ -10,7 +10,7 @@ class ModelEngineScreen extends StatefulWidget {
 
 class _ModelEngineScreenState extends State<ModelEngineScreen> {
   final AirApiClient _api = AirApiClient();
-  static const _sections = ['P&L CALENDAR', 'OPEN', 'NEW', 'HOLD', 'REENTRY', 'SURVIVOR', 'WAIT', 'SLHIT', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN', 'PHYSICAL SETTLEMENT', 'COMBINED', 'EXPIRY78', 'RECOVERED', 'RECOVERY'];
+  static const _sections = ['P&L CALENDAR', 'OPEN', 'NEW', 'HOLD', 'REENTRY', 'SURVIVOR', 'WAIT', 'SLHIT', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN', 'SETTLEMENT UP / DOWN', 'PHYSICAL SETTLEMENT', 'COMBINED', 'EXPIRY78', 'RECOVERED', 'RECOVERY'];
   static const _strategyTabs = ['EXPIRY78', 'RECOVERED', 'RECOVERY'];
 
   String _strategyKey(String section) => section == 'RECOVERED' ? 'ORIGINAL366' : section;
@@ -22,6 +22,9 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   List<Map<String, dynamic>> _expiryRows = [];
   List<Map<String, dynamic>> _settlementRows = [];
   Map<String, dynamic> _settlementSummary = {};
+  Map<String, dynamic> _dailySettlementComparison = {};
+  String _settlementAsset = 'OPTIONS';
+  String _settlementDirection = 'ALL';
   String? _settlementNote;
   List<Map<String, dynamic>> _expiryAlerts = [];
   String? _expiryNote;
@@ -65,11 +68,14 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       final result = await _api.modelEngineMaster();
       Map<String, dynamic>? expiryResult;
       Map<String, dynamic>? settlementResult;
+      Map<String, dynamic>? dailySettlementResult;
       Map<String, dynamic>? pnlResult;
       try { expiryResult = await _api.expiryScan(); }
       catch (e) { _expiryNote = 'EXPIRYSCAN unavailable: $e'; }
       try { settlementResult = await _api.physicalSettlement(); }
       catch (e) { _settlementNote = 'Physical settlement review unavailable: $e'; }
+      try { dailySettlementResult = await _api.settlementComparison(); }
+      catch (e) { _settlementNote = 'Settlement UP / DOWN unavailable: $e'; }
       try { pnlResult = await _api.modelEnginePnlCalendar(year: _calendarMonth.year, month: _calendarMonth.month); }
       catch (e) { _error = 'P&L calendar unavailable: $e'; }
       if (!mounted) return;
@@ -93,6 +99,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
               .whereType<Map<String, dynamic>>().toList();
           _expiryNote = 'Showing published NSE EOD EXPIRYSCAN results. Fresh live bid/ask capture requires a connected broker.';
         }
+        if (dailySettlementResult != null) _dailySettlementComparison = dailySettlementResult;
         if (settlementResult != null) {
           _settlementRows = (settlementResult['rows'] as List<dynamic>? ?? const [])
               .whereType<Map<String, dynamic>>().toList();
@@ -217,9 +224,106 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       return (data['count'] ?? 0).toString();
     }
     if (section == 'EXPIRYSCAN') return _expiryRows.length.toString();
+    if (section == 'SETTLEMENT UP / DOWN') {
+      final options = _dailySettlementComparison['options'] as Map<String, dynamic>?;
+      final stocks = _dailySettlementComparison['stocks'] as Map<String, dynamic>?;
+      return ((options?['rows'] as List<dynamic>?)?.length ?? 0 + (stocks?['rows'] as List<dynamic>?)?.length ?? 0).toString();
+    }
     if (section == 'PHYSICAL SETTLEMENT') return _settlementRows.length.toString();
     return (_counts[section] ?? 0).toString();
   }
+
+  Widget _settlementComparisonView() {
+    final options = _dailySettlementComparison['options'] is Map
+        ? _dailySettlementComparison['options'] as Map<String, dynamic> : <String, dynamic>{};
+    final stocks = _dailySettlementComparison['stocks'] is Map
+        ? _dailySettlementComparison['stocks'] as Map<String, dynamic> : <String, dynamic>{};
+    final optionRows = (options['rows'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>().toList();
+    final stockRows = (stocks['rows'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>().toList();
+    final allRows = _settlementAsset == 'OPTIONS' ? optionRows : stockRows;
+    final rows = allRows.where((r) {
+      final direction = _settlementAsset == 'OPTIONS'
+          ? (r['broker_close_direction'] ?? '').toString()
+          : (r['settlement_direction'] ?? '').toString();
+      if (_settlementDirection == 'UP') {
+        return _settlementAsset == 'OPTIONS'
+            ? direction == 'OPTION CLOSE UP' : direction == 'UP';
+      }
+      if (_settlementDirection == 'DOWN') {
+        return _settlementAsset == 'OPTIONS'
+            ? direction == 'OPTION CLOSE DOWN' : direction == 'DOWN';
+      }
+      return true;
+    }).toList();
+    final tradeDate = _dailySettlementComparison['trade_date']?.toString() ?? '—';
+    final optionColumns = const [
+      'symbol','option_type','strike','expiry','broker_close','nse_settlement',
+      'broker_variance','broker_variance_pct','broker_close_direction','action',
+      'previous_nse_settlement','settlement_change','settlement_direction',
+      'volume','open_interest','oi_change','liquidity_status'
+    ];
+    final stockColumns = const [
+      'symbol','broker_close','nse_settlement','broker_variance','broker_variance_pct',
+      'previous_nse_settlement','settlement_change','settlement_direction','volume',
+      'open_interest','oi_change'
+    ];
+    final columns = _settlementAsset == 'OPTIONS' ? optionColumns : stockColumns;
+    String display(String key, dynamic value) {
+      if (value == null) return '—';
+      if (key.contains('variance') || key.contains('settlement') ||
+          key == 'broker_close' || key == 'nse_settlement' ||
+          key == 'previous_nse_settlement') {
+        if (value is num) return '₹${value.toStringAsFixed(2)}';
+      }
+      if (key == 'broker_variance_pct' && value is num) return '${value.toStringAsFixed(2)}%';
+      return value.toString();
+    }
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('NSE SETTLEMENT VS BROKER DAILY CLOSE', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
+          Text('NSE EOD session: $tradeDate • watch-only • no orders are placed',
+            style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+          const SizedBox(height: 8),
+          Wrap(spacing: 7, runSpacing: 7, children: [
+            _settlementMetric('STOCKS • SETTLEMENT UP', stocks['up'] ?? 0),
+            _settlementMetric('STOCKS • SETTLEMENT DOWN', stocks['down'] ?? 0),
+            _settlementMetric('OPTIONS • SELL WATCH', options['sell_watch'] ?? 0),
+            _settlementMetric('OPTIONS • BUY WATCH', options['buy_watch'] ?? 0),
+          ]),
+          const SizedBox(height: 8),
+          Text('OPTION RULE: Broker close − NSE settlement > 0 = OPTION CLOSE UP / SELL WATCH; < 0 = OPTION CLOSE DOWN / BUY WATCH.',
+            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Theme.of(context).colorScheme.primary)),
+          Text('Day-over-day NSE settlement movement is a separate field. Broker close is populated only from the selected broker historical feed and exact instrument-master match.',
+            style: TextStyle(fontSize: 9, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+          Text((options['broker_close_note'] ?? stocks['broker_close_note'] ?? _dailySettlementComparison['note'] ?? 'Broker close unavailable').toString(),
+            style: TextStyle(fontSize: 9, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+          Text('Bid/ask is not part of NSE EOD bhavcopy. Volume/OI are context only and do not imply liquidity qualification.',
+            style: TextStyle(fontSize: 9, color: Theme.of(context).colorScheme.error)),
+        ],
+      ))),
+      Wrap(spacing: 7, children: ['OPTIONS','STOCKS'].map((v) => ChoiceChip(
+        label: Text(v), selected: _settlementAsset == v,
+        onSelected: (_) => setState(() { _settlementAsset = v; _settlementDirection = 'ALL'; }),
+      )).toList()),
+      Wrap(spacing: 7, children: ['ALL','UP','DOWN'].map((v) => ChoiceChip(
+        label: Text(v), selected: _settlementDirection == v,
+        onSelected: (_) => setState(() => _settlementDirection = v),
+      )).toList()),
+      if (rows.isEmpty) Card(child: Padding(padding: const EdgeInsets.all(14),
+        child: Text('No ${_settlementAsset.toLowerCase()} rows for this filter. Missing broker closes are never treated as zero and do not create a signal.',
+          style: const TextStyle(fontSize: 11))))
+      else Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal,
+        child: DataTable(columnSpacing: 12, headingRowHeight: 42,
+          dataRowMinHeight: 40, dataRowMaxHeight: 64,
+          columns: columns.map((key) => DataColumn(label: Text(key.replaceAll('_',' ').toUpperCase()))).toList(),
+          rows: rows.map((r) => DataRow(cells: columns.map((key) =>
+            DataCell(_cell(display(key, r[key])))).toList())).toList()))),
+    ]);
+  }
+
   Widget _settlementMetric(String label, dynamic value) => Container(
     padding: const EdgeInsets.all(9),
     decoration: BoxDecoration(
@@ -627,6 +731,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     final pnlSelected = selectedSection == 'P&L CALENDAR';
     final expirySelected = selectedSection == 'EXPIRYSCAN';
     final settlementSelected = selectedSection == 'PHYSICAL SETTLEMENT';
+    final settlementComparisonSelected = selectedSection == 'SETTLEMENT UP / DOWN';
     final strategySelected = _strategyTabs.contains(selectedSection);
     final strategyData = _strategies[_strategyKey(selectedSection)] as Map<String, dynamic>?;
     final strategyGroups = strategyData?['groups'] as Map<String, dynamic>?;
@@ -694,6 +799,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
           ))),
           const SizedBox(height: 10),
           if (pnlSelected) ...[_pnlCalendarView(), _accountReportsView()],
+          if (settlementComparisonSelected) _settlementComparisonView(),
           if (strategySelected) ...[
             if (strategyData?['rules'] is Map) Card(child: Padding(
               padding: const EdgeInsets.all(12), child: Text(
@@ -797,7 +903,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                   'scan_status','observed_at']) DataCell(_cell(_v(r, key))),
               ],
             )).toList()))),
-          if (!pnlSelected && !settlementSelected && ((!expirySelected && rows.isEmpty) || (expirySelected && _expiryRows.isEmpty))) Card(child: Padding(padding: const EdgeInsets.all(18),
+          if (!pnlSelected && !settlementSelected && !settlementComparisonSelected && ((!expirySelected && rows.isEmpty) || (expirySelected && _expiryRows.isEmpty))) Card(child: Padding(padding: const EdgeInsets.all(18),
             child: Column(children: [
               Icon(Icons.hourglass_empty_rounded, size: 28, color: cs.onSurfaceVariant),
               const SizedBox(height: 8),
@@ -806,7 +912,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
               Text('This section populates only from persisted verified records. No invented sample trades are displayed.',
                 textAlign: TextAlign.center, style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
             ]),
-          )) else if (!pnlSelected && !expirySelected && !settlementSelected) Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal,
+          )) else if (!pnlSelected && !expirySelected && !settlementSelected && !settlementComparisonSelected) Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal,
             child: DataTable(columnSpacing: 14, headingRowHeight: 38,
               dataRowMinHeight: 38, dataRowMaxHeight: 52,
               columns: _columns, rows: rows.map(_row).toList()))),
