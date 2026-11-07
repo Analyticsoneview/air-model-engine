@@ -10,6 +10,7 @@ from typing import Any
 
 from app.model_engine_expiry78 import evaluate_expiry78_rows
 from app.model_engine_original366 import evaluate_original366_rows
+from app.model_engine_physical_forecast import forecast_physical_settlement
 
 STOCK_ENTRY_MIN = 1.0
 STOCK_ENTRY_MAX = 10.0
@@ -339,6 +340,7 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 })
             for trade in trades:
                 item = {**source, **trade, "strategy": "EXPIRY78"}
+                item["physical_settlement_forecast"] = forecast_physical_settlement(item)
                 bucket = {"SL": "SLHIT", "RE-ENTRY": "REENTRY"}.get(
                     str(trade.get("classification") or "").upper(),
                     str(trade.get("classification") or "").upper(),
