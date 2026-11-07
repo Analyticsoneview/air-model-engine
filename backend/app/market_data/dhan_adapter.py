@@ -11,6 +11,7 @@ from app.brokers.dhan_instruments import DhanInstrumentMaster
 from app.brokers.dhan_socket import DhanFeedSocket, SEGMENT_CODES
 from app.market_data.contracts import HistoricalBar, MarketInstrument
 from app.market_data.hub import MarketDataHub
+from app.market_data.session import nse_regular_session_active
 
 SEGMENT_NAMES = {value: key for key, value in SEGMENT_CODES.items()}
 
@@ -124,7 +125,7 @@ class DhanMarketDataAdapter:
         if self._subscriptions and self._last_tick_at:
             age = (datetime.now(timezone.utc) - datetime.fromisoformat(
                 self._last_tick_at.replace("Z", "+00:00"))).total_seconds()
-            if age > 30 and state == "connected":
+            if age > 30 and state == "connected" and nse_regular_session_active():
                 state = "stale"
         elif self._subscriptions and state == "connected" and not self._last_tick_at:
             state = "awaiting_first_tick"
