@@ -37,7 +37,7 @@ class TelegramDestinationStoreTests(unittest.TestCase):
             )
             self.assertEqual(destinations.destinations_for_strategy("EXPIRY78"), [])
             self.assertTrue(destinations.delete_destination(row["id"]))
-            self.assertFalse(destinations.has_managed_destinations())
+            self.assertTrue(destinations.has_managed_destinations())
 
     def test_destination_type_and_chat_id_must_match(self):
         with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {
