@@ -468,7 +468,8 @@ class NSEBhavcopyStore:
 
     def query(self, market: str, symbol: str | None = None,
               start_date: str | None = None, end_date: str | None = None,
-              instrument_type: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+              instrument_type: str | None = None, instrument_id: str | None = None,
+              limit: int = 100) -> list[dict[str, Any]]:
         clauses = ["market=?"]
         params: list[Any] = [market]
         if symbol:
@@ -483,6 +484,9 @@ class NSEBhavcopyStore:
         if instrument_type:
             clauses.append("instrument_type LIKE ?")
             params.append(f"%{instrument_type.strip().upper()}%")
+        if instrument_id:
+            clauses.append("(instrument_id=? OR instrument_key=?)")
+            params.extend([instrument_id.strip(), instrument_id.strip()])
         params.append(max(1, min(limit, 500)))
         with self._db() as db:
             rows = db.execute(
