@@ -57,7 +57,8 @@ class MarketInstrumentDirectory:
     def upsert(self, provider: str, account_id: str, *, exchange: str,
                symbol: str, token: str, segment: str, expiry: str | None = None,
                strike: str | None = None, option_type: str | None = None,
-               lot_size: int | None = None, instrument_type: str | None = None) -> dict:
+               lot_size: int | None = None, instrument_type: str | None = None,
+               tick_size: str | None = None) -> dict:
         values = [provider.strip().lower(), account_id.strip(), exchange.strip().upper(),
                   symbol.strip().upper(), token.strip(), segment.strip().upper()]
         if not all(values):
@@ -72,8 +73,8 @@ class MarketInstrumentDirectory:
                     exchange=excluded.exchange,symbol=excluded.symbol,segment=excluded.segment,
                     expiry=excluded.expiry,strike=excluded.strike,option_type=excluded.option_type,
                     lot_size=excluded.lot_size,instrument_type=excluded.instrument_type,
-                    updated_at=CURRENT_TIMESTAMP
-            """, (*values, expiry, strike, option_type, lot_size, instrument_type))
+                    tick_size=excluded.tick_size,updated_at=CURRENT_TIMESTAMP
+            """, (*values, expiry, strike, option_type, lot_size, instrument_type, tick_size))
         return self.get(provider, account_id, values[4]) or {}
 
     def replace_snapshot(self, provider: str, account_id: str,
