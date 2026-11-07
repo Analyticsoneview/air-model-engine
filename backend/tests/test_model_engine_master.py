@@ -167,7 +167,7 @@ def test_original366_replay_is_independent_and_does_not_rewrite_historical_basel
 
 
 
-def test_original366_post_stop_close_is_added_to_recovered_watch_without_opening_position():
+def test_original366_post_stop_close_is_added_to_recovered_open_lifecycle():
     from app.model_engine_strategies import build_strategy_views
 
     contract = {
