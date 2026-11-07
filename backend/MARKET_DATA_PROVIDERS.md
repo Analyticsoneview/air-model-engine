@@ -48,8 +48,10 @@ qualification criteria, scoring and result schemas are not forked by customer ti
   existing NSE bootstrap pipeline.
 - Strategy endpoints hydrate published signals from the NSE EOD store when data is
   available, then run the same deterministic strategy evaluators.
-- No broker connection or paid entitlement is required for the standard NSE path.
-- NSE bhavcopy is EOD only; it cannot supply live ticks or intraday bid/ask evidence.
+- Standard customers receive the same operator-published strategy results, including
+  persisted EXPIRYSCAN results, without a broker connection or paid entitlement.
+- A fresh on-demand/live EXPIRYSCAN capture requires a selected authenticated broker
+  account; NSE bhavcopy cannot supply live ticks or intraday bid/ask evidence.
 
 ### AIR operator and paid customers
 
