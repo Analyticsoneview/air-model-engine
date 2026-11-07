@@ -161,7 +161,9 @@ def build_pnl_calendar(strategy_views: dict[str, Any], *, physical_review: dict[
                 "estimated_or_actual_charges": 0.0, "net_pnl": 0.0,
                 "capital_deployed": 0.0, "capital_records": 0,
                 "capital_missing_quantity": 0, "charges_estimated_count": 0,
-                "charges_actual_count": 0, "net_pending_count": 0, "entries_count": 0, "peak_concurrent_capital": 0.0, "trades": []}
+                "charges_actual_count": 0, "net_pending_count": 0, "entries_count": 0,
+                "physical_settlement_gross_pnl": 0.0, "physical_settlement_contracts": 0,
+                "peak_concurrent_capital": 0.0, "trades": []}
 
     days: dict[str, dict] = defaultdict(blank)
     months: dict[str, dict] = defaultdict(blank)
@@ -242,7 +244,7 @@ def build_pnl_calendar(strategy_views: dict[str, Any], *, physical_review: dict[
             peak = max(peak, running)
         bucket["peak_concurrent_capital"] = round(peak, 2)
     for bucket in [*totals.values(), *days.values(), *months.values()]:
-        for key in ("gross_pnl", "estimated_or_actual_charges", "net_pnl", "capital_deployed"):
+        for key in ("gross_pnl", "estimated_or_actual_charges", "net_pnl", "capital_deployed", "physical_settlement_gross_pnl"):
             bucket[key] = round(bucket[key], 2)
     physical_rows = []
     physical_summary = {"contract_count": 0, "capital_deployed": 0.0,
