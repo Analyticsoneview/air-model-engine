@@ -139,7 +139,8 @@ async def start_air_qoc_jobs() -> None:
     await _restore_market_data_source_connections()
     _market_health_task = asyncio.create_task(_market_data_health_loop(), name="air-market-data-health")
     _master_refresh_task = asyncio.create_task(_broker_master_refresh_loop(), name="air-broker-master-refresh")
-    start_qoc_scheduler()
+    # Safe by default: the scheduler captures data only for selected, authenticated operator/PAID accounts.
+    start_qoc_scheduler(force=True)
     start_telegram_scheduler()
 
 
