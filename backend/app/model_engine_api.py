@@ -128,7 +128,7 @@ async def get_model_engine_master(
     customer_id: str = Depends(require_customer),
 ) -> dict:
     """Canonical MASTER view over verified persisted signals."""
-    rows = _ledger.list_signals(customer_id, limit)
+    rows = await market_data_service.hydrate_strategy_rows(_ledger.list_signals(customer_id, limit), max_contracts=2000)
     # Valid past-expiry observations from EXPIRYSCAN also belong in EXPIRED.
     try:
         scan = _expiry_scan_for_customer(customer_id, max_dte=45, limit=2000)
