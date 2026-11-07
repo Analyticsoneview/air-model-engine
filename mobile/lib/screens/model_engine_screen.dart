@@ -560,6 +560,11 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                 style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
               const SizedBox(height: 4),
               Text(
+                'REQUESTED: ${((_marketDataSource['requested_source'] as Map?)?['provider'] ?? 'NSE DEFAULT').toString().toUpperCase()}'
+                '  •  EFFECTIVE: ${(_marketDataSource['effective_source'] ?? 'NSE').toString().toUpperCase()}',
+                style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant, fontWeight: FontWeight.w700),
+              ),
+              Text(
                 'HISTORY: ${((_marketDataSource['historical_source'] as Map?)?['provider'] == 'nse_bhavcopy') ? 'NSE EOD' : ((_marketDataSource['historical_source'] as Map?)?['provider'] ?? 'NSE EOD').toString().toUpperCase()}'
                 '  •  LIVE: ${((_marketDataSource['live_source'] as Map?)?['provider'] ?? 'NOT CONNECTED').toString().toUpperCase()}'
                 '  •  STATUS: ${(_marketDataSource['connection_status'] ?? 'NSE DEFAULT').toString().toUpperCase()}',
