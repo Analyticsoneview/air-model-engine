@@ -561,9 +561,15 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
               const SizedBox(height: 4),
               Text(
                 'HISTORY: ${(_marketDataSource['historical_source'] as Map?)?['provider'] ?? 'NSE EOD'}'
-                '  •  LIVE: ${(_marketDataSource['live_source'] as Map?)?['provider'] ?? 'NOT CONNECTED'}',
+                '  •  LIVE: ${(_marketDataSource['live_source'] as Map?)?['provider'] ?? 'NOT CONNECTED'}'
+                '  •  STATUS: ${_marketDataSource['connection_status'] ?? 'NSE DEFAULT'}',
                 style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant, fontWeight: FontWeight.w700),
               ),
+              if (_marketDataSource['fallback_active'] == true)
+                Text(
+                  'NSE FALLBACK ACTIVE · Broker unavailable (${_marketDataSource['fallback_reason'] ?? 'connection failed'})',
+                  style: TextStyle(fontSize: 9, color: cs.error, fontWeight: FontWeight.w800),
+                ),
               const SizedBox(height: 8),
               Text('OPEN ${_summary['open'] ?? 0}  •  NEW ${_summary['new'] ?? 0}  •  HOLD ${_summary['hold'] ?? 0}  •  REENTRY ${_summary['reentry'] ?? 0}  •  SURVIVOR ${_summary['survivor_watch'] ?? 0}  •  SLHIT ${_summary['slhit'] ?? 0}',
                 style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
