@@ -212,13 +212,17 @@ class AccountReporting:
             WHERE customer_id=? AND broker=? AND account_id=? AND report_date=?
         """, key).fetchone()
         if existing and (existing["status"] == "SENT" or (existing["status"] == "FAILED" and not force)):
-            return {"broker": account.broker, "account_id": account.account_id, "status": "already_sent"}
+            return {"broker": account.broker, "account_id": account.account_id, "status": "already_attempted", "previous_status": existing["status"], "detail": existing["detail"]}
         try:
             payload = await collector(customer_id, account.broker, account.account_id)
             positions = self._rows(payload.get("positions"))
             orders = self._rows(payload.get("orders"))
             holdings = self._rows(payload.get("holdings"))
             summary = self._pnl_summary(positions)
+            summary["pnl_status"] = ("BROKER_FIELDS_AVAILABLE" if any(
+                summary.get(key) is not None
+                for key in ("realized_pnl", "unrealized_pnl", "day_pnl", "net_pnl")
+            ) else "BROKER_PNL_FIELDS_UNAVAILABLE")
             if not positions and not orders and not holdings:
                 raise RuntimeError("Broker returned no position, order or holding records")
             recipient = self.recipient(customer_id)
