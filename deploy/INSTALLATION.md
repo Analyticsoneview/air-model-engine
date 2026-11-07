@@ -13,11 +13,14 @@ instrument token mappings on the shared AIR data volume:
 These paths are already configured in `docker-stack.yml`. Do not store provider API
 secrets in this file or in a plain-text environment variable; enter them through the
 AIR Admin broker-account credential screen so they are encrypted in the credential
-vault. Dhan is the native WebSocket feed. Zerodha, Upstox, FYERS and Angel One currently
-use normalized historical REST candles and batched live quote REST polling. Polling
-health exposes stale/degraded states and retries with backoff. Provider subscriptions
-require the broker's own instrument token/key; map tokens under **AIR Admin → Market
-Data Sources** from the official broker instrument master.
+vault. Dhan, Zerodha, Upstox, FYERS and Angel One have native WebSocket adapter implementations
+plus normalized historical REST candles. The connector uses the official broker SDK
+for each live stream; Upstox V3 is Protobuf-decoded by its SDK. Stream health exposes
+stale/degraded/outage states and reconnects with provider-specific retry logic. A
+configurable external vendor connector is available for vendors implementing the AIR
+JSON HTTPS/WSS contract. Provider subscriptions require the broker/vendor's own
+instrument token/key; map tokens under **AIR Admin → Market Data Sources** from the
+official instrument master.
 
 A profile authentication handshake does not guarantee a market-data subscription
 entitlement. After enabling a provider, subscribe at least one test instrument and
