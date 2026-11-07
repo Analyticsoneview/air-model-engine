@@ -411,3 +411,17 @@ async def get_physical_settlement_review(
     result = build_physical_settlement_review()
     result["customer_scope"] = "authenticated_customer"
     return result
+
+
+@router.get("/pnl-calendar")
+async def get_model_engine_pnl_calendar(
+    year: int | None = Query(default=None, ge=2000, le=2100),
+    month: int | None = Query(default=None, ge=1, le=12),
+    limit: int = Query(default=2000, ge=1, le=2000),
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    """Calendar P&L with separate entry-capital and exit-realization dates."""
+    from app.model_engine_pnl_calendar import build_pnl_calendar
+    rows = _ledger.list_signals(customer_id, limit)
+    master = build_master(rows)
+    return build_pnl_calendar(master.get("strategies") or {}, year=year, month=month)
