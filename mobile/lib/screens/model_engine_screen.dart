@@ -35,6 +35,12 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   Map<String, dynamic> _pnlCalendar = {};
   DateTime _calendarMonth = DateTime(DateTime.now().year, DateTime.now().month);
   bool _calendarLoading = false;
+  final TextEditingController _reportEmailController = TextEditingController();
+  final TextEditingController _reportCodeController = TextEditingController();
+  Map<String, dynamic> _reportRecipient = {};
+  List<Map<String, dynamic>> _reportHistory = [];
+  String? _reportMessage;
+  bool _reportBusy = false;
 
   @override
   void initState() {
@@ -42,6 +48,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     _authenticated = _api.isAuthenticated;
     if (_authenticated) {
       _refresh();
+      _loadAccountReports();
       _autoRefreshTimer = Timer.periodic(const Duration(minutes: 5), (_) {
         if (mounted && !_loading) _refresh();
       });
@@ -49,7 +56,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   }
 
   @override
-  void dispose() { _autoRefreshTimer?.cancel(); _api.dispose(); super.dispose(); }
+  void dispose() { _autoRefreshTimer?.cancel(); _reportEmailController.dispose(); _reportCodeController.dispose(); _api.dispose(); super.dispose(); }
 
   Future<void> _refresh() async {
     if (!_api.isAuthenticated) return;
@@ -101,6 +108,95 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       });
     } catch (e) { if (mounted) setState(() => _error = e.toString()); }
     finally { if (mounted) setState(() => _loading = false); }
+  }
+
+  Future<void> _loadAccountReports() async {
+    try {
+      final recipient = await _api.reportEmail();
+      final history = await _api.accountReportHistory();
+      if (!mounted) return;
+      setState(() {
+        _reportRecipient = recipient['recipient'] as Map<String, dynamic>? ?? {};
+        _reportHistory = (history['reports'] as List<dynamic>? ?? const [])
+            .whereType<Map<String, dynamic>>().toList();
+        if (_reportRecipient['email'] != null) {
+          _reportEmailController.text = _reportRecipient['email'].toString();
+        }
+      });
+    } catch (e) { if (mounted) setState(() => _reportMessage = e.toString()); }
+  }
+
+  Future<void> _requestReportCode() async {
+    setState(() { _reportBusy = true; _reportMessage = null; });
+    try {
+      final result = await _api.requestReportEmailVerification(_reportEmailController.text);
+      setState(() => _reportMessage = 'Verification code sent to ${result['email']}. Check your inbox.');
+    } catch (e) { setState(() => _reportMessage = e.toString()); }
+    finally { if (mounted) setState(() => _reportBusy = false); }
+  }
+
+  Future<void> _confirmReportCode() async {
+    setState(() { _reportBusy = true; _reportMessage = null; });
+    try {
+      await _api.confirmReportEmailVerification(_reportCodeController.text);
+      await _loadAccountReports();
+      setState(() => _reportMessage = 'Report email verified. Daily account reports are enabled.');
+    } catch (e) { setState(() => _reportMessage = e.toString()); }
+    finally { if (mounted) setState(() => _reportBusy = false); }
+  }
+
+  Future<void> _runAccountReports() async {
+    setState(() { _reportBusy = true; _reportMessage = null; });
+    try {
+      final result = await _api.runAccountReports();
+      final reports = (result['reports'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>();
+      setState(() {
+        _reportMessage = reports.map((r) => '${r['broker']}/${r['account_id']}: ${r['status']}').join(' • ');
+      });
+      await _loadAccountReports();
+    } catch (e) { setState(() => _reportMessage = e.toString()); }
+    finally { if (mounted) setState(() => _reportBusy = false); }
+  }
+
+  Widget _accountReportsView() {
+    final verified = _reportRecipient['verified'] == true;
+    return Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('BROKER ACCOUNT P&L EMAIL REPORTS', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
+        const SizedBox(height: 5),
+        const Text('Daily at 4:00 PM IST • separate email per broker account • PDF + CSV • broker-reported values only',
+          style: TextStyle(fontSize: 10)),
+        const SizedBox(height: 8),
+        TextField(controller: _reportEmailController, keyboardType: TextInputType.emailAddress,
+          decoration: const InputDecoration(labelText: 'Report email address', border: OutlineInputBorder(), isDense: true)),
+        const SizedBox(height: 7),
+        if (!verified) ...[
+          SizedBox(width: double.infinity, child: OutlinedButton(
+            onPressed: _reportBusy ? null : _requestReportCode,
+            child: const Text('SEND VERIFICATION CODE'))),
+          TextField(controller: _reportCodeController, keyboardType: TextInputType.number,
+            maxLength: 6, decoration: const InputDecoration(labelText: '6-digit email code', border: OutlineInputBorder(), isDense: true)),
+          SizedBox(width: double.infinity, child: ElevatedButton(
+            onPressed: _reportBusy ? null : _confirmReportCode,
+            child: const Text('VERIFY EMAIL'))),
+        ] else ...[
+          Text('VERIFIED: ${_reportRecipient['email']}', style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w800, fontSize: 10)),
+          SizedBox(width: double.infinity, child: ElevatedButton(
+            onPressed: _reportBusy ? null : _runAccountReports,
+            child: const Text('GENERATE & EMAIL ACCOUNT REPORTS NOW'))),
+        ],
+        if (_reportBusy) const LinearProgressIndicator(),
+        if (_reportMessage != null) Padding(padding: const EdgeInsets.only(top: 6),
+          child: Text(_reportMessage!, style: const TextStyle(fontSize: 10))),
+        const Divider(),
+        const Text('RECENT DELIVERY HISTORY', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 10)),
+        if (_reportHistory.isEmpty) const Text('No account report attempts yet.', style: TextStyle(fontSize: 10)),
+        ..._reportHistory.take(8).map((r) => Padding(padding: const EdgeInsets.symmetric(vertical: 3),
+          child: Text('${r['report_date']} • ${r['broker']} / ${r['account_id']} • ${r['status']}${r['detail'] == null ? '' : ' • ${r['detail']}'}',
+            style: const TextStyle(fontSize: 9)))),
+      ],
+    )));
   }
 
   String _v(Map<String, dynamic> row, String key) => row[key] == null ? '—' : row[key].toString();
@@ -593,7 +689,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
             ],
           ))),
           const SizedBox(height: 10),
-          if (pnlSelected) _pnlCalendarView(),
+          if (pnlSelected) ...[_pnlCalendarView(), _accountReportsView()],
           if (strategySelected) ...[
             if (strategyData?['rules'] is Map) Card(child: Padding(
               padding: const EdgeInsets.all(12), child: Text(
