@@ -670,8 +670,10 @@ class _AirAdminBrokerAccountsScreenState
               title: Text('${row['broker']} · ${row['account_id']}'),
               subtitle: Text('Customer: ${row['customer_id']}\n'
                   '${row['credentials_saved'] == true ? 'Encrypted credentials saved' : 'Credentials not saved'}\n'
-                  'Market data: ${row['market_data_access']?['tier'] ?? 'STANDARD'} · '
-                  '${row['market_data_selection'] == null ? 'NSE DEFAULT' : (row['market_data_selection']?['provider'] == row['broker'] && row['market_data_selection']?['account_id'] == row['account_id'] ? 'ACTIVE BROKER SOURCE' : 'OTHER ACCOUNT SELECTED')}'),
+                  'Requested: ${row['market_data_selection']?['provider'] ?? 'NSE DEFAULT'} · '
+                  'Effective: ${row['market_data_runtime']?['effective_source'] ?? 'NSE'}\n'
+                  'Connection: ${row['market_data_runtime']?['connection_status'] ?? 'unknown'}'
+                  '${row['market_data_runtime']?['fallback_active'] == true ? ' · NSE FALLBACK ACTIVE' : ''}'),
               isThreeLine: true,
               leading: const Icon(Icons.account_balance_wallet_outlined),
               trailing: Wrap(
