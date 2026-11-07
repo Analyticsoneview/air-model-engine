@@ -1311,7 +1311,7 @@ class _AirAdminMarketDataSourcesScreenState
                 const Text('OPTIONAL AUTOMATIC FAILOVER',
                     style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900)),
                 const SizedBox(height: 5),
-                Text('When the primary feed is degraded or stale, AIR can switch to the first authenticated candidate. Keep candidates on the same market and instrument universe.',
+                Text('When the primary feed is degraded or stale, AIR can switch to the first authenticated candidate. Use a secondary account on the same broker only; cross-broker token remapping is not enabled yet.',
                     style: TextStyle(fontSize: 10, height: 1.4, color: cs.onSurfaceVariant)),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
