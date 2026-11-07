@@ -1102,6 +1102,67 @@ async def market_data_historical(
         raise HTTPException(status_code=502, detail=f"Historical data request failed: {type(exc).__name__}") from exc
 
 
+@app.post("/api/v1/operator/market-data/verify/{channel}")
+async def operator_verify_market_data_source(
+    channel: str,
+    wait_seconds: int = Query(default=12, ge=1, le=30),
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    if channel not in ("historical", "live"):
+        raise HTTPException(status_code=422, detail="Channel must be historical or live")
+    resolved = market_data_router.resolve(channel)
+    if not resolved:
+        raise HTTPException(status_code=409, detail=f"No connected {channel} source")
+    provider, account_id, adapter = resolved[0]
+    mappings = market_data_instruments.list_all(provider, account_id, limit=1)
+    if not mappings:
+        return {"provider": provider, "account_id": account_id,
+                "status": "AUTHENTICATED_MAPPING_REQUIRED", "verified": False,
+                "note": "Provider authentication succeeded, but add an official instrument-token mapping to test data delivery."}
+    item = mappings[0]
+    instrument = MarketInstrument(
+        exchange=item["exchange"], symbol=item["symbol"], token=item["token"],
+        segment=item["segment"], expiry=item.get("expiry"),
+        strike=Decimal(str(item["strike"])) if item.get("strike") else None,
+        option_type=item.get("option_type"), lot_size=item.get("lot_size"),
+        instrument_type=item.get("instrument_type"))
+    if channel == "historical":
+        from datetime import datetime, timedelta, timezone
+        end = datetime.now(timezone.utc)
+        try:
+            bars = await market_data_service.historical(instrument, end - timedelta(days=7), end, "day")
+        except Exception as exc:
+            return {"provider": provider, "account_id": account_id,
+                    "status": "HISTORICAL_FAILED", "verified": False,
+                    "error_type": type(exc).__name__}
+        return {"provider": provider, "account_id": account_id,
+                "status": "HISTORICAL_VERIFIED" if bars else "NO_HISTORICAL_BARS",
+                "verified": bool(bars), "instrument": instrument.symbol,
+                "bars_received": len(bars), "interval": "day"}
+    before = market_data_hub.tick_count
+    try:
+        await market_data_service.subscribe([instrument])
+        deadline = asyncio.get_running_loop().time() + wait_seconds
+        while asyncio.get_running_loop().time() < deadline:
+            if market_data_hub.tick_count > before:
+                return {"provider": provider, "account_id": account_id,
+                        "status": "LIVE_TICK_VERIFIED", "verified": True,
+                        "instrument": instrument.symbol,
+                        "ticks_received": market_data_hub.tick_count - before}
+            await asyncio.sleep(0.25)
+        health = adapter.health() if hasattr(adapter, "health") else {}
+        return {"provider": provider, "account_id": account_id,
+                "status": "SUBSCRIBED_WAITING_FOR_TICK", "verified": False,
+                "instrument": instrument.symbol, "wait_seconds": wait_seconds,
+                "provider_health": health,
+                "note": "No tick arrived during this check. Retry during market hours and verify provider entitlements."}
+    except Exception as exc:
+        await market_data_router.mark_unhealthy("live", "subscription_failed")
+        return {"provider": provider, "account_id": account_id,
+                "status": "LIVE_SUBSCRIPTION_FAILED", "verified": False,
+                "error_type": type(exc).__name__}
+
+
 @app.get("/api/v1/market-data/status")
 async def market_data_status(customer_id: str = Depends(require_air_operator)) -> dict:
     health = await market_data_service.health()
@@ -1218,7 +1279,7 @@ async def operator_select_market_data_source(
     selected = market_data_sources.set_source(channel, provider, account_id, True)
     return {"selection": selected, "runtime": market_data_router.status(),
             "status": "CONNECTED",
-            "note": f"{provider} {channel} adapter authenticated successfully. Live quote mode: REST polling where applicable."}
+            "note": f"{provider} {channel} adapter authenticated successfully. Live quote mode: native WebSocket for supported brokers."}
 
 
 @app.put("/api/v1/operator/market-data/sources/{channel}/failover")
