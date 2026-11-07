@@ -236,8 +236,6 @@ class AccountReporting:
                 summary.get(key) is not None
                 for key in ("realized_pnl", "unrealized_pnl", "day_pnl", "net_pnl")
             ) else "BROKER_PNL_FIELDS_UNAVAILABLE")
-            if not positions and not orders and not holdings:
-                raise RuntimeError("Broker returned no position, order or holding records")
             recipient = self.recipient(customer_id)
             if not recipient or not recipient["verified"]:
                 raise RuntimeError("No verified report email is configured")
