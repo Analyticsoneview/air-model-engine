@@ -1,8 +1,8 @@
-"""Optional daily AIR QOC option-chain snapshot scheduler.
+"""Optional AIR QOC option-chain snapshot scheduler.
 
-Disabled by default. Configure only after confirming Dhan Data API entitlement and
-permitted use. Runs at 15:45 Asia/Kolkata, fetches every active expiry for each
-explicitly configured underlying, and rate-limits unique option-chain requests.
+Disabled by default. Enable only after confirming each selected broker's market-data
+entitlement and permitted use. Runs at 15:20 Asia/Kolkata and captures account-scoped
+snapshots for operator and paid customers with an authenticated selected broker.
 It captures observations only; it does not generate trading signals or orders.
 """
 from __future__ import annotations
