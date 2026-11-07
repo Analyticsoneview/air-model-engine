@@ -479,6 +479,7 @@ class _AirAdminBrokerAccountsScreenState
       'upstox': ['client_id', 'client_secret', 'redirect_uri'],
       'fyers': ['app_id', 'app_secret', 'redirect_uri'],
       'angelone': ['api_key', 'pin'],
+      'custom_vendor': ['base_url', 'websocket_url', 'api_key', 'health_path', 'instruments_path', 'historical_path'],
       'custom_vendor': ['base_url', 'websocket_url', 'api_key'],
     }[broker] ?? const <String>[];
     if (fields.isEmpty) return;
@@ -494,7 +495,7 @@ class _AirAdminBrokerAccountsScreenState
               padding: const EdgeInsets.only(bottom: 9),
               child: TextField(
                 controller: controllers[field],
-                obscureText: field.contains('secret') || field.contains('token') || field == 'pin',
+                obscureText: field.contains('secret') || field.contains('token') || field == 'pin' || field == 'api_key',
                 decoration: InputDecoration(
                   labelText: field.replaceAll('_', ' ').toUpperCase(),
                   border: const OutlineInputBorder(),
