@@ -18,14 +18,11 @@ from app.brokers.upstox import UpstoxClient, UpstoxAPIError, upstox_login_url
 from app.brokers.fyers import FyersClient, FyersAPIError, fyers_login_url
 from app.brokers.angel import AngelSmartAPI, AngelAPIError
 from app.credential_vault import CredentialVault
-from app.market_data.hub import MarketDataHub
-from app.market_data.router import MarketDataRouter
 from app.market_data.dhan_adapter import DhanMarketDataAdapter
 from app.market_data.broker_adapters import (ZerodhaMarketDataAdapter, UpstoxMarketDataAdapter, FyersMarketDataAdapter, AngelOneMarketDataAdapter)
 from app.market_data.broker_streams import (ZerodhaWebSocketAdapter, UpstoxWebSocketAdapter, FyersWebSocketAdapter, AngelOneWebSocketAdapter)
 from app.market_data.nse_adapter import NSEBhavcopyMarketDataAdapter
 from app.market_data.instrument_registry import MarketInstrumentDirectory
-from app.market_data.service import MarketDataService
 from app.market_data.contracts import MarketInstrument
 from app.market_data.provider_registry import MarketDataSourceRegistry
 from app.air_qoc_dhan import router as air_qoc_dhan_router
@@ -52,11 +49,6 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept", "X-AIR-ADMIN-KEY"],
 )
-market_data_router = MarketDataRouter()
-market_data_hub = MarketDataHub()
-market_data_sources = MarketDataSourceRegistry()
-market_data_instruments = MarketInstrumentDirectory()
-market_data_service = MarketDataService(market_data_router, market_data_hub)
 _market_health_task: asyncio.Task | None = None
 auth_store = AuthStore(os.getenv("AIR_AUTH_DB_PATH", "data/air_auth.sqlite3"))
 account_directory = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3"))
