@@ -1,10 +1,11 @@
 # AIR market-data provider selection
 
-AIR keeps historical and live market-data sources independent. An administrator can
-select a different provider for each channel from **AIR Admin → Market Data Sources**.
-Selections are persisted in `AIR_MARKET_SOURCE_DB_PATH` (default
-`data/air_market_sources.sqlite3`) and Dhan feed selections are reconnected on API
-startup when the operator account and encrypted credentials are available.
+AIR keeps historical and live market-data sources independent. **AIR Admin → Market
+Data Sources** manages the operator's global diagnostic gateway. Customer strategy
+requests use the separate customer-isolated runtime described in Point 9 below; the
+global diagnostic selector never changes another customer's strategy data source.
+Global selections are persisted in `AIR_MARKET_SOURCE_DB_PATH` (default
+`data/air_market_sources.sqlite3`) and restored on API startup.
 
 ## Current adapter readiness
 
