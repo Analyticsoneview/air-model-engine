@@ -35,8 +35,8 @@ PROVIDER_CATALOG: tuple[dict[str, Any], ...] = (
         "name": "Zerodha Kite Connect",
         "kind": "broker",
         "channels": ["historical", "live"],
-        "adapter_ready": {"historical": False, "live": False},
-        "data_scope": "Broker integration catalog entry; market-data adapter pending",
+        "adapter_ready": {"historical": True, "live": True},
+        "data_scope": "Historical REST candles and live quote snapshots via rate-limited REST polling; WebSocket streaming is not yet implemented",
         "requires_account": True,
     },
     {
@@ -44,8 +44,8 @@ PROVIDER_CATALOG: tuple[dict[str, Any], ...] = (
         "name": "Upstox API",
         "kind": "broker",
         "channels": ["historical", "live"],
-        "adapter_ready": {"historical": False, "live": False},
-        "data_scope": "Broker integration catalog entry; market-data adapter pending",
+        "adapter_ready": {"historical": True, "live": True},
+        "data_scope": "Historical REST candles and live quote snapshots via rate-limited REST polling; WebSocket streaming is not yet implemented",
         "requires_account": True,
     },
     {
@@ -53,8 +53,8 @@ PROVIDER_CATALOG: tuple[dict[str, Any], ...] = (
         "name": "FYERS API",
         "kind": "broker",
         "channels": ["historical", "live"],
-        "adapter_ready": {"historical": False, "live": False},
-        "data_scope": "Broker integration catalog entry; market-data adapter pending",
+        "adapter_ready": {"historical": True, "live": True},
+        "data_scope": "Historical REST candles and live quote snapshots via rate-limited REST polling; WebSocket streaming is not yet implemented",
         "requires_account": True,
     },
     {
@@ -62,8 +62,8 @@ PROVIDER_CATALOG: tuple[dict[str, Any], ...] = (
         "name": "Angel One SmartAPI",
         "kind": "broker",
         "channels": ["historical", "live"],
-        "adapter_ready": {"historical": False, "live": False},
-        "data_scope": "Broker integration catalog entry; market-data adapter pending",
+        "adapter_ready": {"historical": True, "live": True},
+        "data_scope": "Historical REST candles and live quote snapshots via rate-limited REST polling; WebSocket streaming is not yet implemented",
         "requires_account": True,
     },
     {
