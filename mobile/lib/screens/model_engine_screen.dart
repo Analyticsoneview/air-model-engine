@@ -373,6 +373,12 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                   style: const TextStyle(fontSize: 11)),
                 Text('Exit ${trade['exit_date'] ?? 'OPEN'} @ ₹${trade['exit_price'] ?? '—'} • ${trade['classification'] ?? '—'}',
                   style: const TextStyle(fontSize: 11)),
+                if (trade['expiry_outcome'] != null)
+                  Text('EXPIRY RESULT • ${trade['expiry_outcome']}',
+                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900,
+                      color: trade['expiry_outcome'] == 'EXPIRED_WIN' ? Colors.green :
+                        trade['expiry_outcome'] == 'EXPIRED_LOSS' ? Colors.red :
+                        Theme.of(context).colorScheme.onSurfaceVariant)),
                 const Divider(),
                 Text('Gross ${_money(trade['gross_pnl'])}  |  Charges ${_money(charge['total'])}  |  Net ${_money(trade['net_pnl'])}',
                   style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
@@ -432,6 +438,10 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
           if (net != null && net != 0) Text('N ${_money(net)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: (net as num) >= 0 ? Colors.green : Colors.red)),
           if (cap != null && cap != 0) Text('C ${_money(cap)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 8)),
           if ((row['physical_settlement_contracts'] ?? 0) != 0) Text('PS G ${_money(row['physical_settlement_gross_pnl'])}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 8)),
+          if ((row['expired_contract_count'] ?? 0) != 0)
+            Text('EXP ${row['expired_wins'] ?? 0}W/${row['expired_losses'] ?? 0}L',
+              maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 7, fontWeight: FontWeight.w800)),
           if ((row['trade_count'] ?? 0) != 0 || (row['entries_count'] ?? 0) != 0)
             Text('Trades ${row['trade_count'] ?? 0} • Entry ${row['entries_count'] ?? 0}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 7)),
         ]),
@@ -442,7 +452,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('AIR • P&L CALENDAR', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14)),
         const SizedBox(height: 5),
-        const Text('Realized P&L is assigned to exit date. Capital deployed is assigned to entry date. Tap any date for trade history and charge details.', style: TextStyle(fontSize: 10)),
+        const Text('Realized P&L is assigned to exit date. Capital deployed is assigned to entry date. Expired contracts remain in strategy trade history with win/loss/breakeven outcomes after their market-data rows are cleaned. Tap any date for trade history and charge details.', style: TextStyle(fontSize: 10)),
         const SizedBox(height: 10),
         Wrap(spacing: 8, runSpacing: 8, children: [
           _settlementMetric('CUMULATIVE CAPITAL DEPLOYED', _money(overall['capital_deployed'])),
@@ -450,8 +460,11 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
           _settlementMetric('GROSS REALIZED', _money(overall['gross_pnl'])),
           _settlementMetric('CHARGES', _money(overall['estimated_or_actual_charges'])),
           _settlementMetric('NET REALIZED', _money(overall['net_pnl'])),
+          _settlementMetric('EXPIRED CONTRACTS', overall['expired_contract_count'] ?? 0),
+          _settlementMetric('EXPIRY WINS / LOSSES',
+            '${overall['expired_wins'] ?? 0} / ${overall['expired_losses'] ?? 0}'),
         ]),
-        Text('Missing net values: ${overall['net_pending_count'] ?? 0} trades • Estimated charges: ${overall['charges_estimated_count'] ?? 0} • Actual charge records: ${overall['charges_actual_count'] ?? 0}',
+        Text('Expiry breakeven: ${overall['expired_breakeven'] ?? 0} • Expiry P&L pending: ${overall['expired_pnl_pending'] ?? 0} • Missing net values: ${overall['net_pending_count'] ?? 0} trades • Estimated charges: ${overall['charges_estimated_count'] ?? 0} • Actual charge records: ${overall['charges_actual_count'] ?? 0}',
           style: const TextStyle(fontSize: 9)),
       ]))),
       Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(children: [
@@ -475,12 +488,14 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
           _settlementMetric('GROSS', _money(month['gross_pnl'])),
           _settlementMetric('CHARGES', _money(month['estimated_or_actual_charges'])),
           _settlementMetric('NET', _money(month['net_pnl'])),
+          _settlementMetric('EXPIRED W / L',
+            '${month['expired_wins'] ?? 0} / ${month['expired_losses'] ?? 0}'),
         ]),
       ]))),
       Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('STRATEGY-WISE', style: TextStyle(fontWeight: FontWeight.w900)),
-        Text('EXPIRY78 • Capital ${_money(expiry['capital_deployed'])} • Gross ${_money(expiry['gross_pnl'])} • Charges ${_money(expiry['estimated_or_actual_charges'])} • Net ${_money(expiry['net_pnl'])}', style: const TextStyle(fontSize: 10)),
-        Text('RECOVERED • Capital ${_money(recovered['capital_deployed'])} • Gross ${_money(recovered['gross_pnl'])} • Charges ${_money(recovered['estimated_or_actual_charges'])} • Net ${_money(recovered['net_pnl'])}', style: const TextStyle(fontSize: 10)),
+        Text('EXPIRY78 • Capital ${_money(expiry['capital_deployed'])} • Gross ${_money(expiry['gross_pnl'])} • Charges ${_money(expiry['estimated_or_actual_charges'])} • Net ${_money(expiry['net_pnl'])} • Expiry W/L ${expiry['expired_wins'] ?? 0}/${expiry['expired_losses'] ?? 0}', style: const TextStyle(fontSize: 10)),
+        Text('RECOVERED • Capital ${_money(recovered['capital_deployed'])} • Gross ${_money(recovered['gross_pnl'])} • Charges ${_money(recovered['estimated_or_actual_charges'])} • Net ${_money(recovered['net_pnl'])} • Expiry W/L ${recovered['expired_wins'] ?? 0}/${recovered['expired_losses'] ?? 0}', style: const TextStyle(fontSize: 10)),
         const Divider(),
         Text('PHYSICAL SETTLEMENT • ${physical['contract_count'] ?? 0} contracts • Capital ${_money(physical['capital_deployed'])} • Source gross ${_money(physical['gross_pnl'])} • Charges PENDING • Net PENDING',
           style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
