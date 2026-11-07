@@ -24,6 +24,8 @@ from app.air_qoc_dhan import router as air_qoc_dhan_router
 from app.model_engine_api import router as model_engine_router
 from app.air_qoc_scheduler import start_qoc_scheduler, stop_qoc_scheduler, capture_dhan_eod_snapshots
 from app.air_telegram_scheduler import start_telegram_scheduler, stop_telegram_scheduler
+from app.telegram_notifications import send_telegram_message
+from app import telegram_destinations
 from app.security import create_access_token, hash_password, require_customer, verify_password
 
 app = FastAPI(title="AIR Model Engine API", version="0.3.0",
@@ -142,6 +144,15 @@ class BrokerCredentialInput(BaseModel):
 class MainAccountSelection(BaseModel):
     provider: str
     account_id: str
+
+
+class TelegramDestinationInput(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    chat_id: str = Field(min_length=1, max_length=24)
+    destination_type: str = Field(pattern="^(PRIVATE|GROUP)$")
+    strategies: list[str] = Field(min_length=1, max_length=3)
+    enabled: bool = True
+
 
 
 class ZerodhaTokenExchangeRequest(BaseModel):
@@ -793,6 +804,97 @@ async def disconnect_main_account(customer_id: str = Depends(require_air_operato
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {"routing": market_data_router.status()}
+
+
+@app.get("/api/v1/operator/telegram/destinations")
+async def operator_list_telegram_destinations(
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    rows = telegram_destinations.list_destinations()
+    from app.telegram_notifications import _settings
+    token, _ = _settings()
+    return {
+        "destinations": rows,
+        "bot_configured": bool(token),
+        "legacy_env_fallback": not telegram_destinations.has_managed_destinations(),
+        "supported_strategies": ["RECOVERED", "EXPIRY78", "EXPIRYSCAN"],
+    }
+
+
+@app.post("/api/v1/operator/telegram/destinations", status_code=201)
+async def operator_add_telegram_destination(
+    body: TelegramDestinationInput,
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    try:
+        row = telegram_destinations.upsert_destination(
+            body.name, body.chat_id, body.destination_type, body.strategies, body.enabled
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        if "UNIQUE constraint failed" in str(exc):
+            raise HTTPException(status_code=409, detail="Telegram destination already exists") from exc
+        raise
+    return {"destination": row, "status": "saved"}
+
+
+@app.put("/api/v1/operator/telegram/destinations/{destination_id}")
+async def operator_update_telegram_destination(
+    destination_id: int, body: TelegramDestinationInput,
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    try:
+        row = telegram_destinations.update_destination(
+            destination_id, name=body.name, chat_id=body.chat_id,
+            destination_type=body.destination_type, strategies=body.strategies,
+            enabled=body.enabled,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        if "UNIQUE constraint failed" in str(exc):
+            raise HTTPException(status_code=409, detail="Telegram destination already exists") from exc
+        raise
+    if row is None:
+        raise HTTPException(status_code=404, detail="Telegram destination not found")
+    return {"destination": row, "status": "updated"}
+
+
+@app.delete("/api/v1/operator/telegram/destinations/{destination_id}")
+async def operator_delete_telegram_destination(
+    destination_id: int, operator_id: str = Depends(require_air_operator),
+) -> dict:
+    if not telegram_destinations.delete_destination(destination_id):
+        raise HTTPException(status_code=404, detail="Telegram destination not found")
+    return {"destination_id": destination_id, "status": "deleted"}
+
+
+@app.post("/api/v1/operator/telegram/test")
+async def operator_test_telegram_destination(
+    destination_id: int | None = None,
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    rows = telegram_destinations.list_destinations()
+    selected = [row for row in rows if row["id"] == destination_id] if destination_id is not None else [
+        row for row in rows if row["enabled"]
+    ]
+    if destination_id is not None and not selected:
+        raise HTTPException(status_code=404, detail="Telegram destination not found")
+    if any(not row["enabled"] for row in selected):
+        raise HTTPException(status_code=409, detail="Enable the destination before testing it")
+    if not selected:
+        raise HTTPException(status_code=409, detail="Add and enable at least one Telegram destination first")
+    result = await send_telegram_message(
+        "✅ <b>AIR Telegram connection test</b>\\nThis destination is reachable. Alert routing is configured.",
+        [row["chat_id"] for row in selected],
+    )
+    if not result.get("configured") or result.get("failures"):
+        raise HTTPException(status_code=502, detail={
+            "message": "Telegram test delivery failed",
+            "sent": result.get("sent", 0), "failures": result.get("failures", []),
+        })
+    return {"status": "sent", "sent": result["sent"], "destination_ids": [row["id"] for row in selected]}
 
 
 @app.websocket("/ws/market-data")
