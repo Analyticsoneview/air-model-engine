@@ -24,6 +24,7 @@ class CustomerMarketDataRuntime:
         self.adapter_factory = adapter_factory
         self._services: dict[str, tuple[tuple[str, str], MarketDataService]] = {}
         self._locks: dict[str, asyncio.Lock] = {}
+        self._source_status: dict[str, dict] = {}
 
     def _is_operator(self, customer_id: str) -> bool:
         allowed = {x.strip() for x in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",") if x.strip()}
@@ -65,6 +66,16 @@ class CustomerMarketDataRuntime:
 
             router = MarketDataRouter()
             hub = MarketDataHub()
+            requested = None if key[0] == "nse_bhavcopy" else {
+                "provider": key[0], "account_id": key[1]
+            }
+            source_status = {
+                "requested_source": requested,
+                "effective_source": "NSE",
+                "connection_status": "not_requested" if requested is None else "connecting",
+                "fallback_active": False,
+                "fallback_reason": None,
+            }
             if key[0] == "nse_bhavcopy":
                 adapter = NSEBhavcopyMarketDataAdapter()
                 router.register(key[1], adapter)
@@ -72,10 +83,33 @@ class CustomerMarketDataRuntime:
             else:
                 adapter = self.adapter_factory(customer_id, key[0], key[1], hub)
                 router.register(key[1], adapter)
-                await router.set_source("historical", key[0], key[1])
-                await router.set_source("live", key[0], key[1])
+                try:
+                    await router.set_source("historical", key[0], key[1])
+                    await router.set_source("live", key[0], key[1])
+                    source_status.update({
+                        "effective_source": "BROKER",
+                        "connection_status": "authenticated",
+                    })
+                except Exception as exc:
+                    # A selected/saved broker is not an active source until both
+                    # channels authenticate. Fall back to official NSE EOD data.
+                    try:
+                        await router.clear_main_account()
+                    except Exception:
+                        pass
+                    nse = NSEBhavcopyMarketDataAdapter()
+                    router.register("official", nse)
+                    await router.set_source("historical", "nse_bhavcopy", "official")
+                    source_status.update({
+                        "effective_source": "NSE",
+                        "connection_status": "unavailable",
+                        "fallback_active": True,
+                        "fallback_reason": type(exc).__name__,
+                    })
 
             service = MarketDataService(router, hub, self.instruments)
+            service.customer_market_data_status = source_status
+            self._source_status[customer_id] = source_status
             self._services[customer_id] = (key, service)
             return service
 
@@ -90,6 +124,7 @@ class CustomerMarketDataRuntime:
         lock = self._locks.setdefault(customer_id, asyncio.Lock())
         async with lock:
             cached = self._services.pop(customer_id, None)
+            self._source_status.pop(customer_id, None)
             if cached:
                 for channel in ("historical", "live"):
                     try:
@@ -110,6 +145,23 @@ async def get_customer_market_data_service(customer_id: str) -> MarketDataServic
     if _runtime is None:
         raise RuntimeError("Customer market-data runtime has not been configured")
     return await _runtime.get_service(customer_id)
+
+
+async def get_customer_market_data_status(customer_id: str) -> dict:
+    if _runtime is None:
+        raise RuntimeError("Customer market-data runtime has not been configured")
+    service = await _runtime.get_service(customer_id)
+    status = dict(getattr(service, "customer_market_data_status", {}))
+    status.update(service.router.status())
+    status["effective_source"] = status.get("effective_source") or (
+        "BROKER" if status.get("historical_source", {}).get("provider") != "nse_bhavcopy"
+        else "NSE"
+    )
+    status["source_label"] = (
+        f"{status.get('effective_source')} (fallback)"
+        if status.get("fallback_active") else status.get("effective_source")
+    )
+    return status
 
 
 async def invalidate_customer_market_data_service(customer_id: str) -> None:
