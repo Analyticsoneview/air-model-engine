@@ -184,6 +184,39 @@ async def _restore_market_data_source_connections() -> None:
                 # the persisted selection separately from runtime connection.
                 continue
 
+    failover = market_data_sources.failover()
+    for channel in ("historical", "live"):
+        config = failover.get(channel) or {}
+        candidates = []
+        for item in config.get("candidates", []):
+            provider, account_id = item.get("provider"), item.get("account_id")
+            if provider == "nse_bhavcopy" and channel == "historical":
+                account_id = "official"
+                if not market_data_router.is_registered(provider, account_id):
+                    market_data_router.register(account_id, NSEBhavcopyMarketDataAdapter())
+            else:
+                if (provider, account_id) not in {
+                    (a.broker, a.account_id)
+                    for operator_id in operator_ids
+                    for a in account_directory.list_for_customer(operator_id)
+                }:
+                    continue
+                owner = next((oid for oid in operator_ids if (provider, account_id) in {
+                    (a.broker, a.account_id) for a in account_directory.list_for_customer(oid)
+                }), None)
+                if owner and not market_data_router.is_registered(provider, account_id):
+                    try:
+                        market_data_router.register(account_id, _market_adapter_for(owner, provider, account_id))
+                    except Exception:
+                        continue
+            candidates.append((provider, account_id))
+        try:
+            await market_data_router.configure_failover(
+                channel, candidates, bool(config.get("enabled")) and bool(candidates)
+            )
+        except Exception:
+            continue
+
 
 @app.on_event("shutdown")
 async def stop_air_qoc_jobs() -> None:
@@ -263,6 +296,11 @@ class BrokerCredentialInput(BaseModel):
 class MainAccountSelection(BaseModel):
     provider: str
     account_id: str
+
+
+class MarketDataFailoverSelection(BaseModel):
+    enabled: bool = False
+    candidates: list[dict[str, str]] = Field(default_factory=list, max_length=5)
 
 
 class MarketDataSourceSelection(BaseModel):
@@ -1132,6 +1170,7 @@ async def operator_market_data_sources(
         "providers": market_data_sources.catalog(),
         "selections": market_data_sources.selections(),
         "runtime": market_data_router.status(),
+        "failover": market_data_sources.failover(),
         "channels": ["historical", "live"],
         "note": "Historical and live sources are selected independently. Only providers with verified adapters can be enabled; catalog entries are not a claim of a working adapter.",
     }
@@ -1187,6 +1226,43 @@ async def operator_select_market_data_source(
     return {"selection": selected, "runtime": market_data_router.status(),
             "status": "CONNECTED",
             "note": f"{provider} {channel} adapter authenticated successfully. Live quote mode: REST polling where applicable."}
+
+
+@app.put("/api/v1/operator/market-data/sources/{channel}/failover")
+async def operator_configure_market_data_failover(
+    channel: str,
+    body: MarketDataFailoverSelection,
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    if channel not in ("historical", "live"):
+        raise HTTPException(status_code=422, detail="Channel must be historical or live")
+    owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(operator_id)}
+    candidates: list[tuple[str, str]] = []
+    try:
+        for item in body.candidates:
+            provider = str(item.get("provider", "")).strip().lower()
+            account_id = str(item.get("account_id", "")).strip()
+            if provider == "nse_bhavcopy" and channel == "historical":
+                account_id = "official"
+                if not market_data_router.is_registered(provider, account_id):
+                    market_data_router.register(account_id, NSEBhavcopyMarketDataAdapter())
+            else:
+                if (provider, account_id) not in owned:
+                    raise HTTPException(status_code=404, detail=f"{provider} account is not assigned to this operator")
+                if not market_data_router.is_registered(provider, account_id):
+                    market_data_router.register(account_id, _market_adapter_for(operator_id, provider, account_id))
+            candidates.append((provider, account_id))
+        await market_data_router.configure_failover(channel, candidates, body.enabled)
+        persisted = [
+            {"provider": provider, "account_id": account_id}
+            for provider, account_id in candidates
+        ]
+        saved = market_data_sources.set_failover(channel, persisted, body.enabled)
+        return {"failover": saved, "runtime": market_data_router.status()}
+    except HTTPException:
+        raise
+    except (ValueError, RuntimeError, KeyError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 
