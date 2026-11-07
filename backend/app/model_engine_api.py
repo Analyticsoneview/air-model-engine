@@ -253,7 +253,7 @@ async def get_original366_engine(
     customer_id: str = Depends(require_customer),
 ) -> dict:
     """Build the RECOVERED watch from the ORIGINAL366 cohort and post-stop daily closes."""
-    rows = _ledger.list_signals(customer_id, limit)
+    rows = await market_data_service.hydrate_strategy_rows(_ledger.list_signals(customer_id, limit), max_contracts=2000)
     contracts = evaluate_original366_rows(rows, as_of=as_of)
     trades = [trade for contract in contracts
               for trade in (contract.get("original366") or {}).get("trades", [])]
