@@ -153,7 +153,9 @@ class MarketDataService:
     async def unsubscribe(self, instruments: list[MarketInstrument]) -> None:
         source = self.router.resolve("live")
         if source:
-            await source[0][2].unsubscribe(instruments)
+            provider, account_id, adapter = source[0]
+            mapped = await self._remap_instruments(provider, account_id, adapter, instruments)
+            await adapter.unsubscribe(mapped)
         for item in instruments:
             self._subscriptions.pop(item.token, None)
         for item in instruments:
