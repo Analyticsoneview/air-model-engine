@@ -425,10 +425,13 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
             calendars = {}
             for calendar_year in range(start.year, today.year + 1):
                 calendars[str(calendar_year)] = await _refresh_trading_calendar(client, store, calendar_year)
-            holidays = {
-                item["date"]
-                for year_calendar in calendars.values()
+            cm_holidays = {
+                item["date"] for year_calendar in calendars.values()
                 for item in year_calendar["segments"]["CM"]
+            }
+            fo_holidays = {
+                item["date"] for year_calendar in calendars.values()
+                for item in year_calendar["segments"]["FO"]
             }
             calendar = calendars[str(today.year)]
             # On restart, backfill from the last paired CM+FO session as well as
@@ -445,11 +448,18 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
             if last_pair and last_pair["last_date"]:
                 recovery_start = date.fromisoformat(last_pair["last_date"]) + timedelta(days=1)
                 start = min(three_month_start, recovery_start)
-            days = list(_date_range(start, today, holidays))
+            days = list(_date_range(start, today))
+            expected_files = sum(
+                int(day.isoformat() not in cm_holidays) + int(day.isoformat() not in fo_holidays)
+                for day in days
+            )
             state.update({
                 "start_date": start.isoformat(),
                 "weekdays_to_check": len(days),
                 "calendar_years": list(calendars.keys()),
+                "cm_holiday_dates": len(cm_holidays),
+                "fo_holiday_dates": len(fo_holidays),
+                "expected_archive_files": expected_files,
                 "calendar_source": "NSE official holiday-master trading calendar",
                 "calendar_fetched_at": calendar["fetched_at"],
                 "recovery_start_date": start.isoformat(),
@@ -459,7 +469,9 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
                 batch = days[offset:offset + 5]
                 tasks = [
                     _download_one(client, semaphore, store, market, day, archive_root)
-                    for day in batch for market in MARKETS
+                    for day in batch
+                    for market, holidays_for_market in (("CM", cm_holidays), ("FO", fo_holidays))
+                    if day.isoformat() not in holidays_for_market
                 ]
                 batch_results = await asyncio.gather(*tasks)
                 results.extend(batch_results)
@@ -471,7 +483,7 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
                     market: sum(item.get("records", 0) for item in results if item["market"] == market)
                     for market in MARKETS
                 }
-                state["progress_pct"] = round(len(results) / max(1, len(days) * 2) * 100, 1)
+                state["progress_pct"] = round(len(results) / max(1, expected_files) * 100, 1)
                 state["updated_at"] = datetime.now(IST).isoformat()
                 store.set_meta("bootstrap", state)
                 await asyncio.sleep(0.15)
