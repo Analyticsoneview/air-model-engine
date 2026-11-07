@@ -479,6 +479,8 @@ class _AirAdminBrokerAccountsScreenState
       'upstox': ['client_id', 'client_secret', 'redirect_uri'],
       'fyers': ['app_id', 'app_secret', 'redirect_uri'],
       'angelone': ['api_key', 'pin'],
+      'custom_vendor': ['base_url', 'websocket_url', 'api_key', 'auth_header',
+        'auth_prefix', 'health_path', 'instruments_path', 'historical_path'],
     }[broker] ?? const <String>[];
     if (fields.isEmpty) return;
     final controllers = {for (final field in fields) field: TextEditingController()};
@@ -568,6 +570,7 @@ class _AirAdminBrokerAccountsScreenState
               DropdownMenuItem(value: 'upstox', child: Text('Upstox')),
               DropdownMenuItem(value: 'fyers', child: Text('Fyers')),
               DropdownMenuItem(value: 'angelone', child: Text('Angel One')),
+              DropdownMenuItem(value: 'custom_vendor', child: Text('External Market-Data Vendor')),
             ],
             onChanged: _loading ? null : (value) {
               if (value != null) setState(() => _broker.text = value);
@@ -619,7 +622,8 @@ class _AirAdminBrokerAccountsScreenState
                   ),
                   IconButton(
                     tooltip: 'Authorize / verify broker connection',
-                    onPressed: _loading || row['credentials_saved'] != true
+                    onPressed: _loading || row['credentials_saved'] != true ||
+                        row['broker'] == 'custom_vendor'
                         ? null : () => _authorize(row),
                     icon: const Icon(Icons.verified_user_outlined),
                   ),
