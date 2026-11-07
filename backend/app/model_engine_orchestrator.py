@@ -16,6 +16,33 @@ from app.model_engine_master import build_master
 from app.model_engine_original366 import evaluate_original366_rows
 
 
+async def run_post_import_strategy_cycle_async(
+    as_of: str | None = None, market_data_service: Any | None = None
+) -> dict[str, Any]:
+    """Hydrate existing strategy evidence through normalized provider, then replay."""
+    cutoff = as_of or date.today().isoformat()
+    customer_ids = sorted({
+        value.strip() for value in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",")
+        if value.strip()
+    })
+    hydration = []
+    if market_data_service is not None and customer_ids:
+        ledger = ModelEngineLedger()
+        try:
+            for customer_id in customer_ids:
+                try:
+                    hydration.append(await market_data_service.hydrate_strategy_ledger(
+                        ledger, customer_id, cutoff))
+                except Exception as exc:
+                    hydration.append({"customer": customer_id, "status": "FAILED",
+                                      "error_type": type(exc).__name__})
+        finally:
+            ledger.close()
+    result = run_post_import_strategy_cycle(cutoff)
+    result["normalized_market_data_hydration"] = hydration
+    return result
+
+
 def run_post_import_strategy_cycle(as_of: str | None = None) -> dict[str, Any]:
     """Run every currently implemented EOD replay for configured AIR customers.
 
