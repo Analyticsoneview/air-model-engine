@@ -82,6 +82,10 @@ def forecast_physical_settlement(record: dict[str, Any], *, as_of: str | None = 
                 "itm_probability_pct": None, "forecast_status": "INSUFFICIENT_AS_OF_HISTORY",
                 "underlying_bars_used": len(bars), "delivery_direction_if_itm": _delivery(side, position)}
     expiry_bar = next((b for b in bars if b["date"] == expiry.isoformat()), None)
+    if expiry <= cutoff and expiry_bar is None:
+        return {"physical_settlement_risk": "UNKNOWN", "forecast_itm": "UNKNOWN",
+                "itm_probability_pct": None, "forecast_status": "EXPIRED_MISSING_OFFICIAL_CLOSE",
+                "underlying_bars_used": len(bars)}
     if expiry <= cutoff and expiry_bar is not None:
         expiry_close = expiry_bar["close"]
         itm = expiry_close > strike if side == "CE" else expiry_close < strike
