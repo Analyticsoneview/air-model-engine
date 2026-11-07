@@ -23,10 +23,9 @@ from app.market_data.broker_streams import (ZerodhaWebSocketAdapter, UpstoxWebSo
 from app.market_data.nse_adapter import NSEBhavcopyMarketDataAdapter
 from app.market_data.vendor_adapter import GenericVendorMarketDataAdapter
 from app.market_data.contracts import MarketInstrument
-from app.market_data.runtime import (market_data_router, market_data_hub, market_data_sources, market_data_instruments, market_data_service)
+from app.market_data.runtime import (market_data_router, market_data_hub, market_data_sources, market_data_instruments, market_data_service, execution_policy)
 from app.market_data.service import set_default_market_data_service
 from app.market_data.master_refresh import BrokerMasterRefresher
-from app.services.execution_policy import ExecutionPolicy, STRATEGIES
 from app.air_qoc_dhan import router as air_qoc_dhan_router
 from app.model_engine_api import router as model_engine_router
 from app.air_qoc_scheduler import start_qoc_scheduler, stop_qoc_scheduler, capture_dhan_eod_snapshots
@@ -54,7 +53,6 @@ app.add_middleware(
 _market_health_task: asyncio.Task | None = None
 _master_refresh_task: asyncio.Task | None = None
 set_default_market_data_service(market_data_service)
-execution_policy = ExecutionPolicy()
 auth_store = AuthStore(os.getenv("AIR_AUTH_DB_PATH", "data/air_auth.sqlite3"))
 account_directory = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3"))
 _credential_vault: CredentialVault | None = None
