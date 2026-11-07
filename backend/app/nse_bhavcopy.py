@@ -373,7 +373,29 @@ class NSEBhavcopyStore:
                     expired_rows.append((row["trade_date"], row["instrument_key"]))
                     expired_contracts.add((row["symbol"], expiry, row["strike"], row["option_type"]))
                     removed_by_date[row["trade_date"]] = removed_by_date.get(row["trade_date"], 0) + 1
+            strategy_snapshot = {
+                "status": "NOT_NEEDED" if not expired_rows else "LEDGER_DATABASE_NOT_FOUND",
+                "matched_contracts": 0, "strategy_rows_updated": 0,
+                "daily_bars_attached": 0,
+            }
             if expired_rows:
+                ledger_path = Path(os.getenv(
+                    "AIR_MODEL_LEDGER_DB_PATH", "data/air_model_ledger.sqlite3"
+                ))
+                if ledger_path.exists():
+                    from app.model_engine_ledger import ModelEngineLedger
+                    ledger = ModelEngineLedger(str(ledger_path))
+                    try:
+                        strategy_snapshot = ledger.attach_expired_fo_bars(
+                            [dict(row) for row in rows
+                             if (row["trade_date"], row["instrument_key"]) in set(expired_rows)]
+                        )
+                        strategy_snapshot["status"] = (
+                            "SNAPSHOTTED" if strategy_snapshot["strategy_rows_updated"]
+                            else "NO_MATCHING_STRATEGY_ROWS"
+                        )
+                    finally:
+                        ledger.close()
                 db.executemany(
                     "DELETE FROM nse_bhavcopy WHERE market='FO' AND trade_date=? AND instrument_key=?",
                     expired_rows,
@@ -391,7 +413,9 @@ class NSEBhavcopyStore:
                 "removed_contract_keys": len(expired_contracts),
                 "unparsed_expiry_records": unparsed_expiry_records,
                 "retained_raw_nse_archives": True,
-                "strategy_ledger_modified": False,
+                "strategy_snapshot": strategy_snapshot,
+                "strategy_ledger_modified": strategy_snapshot["strategy_rows_updated"] > 0,
+                "strategy_lifecycle_and_pnl_fields_overwritten": False,
                 "updated_at": datetime.now(IST).isoformat(),
             }
             db.execute("""
