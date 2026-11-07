@@ -242,8 +242,9 @@ def _expiry_scan_for_customer(customer_id: str, *, max_dte: int = 45,
         raise HTTPException(status_code=403, detail="No access to the selected market-data account")
     store = AirQocStore()
     try:
-        return scan_expiries(store, provider=provider, account_id=account_id,
-                             max_dte=max_dte, limit=limit)
+        return market_data_service.expiry_scan(
+            store, provider=provider, account_id=account_id,
+            max_dte=max_dte, limit=limit)
     finally:
         store.close()
 
