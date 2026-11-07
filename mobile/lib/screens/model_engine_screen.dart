@@ -161,6 +161,9 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
 
   Widget _accountReportsView() {
     final verified = _reportRecipient['verified'] == true;
+    final emailMatches = _reportEmailController.text.trim().toLowerCase() ==
+        (_reportRecipient['email']?.toString().toLowerCase() ?? '');
+    final needsVerification = !verified || !emailMatches;
     return Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(
       crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('BROKER ACCOUNT P&L EMAIL REPORTS', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
@@ -171,7 +174,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
         TextField(controller: _reportEmailController, keyboardType: TextInputType.emailAddress,
           decoration: const InputDecoration(labelText: 'Report email address', border: OutlineInputBorder(), isDense: true)),
         const SizedBox(height: 7),
-        if (!verified) ...[
+        if (needsVerification) ...[
           SizedBox(width: double.infinity, child: OutlinedButton(
             onPressed: _reportBusy ? null : _requestReportCode,
             child: const Text('SEND VERIFICATION CODE'))),
