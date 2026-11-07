@@ -227,20 +227,23 @@ async def upsert_model_engine_signal(
 
 def _expiry_scan_for_customer(customer_id: str, *, max_dte: int = 45,
                               limit: int = 2000) -> dict:
-    account_id = os.getenv("AIR_QOC_DHAN_ACCOUNT_ID", "").strip()
-    if not account_id:
-        raise HTTPException(status_code=503, detail="Dhan snapshot account is not configured")
+    from app.market_data.runtime import market_data_router
+    source = market_data_router.resolve("live")
+    if not source:
+        raise HTTPException(status_code=503, detail="No live market-data provider is connected")
+    provider, account_id, _adapter = source[0]
     directory = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3"))
     try:
         owned = {(account.broker, account.account_id)
                  for account in directory.list_for_customer(customer_id)}
     finally:
         directory.close()
-    if ("dhan", account_id) not in owned:
-        raise HTTPException(status_code=403, detail="No access to configured Dhan snapshot account")
+    if provider != "nse_bhavcopy" and (provider, account_id) not in owned:
+        raise HTTPException(status_code=403, detail="No access to the selected market-data account")
     store = AirQocStore()
     try:
-        return scan_expiries(store, account_id=account_id, max_dte=max_dte, limit=limit)
+        return scan_expiries(store, provider=provider, account_id=account_id,
+                             max_dte=max_dte, limit=limit)
     finally:
         store.close()
 
@@ -426,7 +429,7 @@ async def get_expiry_scan(
     limit: int = Query(default=500, ge=1, le=2000),
     customer_id: str = Depends(require_customer),
 ) -> dict:
-    """Read-only scan of captured Dhan option-chain observations owned by this customer."""
+    """Read-only scan of option-chain observations from the selected live provider."""
     result = _expiry_scan_for_customer(customer_id, max_dte=max_dte, limit=limit)
     result["execution_policy"] = execution_policy.get()
     # This endpoint currently produces a liquidity-screen pass, not a full QOC
