@@ -1,4 +1,4 @@
-"""Evidence-first EXPIRYSCAN from persisted Dhan option-chain observations.
+"""Evidence-first EXPIRYSCAN from persisted provider-normalized option-chain observations.
 
 EXPIRYSCAN is a research watchlist, never an automatic entry/order. Missing
 volume, OI or bid/ask evidence is explicitly flagged rather than inferred.
