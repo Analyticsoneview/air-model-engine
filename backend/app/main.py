@@ -127,6 +127,10 @@ class TradingAccountCreate(BaseModel):
     account_id: str = Field(min_length=2, max_length=100)
 
 
+class AdminTradingAccountAssignment(TradingAccountCreate):
+    customer_id: str = Field(min_length=3, max_length=100)
+
+
 class OrderPermissionUpdate(BaseModel):
     enabled: bool
 
@@ -308,7 +312,7 @@ async def list_customer_accounts(customer_id: str = Depends(require_customer)) -
 
 @app.post("/api/v1/customer/accounts", status_code=201)
 async def add_customer_account(body: TradingAccountCreate,
-                               customer_id: str = Depends(require_customer)) -> dict:
+                               customer_id: str = Depends(require_air_operator)) -> dict:
     if not is_supported_broker(body.broker):
         raise HTTPException(status_code=422, detail="Unsupported broker. Use the AIR broker catalog.")
     try:
@@ -335,7 +339,7 @@ async def set_customer_order_permission(broker: str, account_id: str, body: Orde
 
 @app.put("/api/v1/customer/accounts/{broker}/{account_id}/credentials")
 async def save_customer_broker_credentials(broker: str, account_id: str, body: BrokerCredentialInput,
-                                           customer_id: str = Depends(require_customer)) -> dict:
+                                           customer_id: str = Depends(require_air_operator)) -> dict:
     try:
         owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(customer_id)}
         if (broker.lower(), account_id) not in owned:
@@ -350,7 +354,7 @@ async def save_customer_broker_credentials(broker: str, account_id: str, body: B
 
 @app.delete("/api/v1/customer/accounts/{broker}/{account_id}")
 async def remove_customer_account(broker: str, account_id: str,
-                                  customer_id: str = Depends(require_customer)) -> dict:
+                                  customer_id: str = Depends(require_air_operator)) -> dict:
     vault = get_vault()
     try:
         vault.delete(customer_id, broker, account_id)
@@ -359,6 +363,75 @@ async def remove_customer_account(broker: str, account_id: str,
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"status": "removed", "broker": broker.lower(), "account_id": account_id}
 
+
+
+# Broker account ownership and credential mutations are operator-only.
+# Customers can only read the accounts assigned to their own stable identity.
+@app.get("/api/v1/operator/broker-accounts")
+async def operator_list_broker_accounts(
+    customer_id: str = Depends(require_air_operator),
+) -> dict:
+    accounts = account_directory.list_all()
+    try:
+        credentials = get_vault().list_for_all_customers()
+        credential_keys = {(r["customer_id"], r["broker"], r["account_id"]) for r in credentials}
+        vault_configured = True
+    except HTTPException:
+        credential_keys = set()
+        vault_configured = False
+    return {"accounts": [
+        {"customer_id": a.customer_id, "broker": a.broker, "account_id": a.account_id,
+         "order_enabled": a.enabled_for_orders,
+         "credentials_saved": (a.customer_id, a.broker, a.account_id) in credential_keys}
+        for a in accounts
+    ], "credential_vault_configured": vault_configured}
+
+
+@app.post("/api/v1/operator/broker-accounts", status_code=201)
+async def operator_assign_broker_account(
+    body: AdminTradingAccountAssignment,
+    customer_id: str = Depends(require_air_operator),
+) -> dict:
+    if not is_supported_broker(body.broker):
+        raise HTTPException(status_code=422, detail="Unsupported broker. Use the AIR broker catalog.")
+    try:
+        account_directory.add(CustomerTradingAccount(
+            body.customer_id.strip(), body.broker, body.account_id, False
+        ))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"customer_id": body.customer_id.strip(), "broker": body.broker.lower(),
+            "account_id": body.account_id.strip(), "order_enabled": False, "status": "assigned"}
+
+
+@app.put("/api/v1/operator/broker-accounts/{customer_id}/{broker}/{account_id}/credentials")
+async def operator_save_broker_credentials(
+    customer_id: str, broker: str, account_id: str, body: BrokerCredentialInput,
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(customer_id)}
+    if (broker.lower(), account_id) not in owned:
+        raise HTTPException(status_code=404, detail="Assigned broker account not found")
+    try:
+        get_vault().put(customer_id, broker, account_id, body.credentials)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"customer_id": customer_id, "broker": broker.lower(),
+            "account_id": account_id, "credentials_saved": True}
+
+
+@app.delete("/api/v1/operator/broker-accounts/{customer_id}/{broker}/{account_id}")
+async def operator_remove_broker_account(
+    customer_id: str, broker: str, account_id: str,
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    try:
+        get_vault().delete(customer_id, broker, account_id)
+        account_directory.remove(customer_id, broker, account_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=404, detail="Assigned broker account not found") from exc
+    return {"status": "removed", "customer_id": customer_id,
+            "broker": broker.lower(), "account_id": account_id}
 
 
 
