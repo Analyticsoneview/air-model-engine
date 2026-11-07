@@ -222,6 +222,23 @@ class _NseDataScreenState extends State<NseDataScreen> {
                       if ((bootstrap['repaired_sessions'] as num? ?? 0) > 0)
                         _CoverageChip(label: 'AUTO-REPAIRED', value: '${bootstrap['repaired_sessions']}', color: Colors.green),
                     ]),
+                    if (bootstrap['strategy_run'] is Map) ...[
+                      const SizedBox(height: 7),
+                      Builder(builder: (context) {
+                        final run = bootstrap['strategy_run'] as Map<String, dynamic>;
+                        final results = run['results'] as List<dynamic>? ?? const [];
+                        final replayed = results.fold<int>(0, (sum, item) {
+                          final row = item as Map<String, dynamic>;
+                          return sum + ((row['EXPIRY78'] as Map?)?['contracts_replayed'] as num? ?? 0).toInt()
+                              + ((row['RECOVERED'] as Map?)?['contracts_replayed'] as num? ?? 0).toInt();
+                        });
+                        return Text(
+                          'Post-market strategy replay: ${run['status'] ?? 'UNKNOWN'} • ${run['customers'] ?? 0} customers • $replayed contracts replayed',
+                          style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800,
+                            color: run['status'] == 'COMPLETED' ? Colors.green : cs.error),
+                        );
+                      }),
+                    ],
                     if (_status['expired_fo_cleanup'] is Map) ...[
                       const SizedBox(height: 7),
                       Builder(builder: (context) {
