@@ -37,7 +37,7 @@ class NSEBhavcopyMarketDataAdapter:
         if not needle:
             return []
         market = "FO" if exchange_segment and "FO" in exchange_segment.upper() else "CM"
-        rows = nse_data_rows(market, symbol=needle, limit=min(max(limit, 1), 500))
+        rows = nse_data_rows(market, symbol=needle, limit=min(max(limit, 1), 50000))
         result = []
         for row in rows:
             token = str(row.get("instrument_id") or row.get("instrument_key") or "")
