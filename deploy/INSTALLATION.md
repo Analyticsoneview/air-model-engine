@@ -127,3 +127,17 @@ For GitHub-controlled immutable image builds and gated deployment, also follow G
 Broker account ownership is controlled by an approved AIR operator identity. In the Android app, open **Admin → Broker Account Control** to assign multiple accounts per broker to a customer's approved E.164 mobile identity, save encrypted credentials, and remove accounts. Customers can only view accounts assigned to their own identity in AIR Connections.
 
 The customer-facing account creation, credential-save, and removal API routes also require operator authorization. Hiding controls in the app is not the security boundary: direct customer API calls are rejected by the backend. Removing an account also removes its encrypted credential record. Account assignment does not enable order placement; execution permissions remain disabled until a broker authorization flow is separately verified.
+
+
+## Mandatory NSE historical data bootstrap
+
+The AIR API now starts a background bootstrap for the previous three calendar months of official NSE CM and F&O UDiFF bhavcopy ZIP archives. This is enabled by default in Docker Swarm and stored on the persistent `air_data` volume:
+
+- `/var/lib/air/nse_bhavcopy.sqlite3` — normalized, searchable CM and FO end-of-day records.
+- `/var/lib/air/nse_archives/CM` and `/var/lib/air/nse_archives/FO` — original NSE ZIP archives retained for reprocessing.
+
+The Home screen shows download progress and CM/FO record counts. Open the Data tab to search cash equities or filter F&O options and futures. The server refreshes the latest completed session at 18:15 IST on weekdays. An operator can retry the bootstrap from the authenticated API if the NSE source was temporarily unavailable.
+
+Allow several GB of free disk space for the initial history and ongoing data. The app can be opened while the background bootstrap runs, but the Data screen must show READY before treating the full three-month history as available. READY requires at least 45 paired CM/FO sessions and no failed archive downloads.
+
+This is daily EOD bhavcopy history. It does not contain intraday candles, tick history, bid/ask history or full intraday option-chain snapshots. See `backend/NSE_DATA_SETUP.md` for API details, fields and data-quality boundaries.
