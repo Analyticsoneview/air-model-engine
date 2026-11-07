@@ -56,7 +56,16 @@ jobs:
           test -s deploy/pwa.Dockerfile
           test -s docker-stack.yml
           test -s deploy/deploy-swarm.sh
+          test -s deploy/install-air-ubuntu.sh
+          test -s deploy/install-github-runner.sh
+          test -s deploy/air-admin-cli.sh
+          test -s deploy/rotate-telegram-secret.sh
+          test -s deploy/Caddyfile
           bash -n deploy/deploy-swarm.sh
+          bash -n deploy/install-air-ubuntu.sh
+          bash -n deploy/install-github-runner.sh
+          bash -n deploy/air-admin-cli.sh
+          bash -n deploy/rotate-telegram-secret.sh
 
   build-and-publish:
     name: Build and publish AIR images
