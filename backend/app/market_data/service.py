@@ -188,7 +188,9 @@ class MarketDataService:
             strike = row.get("strike")
             chosen = []
             for item in mapped:
-                if item.get("symbol", "").upper() != symbol:
+                if str(item.get("symbol") or "").upper() != symbol:
+                    continue
+                if not option_type and item.get("option_type"):
                     continue
                 if option_type:
                     if str(item.get("option_type") or "").upper() != option_type:
@@ -225,7 +227,7 @@ class MarketDataService:
                 try:
                     bars = cache.get(cache_key)
                     if bars is None:
-                        bars = await adapter.get_historical(instrument, start, end, "day")
+                        bars = await self.historical(instrument, start, end, "day")
                         cache[cache_key] = bars
                 except Exception:
                     return
@@ -237,7 +239,7 @@ class MarketDataService:
                 and (bar.get("date") or bar.get("trade_date"))
             }
             for bar in bars:
-                day = bar.start_time.date().isoformat()
+                day = bar.start_time.astimezone(ZoneInfo("Asia/Kolkata")).date().isoformat()
                 by_date.setdefault(day, {
                     "date": day, "open": float(bar.open), "high": float(bar.high),
                     "low": float(bar.low), "close": float(bar.close),
