@@ -43,8 +43,11 @@ if [[ "$OS" == "Linux" ]]; then
   "$RUNNER_DIR/bin/installdependencies.sh"
   chown -R "$RUNNER_USER:$RUNNER_USER" "$RUNNER_DIR"
 fi
-read -r -s -p "Short-lived GitHub Actions runner registration token (repo Settings > Actions > Runners > New self-hosted runner): " RUNNER_TOKEN
-echo
+RUNNER_TOKEN="${AIR_RUNNER_TOKEN:-}"
+if [[ -z "$RUNNER_TOKEN" ]]; then
+  read -r -s -p "Short-lived GitHub Actions runner registration token: " RUNNER_TOKEN
+  echo
+fi
 if [[ -z "$RUNNER_TOKEN" ]]; then echo "A runner registration token is required." >&2; exit 1; fi
 if [[ "$OS" == "Linux" ]]; then
   if [[ "$LABEL_ARCH" == "ARM64" ]]; then LABELS="air,linux,ARM64"; else LABELS="air,linux,x64"; fi
