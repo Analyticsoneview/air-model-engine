@@ -16,7 +16,7 @@ if [[ "$OS" == "Linux" ]]; then
   if ! id "$RUNNER_USER" >/dev/null 2>&1; then useradd --create-home --shell /bin/bash "$RUNNER_USER"; fi
   usermod -aG docker "$RUNNER_USER" 2>/dev/null || true
   apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates python3 sudo
+  DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates jq openjdk-17-jdk python3 sudo
 elif [[ "$OS" == "Darwin" ]]; then
   if [[ "$EUID" -eq 0 ]]; then echo "Do not run this macOS installer with sudo; run it as the signed-in user." >&2; exit 1; fi
   RUNNER_USER="$(id -un)"; RUNNER_DIR="$HOME/air-github-runner"
