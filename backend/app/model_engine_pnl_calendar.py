@@ -14,6 +14,7 @@ RATES = {
     "stamp_buy": 0.00003,
     "stt_sell_before_2026_04_01": 0.001,
     "stt_sell_from_2026_04_01": 0.0015,
+    "stt_exercise_before_2026_04_01": 0.00125,
     "stt_exercise_from_2026_04_01": 0.0015,
     "gst": 0.18,
 }
@@ -53,16 +54,23 @@ def _charges(trade: dict[str, Any], quantity: float, entry: float,
                 "basis": "ACTUAL_REPORTED_TOTAL_BREAKDOWN_UNAVAILABLE"}
 
     buy_turnover = entry * quantity
-    sell_turnover = exit_price * quantity
+    exercised = str(trade.get("exit_reason") or "").upper() == "EXPIRY_INTRINSIC_SETTLEMENT"
+    sell_turnover = 0.0 if exercised else exit_price * quantity
     turnover = buy_turnover + sell_turnover
-    brokerage = 2 * RATES["brokerage_per_order"]
+    # SEBI guidance: brokerage is not levied on expiry exercise/assignment.
+    brokerage = (1 if exercised else 2) * RATES["brokerage_per_order"]
     exchange = turnover * RATES["nse_options_transaction"]
     sebi = turnover * RATES["sebi_turnover"]
     stamp = buy_turnover * RATES["stamp_buy"]
     cutoff = date(2026, 4, 1)
-    stt_rate = (RATES["stt_sell_from_2026_04_01"] if date.fromisoformat(exit_day) >= cutoff
-                else RATES["stt_sell_before_2026_04_01"])
-    stt = sell_turnover * stt_rate
+    if exercised:
+        stt_rate = (RATES["stt_exercise_from_2026_04_01"] if date.fromisoformat(exit_day) >= cutoff
+                    else RATES["stt_exercise_before_2026_04_01"])
+        stt = exit_price * quantity * stt_rate
+    else:
+        stt_rate = (RATES["stt_sell_from_2026_04_01"] if date.fromisoformat(exit_day) >= cutoff
+                    else RATES["stt_sell_before_2026_04_01"])
+        stt = sell_turnover * stt_rate
     gst = (brokerage + exchange + sebi) * RATES["gst"]
     components = {
         "brokerage": brokerage,
@@ -102,6 +110,7 @@ def _trade_record(row: dict[str, Any], strategy: str) -> dict[str, Any] | None:
         "entry_date": entry_date, "entry_price": entry, "quantity": qty,
         "capital_deployed": capital, "exit_date": exit_date, "exit_price": exit_price,
         "classification": status, "pnl_points": points,
+        "exit_reason": row.get("exit_reason"),
         "gross_pnl": gross, "charges": charges, "net_pnl": net,
         "pnl_status": ("REALIZED" if gross is not None and exit_date else
                        "OPEN_UNREALIZED" if status in ("NEW", "HOLD", "OPEN") else
@@ -243,7 +252,8 @@ def build_pnl_calendar(strategy_views: dict[str, Any], *, year: int | None = Non
             "basis": "Indicative NSE equity-options model; broker-specific tariff/actual contract note overrides estimate",
             "rates": dict(RATES),
             "notes": ["Brokerage assumed ₹20 per executed order (buy + sell = ₹40)",
-                      "STT sell side: 0.10% before 01-Apr-2026; 0.15% from 01-Apr-2026",
+                      "STT sell side: 0.10% before 01-Apr-2026; 0.15% from 01-Apr-2026; exercise STT 0.125% / 0.15% on intrinsic value",
+                      "Expiry exercise estimate uses one executed entry order; brokerage is not assumed on exercise/assignment",
                       "NSE options exchange charges estimated at 0.03553% of premium turnover",
                       "Stamp duty estimated 0.003% on buy premium; SEBI fee ₹10/crore; GST 18% on brokerage, exchange and SEBI fees",
                       "Physical delivery taxes, exercise/assignment charges and broker-specific levies require contract-note reconciliation",
