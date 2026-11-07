@@ -159,6 +159,26 @@ class AirApiClient {
         .whereType<Map<String, dynamic>>().toList(growable: false);
   }
 
+  Future<Map<String, dynamic>> operatorMarketDataSources() async {
+    return _decode(await _client.get(
+      Uri.parse('$baseUrl/api/v1/operator/market-data/sources'),
+      headers: _headers,
+    ));
+  }
+
+  Future<Map<String, dynamic>> operatorSelectMarketDataSource(
+      String channel, String provider, {String? accountId, bool enabled = true}) async {
+    return _decode(await _client.put(
+      Uri.parse('$baseUrl/api/v1/operator/market-data/sources/$channel'),
+      headers: _headers,
+      body: jsonEncode({
+        'provider': provider,
+        'account_id': accountId,
+        'enabled': enabled,
+      }),
+    ));
+  }
+
   Future<Map<String, dynamic>> operatorAssignBrokerAccount(
       String customerId, String broker, String accountId) async {
     return _decode(await _client.post(
