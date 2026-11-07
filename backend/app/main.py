@@ -22,6 +22,7 @@ from app.market_data.dhan_adapter import DhanMarketDataAdapter
 from app.market_data.broker_adapters import (ZerodhaMarketDataAdapter, UpstoxMarketDataAdapter, FyersMarketDataAdapter, AngelOneMarketDataAdapter)
 from app.market_data.broker_streams import (ZerodhaWebSocketAdapter, UpstoxWebSocketAdapter, FyersWebSocketAdapter, AngelOneWebSocketAdapter)
 from app.market_data.nse_adapter import NSEBhavcopyMarketDataAdapter
+from app.market_data.vendor_adapter import GenericVendorMarketDataAdapter
 from app.market_data.instrument_registry import MarketInstrumentDirectory
 from app.market_data.service import MarketDataService, set_default_market_data_service
 from app.market_data.contracts import MarketInstrument
@@ -101,6 +102,11 @@ def _market_adapter_for(operator_id: str, provider: str, account_id: str):
         if not credentials.get("app_id") or not credentials.get("access_token"):
             raise ValueError("FYERS app_id and access_token are required")
         return FyersWebSocketAdapter(account_id, credentials["app_id"], credentials["access_token"], market_data_hub, poll_seconds)
+    if provider == "custom_vendor":
+        required = ("base_url", "websocket_url", "api_key")
+        if any(not credentials.get(key) for key in required):
+            raise ValueError("Vendor base_url, websocket_url and api_key are required")
+        return GenericVendorMarketDataAdapter(account_id, credentials, market_data_hub)
     if provider == "angelone":
         required = ("api_key", "jwt_token", "feed_token")
         if any(not credentials.get(key) for key in required):
