@@ -78,8 +78,7 @@ class _NseDataScreenState extends State<NseDataScreen> {
       if (!mounted) return;
       final oldCount = _recordsFor(_market);
       setState(() => _status = status);
-      if (_recordsFor(_market) != oldCount ||
-          (_status['bootstrap'] as Map<String, dynamic>?)?['status'] == 'READY') {
+      if (_recordsFor(_market) != oldCount) {
         await _loadRows();
       }
     } catch (_) {
