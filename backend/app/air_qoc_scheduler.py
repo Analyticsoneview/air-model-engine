@@ -187,7 +187,10 @@ async def capture_selected_provider_option_chains(*, force: bool = False) -> dic
                    and row.get("expiry")]
     groups: dict[tuple[str, str], list[dict]] = {}
     for row in option_rows:
-        groups.setdefault((str(row["symbol"]).upper(), str(row["expiry"])[:10]), []).append(row)
+        underlying = str(row.get("underlying_symbol") or "").upper()
+        if not underlying:
+            continue
+        groups.setdefault((underlying, str(row["expiry"])[:10]), []).append(row)
     if not groups:
         raise RuntimeError(
             f"No F&O instrument master is loaded for {provider}/{account_id}; "
