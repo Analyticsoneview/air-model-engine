@@ -25,6 +25,7 @@ from app.market_data.nse_adapter import NSEBhavcopyMarketDataAdapter
 from app.market_data.vendor_adapter import GenericVendorMarketDataAdapter
 from app.market_data.instrument_registry import MarketInstrumentDirectory
 from app.market_data.service import MarketDataService, set_default_market_data_service
+from app.market_data.vendor_adapter import GenericVendorMarketDataAdapter
 from app.market_data.contracts import MarketInstrument
 from app.market_data.provider_registry import MarketDataSourceRegistry
 from app.air_qoc_dhan import router as air_qoc_dhan_router
@@ -85,6 +86,11 @@ def _market_adapter_for(operator_id: str, provider: str, account_id: str):
     """Build a verified broker adapter from operator-owned encrypted credentials."""
     credentials = get_vault().get(operator_id, provider, account_id)
     poll_seconds = max(2.0, float(os.getenv("AIR_MARKET_DATA_POLL_SECONDS", "3")))
+    if provider == "custom_vendor":
+        required = ("base_url", "websocket_url", "api_key")
+        if any(not credentials.get(key) for key in required):
+            raise ValueError("Custom vendor requires base_url, websocket_url and api_key")
+        return GenericVendorMarketDataAdapter(account_id, credentials, market_data_hub)
     if provider == "dhan":
         access_token = credentials.get("access_token")
         if not access_token:
