@@ -90,7 +90,7 @@ Follow ANDROID_RELEASE.md to create and protect the AIR signing keystore and con
 
 ## Telegram and market-data activation
 
-Telegram token and destination chat IDs can be entered during install. If omitted, a random placeholder secret is created and polling remains disabled. To enable alerts later, rotate the Docker secret using a controlled Swarm secret replacement and set AIR_TELEGRAM_SCHEDULER_ENABLED=true in /etc/air/air.env, then redeploy. Verify the bot's private and group chat IDs independently.
+Telegram token and destination chat IDs can be entered during install. If omitted, a random placeholder secret is created and polling remains disabled. To replace the token later, run `sudo bash /opt/air-model-engine/deploy/rotate-telegram-secret.sh`. The helper creates a versioned Swarm secret, updates the stack and removes the old secret after the API service converges. Verify the bot's private and group chat IDs independently. Then set AIR_TELEGRAM_SCHEDULER_ENABLED=true in /etc/air/air.env and redeploy the stack. Verify the bot's private and group chat IDs independently.
 
 AIR_QOC_SCHEDULER_ENABLED remains false until the Dhan account, Data API entitlement, access token and instrument mappings have been verified. The deployment does not enable broker order placement.
 
