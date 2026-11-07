@@ -88,7 +88,8 @@ class MarketDataService:
                 segment=row["segment"], expiry=row.get("expiry"),
                 strike=Decimal(str(row["strike"])) if row.get("strike") is not None else None,
                 option_type=row.get("option_type"), lot_size=row.get("lot_size"),
-                instrument_type=row.get("instrument_type")))
+                instrument_type=row.get("instrument_type"),
+                underlying_symbol=row.get("underlying_symbol") or original.underlying_symbol))
         return result
 
     async def historical(self, instrument: MarketInstrument, start: datetime,
@@ -124,11 +125,12 @@ class MarketDataService:
                     raise RuntimeError("NSE historical fallback did not connect")
                 nse_adapter = nse_source[0][2]
                 segment = "NSE_FO" if "FO" in instrument.segment.upper() else "NSE_CM"
+                query_symbol = (instrument.underlying_symbol or instrument.symbol).upper()
                 candidates = await nse_adapter.search_instruments(
-                    instrument.symbol, limit=200, exchange_segment=segment
+                    query_symbol, limit=200, exchange_segment=segment
                 )
                 match = next((item for item in candidates
-                    if item.symbol.upper() == instrument.symbol.upper()
+                    if item.symbol.upper() == query_symbol
                     and (not instrument.expiry or str(item.expiry or "")[:10] == str(instrument.expiry)[:10])
                     and (instrument.strike is None or item.strike == instrument.strike)
                     and (not instrument.option_type or item.option_type == instrument.option_type)), None)
@@ -475,6 +477,7 @@ class MarketDataService:
                 strike=Decimal(str(item["strike"])) if item.get("strike") is not None else None,
                 option_type=item.get("option_type"), lot_size=item.get("lot_size"),
                 instrument_type=item.get("instrument_type"),
+                underlying_symbol=item.get("underlying_symbol") or symbol,
             )
             start_text = str(row.get("signal_date") or row.get("entry_date") or "")[:10]
             if not start_text:
