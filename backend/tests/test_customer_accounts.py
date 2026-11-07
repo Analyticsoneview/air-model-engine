@@ -63,5 +63,40 @@ class CustomerAccountDirectoryTests(unittest.TestCase):
             reopened.close()
 
 
+
+    def test_broker_market_data_is_denied_without_paid_entitlement(self):
+        directory = CustomerAccountDirectory(":memory:")
+        directory.add(CustomerTradingAccount("customer-1", "Dhan", "D001", False))
+        with self.assertRaisesRegex(PermissionError, "paid entitlement"):
+            directory.set_market_data_selection("customer-1", "dhan", "D001")
+        directory.close()
+
+    def test_paid_market_data_selection_is_customer_owned_and_persistent(self):
+        directory = CustomerAccountDirectory(":memory:")
+        directory.add(CustomerTradingAccount("customer-1", "Dhan", "D001", False))
+        directory.add(CustomerTradingAccount("customer-2", "Dhan", "D002", False))
+        directory.set_market_data_access("customer-1", "PAID", True)
+        selected = directory.set_market_data_selection("customer-1", "dhan", "D001")
+        self.assertEqual(selected["provider"], "dhan")
+        self.assertEqual(selected["account_id"], "D001")
+        with self.assertRaises(PermissionError):
+            directory.set_market_data_selection("customer-1", "dhan", "D002")
+        directory.set_market_data_access("customer-1", "STANDARD", False)
+        self.assertIsNone(directory.get_market_data_selection("customer-1"))
+        self.assertEqual(directory.get_market_data_access("customer-1")["tier"], "STANDARD")
+        directory.close()
+
+    def test_market_data_entitlement_survives_database_reopen(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = str(Path(temp) / "accounts.sqlite3")
+            directory = CustomerAccountDirectory(path)
+            directory.set_market_data_access("customer-1", "PAID", True)
+            directory.close()
+            reopened = CustomerAccountDirectory(path)
+            access = reopened.get_market_data_access("customer-1")
+            self.assertEqual(access["tier"], "PAID")
+            self.assertTrue(access["broker_data_enabled"])
+            reopened.close()
+
 if __name__ == "__main__":
     unittest.main()
