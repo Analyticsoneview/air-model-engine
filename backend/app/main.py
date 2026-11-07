@@ -19,6 +19,8 @@ from app.brokers.fyers import FyersClient, FyersAPIError, fyers_login_url
 from app.brokers.angel import AngelSmartAPI, AngelAPIError
 from app.credential_vault import CredentialVault
 from app.market_data.dhan_adapter import DhanMarketDataAdapter
+from app.market_data.router import MarketDataRouter
+from app.market_data.hub import MarketDataHub
 from app.market_data.broker_adapters import (ZerodhaMarketDataAdapter, UpstoxMarketDataAdapter, FyersMarketDataAdapter, AngelOneMarketDataAdapter)
 from app.market_data.broker_streams import (ZerodhaWebSocketAdapter, UpstoxWebSocketAdapter, FyersWebSocketAdapter, AngelOneWebSocketAdapter)
 from app.market_data.nse_adapter import NSEBhavcopyMarketDataAdapter
@@ -50,6 +52,12 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "Accept", "X-AIR-ADMIN-KEY"],
 )
 _market_health_task: asyncio.Task | None = None
+market_data_router = MarketDataRouter()
+market_data_hub = MarketDataHub()
+market_data_sources = MarketDataSourceRegistry()
+market_data_instruments = MarketInstrumentDirectory()
+market_data_service = MarketDataService(market_data_router, market_data_hub, market_data_instruments)
+set_default_market_data_service(market_data_service)
 auth_store = AuthStore(os.getenv("AIR_AUTH_DB_PATH", "data/air_auth.sqlite3"))
 account_directory = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3"))
 _credential_vault: CredentialVault | None = None
@@ -105,11 +113,6 @@ def _market_adapter_for(operator_id: str, provider: str, account_id: str):
         if not credentials.get("app_id") or not credentials.get("access_token"):
             raise ValueError("FYERS app_id and access_token are required")
         return FyersWebSocketAdapter(account_id, credentials["app_id"], credentials["access_token"], market_data_hub, poll_seconds)
-    if provider == "custom_vendor":
-        required = ("base_url", "websocket_url", "api_key")
-        if any(not credentials.get(key) for key in required):
-            raise ValueError("Vendor base_url, websocket_url and api_key are required")
-        return GenericVendorMarketDataAdapter(account_id, credentials, market_data_hub)
     if provider == "angelone":
         required = ("api_key", "jwt_token", "feed_token")
         if any(not credentials.get(key) for key in required):
