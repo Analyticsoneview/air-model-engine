@@ -24,6 +24,9 @@ services:
       AIR_TELEGRAM_CONFIG_DB_PATH: /var/lib/air/air_telegram_config.sqlite3
       AIR_TELEGRAM_DEDUPE_DB_PATH: /var/lib/air/air_telegram_notifications.sqlite3
       AIR_TELEGRAM_SCHEDULER_ENABLED: ${AIR_TELEGRAM_SCHEDULER_ENABLED:-false}
+      AIR_NSE_DB_PATH: /var/lib/air/nse_bhavcopy.sqlite3
+      AIR_NSE_ARCHIVE_DIR: /var/lib/air/nse_archives
+      AIR_NSE_BOOTSTRAP_ENABLED: ${AIR_NSE_BOOTSTRAP_ENABLED:-true}
       AIR_CLIENT_LOCAL_IP: ${AIR_CLIENT_LOCAL_IP:-}
       AIR_CLIENT_PUBLIC_IP: ${AIR_CLIENT_PUBLIC_IP:-}
       AIR_CLIENT_MAC_ADDRESS: ${AIR_CLIENT_MAC_ADDRESS:-}
