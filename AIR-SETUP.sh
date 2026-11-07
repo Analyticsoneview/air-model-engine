@@ -7,14 +7,25 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 fail(){ echo "AIR-SETUP: $*" >&2; exit 1; }
 [[ "$(git branch --show-current)" == "$BRANCH" ]] || fail "Check out branch $BRANCH first."
-command -v gh >/dev/null || fail "GitHub CLI (gh) is required. Install it from https://cli.github.com/ and rerun AIR-SETUP."
-command -v git >/dev/null || fail "Git is required."
+command -v git >/dev/null || fail "Git is required to run AIR-SETUP. Install Git, clone the AIR repository, and rerun."
+OS="$(uname -s)"
+if ! command -v gh >/dev/null 2>&1; then
+  echo "GitHub CLI is missing. Installing it now..."
+  [[ "$OS" == "Linux" ]] || fail "Automatic GitHub CLI installation is supported on Linux. Install from https://cli.github.com/."
+  . /etc/os-release
+  case "$ID" in
+    ubuntu|debian) sudo apt-get update && sudo apt-get install -y gh ;;
+    fedora) sudo dnf install -y gh ;;
+    rhel|rocky|almalinux) sudo dnf install -y gh || fail "GitHub CLI package unavailable. Enable the official gh repository and rerun." ;;
+    *) fail "Unsupported distribution for automatic GitHub CLI installation: $ID" ;;
+  esac
+fi
+command -v gh >/dev/null 2>&1 || fail "GitHub CLI installed but not on PATH. Open a new terminal and rerun."
 if ! gh auth status -h github.com >/dev/null 2>&1; then
   echo "Opening GitHub browser authentication. Sign in and grant repository access."
   gh auth login --web -h github.com -p https -s repo,workflow
 fi
 gh auth status -h github.com >/dev/null 2>&1 || fail "GitHub CLI authentication is required."
-OS="$(uname -s)"
 ARCH="$(uname -m)"
 case "$ARCH" in x86_64|amd64) LABEL_ARCH="x64";; aarch64|arm64) LABEL_ARCH="ARM64";; *) fail "Unsupported CPU architecture: $ARCH";; esac
 if [[ "$OS" == "Linux" ]]; then
