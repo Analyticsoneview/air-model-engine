@@ -165,3 +165,4 @@ secrets:
     external: true
   air_telegram_bot_token:
     external: true
+    name: ${AIR_TELEGRAM_SECRET_NAME:-air_telegram_bot_token}
