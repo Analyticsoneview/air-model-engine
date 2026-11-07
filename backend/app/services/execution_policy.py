@@ -42,7 +42,8 @@ class ExecutionPolicy:
                 name: bool(row["master_auto_enabled"]) and bool(flags.get(name, False))
                 for name in STRATEGIES
             },
-            "manual_orders_enabled": True,
+            "manual_review_enabled": True,
+            "manual_order_submission_enabled": False,
             "default_mode": "MANUAL",
             "updated_at": row["updated_at"],
             "live_orders_enabled": False,
