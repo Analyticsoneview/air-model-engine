@@ -14,6 +14,7 @@ from app.market_data.hub import MarketDataHub
 from app.market_data.router import MarketDataRouter
 from app.market_data.service import MarketDataService
 from app.market_data.nse_adapter import NSEBhavcopyMarketDataAdapter
+from app.access_control import access_store
 
 
 class CustomerMarketDataRuntime:
@@ -26,7 +27,8 @@ class CustomerMarketDataRuntime:
 
     def _is_operator(self, customer_id: str) -> bool:
         allowed = {x.strip() for x in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",") if x.strip()}
-        return customer_id in allowed
+        identity = customer_id if customer_id in allowed else (access_store.mobile_for_request_id(customer_id) or "")
+        return identity in allowed
 
     async def get_service(self, customer_id: str) -> MarketDataService:
         customer_id = customer_id.strip()
@@ -76,6 +78,12 @@ class CustomerMarketDataRuntime:
             self._services[customer_id] = (key, service)
             return service
 
+
+    async def close_all(self) -> None:
+        customer_ids = list(self._services)
+        for customer_id in customer_ids:
+            await self.invalidate(customer_id)
+
     async def invalidate(self, customer_id: str) -> None:
         lock = self._locks.setdefault(customer_id, asyncio.Lock())
         async with lock:
@@ -105,3 +113,8 @@ async def get_customer_market_data_service(customer_id: str) -> MarketDataServic
 async def invalidate_customer_market_data_service(customer_id: str) -> None:
     if _runtime is not None:
         await _runtime.invalidate(customer_id)
+
+
+async def close_customer_market_data_runtimes() -> None:
+    if _runtime is not None:
+        await _runtime.close_all()
