@@ -26,6 +26,7 @@ class MarketInstrumentDirectory:
                 account_id TEXT NOT NULL,
                 exchange TEXT NOT NULL,
                 symbol TEXT NOT NULL,
+                underlying_symbol TEXT,
                 token TEXT NOT NULL,
                 segment TEXT NOT NULL,
                 expiry TEXT,
@@ -41,6 +42,8 @@ class MarketInstrumentDirectory:
         columns = {row["name"] for row in self.db.execute("PRAGMA table_info(market_instruments)")}
         if "tick_size" not in columns:
             self.db.execute("ALTER TABLE market_instruments ADD COLUMN tick_size TEXT")
+        if "underlying_symbol" not in columns:
+            self.db.execute("ALTER TABLE market_instruments ADD COLUMN underlying_symbol TEXT")
         self.db.execute("""
             CREATE TABLE IF NOT EXISTS market_master_refresh (
                 provider TEXT NOT NULL, account_id TEXT NOT NULL,
@@ -58,7 +61,8 @@ class MarketInstrumentDirectory:
                symbol: str, token: str, segment: str, expiry: str | None = None,
                strike: str | None = None, option_type: str | None = None,
                lot_size: int | None = None, instrument_type: str | None = None,
-               tick_size: str | None = None) -> dict:
+               tick_size: str | None = None,
+               underlying_symbol: str | None = None) -> dict:
         values = [provider.strip().lower(), account_id.strip(), exchange.strip().upper(),
                   symbol.strip().upper(), token.strip(), segment.strip().upper()]
         if not all(values):
@@ -66,15 +70,17 @@ class MarketInstrumentDirectory:
         with self.db:
             self.db.execute("""
                 INSERT INTO market_instruments(
-                    provider,account_id,exchange,symbol,token,segment,expiry,strike,
+                    provider,account_id,exchange,symbol,underlying_symbol,token,segment,expiry,strike,
                     option_type,lot_size,instrument_type,tick_size,updated_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
                 ON CONFLICT(provider,account_id,token) DO UPDATE SET
                     exchange=excluded.exchange,symbol=excluded.symbol,segment=excluded.segment,
                     expiry=excluded.expiry,strike=excluded.strike,option_type=excluded.option_type,
                     lot_size=excluded.lot_size,instrument_type=excluded.instrument_type,
-                    tick_size=excluded.tick_size,updated_at=CURRENT_TIMESTAMP
-            """, (*values, expiry, strike, option_type, lot_size, instrument_type, tick_size))
+                    tick_size=excluded.tick_size,underlying_symbol=excluded.underlying_symbol,
+                    updated_at=CURRENT_TIMESTAMP
+            """, (values[0], values[1], values[2], values[3], underlying_symbol or values[3],
+                  values[4], values[5], expiry, strike, option_type, lot_size, instrument_type, tick_size))
         return self.get(provider, account_id, values[4]) or {}
 
     def replace_snapshot(self, provider: str, account_id: str,
@@ -96,7 +102,8 @@ class MarketInstrumentDirectory:
             values.append((provider, account_id, str(item["exchange"]).upper(),
                 str(item["symbol"]).upper(), token, str(item["segment"]).upper(),
                 item.get("expiry"), item.get("strike"), item.get("option_type"),
-                item.get("lot_size"), item.get("instrument_type"), item.get("tick_size")))
+                item.get("lot_size"), item.get("instrument_type"), item.get("tick_size"),
+                item.get("underlying_symbol") or item.get("symbol")))
         stamp = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
         self.db.execute("BEGIN IMMEDIATE")
         try:
@@ -139,10 +146,11 @@ class MarketInstrumentDirectory:
             return []
         rows = self.db.execute("""
             SELECT * FROM market_instruments
-            WHERE provider=? AND account_id=? AND symbol LIKE ?
-            ORDER BY CASE WHEN symbol=? THEN 0 ELSE 1 END, expiry, strike
+            WHERE provider=? AND account_id=? AND (symbol LIKE ? OR underlying_symbol LIKE ?)
+            ORDER BY CASE WHEN symbol=? OR underlying_symbol=? THEN 0 ELSE 1 END, expiry, strike
             LIMIT ?
-        """, (provider.lower(), account_id, f"%{needle}%", needle, max(1, min(limit, 500)))).fetchall()
+        """, (provider.lower(), account_id, f"%{needle}%", f"%{needle}%", needle, needle,
+              max(1, min(limit, 500)))).fetchall()
         return [dict(row) for row in rows]
 
     def list_all(self, provider: str | None = None, account_id: str | None = None,
