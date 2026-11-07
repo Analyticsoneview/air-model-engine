@@ -368,4 +368,10 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "contracts_without_entry_touch": contracts_without_entry_touch,
             "note": "Only verified daily OHLCV evidence is replayed; contracts without attached daily bars are not backfilled or guessed.",
         })
+    # Add the same forecast payload to every row shown in the EXPIRY78 tab,
+    # including persisted lifecycle rows without an engine replay.
+    for bucket_rows in result.get("EXPIRY78", {}).get("groups", {}).values():
+        for item in bucket_rows:
+            if isinstance(item, dict):
+                item["physical_settlement_forecast"] = forecast_physical_settlement(item)
     return result
