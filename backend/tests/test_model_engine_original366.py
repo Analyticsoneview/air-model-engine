@@ -157,7 +157,7 @@ def test_recovered_ten_percent_stop_wins_when_hit_before_target():
     item = sample_contract(bars=[
         bar("2026-11-03", 8.0, 8.5, 7.5, 7.6),
         bar("2026-11-04", 8.1, 8.8, 7.9, 8.2),
-        bar("2026-11-05", 7.1, 8.9, 7.0, 7.4),
+        bar("2026-11-05", 7.5, 8.9, 7.0, 7.4),
     ])
     trade = evaluate_original366_contract(item, as_of="2026-11-05")["trades"][0]
     model = trade["recovered_watch"]["exit_model"]
