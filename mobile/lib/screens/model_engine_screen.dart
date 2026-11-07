@@ -189,7 +189,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
         final milestone = last['milestone_gain_pct'];
         final locked = last['locked_gain_pct'];
         final steps = history.length;
-        return '$stop • 🔒 +${milestone ?? '—'}% HIT • LOCK +${locked ?? '—'}% • ${steps} STEP(S)';
+        return '$stop • 🔒 +${milestone ?? '—'}% HIT • LOCK +${locked ?? '—'}% • $steps STEP(S)';
       }
       return '$stop • 🔒 TRAILED';
     }
