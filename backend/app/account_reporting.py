@@ -205,7 +205,7 @@ class AccountReporting:
 
     async def report_account(self, customer_id: str, account: Any,
                             collector: Callable[[str, str, str], Awaitable[dict[str, Any]]],
-                            report_date: str) -> dict[str, Any]:
+                            report_date: str, force: bool = False) -> dict[str, Any]:
         key = (customer_id, account.broker, account.account_id, report_date)
         existing = self.db.execute("""
             SELECT status,detail FROM account_report_runs
