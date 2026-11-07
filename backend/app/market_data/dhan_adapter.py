@@ -35,9 +35,22 @@ class DhanMarketDataAdapter:
     async def authenticate(self, account_id: str) -> None:
         self.account_id = account_id
         self._rest = DhanHQClient(self.client_id, self.access_token)
-        await self._rest.profile()
-        self._feed = DhanFeedSocket(self.client_id, self.access_token, mode="full")
-        await self._feed.connect()
+        try:
+            await self._rest.profile()
+            self._feed = DhanFeedSocket(self.client_id, self.access_token, mode="full")
+            await self._feed.connect()
+        except Exception:
+            if self._feed is not None:
+                try:
+                    await self._feed.close()
+                except Exception:
+                    pass
+                self._feed = None
+            if self._rest is not None:
+                await self._rest.close()
+                self._rest = None
+            self._feed_state = "error"
+            raise
         self._feed_state = "connected"
         self._last_feed_error = None
         self._reader = asyncio.create_task(self._read_feed(), name=f"dhan-feed-{account_id}")
