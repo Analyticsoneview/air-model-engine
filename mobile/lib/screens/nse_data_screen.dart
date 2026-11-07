@@ -129,7 +129,7 @@ class _NseDataScreenState extends State<NseDataScreen> {
     if (number.abs() >= 10000000) return '${(number / 10000000).toStringAsFixed(2)} Cr';
     if (number.abs() >= 100000) return '${(number / 100000).toStringAsFixed(2)} L';
     if (number.abs() >= 1000 && decimals == 0) return number.toStringAsFixed(0);
-    return number.toStringAsFixed(decimals).replaceFirst(RegExp(r'\.?0+, '');
+    return number.toStringAsFixed(decimals).replaceFirst(RegExp(r"\\.?0+$"), "");
   }
 
   String _date(dynamic value) {
