@@ -1,4 +1,5 @@
 import os
+import asyncio
 from decimal import Decimal
 from uuid import uuid4
 import secrets
@@ -24,6 +25,7 @@ from app.market_data.broker_adapters import (ZerodhaMarketDataAdapter, UpstoxMar
 from app.market_data.broker_streams import (ZerodhaWebSocketAdapter, UpstoxWebSocketAdapter, FyersWebSocketAdapter, AngelOneWebSocketAdapter)
 from app.market_data.nse_adapter import NSEBhavcopyMarketDataAdapter
 from app.market_data.instrument_registry import MarketInstrumentDirectory
+from app.market_data.service import MarketDataService
 from app.market_data.contracts import MarketInstrument
 from app.market_data.provider_registry import MarketDataSourceRegistry
 from app.air_qoc_dhan import router as air_qoc_dhan_router
@@ -54,6 +56,8 @@ market_data_router = MarketDataRouter()
 market_data_hub = MarketDataHub()
 market_data_sources = MarketDataSourceRegistry()
 market_data_instruments = MarketInstrumentDirectory()
+market_data_service = MarketDataService(market_data_router, market_data_hub)
+_market_health_task: asyncio.Task | None = None
 auth_store = AuthStore(os.getenv("AIR_AUTH_DB_PATH", "data/air_auth.sqlite3"))
 account_directory = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3"))
 _credential_vault: CredentialVault | None = None
@@ -121,10 +125,24 @@ def _market_adapter_for(operator_id: str, provider: str, account_id: str):
 
 @app.on_event("startup")
 async def start_air_qoc_jobs() -> None:
+    global _market_health_task
     start_nse_data_jobs()
     await _restore_market_data_source_connections()
+    _market_health_task = asyncio.create_task(_market_data_health_loop(), name="air-market-data-health")
     start_qoc_scheduler()
     start_telegram_scheduler()
+
+
+async def _market_data_health_loop() -> None:
+    while True:
+        try:
+            await market_data_service.health()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Health monitoring must never take down the API process.
+            pass
+        await asyncio.sleep(max(3.0, float(os.getenv("AIR_MARKET_HEALTH_INTERVAL_SECONDS", "5"))))
 
 
 async def _restore_market_data_source_connections() -> None:
@@ -169,6 +187,19 @@ async def _restore_market_data_source_connections() -> None:
 
 @app.on_event("shutdown")
 async def stop_air_qoc_jobs() -> None:
+    global _market_health_task
+    if _market_health_task is not None:
+        _market_health_task.cancel()
+        try:
+            await _market_health_task
+        except asyncio.CancelledError:
+            pass
+        _market_health_task = None
+    for channel in ("historical", "live"):
+        try:
+            await market_data_router.clear_source(channel)
+        except Exception:
+            pass
     stop_telegram_scheduler()
     stop_qoc_scheduler()
     stop_nse_data_jobs()
@@ -886,7 +917,9 @@ async def search_market_instruments(
 ) -> dict:
     resolved = market_data_router.resolve("historical")
     if not resolved:
-        raise HTTPException(status_code=409, detail="No connected Main Account market-data adapter")
+        resolved = market_data_router.resolve("live")
+    if not resolved:
+        raise HTTPException(status_code=409, detail="No connected market-data adapter")
     provider, account_id, adapter = resolved[0]
     mapped = market_data_instruments.search(provider, account_id, q, limit)
     if mapped:
@@ -905,7 +938,7 @@ async def search_market_instruments(
                 "count": len(instruments), "instruments": instruments,
                 "source": "admin_instrument_directory"}
     try:
-        rows = await adapter.search_instruments(q, limit=limit, exchange_segment=segment)
+        rows = await market_data_service.search_instruments(q, limit=limit, exchange_segment=segment)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Instrument master lookup failed: {type(exc).__name__}") from exc
     return {"provider": provider, "account_id": account_id, "count": len(rows), "instruments": rows}
@@ -926,10 +959,10 @@ async def subscribe_market_data(body: MarketSubscriptionRequest,
             )
             for item in body.instruments
         ]
-        await adapter.subscribe(instruments)
+        result = await market_data_service.subscribe(instruments)
     except (ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return {"provider": provider, "account_id": account_id,
+    return {"provider": result["provider"], "account_id": result["account_id"],
             "subscribed_count": len(instruments), "status": "subscription_sent"}
 
 
@@ -1021,7 +1054,7 @@ async def market_data_historical(
         end = datetime.fromisoformat(body.end.replace("Z", "+00:00"))
         if start >= end:
             raise ValueError("Historical start must be before end")
-        bars = await adapter.get_historical(instrument, start, end, body.interval)
+        bars = await market_data_service.historical(instrument, start, end, body.interval)
         return {
             "provider": provider, "account_id": account_id,
             "symbol": body.symbol, "interval": body.interval,
@@ -1040,13 +1073,10 @@ async def market_data_historical(
 
 @app.get("/api/v1/market-data/status")
 async def market_data_status(customer_id: str = Depends(require_air_operator)) -> dict:
-    live = market_data_router.resolve("live")
-    historical = market_data_router.resolve("historical")
-    live_health = live[0][2].health() if live and hasattr(live[0][2], "health") else None
-    historical_health = historical[0][2].health() if historical and hasattr(historical[0][2], "health") else None
+    health = await market_data_service.health()
     return {
         "routing": market_data_router.status(),
-        "provider_health": {"live": live_health, "historical": historical_health},
+        "provider_health": health,
         "stream": market_data_hub.status(),
         "note": "Historical and live channels can use different providers. Instrument subscriptions and fresh ticks must still be checked.",
     }
