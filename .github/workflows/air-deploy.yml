@@ -130,9 +130,10 @@ jobs:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
           IMAGE_OWNER: ${{ needs.build-and-publish.outputs.image_owner }}
           IMAGE_TAG: ${{ github.sha }}
+          DEPLOY_COMMIT: ${{ github.sha }}
         run: |
           ssh -i ~/.ssh/air_deploy_key \
             -o BatchMode=yes \
             -o StrictHostKeyChecking=yes \
             "$DEPLOY_USER@$DEPLOY_HOST" \
-            "cd '$DEPLOY_PATH' && git fetch origin main && git checkout main && git reset --hard origin/main && AIR_BACKEND_IMAGE='ghcr.io/$IMAGE_OWNER/air-model-engine-api:$IMAGE_TAG' AIR_PWA_IMAGE='ghcr.io/$IMAGE_OWNER/air-model-engine-pwa:$IMAGE_TAG' bash deploy/deploy-swarm.sh"
+            "cd '$DEPLOY_PATH' && git fetch origin main && git checkout --detach '$DEPLOY_COMMIT' && AIR_BACKEND_IMAGE='ghcr.io/$IMAGE_OWNER/air-model-engine-api:$IMAGE_TAG' AIR_PWA_IMAGE='ghcr.io/$IMAGE_OWNER/air-model-engine-pwa:$IMAGE_TAG' bash deploy/deploy-swarm.sh"
