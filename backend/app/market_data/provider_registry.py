@@ -125,7 +125,7 @@ class MarketDataSourceRegistry:
             raise ValueError("Provider does not support the requested data channel")
         if enabled and not definition["adapter_ready"].get(channel, False):
             raise ValueError("Provider adapter is not implemented and verified for this channel")
-        if definition["requires_account"] and not (account_id or "").strip():
+        if enabled and definition["requires_account"] and not (account_id or "").strip():
             raise ValueError("A provider account ID is required")
         if not definition["requires_account"]:
             account_id = None
