@@ -100,10 +100,10 @@ class MarketInstrumentDirectory:
                 continue
             seen.add(token)
             values.append((provider, account_id, str(item["exchange"]).upper(),
-                str(item["symbol"]).upper(), token, str(item["segment"]).upper(),
-                item.get("expiry"), item.get("strike"), item.get("option_type"),
-                item.get("lot_size"), item.get("instrument_type"), item.get("tick_size"),
-                item.get("underlying_symbol") or item.get("symbol")))
+                str(item["symbol"]).upper(), str(item.get("underlying_symbol") or item["symbol"]).upper(),
+                token, str(item["segment"]).upper(), item.get("expiry"), item.get("strike"),
+                item.get("option_type"), item.get("lot_size"), item.get("instrument_type"),
+                item.get("tick_size")))
         stamp = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
         self.db.execute("BEGIN IMMEDIATE")
         try:
