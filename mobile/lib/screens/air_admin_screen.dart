@@ -115,6 +115,15 @@ class _AirAdminScreenState extends State<AirAdminScreen> {
             icon: const Icon(Icons.account_balance_rounded),
           ),
           IconButton(
+            tooltip: 'Market data sources',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const AirAdminMarketDataSourcesScreen(),
+              ),
+            ),
+            icon: const Icon(Icons.candlestick_chart_rounded),
+          ),
+          IconButton(
             tooltip: 'Telegram destinations',
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
@@ -863,6 +872,243 @@ class _AirAdminTelegramScreenState extends State<AirAdminTelegramScreen> {
                     },
                   ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+
+class AirAdminMarketDataSourcesScreen extends StatefulWidget {
+  const AirAdminMarketDataSourcesScreen({super.key});
+
+  @override
+  State<AirAdminMarketDataSourcesScreen> createState() =>
+      _AirAdminMarketDataSourcesScreenState();
+}
+
+class _AirAdminMarketDataSourcesScreenState
+    extends State<AirAdminMarketDataSourcesScreen> {
+  final AirApiClient _api = AirApiClient();
+  List<Map<String, dynamic>> _providers = [];
+  Map<String, dynamic> _selections = {};
+  Map<String, dynamic> _runtime = {};
+  final _account = TextEditingController();
+  String _channel = 'historical';
+  String? _provider;
+  String? _error;
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _api.dispose();
+    _account.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    setState(() { _loading = true; _error = null; });
+    try {
+      final data = await _api.operatorMarketDataSources();
+      if (!mounted) return;
+      final providers = (data['providers'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>().toList();
+      final selections = data['selections'] as Map<String, dynamic>? ?? {};
+      setState(() {
+        _providers = providers;
+        _selections = selections;
+        _runtime = data['runtime'] as Map<String, dynamic>? ?? {};
+        final current = selections[_channel] as Map<String, dynamic>?;
+        _provider = current?['provider']?.toString() ??
+            (_providers.isNotEmpty ? _providers.first['code']?.toString() : null);
+        _account.text = current?['account_id']?.toString() ?? '';
+      });
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  bool _ready(Map<String, dynamic> provider, String channel) {
+    final channels = (provider['adapter_ready'] as Map?) ?? const {};
+    return channels[channel] == true;
+  }
+
+  List<Map<String, dynamic>> get _channelProviders => _providers
+      .where((provider) =>
+          (provider['channels'] as List<dynamic>? ?? const []).contains(_channel))
+      .toList();
+
+  Future<void> _save(bool enabled) async {
+    if (_provider == null) return;
+    final selected = _providers.where((p) => p['code'] == _provider).firstOrNull;
+    if (selected == null) return;
+    if (enabled && !_ready(selected, _channel)) {
+      setState(() => _error = 'This provider adapter is not ready for $_channel data yet.');
+      return;
+    }
+    setState(() { _loading = true; _error = null; });
+    try {
+      await _api.operatorSelectMarketDataSource(
+        _channel, _provider!,
+        accountId: selected['requires_account'] == true ? _account.text.trim() : null,
+        enabled: enabled,
+      );
+      await _load();
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  String _channelState(String channel) {
+    final states = (_runtime['connection_state'] as Map?) ?? const {};
+    return states[channel]?.toString() ?? 'not_configured';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final providers = _channelProviders;
+    final current = _selections[_channel] as Map<String, dynamic>?;
+    final selectedProvider = providers.where((p) => p['code'] == _provider).firstOrNull;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('MARKET DATA SOURCES'),
+        actions: [
+          IconButton(onPressed: _loading ? null : _load,
+              icon: const Icon(Icons.refresh_rounded)),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Text('Choose historical and live feeds independently. Credentials are stored in the encrypted AIR vault; provider availability depends on the adapter and your vendor subscription.',
+              style: TextStyle(fontSize: 11, height: 1.45, color: cs.onSurfaceVariant)),
+          const SizedBox(height: 14),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: 'historical', label: Text('HISTORICAL')),
+              ButtonSegment(value: 'live', label: Text('LIVE')),
+            ],
+            selected: {_channel},
+            onSelectionChanged: _loading ? null : (values) {
+              final channel = values.first;
+              final choice = _selections[channel] as Map<String, dynamic>?;
+              setState(() {
+                _channel = channel;
+                _provider = choice?['provider']?.toString() ??
+                    (_channelProviders.isNotEmpty ? _channelProviders.first['code']?.toString() : null);
+                _account.text = choice?['account_id']?.toString() ?? '';
+                _error = null;
+              });
+            },
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('${_channel.toUpperCase()} SOURCE',
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900)),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  value: providers.any((p) => p['code'] == _provider) ? _provider : null,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Provider', border: OutlineInputBorder()),
+                  items: providers.map((p) => DropdownMenuItem<String>(
+                    value: p['code']?.toString(),
+                    child: Text(p['name']?.toString() ?? p['code'].toString(),
+                        overflow: TextOverflow.ellipsis),
+                  )).toList(),
+                  onChanged: _loading ? null : (value) {
+                    final p = providers.where((item) => item['code'] == value).firstOrNull;
+                    setState(() {
+                      _provider = value;
+                      _account.text = '';
+                      _error = null;
+                    });
+                  },
+                ),
+                if (selectedProvider?['requires_account'] == true) ...[
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _account,
+                    decoration: const InputDecoration(
+                      labelText: 'Broker / vendor account ID',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ],
+                if (selectedProvider != null) ...[
+                  const SizedBox(height: 10),
+                  Text(selectedProvider['data_scope']?.toString() ?? '',
+                      style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+                  const SizedBox(height: 8),
+                  Row(children: [
+                    Icon(_ready(selectedProvider, _channel) ? Icons.check_circle : Icons.pending_outlined,
+                        size: 15, color: _ready(selectedProvider, _channel) ? Colors.green : Colors.orange),
+                    const SizedBox(width: 6),
+                    Expanded(child: Text(
+                      _ready(selectedProvider, _channel)
+                          ? 'Adapter implemented — connection can be enabled'
+                          : 'Catalog only — adapter implementation / verification pending',
+                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700),
+                    )),
+                  ]),
+                ],
+                const SizedBox(height: 12),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  FilledButton.icon(
+                    onPressed: _loading || selectedProvider == null ||
+                        !_ready(selectedProvider, _channel) ? null : () => _save(true),
+                    icon: const Icon(Icons.link_rounded),
+                    label: const Text('ENABLE & CONNECT'),
+                  ),
+                  OutlinedButton(
+                    onPressed: _loading || current == null ? null : () => _save(false),
+                    child: const Text('DISABLE SOURCE'),
+                  ),
+                ]),
+                if (current != null) ...[
+                  const Divider(height: 22),
+                  Text('Saved: ${current['provider']} · ${current['enabled'] == true ? 'ENABLED' : 'DISABLED'}',
+                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
+                  Text('Runtime: ${_channelState(_channel)}',
+                      style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+                ],
+              ]),
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Text('PROVIDER READINESS', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 7),
+          ...providers.map((provider) {
+            final ready = _ready(provider, _channel);
+            return Card(
+              child: ListTile(
+                dense: true,
+                title: Text(provider['name']?.toString() ?? ''),
+                subtitle: Text(provider['data_scope']?.toString() ?? '',
+                    maxLines: 2, overflow: TextOverflow.ellipsis),
+                trailing: Icon(ready ? Icons.check_circle : Icons.hourglass_empty,
+                    color: ready ? Colors.green : Colors.orange),
+              ),
+            );
+          }),
+          if (_error != null) ...[
+            const SizedBox(height: 8),
+            Text(_error!, style: TextStyle(color: cs.error, fontSize: 11)),
+          ],
+          if (_loading) const LinearProgressIndicator(),
         ],
       ),
     );
