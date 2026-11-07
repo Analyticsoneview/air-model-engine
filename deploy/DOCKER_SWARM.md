@@ -69,7 +69,7 @@ docker service logs -f air_air-api
 docker service logs -f air_air-pwa
 ```
 
-The PWA listens on port 8080 inside the overlay as `air-pwa`; the API listens on port 8000 as `air-api`. Configure your existing TLS reverse proxy to route the app hostname to `air-pwa:8080` and API hostname to `air-api:8000`. Do not expose the PWA container directly to the public internet without TLS. The API's published port is for lab connectivity; firewall it or remove the `ports` block when only the reverse proxy should access it.
+The PWA listens on port 8080 inside the overlay as `air-pwa`; the API listens on port 8000 as `air-api`. Configure your existing TLS reverse proxy to route the app hostname to `air-pwa:8080` and API hostname to `air-api:8000`. Do not expose the PWA container directly to the public internet without TLS. The API is not published on the host; only the Caddy HTTPS ingress exposes ports 80 and 443.
 
 ## 6. AIR QOC data capture
 
