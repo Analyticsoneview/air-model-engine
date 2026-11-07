@@ -27,13 +27,13 @@ else
 fi
 if [[ -e "$RUNNER_DIR/.runner" ]]; then echo "A runner is already configured in $RUNNER_DIR."; exit 0; fi
 RELEASE_JSON="$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest)"
-if [[ "$OS" == "Linux" ]]; then ASSET_PREFIX="actions-runner-linux-\${RUNNER_ARCH}-"; else ASSET_PREFIX="actions-runner-osx-\${RUNNER_ARCH}-"; fi
+if [[ "$OS" == "Linux" ]]; then ASSET_PREFIX="actions-runner-linux-${RUNNER_ARCH}-"; else ASSET_PREFIX="actions-runner-osx-${RUNNER_ARCH}-"; fi
 ASSET_URL="$(printf '%s' "$RELEASE_JSON" | python3 -c 'import json,sys; j=json.load(sys.stdin); p=sys.argv[1]; print(next(a["browser_download_url"] for a in j["assets"] if a["name"].startswith(p) and a["name"].endswith(".tar.gz")))' "$ASSET_PREFIX")"
 ASSET_DIGEST="$(printf '%s' "$RELEASE_JSON" | python3 -c 'import json,sys; j=json.load(sys.stdin); p=sys.argv[1]; a=next(a for a in j["assets"] if a["name"].startswith(p) and a["name"].endswith(".tar.gz")); print(a.get("digest") or "")' "$ASSET_PREFIX")"
 if [[ "$OS" == "Linux" ]]; then install -d -o "$RUNNER_USER" -g "$RUNNER_USER" "$RUNNER_DIR"; else install -d "$RUNNER_DIR"; fi
 curl -fsSL "$ASSET_URL" -o "$RUNNER_DIR/runner.tar.gz"
 if [[ "$ASSET_DIGEST" == sha256:* ]]; then
-  EXPECTED_DIGEST="\${ASSET_DIGEST#sha256:}"
+  EXPECTED_DIGEST="${ASSET_DIGEST#sha256:}"
   if command -v sha256sum >/dev/null 2>&1; then echo "$EXPECTED_DIGEST  $RUNNER_DIR/runner.tar.gz" | sha256sum -c -
   else echo "$EXPECTED_DIGEST  $RUNNER_DIR/runner.tar.gz" | shasum -a 256 -c -; fi
 else echo "GitHub release did not provide a SHA-256 digest; verify the downloaded runner package before production use." >&2; fi
