@@ -393,7 +393,14 @@ class _AirAdminBrokerAccountsScreenState
     final accountId = row['account_id'].toString();
     setState(() { _loading = true; _error = null; });
     try {
-      if (broker == 'dhan') {
+      if (broker == 'custom_vendor') {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Vendor endpoints and API key are saved encrypted. Enable and verify the feed in Market Data Sources.')),
+          );
+        }
+        return;
+      } else if (broker == 'dhan') {
         final result = await _api.verifyDhan(accountId);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
