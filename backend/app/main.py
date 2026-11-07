@@ -629,10 +629,14 @@ async def _verify_customer_market_data_connection(
 async def customer_market_data_access(customer_id: str = Depends(require_customer)) -> dict:
     access = account_directory.get_market_data_access(customer_id)
     selection = account_directory.get_market_data_selection(customer_id)
-    operator = customer_id in {
+    operator_ids = {
         value.strip() for value in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",")
         if value.strip()
     }
+    operator_identity = customer_id if customer_id in operator_ids else (
+        access_store.mobile_for_request_id(customer_id) or ""
+    )
+    operator = operator_identity in operator_ids
     return {
         "access": access,
         "selection": selection,
