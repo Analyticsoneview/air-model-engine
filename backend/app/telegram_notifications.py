@@ -45,9 +45,17 @@ def _connect() -> sqlite3.Connection:
             event_key TEXT NOT NULL,
             chat_id TEXT NOT NULL,
             status TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (event_key, chat_id)
         )
     """)
+    columns = {row[1] for row in db.execute("PRAGMA table_info(telegram_deliveries)")}
+    if "created_at" not in columns:
+        db.execute("ALTER TABLE telegram_deliveries ADD COLUMN created_at TEXT")
+        db.execute(
+            "UPDATE telegram_deliveries SET created_at=CURRENT_TIMESTAMP "
+            "WHERE created_at IS NULL"
+        )
     db.commit()
     return db
 
@@ -203,8 +211,13 @@ async def notify_candidates(strategy: str, rows: list[dict[str, Any]]) -> dict[s
                 db = _connect()
                 try:
                     cur = db.execute(
-                        "INSERT OR IGNORE INTO telegram_deliveries(event_key, chat_id, status) "
-                        "VALUES (?, ?, 'PENDING')", (event_key, chat_id)
+                        "INSERT INTO telegram_deliveries(event_key, chat_id, status, created_at) "
+                        "VALUES (?, ?, 'PENDING', CURRENT_TIMESTAMP) "
+                        "ON CONFLICT(event_key, chat_id) DO UPDATE SET "
+                        "status='PENDING', created_at=CURRENT_TIMESTAMP "
+                        "WHERE telegram_deliveries.status='PENDING' "
+                        "AND telegram_deliveries.created_at < datetime('now', '-10 minutes')",
+                        (event_key, chat_id),
                     )
                     db.commit()
                     if cur.rowcount == 0:
