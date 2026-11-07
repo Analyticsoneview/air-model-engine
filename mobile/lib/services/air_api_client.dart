@@ -90,6 +90,25 @@ class AirApiClient {
     ));
   }
 
+  Future<List<Map<String, dynamic>>> operatorAccessRequests({String? status}) async {
+    final uri = Uri.parse('$baseUrl/api/v1/operator/access-requests').replace(
+      queryParameters: status == null ? null : {'status': status},
+    );
+    final data = _decode(await _client.get(uri, headers: _headers));
+    return (data['requests'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>().toList(growable: false);
+  }
+
+  Future<Map<String, dynamic>> reviewOperatorAccessRequest(
+      String requestId, String status, {String note = ''}) async {
+    final response = await _client.put(
+      Uri.parse('$baseUrl/api/v1/operator/access-requests/$requestId'),
+      headers: _headers,
+      body: jsonEncode({'status': status, 'note': note}),
+    );
+    return _decode(response);
+  }
+
   Future<List<Map<String, dynamic>>> brokerCatalog() async {
     final response = await _client.get(
       Uri.parse('$baseUrl/api/v1/brokers/catalog'),
