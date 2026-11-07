@@ -348,11 +348,11 @@ class NSEBhavcopyStore:
         return len(normalized)
 
     def cleanup_expired_fo(self, as_of: date) -> dict[str, Any]:
-        """Purge expired contracts from the active FO table without touching strategy ledgers.
+        """Purge expired FO rows after strategy replay and evidence snapshot.
 
-        Original NSE ZIPs remain retained. Per-session removal counts are tracked so
-        source-vs-database integrity checks do not mistake intentional expiry cleanup
-        for a partial import.
+        Matching strategy evidence is enriched before deletion; lifecycle, entry/exit,
+        quantity and stored P&L fields are not overwritten. Original NSE ZIPs remain
+        retained and per-session removal counts preserve source-count reconciliation.
         """
         with self._db() as db:
             rows = db.execute("""
