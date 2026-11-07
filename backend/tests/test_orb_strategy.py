@@ -45,6 +45,17 @@ class OrbSignalEngineTests(unittest.TestCase):
         self.assertEqual(signals[0]["stop_loss"], "106")
         self.assertEqual(signals[0]["entry_at"], "2026-11-06T09:33:00+05:30")
 
+    def test_only_one_orb_position_can_be_open_at_a_time(self):
+        engine = OrbSignalEngine(["NIFTY", "BANKNIFTY"])
+        engine.on_tick(tick("NIFTY", "12:57:00", 100))
+        engine.on_tick(tick("BANKNIFTY", "12:57:00", 200))
+        engine.on_tick(tick("NIFTY", "12:59:59", 105))
+        engine.on_tick(tick("BANKNIFTY", "12:59:59", 205))
+        engine.on_tick(tick("NIFTY", "13:00:00", 106))
+        engine.on_tick(tick("BANKNIFTY", "13:00:00", 206))
+        self.assertEqual(len(engine.snapshot()["signals"]), 1)
+        self.assertEqual(engine.snapshot()["signals"][0]["symbol"], "NIFTY")
+
     def test_afternoon_stop_is_the_range_candle_low(self):
         engine = OrbSignalEngine(["BANKNIFTY"])
         engine.on_tick(tick("BANKNIFTY", "12:57:00", 500))
