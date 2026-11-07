@@ -6,6 +6,8 @@ import gzip
 import io
 import json
 import os
+import re
+from datetime import date
 from datetime import datetime, timezone
 from typing import Any
 
@@ -60,7 +62,17 @@ def _normalize(provider: str, row: dict[str, Any]) -> dict[str, Any] | None:
     raw_type = str(value.get("option_type") or "").strip().upper()
     option_type = {"CE": "CE", "PE": "PE", "CALL": "CE", "PUT": "PE"}.get(raw_type)
     instrument_type = raw_type or None
+    if option_type is None and raw_type in {"OPTIDX", "OPTSTK"}:
+        suffix = re.search(r"(CE|PE)$", symbol)
+        option_type = suffix.group(1) if suffix else None
     expiry = str(value.get("expiry") or "").strip() or None
+    if expiry:
+        for fmt in ("%d%b%Y", "%Y-%m-%d", "%d-%m-%Y", "%Y%m%d"):
+            try:
+                expiry = datetime.strptime(expiry[:9], fmt).date().isoformat()
+                break
+            except ValueError:
+                continue
     strike = value.get("strike")
     try:
         strike_value = float(strike) if strike not in (None, "") else None
