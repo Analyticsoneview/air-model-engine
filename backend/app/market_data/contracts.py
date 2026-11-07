@@ -16,6 +16,7 @@ class MarketInstrument:
     instrument_type: str | None = None
     expiry_code: int | None = None
     tick_size: Decimal | None = None
+    underlying_symbol: str | None = None
 
 @dataclass(frozen=True)
 class MarketTick:
