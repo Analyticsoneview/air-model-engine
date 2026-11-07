@@ -124,8 +124,8 @@ def _trade_record(row: dict[str, Any], strategy: str) -> dict[str, Any] | None:
     }
 
 
-def build_pnl_calendar(strategy_views: dict[str, Any], *, year: int | None = None,
-                       month: int | None = None) -> dict[str, Any]:
+def build_pnl_calendar(strategy_views: dict[str, Any], *, physical_review: dict[str, Any] | None = None,
+                       year: int | None = None, month: int | None = None) -> dict[str, Any]:
     """Aggregate distinct strategy backtests; physical-delivery view is excluded."""
     selected: list[dict[str, Any]] = []
     sources = (("EXPIRY78", "EXPIRY78"), ("ORIGINAL366", "RECOVERED"))
@@ -244,6 +244,48 @@ def build_pnl_calendar(strategy_views: dict[str, Any], *, year: int | None = Non
     for bucket in [*totals.values(), *days.values(), *months.values()]:
         for key in ("gross_pnl", "estimated_or_actual_charges", "net_pnl", "capital_deployed"):
             bucket[key] = round(bucket[key], 2)
+    physical_rows = []
+    physical_summary = {"contract_count": 0, "capital_deployed": 0.0,
+                        "gross_pnl": 0.0, "charges": None, "net_pnl": None,
+                        "charges_status": "PENDING_BROKER_CONTRACT_NOTE_AND_DELIVERY_TAX_RECONCILIATION"}
+    for source in (physical_review or {}).get("rows", []):
+        quantity = _num(source.get("quantity_shares"))
+        entry = _num(source.get("entry_premium"))
+        capital = round(quantity * entry, 2) if quantity is not None and entry is not None else None
+        gross = _num(source.get("source_gross_pnl"))
+        expiry_day = _date(source.get("expiry"))
+        physical_summary["contract_count"] += 1
+        if capital is not None:
+            physical_summary["capital_deployed"] += capital
+        if gross is not None:
+            physical_summary["gross_pnl"] += gross
+        physical_rows.append({
+            "strategy": "PHYSICAL_SETTLEMENT", "symbol": source.get("symbol"),
+            "option_type": source.get("option_type"), "strike": source.get("strike"),
+            "expiry": expiry_day, "entry_date": None, "entry_price": entry,
+            "quantity": quantity, "capital_deployed": capital,
+            "exit_date": expiry_day, "exit_price": source.get("source_recorded_expiry_value"),
+            "gross_pnl": gross, "charges": None, "net_pnl": None,
+            "classification": source.get("settlement_status"),
+            "itm_status": source.get("itm_status"),
+            "delivery_direction": source.get("delivery_direction_if_itm"),
+            "funds_obligation_at_strike_if_itm": source.get("funds_obligation_at_strike_if_itm"),
+            "pnl_status": "PROVISIONAL_SOURCE_GROSS_ONLY",
+            "charges_status": "PENDING_CONTRACT_NOTE_AND_PHYSICAL_DELIVERY_TAXES",
+        })
+        if expiry_day:
+            day_bucket = days[expiry_day]
+            day_bucket["physical_settlement_gross_pnl"] += gross or 0.0
+            day_bucket["physical_settlement_contracts"] += 1
+            if physical_rows[-1] not in day_bucket["trades"]:
+                day_bucket["trades"].append(physical_rows[-1])
+            month_bucket = months[expiry_day[:7]]
+            month_bucket["physical_settlement_gross_pnl"] += gross or 0.0
+            month_bucket["physical_settlement_contracts"] += 1
+            if physical_rows[-1] not in month_bucket["trades"]:
+                month_bucket["trades"].append(physical_rows[-1])
+    physical_summary["capital_deployed"] = round(physical_summary["capital_deployed"], 2)
+    physical_summary["gross_pnl"] = round(physical_summary["gross_pnl"], 2)
     day_items = []
     for day, bucket in sorted(days.items()):
         if year is not None and int(day[:4]) != year:
@@ -255,7 +297,8 @@ def build_pnl_calendar(strategy_views: dict[str, Any], *, year: int | None = Non
                    if (year is None or int(key[:4]) == year)]
     return {
         "currency": "INR", "year": year, "month": month,
-        "summary": totals,
+        "summary": {**totals, "PHYSICAL_SETTLEMENT": physical_summary},
+        "physical_settlement": {"summary": physical_summary, "rows": physical_rows},
         "days": day_items, "months": month_items,
         "trades": selected,
         "charge_model": {
