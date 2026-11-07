@@ -313,6 +313,7 @@ async def get_original366_engine(
         "stop_losses": len(stopped),
         "recovered_watch_count": len(recovered_watch),
         "counts": {**{key: len(value) for key, value in recovered_groups.items()},
+                   "EXPIRED": len(recovered_groups["EXPIRED"]) + len(winners) + len(expiry_losses),
                    "RECOVERED": len(recovered_watch), "ORIGINAL_SLHIT": len(original_sl_hits)},
         "groups": {
             **recovered_groups,
@@ -327,7 +328,7 @@ async def get_original366_engine(
                 and row["evidence"].get("reentry_verified") is True
                 and _has_strategy_membership(row, "ORIGINAL366")
             ],
-            "EXPIRED": winners + expiry_losses,
+            "EXPIRED": recovered_groups["EXPIRED"] + winners + expiry_losses,
             "EXPIRED_WIN": winners,
             "EXPIRED_LOSS": expiry_losses,
         },
