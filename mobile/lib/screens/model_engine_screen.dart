@@ -57,8 +57,10 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
         _groups = result['groups'] as Map<String, dynamic>? ?? {};
         _strategies = result['strategies'] as Map<String, dynamic>? ?? {};
         if (expiryResult != null) {
-          _expiryRows = (expiryResult['rows'] as List<dynamic>? ?? const [])
-              .whereType<Map<String, dynamic>>().toList();
+          _expiryRows = [
+            ...(expiryResult['rows'] as List<dynamic>? ?? const []),
+            ...(expiryResult['expired_rows'] as List<dynamic>? ?? const []),
+          ].whereType<Map<String, dynamic>>().toList();
           _expiryAlerts = (expiryResult['close_alerts'] as List<dynamic>? ?? const [])
               .whereType<Map<String, dynamic>>().toList();
           _expiryNote = expiryResult['note']?.toString();
