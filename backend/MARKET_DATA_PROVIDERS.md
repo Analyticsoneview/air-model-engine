@@ -18,11 +18,14 @@ startup when the operator account and encrypted credentials are available.
 | Angel One SmartAPI | Pending | Pending | Broker login integration exists; normalized market-data adapter is not wired into the source router |
 | External vendor adapter | Extension point | Extension point | Vendor-specific contract, credentials, SDK/API and entitlement checks are required |
 
-The provider catalog deliberately separates broker account/login support from actual
-historical/live market-data adapter readiness. A catalog entry is not displayed as a
-working feed until its adapter is implemented and verified. AIR currently allows
-only verified adapters to be enabled. This prevents a saved API key or an account
-assignment from being mistaken for a functioning data connection.
+The provider catalog separates account/login support from market-data adapter readiness.
+Dhan is the only provider currently wired to a native streaming market-data WebSocket.
+Zerodha, Upstox, FYERS and Angel One have normalized REST history adapters and live
+quote polling adapters. Polling is not tick-by-tick streaming: it is rate-limited and
+depends on the broker's quote API entitlements. A source becomes authenticated when
+the profile handshake succeeds; actual quote delivery is only confirmed after valid
+instrument subscriptions produce fresh ticks. AIR never treats an account assignment
+or saved API key alone as a connected feed.
 
 ## Scope of the first provider-selection milestone
 
@@ -83,6 +86,11 @@ before entering AIR strategy pipelines. Each adapter must include:
 - Contract tests using sanitized fixtures plus an opt-in live handshake test.
 
 Vendor-specific implementations are not marked READY until these checks and an
-operator-controlled live verification have passed. NSE official EOD bhavcopy remains
+operator-controlled live verification have passed. The generic custom-vendor entry
+is an extension point only; no unnamed third-party vendor is falsely advertised as
+connected. Admins can save broker-specific instrument token mappings through
+**AIR Admin → Market Data Sources**; broker tokens are not interchangeable. Until a
+provider-specific master importer is implemented, those mappings must be sourced
+from the broker's official instrument master. NSE official EOD bhavcopy remains
 the historical fallback for supported daily CM/FO data; it is not a live feed and
 does not provide intraday candles or bid/ask history.
