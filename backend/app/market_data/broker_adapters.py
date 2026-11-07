@@ -18,6 +18,7 @@ from app.brokers.fyers import FyersClient
 from app.brokers.angel import AngelSmartAPI
 from app.market_data.contracts import HistoricalBar, MarketInstrument
 from app.market_data.hub import MarketDataHub
+from app.market_data.session import nse_regular_session_active
 
 
 def _decimal(value: Any) -> Decimal | None:
@@ -153,7 +154,7 @@ class BrokerPollingAdapter:
         state = self._state
         if self._symbols and self._last_tick_at:
             age = (datetime.now(timezone.utc) - _dt(self._last_tick_at)).total_seconds()
-            if age > max(15.0, self.poll_seconds * 5) and state == "connected":
+            if age > max(15.0, self.poll_seconds * 5) and state == "connected" and nse_regular_session_active():
                 state = "stale"
         elif self._symbols and not self._last_tick_at and state == "connected":
             state = "awaiting_first_tick"
