@@ -53,11 +53,11 @@ def _configured_underlyings() -> list[dict]:
     return result
 
 
-async def capture_dhan_eod_snapshots(*, force: bool = False) -> dict:
+async def capture_dhan_eod_snapshots(*, force: bool = False, account_id_override: str | None = None) -> dict:
     if not force and os.getenv("AIR_QOC_SCHEDULER_ENABLED", "false").lower() != "true":
         return {"status": "disabled"}
     customer_ids = [x.strip() for x in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",") if x.strip()]
-    account_id = os.getenv("AIR_QOC_DHAN_ACCOUNT_ID", "").strip()
+    account_id = (account_id_override or os.getenv("AIR_QOC_DHAN_ACCOUNT_ID", "")).strip()
     if not customer_ids or not account_id:
         raise RuntimeError("Configure AIR_OPERATOR_CUSTOMER_IDS and AIR_QOC_DHAN_ACCOUNT_ID")
     customer_id = customer_ids[0]
@@ -181,7 +181,7 @@ async def capture_selected_provider_option_chains(*, force: bool = False) -> dic
     provider, account_id, _adapter = source[0]
     mappings = market_data_instruments.list_all(provider, account_id, limit=50000)
     if not mappings and provider == "dhan":
-        return await capture_dhan_eod_snapshots(force=force)
+        return await capture_dhan_eod_snapshots(force=force, account_id_override=account_id)
     option_rows = [row for row in mappings
                    if str(row.get("option_type") or "").upper() in {"CE", "PE"}
                    and row.get("expiry")]
