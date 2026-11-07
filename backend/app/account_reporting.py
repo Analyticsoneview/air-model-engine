@@ -134,10 +134,15 @@ class AccountReporting:
     @staticmethod
     def _rows(payload: Any) -> list[dict[str, Any]]:
         if isinstance(payload, dict):
-            for key in ("data", "netPositions", "net", "day", "positions", "orders", "holdings", "orderBook", "result"):
+            for key in ("data", "netPositions", "net", "day", "positions",
+                        "orders", "holdings", "orderBook", "result"):
                 value = payload.get(key)
                 if isinstance(value, list):
                     return [x for x in value if isinstance(x, dict)]
+                if isinstance(value, dict):
+                    nested = AccountReporting._rows(value)
+                    if nested:
+                        return nested
             return [payload]
         return [x for x in payload if isinstance(x, dict)] if isinstance(payload, list) else []
 
