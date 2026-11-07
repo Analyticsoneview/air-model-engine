@@ -1,4 +1,4 @@
-""""Shared AIR market-data runtime singletons used by API and strategy engines."""
+"""Shared AIR market-data runtime singletons used by API and strategy engines."""
 from app.market_data.hub import MarketDataHub
 from app.market_data.router import MarketDataRouter
 from app.market_data.provider_registry import MarketDataSourceRegistry
