@@ -38,12 +38,69 @@ def _subtract_months(value: date, months: int) -> date:
     return date(year, month, min(value.day, calendar.monthrange(year, month)[1]))
 
 
-def _date_range(start: date, end: date):
+def _date_range(start: date, end: date, holidays: set[str] | None = None):
+    holidays = holidays or set()
     current = start
     while current <= end:
-        if current.weekday() < 5:
+        if current.weekday() < 5 and current.isoformat() not in holidays:
             yield current
         current += timedelta(days=1)
+
+
+def _parse_nse_calendar(payload: Any, year: int) -> dict[str, Any]:
+    """Normalize NSE holiday-master JSON by segment; never assume CM and FO match."""
+    if not isinstance(payload, dict):
+        raise ValueError("NSE holiday calendar response is not an object")
+    segments: dict[str, list[dict[str, str]]] = {}
+    for segment in ("CM", "FO"):
+        entries = payload.get(segment)
+        if not isinstance(entries, list):
+            raise ValueError(f"NSE holiday calendar is missing {segment}")
+        normalized = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            raw_date = str(entry.get("tradingDate") or "").strip()
+            try:
+                holiday_date = datetime.strptime(raw_date, "%d-%b-%Y").date()
+            except ValueError:
+                try:
+                    holiday_date = date.fromisoformat(raw_date[:10])
+                except ValueError:
+                    continue
+            if holiday_date.year == year:
+                normalized.append({
+                    "date": holiday_date.isoformat(),
+                    "weekday": str(entry.get("weekDay") or ""),
+                    "description": str(entry.get("description") or ""),
+                })
+        segments[segment] = sorted(normalized, key=lambda item: item["date"])
+    return {
+        "source": "NSE holiday-master?type=trading",
+        "year": year,
+        "segments": segments,
+        "fetched_at": datetime.now(IST).isoformat(),
+    }
+
+
+async def _refresh_trading_calendar(client: httpx.AsyncClient, store: "NSEBhavcopyStore",
+                                    year: int) -> dict[str, Any]:
+    url = f"https://www.nseindia.com/api/holiday-master?type=trading&year={year}"
+    try:
+        response = await client.get(url, headers={"Accept": "application/json",
+                                                  "X-Requested-With": "XMLHttpRequest"})
+        response.raise_for_status()
+        calendar = _parse_nse_calendar(response.json(), year)
+        store.set_meta(f"trading_calendar_{year}", calendar)
+        return calendar
+    except (httpx.HTTPError, ValueError, json.JSONDecodeError) as exc:
+        cached = store.get_meta(f"trading_calendar_{year}")
+        if cached:
+            cached["refresh_error"] = f"{type(exc).__name__}: {str(exc)[:180]}"
+            cached["using_cached_calendar"] = True
+            log.warning("NSE holiday calendar refresh failed; using persisted calendar: %s", type(exc).__name__)
+            return cached
+        raise RuntimeError("NSE trading calendar unavailable and no cached calendar exists") from exc
 
 
 def _archive_url(market: str, day: date) -> str:
@@ -240,6 +297,7 @@ class NSEBhavcopyStore:
             "updated_at": datetime.now(IST).isoformat(),
             "source": "NSE UDiFF official end-of-day CM and F&O bhavcopy archives",
             "data_scope": "EOD bhavcopy; not intraday ticks or historical bid/ask snapshots",
+        "trading_calendar": self.get_meta(f"trading_calendar_{datetime.now(IST).year}") or {},
         }
 
     def query(self, market: str, symbol: str | None = None,
@@ -334,8 +392,9 @@ def _get_store() -> NSEBhavcopyStore:
 async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
     store = _get_store()
     today = datetime.now(IST).date()
-    start = _subtract_months(today, 3)
-    days = list(_date_range(start, today))
+    three_month_start = _subtract_months(today, 3)
+    start = three_month_start
+    days: list[date] = []
     archive_root = Path(os.getenv("AIR_NSE_ARCHIVE_DIR", "data/nse_archives"))
     state = {
         "status": "RUNNING", "started_at": datetime.now(IST).isoformat(),
@@ -363,6 +422,32 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
                 await client.get("https://www.nseindia.com/", timeout=12.0)
             except httpx.HTTPError:
                 log.warning("NSE homepage warm-up failed; attempting archive host directly")
+            calendar = await _refresh_trading_calendar(client, store, today.year)
+            holidays = {item["date"] for item in calendar["segments"]["CM"]}
+            # On restart, backfill from the last paired CM+FO session as well as
+            # maintaining the rolling three-calendar-month minimum.
+            with store._db() as db:
+                last_pair = db.execute("""
+                    SELECT MAX(cm.trade_date) AS last_date
+                    FROM nse_bhavcopy_files cm
+                    JOIN nse_bhavcopy_files fo
+                      ON fo.trade_date=cm.trade_date
+                     AND fo.market='FO' AND fo.status='IMPORTED'
+                    WHERE cm.market='CM' AND cm.status='IMPORTED'
+                """).fetchone()
+            if last_pair and last_pair["last_date"]:
+                recovery_start = date.fromisoformat(last_pair["last_date"]) + timedelta(days=1)
+                start = min(three_month_start, recovery_start)
+            days = list(_date_range(start, today, holidays))
+            state.update({
+                "start_date": start.isoformat(),
+                "weekdays_to_check": len(days),
+                "calendar_year": today.year,
+                "calendar_source": calendar["source"],
+                "calendar_fetched_at": calendar["fetched_at"],
+                "recovery_start_date": start.isoformat(),
+            })
+            store.set_meta("bootstrap", state)
             for offset in range(0, len(days), 5):
                 batch = days[offset:offset + 5]
                 tasks = [
@@ -449,7 +534,7 @@ def start_nse_data_jobs() -> None:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
         from apscheduler.triggers.cron import CronTrigger
         _scheduler = AsyncIOScheduler(timezone=IST)
-        _scheduler.add_job(_daily_refresh, CronTrigger(hour=18, minute=15, day_of_week="mon-fri", timezone=IST),
+        _scheduler.add_job(_daily_refresh, CronTrigger(hour=21, minute=0, day_of_week="mon-fri", timezone=IST),
                            id="air-nse-cm-fo-daily-refresh", replace_existing=True,
                            max_instances=1, coalesce=True)
         _scheduler.start()
