@@ -242,6 +242,7 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
                     original_groups["RECOVERED"].append({
                         **item,
                         "classification": "RECOVERED_WATCH",
+                        "signal_date": watch.get("trigger_date"),
                         "entry_price": watch.get("reference_entry_price", item.get("entry_price")),
                         "stop_loss": exit_model.get("stop_loss"),
                         "target_1": exit_model.get("target"),
