@@ -132,6 +132,19 @@ class OrbSignalEngine:
         if building is None or building["start"] != start.isoformat():
             if building is not None:
                 self._complete_morning_candle(symbol, state, building, stamp)
+                completed_entry = state["entry"]
+                # The first tick of the next candle is the executable exit price.
+                if completed_entry and completed_entry["status"] == "EXIT_SIGNAL":
+                    completed_entry.update({"status": "CLOSED", "exit_price": str(price),
+                                            "exit_at": stamp.isoformat()})
+                    return
+                # Apply a newly tightened trailing stop immediately to this first tick.
+                if (completed_entry and completed_entry["status"] == "OPEN"
+                        and price <= Decimal(str(completed_entry["stop_loss"]))):
+                    completed_entry.update({"status": "SL_HIT", "exit_price": str(price),
+                                            "exit_at": stamp.isoformat(),
+                                            "exit_reason": "TRAILING_STOP"})
+                    return
             state["building"] = {"start": start.isoformat(), "open": price,
                                  "high": price, "low": price, "close": price}
             return
