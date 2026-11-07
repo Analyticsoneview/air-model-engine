@@ -116,6 +116,8 @@ class MarketDataService:
             # Never present a failed broker request as broker data. Switch the
             # historical channel to official NSE EOD and remap by contract identity.
             try:
+                if not self.router.is_registered("nse_bhavcopy", "official"):
+                    raise RuntimeError("No customer NSE fallback is registered")
                 await self.router.set_source("historical", "nse_bhavcopy", "official")
                 nse_source = self.router.resolve("historical")
                 if not nse_source:
@@ -177,6 +179,8 @@ class MarketDataService:
             else:
                 # NSE has no live feed. Clear the failed broker live route and
                 # use NSE EOD as the only active strategy source.
+                if not self.router.is_registered("nse_bhavcopy", "official"):
+                    raise broker_error
                 await self.router.clear_source("live")
                 try:
                     await self.router.set_source("historical", "nse_bhavcopy", "official")
@@ -513,7 +517,6 @@ class MarketDataService:
             evidence["daily_option_bars"] = [by_date[key] for key in sorted(by_date)]
             evidence["market_data_source"] = {
                 "provider": actual_provider, "account_id": actual_account,
-                "instrument_token": instrument.token,
                 "normalized_by": "AIR_MARKET_DATA_SERVICE",
             }
             row["evidence"] = evidence
@@ -529,7 +532,9 @@ class MarketDataService:
             "error", "outage", "degraded", "stale", "disconnected",
             "reconnecting", "historical_request_failed", "subscription_failed",
         }
-        if historical.get("failover") != "switched" and historical.get("state") in failed_states:
+        if (historical.get("failover") != "switched"
+                and historical.get("state") in failed_states
+                and self.router.is_registered("nse_bhavcopy", "official")):
             await self.router.set_source("historical", "nse_bhavcopy", "official")
             state = getattr(self, "customer_market_data_status", None)
             if isinstance(state, dict):
@@ -537,7 +542,9 @@ class MarketDataService:
                     "effective_source": "NSE", "connection_status": "unavailable",
                     "fallback_active": True, "fallback_reason": "historical_feed_unhealthy",
                 })
-        if live.get("failover") != "switched" and live.get("state") in failed_states:
+        if (live.get("failover") != "switched"
+                and live.get("state") in failed_states
+                and self.router.is_registered("nse_bhavcopy", "official")):
             await self.router.clear_source("live")
             await self.router.set_source("historical", "nse_bhavcopy", "official")
             state = getattr(self, "customer_market_data_status", None)
