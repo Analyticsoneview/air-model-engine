@@ -108,7 +108,7 @@ From a trusted network, verify:
 ## Important current architecture limits
 
 - The current Swarm file is a single-node, single-replica lab topology. SQLite and process-local OAuth state are not ready for multiple API replicas.
-- The API currently publishes port 8000 for lab access. Firewall it to trusted networks or remove the published port when a TLS reverse proxy is the only ingress.
+- The API port 8000 is private on the Docker overlay and is reachable through Caddy only.
 - Configure a TLS reverse proxy to route the app hostname to \`air-pwa:8080\` and the API hostname to \`air-api:8000\`.
 - Keep \`AIR_QOC_SCHEDULER_ENABLED\` and \`AIR_TELEGRAM_SCHEDULER_ENABLED\` off until the first production smoke tests and broker/data checks pass.
 - No broker order placement is enabled by this deployment. Research alerts are not broker orders.
