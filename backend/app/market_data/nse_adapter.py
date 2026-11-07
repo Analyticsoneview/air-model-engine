@@ -51,6 +51,7 @@ class NSEBhavcopyMarketDataAdapter:
                 option_type=row.get("option_type"),
                 lot_size=int(row["lot_size"]) if row.get("lot_size") else None,
                 instrument_type=str(row.get("instrument_type") or ""),
+                underlying_symbol=str(row.get("symbol") or "").upper(),
             ))
         return result
 
