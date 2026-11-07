@@ -9,10 +9,16 @@ if [[ ! -r "$ENV_FILE" ]]; then
   exit 1
 fi
 
+# Preserve immutable image overrides supplied by the GitHub deployment workflow.
+OVERRIDE_BACKEND_IMAGE="${AIR_BACKEND_IMAGE:-}"
+OVERRIDE_PWA_IMAGE="${AIR_PWA_IMAGE:-}"
 set -a
 # shellcheck disable=SC1090
 source "$ENV_FILE"
 set +a
+if [[ -n "$OVERRIDE_BACKEND_IMAGE" ]]; then AIR_BACKEND_IMAGE="$OVERRIDE_BACKEND_IMAGE"; fi
+if [[ -n "$OVERRIDE_PWA_IMAGE" ]]; then AIR_PWA_IMAGE="$OVERRIDE_PWA_IMAGE"; fi
+unset OVERRIDE_BACKEND_IMAGE OVERRIDE_PWA_IMAGE
 
 : "${AIR_BACKEND_IMAGE:?AIR_BACKEND_IMAGE must be supplied by the deployment workflow}"
 : "${AIR_PWA_IMAGE:?AIR_PWA_IMAGE must be supplied by the deployment workflow}"
