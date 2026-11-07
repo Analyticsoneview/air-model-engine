@@ -63,9 +63,7 @@ def _number(value: Any) -> float | None:
         return None
 
 
-def _field(row: dict[str, Any], *names: str) -> str | None:
-    normalized = {re.sub(r"[^A-Z0-9]", "", str(key).upper()): value
-                  for key, value in row.items()}
+def _field_from(normalized: dict[str, Any], *names: str) -> str | None:
     for name in names:
         value = normalized.get(re.sub(r"[^A-Z0-9]", "", name.upper()))
         if value is not None and str(value).strip() not in {"", "NA", "N/A"}:
@@ -74,12 +72,15 @@ def _field(row: dict[str, Any], *names: str) -> str | None:
 
 
 def _normalize(market: str, trade_date: str, row: dict[str, Any]) -> dict[str, Any]:
-    symbol = _field(row, "TckrSymb", "TckrSym", "Underlying", "Symbol") or ""
-    instrument_id = _field(row, "FinInstrmId", "FinInstrmID", "SctySrs") or ""
-    instrument_type = _field(row, "FinInstrmTp", "FinInstrmNm", "Instrument") or ""
-    expiry = _field(row, "XpryDt", "FininstrmActlXpryDt", "Expiry")
-    option_type = _field(row, "OptnTp", "OptionType")
-    strike = _number(_field(row, "StrkPric", "StrikePrice"))
+    normalized = {re.sub(r"[^A-Z0-9]", "", str(key).upper()): value
+                  for key, value in row.items()}
+    field = lambda *names: _field_from(normalized, *names)
+    symbol = field("TckrSymb", "TckrSym", "Underlying", "Symbol") or ""
+    instrument_id = field("FinInstrmId", "FinInstrmID", "SctySrs") or ""
+    instrument_type = field("FinInstrmTp", "FinInstrmNm", "Instrument") or ""
+    expiry = field("XpryDt", "FininstrmActlXpryDt", "Expiry")
+    option_type = field("OptnTp", "OptionType")
+    strike = _number(field("StrkPric", "StrikePrice"))
     if not symbol and not instrument_id:
         return {}
     key = "|".join((instrument_id, symbol, expiry or "", str(strike or ""), option_type or ""))
@@ -93,21 +94,21 @@ def _normalize(market: str, trade_date: str, row: dict[str, Any]) -> dict[str, A
         "expiry": expiry,
         "strike": strike,
         "option_type": option_type.upper() if option_type else None,
-        "open": _number(_field(row, "OpnPric", "OpenPrice")),
-        "high": _number(_field(row, "HghPric", "HighPrice")),
-        "low": _number(_field(row, "LwPric", "LowPrice")),
-        "close": _number(_field(row, "ClsPric", "ClosePrice")),
-        "last": _number(_field(row, "LastPric", "LastPrice")),
-        "previous_close": _number(_field(row, "PrvsClsgPric", "PreviousClose")),
-        "settlement": _number(_field(row, "SttlmPric", "SettlementPrice")),
-        "underlying_price": _number(_field(row, "UndrlygPric", "UnderlyingPrice")),
-        "volume": _number(_field(row, "TtlTradgVol", "TtlTrdngVol", "Volume")),
-        "turnover": _number(_field(row, "TtlTrfVal", "Turnover")),
-        "trades": _number(_field(row, "TtlNbOfTxsExctd", "NumberOfTrades")),
-        "open_interest": _number(_field(row, "OpnIntrst", "OpenInterest")),
-        "oi_change": _number(_field(row, "ChngInOpnIntrst", "ChangeInOpenInterest")),
-        "lot_size": _number(_field(row, "NewBrdLotQty", "LotSize")),
-        "isin": _field(row, "ISIN"),
+        "open": _number(field( "OpnPric", "OpenPrice")),
+        "high": _number(field( "HghPric", "HighPrice")),
+        "low": _number(field( "LwPric", "LowPrice")),
+        "close": _number(field( "ClsPric", "ClosePrice")),
+        "last": _number(field( "LastPric", "LastPrice")),
+        "previous_close": _number(field( "PrvsClsgPric", "PreviousClose")),
+        "settlement": _number(field( "SttlmPric", "SettlementPrice")),
+        "underlying_price": _number(field( "UndrlygPric", "UnderlyingPrice")),
+        "volume": _number(field( "TtlTradgVol", "TtlTrdngVol", "Volume")),
+        "turnover": _number(field( "TtlTrfVal", "Turnover")),
+        "trades": _number(field( "TtlNbOfTxsExctd", "NumberOfTrades")),
+        "open_interest": _number(field( "OpnIntrst", "OpenInterest")),
+        "oi_change": _number(field( "ChngInOpnIntrst", "ChangeInOpenInterest")),
+        "lot_size": _number(field( "NewBrdLotQty", "LotSize")),
+        "isin": field( "ISIN"),
     }
 
 
@@ -350,7 +351,7 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
         "Referer": "https://www.nseindia.com/",
     }
     results: list[dict[str, Any]] = []
-    semaphore = asyncio.Semaphore(4)
+    semaphore = asyncio.Semaphore(2)
     timeout = httpx.Timeout(35.0, connect=15.0)
     try:
         async with httpx.AsyncClient(headers=headers, timeout=timeout,
