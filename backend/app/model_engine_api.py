@@ -301,7 +301,7 @@ async def get_original366_engine(
         "contracts": contracts,
         "new_candidates_pending_replay": len(new_rows),
         "data_status": "POPULATED" if contracts else "AWAITING_VERIFIED_DAILY_OHLCV",
-        "note": "RECOVERED is a watch-only section for the ORIGINAL366 reference cohort. A post-SL daily option close above original entry premium adds a watch row; it does not create a re-entry, open position, order or P&L event. No broker orders are placed.",
+        "note": "RECOVERED is a watch/backtest section for the ORIGINAL366 reference cohort. A post-original-5%-SL daily close above original entry adds a watch row; its retrospective alternative exit uses the same original entry price with 10% SL / 45% target. Alternative-model points are historical analysis only; no live position, re-entry or broker order is created.",
     }
 
 
