@@ -183,7 +183,7 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
             bucket = status if status in groups else None
             if bucket:
                 groups[bucket].append(row)
-        groups["OPEN"] = groups["NEW"] + groups["HOLD"]
+        groups["OPEN"] = groups["NEW"] + groups["HOLD"] + (groups["REENTRY"] if strategy in ("EXPIRY78", "RECOVERY") else [])
         for values in groups.values():
             values.sort(key=_sort_key, reverse=True)
         result[strategy] = {
