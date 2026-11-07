@@ -150,6 +150,50 @@ class AirApiClient {
     return _decode(response);
   }
 
+  Future<List<Map<String, dynamic>>> operatorBrokerAccounts() async {
+    final data = _decode(await _client.get(
+      Uri.parse('$baseUrl/api/v1/operator/broker-accounts'),
+      headers: _headers,
+    ));
+    return (data['accounts'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>().toList(growable: false);
+  }
+
+  Future<Map<String, dynamic>> operatorAssignBrokerAccount(
+      String customerId, String broker, String accountId) async {
+    return _decode(await _client.post(
+      Uri.parse('$baseUrl/api/v1/operator/broker-accounts'),
+      headers: _headers,
+      body: jsonEncode({
+        'customer_id': customerId.trim(),
+        'broker': broker,
+        'account_id': accountId.trim(),
+      }),
+    ));
+  }
+
+  Future<Map<String, dynamic>> operatorSaveBrokerCredentials(
+      String customerId, String broker, String accountId,
+      Map<String, String> credentials) async {
+    return _decode(await _client.put(
+      Uri.parse('$baseUrl/api/v1/operator/broker-accounts/'
+          '${Uri.encodeComponent(customerId)}/${Uri.encodeComponent(broker)}/'
+          '${Uri.encodeComponent(accountId)}/credentials'),
+      headers: _headers,
+      body: jsonEncode({'credentials': credentials}),
+    ));
+  }
+
+  Future<Map<String, dynamic>> operatorRemoveBrokerAccount(
+      String customerId, String broker, String accountId) async {
+    return _decode(await _client.delete(
+      Uri.parse('$baseUrl/api/v1/operator/broker-accounts/'
+          '${Uri.encodeComponent(customerId)}/${Uri.encodeComponent(broker)}/'
+          '${Uri.encodeComponent(accountId)}'),
+      headers: _headers,
+    ));
+  }
+
   Future<Map<String, dynamic>> modelEngineLedger({int limit = 500}) async {
     final response = await _client.get(
       Uri.parse('$baseUrl/api/v1/model-engine/ledger?limit=$limit'),
