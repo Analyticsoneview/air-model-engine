@@ -148,7 +148,7 @@ def build_pnl_calendar(strategy_views: dict[str, Any], *, year: int | None = Non
                 "estimated_or_actual_charges": 0.0, "net_pnl": 0.0,
                 "capital_deployed": 0.0, "capital_records": 0,
                 "capital_missing_quantity": 0, "charges_estimated_count": 0,
-                "charges_actual_count": 0, "trades": []}
+                "charges_actual_count": 0, "entries_count": 0, "peak_concurrent_capital": 0.0, "trades": []}
 
     days: dict[str, dict] = defaultdict(blank)
     months: dict[str, dict] = defaultdict(blank)
@@ -167,33 +167,61 @@ def build_pnl_calendar(strategy_views: dict[str, Any], *, year: int | None = Non
             if trade.get("gross_pnl") is not None and exit_day:
                 bucket["realized_trade_count"] += 1
                 bucket["gross_pnl"] += trade["gross_pnl"]
-                bucket["net_pnl"] += trade["net_pnl"] if trade.get("net_pnl") is not None else trade["gross_pnl"]
+                if trade.get("net_pnl") is not None:
+                    bucket["net_pnl"] += trade["net_pnl"]
                 if trade.get("charges"):
                     bucket["estimated_or_actual_charges"] += trade["charges"]["total"]
                     if trade["charges"]["basis"].startswith("ESTIMATED"):
                         bucket["charges_estimated_count"] += 1
                     else:
                         bucket["charges_actual_count"] += 1
-            if trade.get("charges") and trade["charges"]["basis"].startswith("ESTIMATED"):
-                pass
-        if exit_day:
-            bucket_keys = [exit_day, exit_day[:7]]
-            for key, bucket in ((bucket_keys[0], days[key_bucket := bucket_keys[0]]),
-                                (bucket_keys[1], months[bucket_keys[1]])):
-                bucket["trade_count"] += 1
-                bucket["realized_trade_count"] += int(trade.get("gross_pnl") is not None)
-                bucket["gross_pnl"] += trade.get("gross_pnl") or 0.0
-                bucket["estimated_or_actual_charges"] += (trade.get("charges") or {}).get("total", 0.0)
-                bucket["net_pnl"] += trade.get("net_pnl") if trade.get("net_pnl") is not None else (trade.get("gross_pnl") or 0.0)
-                bucket["trades"].append(trade)
+         if exit_day:
+            exit_bucket = days[exit_day]
+            exit_bucket["trade_count"] += 1
+            exit_bucket["realized_trade_count"] += int(trade.get("gross_pnl") is not None)
+            exit_bucket["gross_pnl"] += trade.get("gross_pnl") or 0.0
+            exit_bucket["estimated_or_actual_charges"] += (trade.get("charges") or {}).get("total", 0.0)
+            if trade.get("net_pnl") is not None:
+                exit_bucket["net_pnl"] += trade["net_pnl"]
+            exit_bucket["trades"].append(trade)
+            month_exit = months[exit_day[:7]]
+            month_exit["trade_count"] += 1
+            month_exit["realized_trade_count"] += int(trade.get("gross_pnl") is not None)
+            month_exit["gross_pnl"] += trade.get("gross_pnl") or 0.0
+            month_exit["estimated_or_actual_charges"] += (trade.get("charges") or {}).get("total", 0.0)
+            if trade.get("net_pnl") is not None:
+                month_exit["net_pnl"] += trade["net_pnl"]
+            month_exit["trades"].append(trade)
         # Capital is allocated on entry date, not exit date.
         entry_bucket = days[entry_day]
         entry_bucket["capital_deployed"] += trade.get("capital_deployed") or 0.0
         entry_bucket["capital_records"] += int(trade.get("capital_deployed") is not None)
+        entry_bucket["entries_count"] += 1
+        if trade not in entry_bucket["trades"]:
+            entry_bucket["trades"].append(trade)
         month_bucket = months[entry_day[:7]]
         month_bucket["capital_deployed"] += trade.get("capital_deployed") or 0.0
         month_bucket["capital_records"] += int(trade.get("capital_deployed") is not None)
+        month_bucket["entries_count"] += 1
+        if trade not in month_bucket["trades"]:
+            month_bucket["trades"].append(trade)
 
+    # Peak concurrent deployed capital uses entry-to-exit intervals.
+    for strategy_name, bucket in totals.items():
+        portfolio = selected if strategy_name == "overall" else [t for t in selected if t["strategy"] == strategy_name]
+        events: dict[str, float] = defaultdict(float)
+        for trade in portfolio:
+            capital = trade.get("capital_deployed")
+            if capital is None:
+                continue
+            events[trade["entry_date"]] += capital
+            if trade.get("exit_date"):
+                events[trade["exit_date"]] -= capital
+        running = peak = 0.0
+        for event_day in sorted(events):
+            running += events[event_day]
+            peak = max(peak, running)
+        bucket["peak_concurrent_capital"] = round(peak, 2)
     for bucket in [*totals.values(), *days.values(), *months.values()]:
         for key in ("gross_pnl", "estimated_or_actual_charges", "net_pnl", "capital_deployed"):
             bucket[key] = round(bucket[key], 2)
