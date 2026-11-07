@@ -150,6 +150,59 @@ class AirApiClient {
     return _decode(response);
   }
 
+  Future<Map<String, dynamic>> brokerLoginUrl(String broker, String accountId) async {
+    final path = switch (broker) {
+      'zerodha' => 'zerodha',
+      'upstox' => 'upstox',
+      'fyers' => 'fyers',
+      _ => throw ArgumentError('OAuth login URL is not available for $broker'),
+    };
+    return _decode(await _client.get(
+      Uri.parse('$baseUrl/api/v1/customer/accounts/$path/'
+          '${Uri.encodeComponent(accountId)}/login-url'),
+      headers: _headers,
+    ));
+  }
+
+  Future<Map<String, dynamic>> brokerExchange(
+      String broker, String accountId, String code, {String? state}) async {
+    final path = switch (broker) {
+      'zerodha' => 'zerodha',
+      'upstox' => 'upstox',
+      'fyers' => 'fyers',
+      _ => throw ArgumentError('OAuth exchange is not available for $broker'),
+    };
+    final payload = switch (broker) {
+      'zerodha' => {'request_token': code},
+      'upstox' => {'code': code, 'state': state ?? ''},
+      'fyers' => {'auth_code': code, 'state': state ?? ''},
+      _ => <String, String>{},
+    };
+    return _decode(await _client.post(
+      Uri.parse('$baseUrl/api/v1/customer/accounts/$path/'
+          '${Uri.encodeComponent(accountId)}/exchange'),
+      headers: _headers,
+      body: jsonEncode(payload),
+    ));
+  }
+
+  Future<Map<String, dynamic>> verifyDhan(String accountId) async {
+    return _decode(await _client.post(
+      Uri.parse('$baseUrl/api/v1/customer/accounts/dhan/'
+          '${Uri.encodeComponent(accountId)}/verify'),
+      headers: _headers,
+    ));
+  }
+
+  Future<Map<String, dynamic>> loginAngel(String accountId, String totp) async {
+    return _decode(await _client.post(
+      Uri.parse('$baseUrl/api/v1/customer/accounts/angel-one/'
+          '${Uri.encodeComponent(accountId)}/login'),
+      headers: _headers,
+      body: jsonEncode({'totp': totp}),
+    ));
+  }
+
   Future<List<Map<String, dynamic>>> operatorBrokerAccounts() async {
     final data = _decode(await _client.get(
       Uri.parse('$baseUrl/api/v1/operator/broker-accounts'),
