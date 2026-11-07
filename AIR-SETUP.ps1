@@ -10,10 +10,23 @@ function Invoke-Gh([string[]]$Arguments) {
     & gh @Arguments
     if ($LASTEXITCODE -ne 0) { Stop-AirSetup "GitHub CLI command failed: gh $($Arguments -join ' ')" }
 }
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Stop-AirSetup "Git is required to run AIR-SETUP. Install Git for Windows, then launch AIR-SETUP again." }
 $CurrentBranch = (& git branch --show-current).Trim()
 if ($LASTEXITCODE -ne 0 -or $CurrentBranch -ne $Branch) { Stop-AirSetup "Check out branch $Branch first." }
-if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { Stop-AirSetup "GitHub CLI is required. Install it from https://cli.github.com/ and rerun AIR-SETUP." }
-if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Stop-AirSetup "Git is required." }
+if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
+    Write-Host "GitHub CLI is missing. Installing it now..."
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        & winget install --id GitHub.cli --exact --silent --accept-package-agreements --accept-source-agreements
+        if ($LASTEXITCODE -ne 0) { Stop-AirSetup "GitHub CLI installation through winget failed." }
+    } elseif (Get-Command choco -ErrorAction SilentlyContinue) {
+        & choco install gh -y
+        if ($LASTEXITCODE -ne 0) { Stop-AirSetup "GitHub CLI installation through Chocolatey failed." }
+    } else {
+        Stop-AirSetup "No supported package manager found. Install GitHub CLI from https://cli.github.com/ and rerun AIR-SETUP."
+    }
+    $env:Path = "$env:ProgramFiles\GitHub CLI;$env:LOCALAPPDATA\Programs\GitHub CLI;$env:Path"
+    if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { Stop-AirSetup "GitHub CLI installed but not on PATH. Open a new PowerShell window and rerun." }
+}
 & gh auth status -h github.com *> $null
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Opening GitHub browser authentication. Sign in and grant repository access."
