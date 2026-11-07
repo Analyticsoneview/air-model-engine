@@ -1273,12 +1273,14 @@ async def update_execution_policy(
 
 @app.get("/api/v1/operator/market-data/master-status")
 async def get_broker_master_status(operator_id: str = Depends(require_air_operator)) -> dict:
+    refresher = BrokerMasterRefresher(market_data_instruments)
+    try:
+        urls = {provider: bool(refresher.url_for(provider))
+                for provider in ("dhan", "zerodha", "upstox", "fyers", "angelone")}
+    finally:
+        await refresher.close()
     return {"masters": market_data_instruments.master_status(),
-            "refresh_time_ist": "07:00 weekdays",
-            "configured_urls": {
-                provider: bool(BrokerMasterRefresher(market_data_instruments).url_for(provider))
-                for provider in ("dhan", "zerodha", "upstox", "fyers", "angelone")
-            }}
+            "refresh_time_ist": "07:00 weekdays", "configured_urls": urls}
 
 
 @app.post("/api/v1/operator/market-data/masters/refresh")
