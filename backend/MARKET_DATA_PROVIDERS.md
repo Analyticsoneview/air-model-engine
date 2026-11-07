@@ -18,6 +18,13 @@ startup when the operator account and encrypted credentials are available.
 | Angel One SmartAPI | Implemented | Implemented | Account-scoped historical REST and SmartWebSocketV2 adapter; network identity and live verification required |
 | External vendor adapter | Extension point | Extension point | Vendor-specific contract, credentials, SDK/API and entitlement checks are required |
 
+FYERS master refresh uses the official ticker-keyed JSON symbol masters for NSE CM,
+NSE FO, BSE CM and BSE FO. The importer normalizes FYERS Fytoken, ticker, exchange,
+segment, underlying, option side, strike, expiry and lot-size fields into the AIR
+instrument directory. FYERS documents one master file per exchange segment and
+publishes the official NSE/BSE URLs at
+https://fyers.in/api-docs/v3/api/market-information/symbol-master/symbol-master-json/.
+
 The provider catalog separates account/login support from market-data adapter readiness.
 Dhan, Zerodha, Upstox, FYERS and Angel One now have native streaming adapter
 implementations in the codebase alongside normalized historical REST adapters. The
