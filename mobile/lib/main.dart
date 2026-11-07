@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'auth/air_access_gate.dart';
@@ -1105,15 +1107,18 @@ class NseBootstrapSummaryCard extends StatefulWidget {
 class _NseBootstrapSummaryCardState extends State<NseBootstrapSummaryCard> {
   final AirApiClient _api = AirApiClient();
   late Future<Map<String, dynamic>> _future;
+  Timer? _poller;
 
   @override
   void initState() {
     super.initState();
     _future = _api.nseDataStatus();
+    _poller = Timer.periodic(const Duration(seconds: 15), (_) => _refresh());
   }
 
   @override
   void dispose() {
+    _poller?.cancel();
     _api.dispose();
     super.dispose();
   }
