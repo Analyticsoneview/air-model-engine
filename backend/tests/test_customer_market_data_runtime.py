@@ -71,8 +71,9 @@ class CustomerMarketDataRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_selected_broker_without_paid_entitlement_stays_on_nse(self):
         accounts = CustomerAccountDirectory(":memory:")
         accounts.add(CustomerTradingAccount("standard-2", "dhan", "D002"))
-        accounts.set_market_data_access("standard-2", "STANDARD", False)
+        accounts.set_market_data_access("standard-2", "PAID", True)
         accounts.set_market_data_selection("standard-2", "dhan", "D002")
+        accounts.set_market_data_access("standard-2", "STANDARD", False)
         runtime = CustomerMarketDataRuntime(
             accounts, None,
             lambda customer, provider, account, hub: FakeBrokerAdapter(provider, hub),
