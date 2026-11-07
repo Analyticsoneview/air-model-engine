@@ -243,15 +243,17 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   }
 
   String _physicalDeliveryAlertDisplay(Map<String, dynamic> r) {
+    final setup = r['physical_delivery_at_setup'];
     final entry = r['physical_delivery_at_entry'];
     final current = r['physical_delivery_current'];
     if (current is! Map) return '⚪ DATA REQUIRED';
     final icon = current['icon']?.toString() ?? '⚪';
     final status = current['status']?.toString() ?? 'UNKNOWN';
+    final setupStatus = setup is Map ? (setup['status']?.toString() ?? 'UNKNOWN') : 'UNKNOWN';
     final entryStatus = entry is Map ? (entry['status']?.toString() ?? 'UNKNOWN') : 'UNKNOWN';
     final distance = current['distance_to_strike_pct'];
     final dte = current['days_to_expiry'];
-    final parts = <String>['$icon $status', 'Entry: $entryStatus'];
+    final parts = <String>['$icon $status', 'Setup: $setupStatus', 'Entry: $entryStatus'];
     if (distance != null) parts.add('Strike gap: $distance%');
     if (dte != null) parts.add('DTE: $dte');
     return parts.join(' • ');
@@ -272,7 +274,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       _cell(_v(r, 'option_type')),
       _cell(_v(r, 'strike')),
       _cell(_v(r, 'expiry')),
-      _cell(_v(r, 'entry_price')),
+      _cell(_v(r, 'entry_price') == '—' ? (r['entry_limit']?.toString() ?? '—') : _v(r, 'entry_price')),
       _cell(_v(r, 'latest_price')),
       _cell(_quantityLots(r)),
       _cell(_stopDisplay(r)),
