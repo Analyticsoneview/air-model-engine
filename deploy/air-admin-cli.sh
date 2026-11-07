@@ -25,10 +25,10 @@ case "$ACTION" in
   list)
     STATUS="${2:-PENDING}"
     if [[ "$STATUS" == "ALL" ]]; then
-      curl --fail-with-body -fsS -H "X-AIR-ADMIN-KEY: $ADMIN_KEY" \
+      curl --fail-with-body -sS -H "X-AIR-ADMIN-KEY: $ADMIN_KEY" \
         "${AIR_API_BASE_URL}/api/v1/admin/access-requests"
     else
-      curl --fail-with-body -fsS -G -H "X-AIR-ADMIN-KEY: $ADMIN_KEY" \
+      curl --fail-with-body -sS -G -H "X-AIR-ADMIN-KEY: $ADMIN_KEY" \
         --data-urlencode "status=$STATUS" \
         "${AIR_API_BASE_URL}/api/v1/admin/access-requests"
     fi
@@ -42,7 +42,7 @@ case "$ACTION" in
       reject) STATUS="REJECTED" ;;
       block) STATUS="BLOCKED" ;;
     esac
-    curl --fail-with-body -fsS -X PUT \
+    curl --fail-with-body -sS -X PUT \
       -H "X-AIR-ADMIN-KEY: $ADMIN_KEY" \
       -H "Content-Type: application/json" \
       -d "{\"status\":\"$STATUS\",\"note\":\"Reviewed by AIR operator\"}" \
