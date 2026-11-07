@@ -126,6 +126,18 @@ class MarketDataService:
             key = (symbol, expiry, str(strike), option_type)
             if key not in cache:
                 candidates = self.instruments.search(provider, account_id, symbol, 500)
+                if not candidates:
+                    try:
+                        native = await adapter.search_instruments(symbol, limit=500)
+                        candidates = [{
+                            "exchange": item.exchange, "symbol": item.symbol, "token": item.token,
+                            "segment": item.segment, "expiry": item.expiry,
+                            "strike": str(item.strike) if item.strike is not None else None,
+                            "option_type": item.option_type, "lot_size": item.lot_size,
+                            "instrument_type": item.instrument_type,
+                        } for item in native]
+                    except Exception:
+                        candidates = []
                 found = [item for item in candidates
                          if str(item.get("expiry") or "")[:10] == expiry
                          and str(item.get("option_type") or "").upper() == option_type
