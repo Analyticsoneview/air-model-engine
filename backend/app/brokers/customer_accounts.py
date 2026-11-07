@@ -118,6 +118,12 @@ class CustomerAccountDirectory:
             )
         if cursor.rowcount != 1:
             raise PermissionError("Customer does not own this broker account")
+        with self._connection:
+            self._connection.execute(
+                "DELETE FROM customer_market_data_selection "
+                "WHERE customer_id=? AND provider=? AND account_id=?",
+                (customer_id.strip(), broker.strip().lower(), account_id.strip()),
+            )
 
     def authorize_order_target(self, customer_id: str, broker: str, account_id: str) -> None:
         row = self._connection.execute(
