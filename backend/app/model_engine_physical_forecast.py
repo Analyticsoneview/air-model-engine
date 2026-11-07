@@ -36,7 +36,12 @@ def _bars(evidence: dict[str, Any]) -> list[dict[str, float]]:
                 or min(close, high, low, op) <= 0 or high < max(op, close, low)
                 or low > min(op, close) or (volume is not None and volume < 0)):
             continue
-        valid.append({"date": str(row.get("date") or "")[:10], "open": op,
+        date_text = str(row.get("date") or "")[:10]
+        try:
+            date.fromisoformat(date_text)
+        except ValueError:
+            continue
+        valid.append({"date": date_text, "open": op,
                       "high": high, "low": low, "close": close,
                       "volume": volume or 0.0})
     valid.sort(key=lambda x: x["date"])
@@ -76,6 +81,27 @@ def forecast_physical_settlement(record: dict[str, Any], *, as_of: str | None = 
         return {"physical_settlement_risk": "UNKNOWN", "forecast_itm": "UNKNOWN",
                 "itm_probability_pct": None, "forecast_status": "INSUFFICIENT_AS_OF_HISTORY",
                 "underlying_bars_used": len(bars), "delivery_direction_if_itm": _delivery(side, position)}
+    expiry_bar = next((b for b in bars if b["date"] == expiry.isoformat()), None)
+    if expiry <= cutoff and expiry_bar is not None:
+        expiry_close = expiry_bar["close"]
+        itm = expiry_close > strike if side == "CE" else expiry_close < strike
+        quantity = _number(record.get("position_quantity") or record.get("quantity") or evidence.get("position_quantity"))
+        quantity = int(quantity) if quantity is not None and quantity > 0 else None
+        direction = _delivery(side, position) if itm else "NO_DELIVERY"
+        notional = round(strike * quantity, 2) if itm and quantity else None
+        return {
+            "physical_settlement_risk": "CRITICAL" if itm else "LOW",
+            "forecast_itm": "YES" if itm else "NO",
+            "itm_probability_pct": 100.0 if itm else 0.0,
+            "forecast_stock_price": round(expiry_close, 2),
+            "current_underlying_price": round(bars[-1]["close"], 2),
+            "delivery_direction_if_itm": direction,
+            "delivery_quantity_if_itm": quantity if itm else 0,
+            "estimated_strike_notional_if_itm": notional,
+            "verified_expiry_underlying_close": round(expiry_close, 2),
+            "forecast_status": "VERIFIED_EXPIRY_CLOSE",
+            "underlying_bars_used": len(bars),
+        }
     closes = [b["close"] for b in bars]
     spot = closes[-1]
     returns = [(closes[i] / closes[i-1]) - 1.0 for i in range(1, len(closes)) if closes[i-1] > 0]
