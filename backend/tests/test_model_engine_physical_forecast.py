@@ -1,4 +1,4 @@
-from app.model_engine_physical_forecast import forecast_physical_settlement
+from app.model_engine_physical_forecast import forecast_physical_settlement, physical_settlement_early_warning
 
 
 def _bars(closes, start="2026-11-01"):
@@ -58,3 +58,42 @@ def test_index_options_are_excluded_from_physical_delivery():
     })
     assert result["physical_settlement_risk"] == "NOT_APPLICABLE"
     assert result["delivery_direction"] == "CASH_SETTLED_INDEX"
+
+
+def test_early_warning_qualifies_stock_call_while_position_is_open():
+    bars = _bars([100, 101, 100, 102, 101, 103, 102, 104, 103, 104, 101],
+                 start="2026-11-01")
+    result = physical_settlement_early_warning({
+        "instrument_type": "STOCK", "option_type": "CE", "strike": 100,
+        "expiry": "2026-11-26", "entry_date": "2026-11-11", "quantity": 50,
+        "evidence": {"daily_underlying_bars": bars}
+    }, as_of="2026-11-11")
+    assert result["status"] == "QUALIFIED"
+    assert result["qualified"] is True
+    assert result["delivery_direction_if_itm"] == "TAKE_SHARES"
+
+
+def test_early_warning_critical_near_expiry_and_highlights_put_delivery():
+    bars = _bars([100, 101, 100, 102, 101, 103, 102, 104, 103, 104, 99],
+                 start="2026-11-01")
+    result = physical_settlement_early_warning({
+        "instrument_type": "STOCK", "option_type": "PE", "strike": 100,
+        "expiry": "2026-11-14", "quantity": 25,
+        "evidence": {"daily_underlying_bars": bars}
+    }, as_of="2026-11-11")
+    assert result["status"] == "CRITICAL"
+    assert result["icon"] == "🔴"
+    assert result["delivery_direction_if_itm"] == "GIVE_SHARES"
+
+
+def test_early_warning_requires_underlying_data_and_excludes_index_options():
+    missing = physical_settlement_early_warning({
+        "instrument_type": "STOCK", "option_type": "CE", "strike": 100,
+        "expiry": "2026-11-30", "evidence": {}
+    })
+    index = physical_settlement_early_warning({
+        "instrument_type": "INDEX", "option_type": "CE", "strike": 25000,
+        "expiry": "2026-11-30", "evidence": {}
+    })
+    assert missing["status"] == "DATA_REQUIRED"
+    assert index["status"] == "NOT_APPLICABLE"
