@@ -255,11 +255,13 @@ class MarketDataService:
                     exchange=item["exchange"], symbol=item["symbol"], token=str(item["token"]),
                     segment=item["segment"], expiry=item.get("expiry"),
                     strike=Decimal(str(item["strike"])), option_type=side,
-                    lot_size=item.get("lot_size"), instrument_type=item.get("instrument_type")))
+                    lot_size=item.get("lot_size"), instrument_type=item.get("instrument_type"),
+                    underlying_symbol=item.get("underlying_symbol") or symbol))
             elif not side and underlying is None:
                 underlying = MarketInstrument(
                     exchange=item["exchange"], symbol=item["symbol"], token=str(item["token"]),
-                    segment=item["segment"], instrument_type=item.get("instrument_type"))
+                    segment=item["segment"], instrument_type=item.get("instrument_type"),
+                    underlying_symbol=symbol)
         if not options:
             raise RuntimeError(f"No mapped CE/PE contracts for {symbol} expiry {expiry}")
         subscriptions = list(options)
@@ -362,7 +364,8 @@ class MarketDataService:
                         exchange=item["exchange"], symbol=item["symbol"], token=item["token"],
                         segment=item["segment"], expiry=item.get("expiry"), strike=strike,
                         option_type=option_type, lot_size=item.get("lot_size"),
-                        instrument_type=item.get("instrument_type"))
+                        instrument_type=item.get("instrument_type"),
+                        underlying_symbol=item.get("underlying_symbol") or symbol)
                 else:
                     cache[key] = None
             instrument = cache[key]
