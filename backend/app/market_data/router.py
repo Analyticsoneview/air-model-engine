@@ -24,6 +24,7 @@ class MarketDataRouter:
         self._last_error: dict[str, str | None] = {"historical": None, "live": None}
         self._failover_enabled = {"historical": False, "live": False}
         self._failover_events: list[dict] = []
+        self._forced_unhealthy: dict[str, str | None] = {"historical": None, "live": None}
 
     def register(self, account_id: str, adapter: MarketDataAdapter) -> None:
         key = (adapter.provider_code.strip().lower(), account_id.strip())
@@ -77,6 +78,13 @@ class MarketDataRouter:
         self._failover_accounts[channel] = unique
         self._failover_enabled[channel] = bool(enabled)
 
+    async def mark_unhealthy(self, channel: Literal["historical", "live"], reason: str) -> None:
+        if channel not in ("historical", "live"):
+            raise ValueError("Unsupported market-data channel")
+        self._forced_unhealthy[channel] = reason[:120]
+        self._connection_state[channel] = "degraded"
+        self._last_error[channel] = reason[:120]
+
     async def check_health(self, channel: Literal["historical", "live"]) -> dict:
         if channel not in ("historical", "live"):
             raise ValueError("Unsupported market-data channel")
@@ -86,10 +94,13 @@ class MarketDataRouter:
                 return {"channel": channel, "state": "not_configured", "failover": "not_applicable"}
             adapter = self._adapters[active]
             health = adapter.health() if hasattr(adapter, "health") else {}
-            state = str(health.get("feed_state") or "connected").lower()
-            bad = state in {"error", "outage", "degraded", "stale", "disconnected", "reconnecting"}
+            forced = self._forced_unhealthy[channel]
+            state = forced or str(health.get("feed_state") or "connected").lower()
+            bad = state in {"error", "outage", "degraded", "stale", "disconnected", "reconnecting",
+                            "historical_request_failed", "subscription_failed"}
             if not bad:
                 self._connection_state[channel] = "connected"
+                self._forced_unhealthy[channel] = None
                 return {"channel": channel, "state": state, "active": active, "failover": "not_needed"}
             self._connection_state[channel] = "degraded"
             self._last_error[channel] = f"Primary feed health: {state}"
@@ -101,6 +112,7 @@ class MarketDataRouter:
                     self._channel_accounts[channel] = candidate
                     self._connection_state[channel] = "connected"
                     self._last_error[channel] = None
+                    self._forced_unhealthy[channel] = None
                     event = {"channel": channel, "from": active, "to": candidate,
                              "reason": state, "status": "switched"}
                     self._failover_events.append(event)
