@@ -12,10 +12,10 @@ startup when the operator account and encrypted credentials are available.
 |---|---:|---:|---|
 | NSE official CM/FO Bhavcopy | Ready | — | Official EOD daily history already imported and reconciled by AIR |
 | DhanHQ | Ready | Ready | Existing REST historical and WebSocket market-feed adapter |
-| Zerodha Kite Connect | Pending | Pending | Broker account/OAuth integration exists; normalized market-data adapter is not wired into the source router |
-| Upstox API | Pending | Pending | Broker account/OAuth integration exists; normalized market-data adapter is not wired into the source router |
-| FYERS API | Pending | Pending | Broker account/OAuth integration exists; normalized market-data adapter is not wired into the source router |
-| Angel One SmartAPI | Pending | Pending | Broker login integration exists; normalized market-data adapter is not wired into the source router |
+| Zerodha Kite Connect | Implemented | Implemented | Account-scoped historical REST and KiteTicker adapter; live account verification required |
+| Upstox API | Implemented | Implemented | Account-scoped historical REST and MarketDataStreamerV3 adapter; live account verification required |
+| FYERS API | Implemented | Implemented | Account-scoped historical REST and Data Socket adapter; live account verification required |
+| Angel One SmartAPI | Implemented | Implemented | Account-scoped historical REST and SmartWebSocketV2 adapter; network identity and live verification required |
 | External vendor adapter | Extension point | Extension point | Vendor-specific contract, credentials, SDK/API and entitlement checks are required |
 
 The provider catalog separates account/login support from market-data adapter readiness.
@@ -28,17 +28,56 @@ confirmed after valid instrument subscriptions produce fresh ticks. AIR never tr
 an account assignment or saved API key alone as a connected feed. Upstox V3 uses its
 official Protobuf-aware SDK, not an assumed JSON feed.
 
-## Scope of the first provider-selection milestone
+## Customer strategy data paths (Point 9)
 
-The admin source selector and router now persist and apply independent historical/live
-choices for the market-data gateway. The NSE Bhavcopy choice identifies the existing
-official EOD store; Dhan can be authenticated independently for historical and live
-gateway requests. The existing strategy EOD import/replay remains anchored to the NSE
-CM/FO archive pipeline, and AIR QOC option-chain capture remains on its Dhan-specific
-workflow. A later source-normalization step is still required before every strategy
-can consume arbitrary selected vendor history/live ticks through one provider-neutral
-ingestion path. Do not assume that changing a gateway source changes the NSE EOD
-backfill or QOC capture source.
+AIR exposes one shared strategy feed and two data-source paths. Strategy rules,
+qualification criteria, scoring and result schemas are not forked by customer tier.
+
+### Standard / normal customers
+
+- NSE official CM/FO UDiFF bhavcopy is the default historical source.
+- Initial load, scheduled daily refresh and recovery/retry continue through the
+  existing NSE bootstrap pipeline.
+- Strategy endpoints hydrate published signals from the NSE EOD store when data is
+  available, then run the same deterministic strategy evaluators.
+- No broker connection or paid entitlement is required for the standard NSE path.
+- NSE bhavcopy is EOD only; it cannot supply live ticks or intraday bid/ask evidence.
+
+### AIR operator and paid customers
+
+- An AIR operator can activate broker data for an assigned customer account.
+- A PAID entitlement must be explicitly enabled by an AIR operator. This repository
+  currently provides operator-managed entitlement controls; it does not integrate a
+  subscription billing/payment provider.
+- The customer must have an assigned broker account and saved encrypted credentials.
+  The selected account is authenticated before its source is activated.
+- Each customer receives an isolated market-data router and tick hub. One customer's
+  broker selection, tokens, feed or cache are not shared with another customer's
+  strategy request.
+- Historical strategy evidence is normalized into the same daily-bar contract used
+  by the strategy evaluators. EXPIRYSCAN uses that customer's live broker source and
+  remains unavailable when no live broker source is enabled.
+- When a customer returns to STANDARD access, the broker selection is cleared and
+  strategy hydration returns to the NSE EOD path.
+
+The operator-published signal feed is shared with authenticated customers; customer-
+owned records override matching signal IDs only within that customer's view. The
+first identity in `AIR_OPERATOR_CUSTOMER_IDS` is the canonical publisher. Customer-
+specific market data enriches the shared strategy evidence without changing strategy
+rules or leaking another customer's broker feed.
+
+Admin/customer endpoints:
+- `GET /api/v1/customer/market-data/access` — effective entitlement and selected source.
+- `PUT /api/v1/customer/market-data/selection` — paid customer selects an assigned broker account.
+- `DELETE /api/v1/customer/market-data/selection` — return to NSE EOD source.
+- `PUT /api/v1/operator/customers/{customer_id}/market-data-access` — grant/revoke PAID broker-data entitlement.
+- `PUT /api/v1/operator/customers/{customer_id}/market-data-selection` — assign and activate the customer's broker source.
+- `GET /api/v1/operator/broker-accounts` — shows entitlement and selected source alongside account ownership.
+
+Daily broker instrument-master refresh now iterates all assigned customer accounts,
+not only the operator's own account. Master snapshots remain keyed by provider and
+account ID. Successful broker authentication still does not prove fresh market ticks;
+run the provider verification during market hours before relying on live data.
 
 ## Admin API
 
