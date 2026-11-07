@@ -18,6 +18,7 @@ from app.access_control import access_store
 from app.brokers.customer_accounts import CustomerAccountDirectory
 from app.security import require_customer
 from app.telegram_notifications import notify_candidates, send_telegram_message
+from app.market_data.runtime import market_data_service
 
 router = APIRouter(prefix="/api/v1/model-engine", tags=["AIR Model Engine"])
 _ledger = ModelEngineLedger()
@@ -96,7 +97,7 @@ async def get_model_engine_ledger(
     limit: int = Query(default=500, ge=1, le=2000),
     customer_id: str = Depends(require_customer),
 ) -> dict:
-    rows = _ledger.list_signals(customer_id, limit)
+    rows = await market_data_service.hydrate_strategy_rows(_ledger.list_signals(customer_id, limit))
     groups = {key: [] for key in
               ("SURVIVOR", "NEW", "HOLD", "WAIT", "RE-ENTRY", "SL", "TARGETS", "EXPIRED", "EXPIRYSCAN")}
     for row in rows:
