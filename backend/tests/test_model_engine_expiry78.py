@@ -167,3 +167,34 @@ def test_dhan_optstk_instrument_type_obeys_stock_premium_cap():
     item = contract(instrument="OPTSTK", bars=stock_bars)
     result = evaluate_expiry78_contract(item, as_of="2026-11-05")
     assert result["trade_count"] == 0
+
+
+
+def test_trailing_stop_ratchets_every_twenty_percent_gain():
+    bars = base_bars() + [
+        bar("2026-11-06", 8.5, 9.6, 8.2, 9.4),   # +20% milestone; lock entry
+        bar("2026-11-09", 9.4, 11.2, 9.0, 10.8), # +40% milestone; lock +20%
+        bar("2026-11-10", 10.7, 11.0, 9.5, 10.0), # hits ratcheted 9.6 stop
+    ]
+    result = evaluate_expiry78_contract(contract(bars=bars), as_of="2026-11-10")
+    trade = result["trades"][0]
+    assert trade["classification"] == "SL"
+    assert trade["exit_reason"] == "TRAILING_STOP"
+    assert trade["initial_stop_loss"] == 7.6
+    assert trade["stop_loss"] == 9.6
+    assert trade["exit_price"] == 9.6
+    assert [x["milestone_gain_pct"] for x in trade["trail_history"]] == [20, 40]
+    assert [x["locked_gain_pct"] for x in trade["trail_history"]] == [0, 20]
+
+
+def test_trailing_stop_gap_exits_at_observed_open():
+    bars = base_bars() + [
+        bar("2026-11-06", 8.5, 9.6, 8.2, 9.4),
+        bar("2026-11-09", 9.2, 9.5, 8.9, 9.0),
+    ]
+    result = evaluate_expiry78_contract(contract(bars=bars), as_of="2026-11-09")
+    trade = result["trades"][0]
+    assert trade["classification"] == "SL"
+    assert trade["exit_reason"] == "GAP_THROUGH_STOP"
+    assert trade["exit_price"] == 9.2
+    assert trade["stop_loss"] == 8.0
