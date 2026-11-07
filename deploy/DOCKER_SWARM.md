@@ -129,3 +129,50 @@ The mobile number is an identifier, not proof of ownership. Since customer ident
 ## GitHub Actions deployment
 
 For automated image builds and gated SSH deployment from GitHub Actions, follow [GITHUB_DEPLOYMENT.md](./GITHUB_DEPLOYMENT.md). Production deployment is manual and restricted to workflow dispatch from `main`.
+
+
+## 10. Account-wise P&L email reports
+
+AIR supports multiple assigned accounts for the same broker. Each account is fetched
+and reported independently; reports are never merged across account IDs. The Model
+Engine P&L Calendar includes **Broker Account P&L Email Reports**:
+
+1. Enter a destination email and request a verification code.
+2. Confirm the six-digit code sent to that mailbox.
+3. AIR then schedules a separate daily report for each assigned broker account at
+   **16:00 Asia/Kolkata (weekdays)**. The report includes a PDF summary and a CSV
+   containing broker-returned position, order and holding records.
+4. Use **Generate & Email Account Reports Now** for an on-demand run. Delivery and
+   per-account failures appear in report history.
+
+The P&L summary uses fields returned by the broker's positions endpoint. If a broker
+does not return a particular P&L field, AIR labels it unavailable; it does not
+substitute the strategy-ledger estimate or fabricate a zero. A disconnected account,
+missing credentials, failed broker request or empty statement is recorded as FAILED
+for that account and does not prevent other accounts from being reported. A manual
+run can retry a failed account.
+
+Configure the SMTP host, port, username and From address as deployment environment
+variables. Store the SMTP password in a Docker secret and create it before stack
+deployment:
+
+```bash
+printf '%s' '<SMTP password or app password>' | docker secret create air_smtp_password -
+```
+
+Set these deployment variables in the protected server environment (do not commit
+them to source control):
+
+```bash
+AIR_SMTP_HOST=smtp.your-provider.example
+AIR_SMTP_PORT=587
+AIR_SMTP_USERNAME=reports@your-domain.example
+AIR_REPORT_FROM_EMAIL=reports@your-domain.example
+```
+
+The stack mounts the secret at `/run/secrets/air_smtp_password`. The API requires
+SMTP configuration to send verification codes and reports. Without it, email setup
+and delivery return an explicit failure; no report is marked sent. Email verification
+codes expire after ten minutes and only their hash is stored. The recipient is
+customer-scoped and must be verified before report delivery.
+
