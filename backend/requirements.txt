@@ -15,3 +15,6 @@ fyers-apiv3>=3.1.4
 smartapi-python>=1.5.5
 protobuf>=5.28,<7
 websocket-client>=1.8
+
+# Account-specific PDF P&L report generation
+reportlab>=4.2,<5
