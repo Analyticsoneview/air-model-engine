@@ -14,7 +14,7 @@ RULES = {
     "entry_limit": "40% of the bullish-engulfing candle HIGH (high * 0.40)",
     "entry_fill": "A later daily LOW must touch or cross the limit before expiry; fill at the limit",
     "minimums": "Entry premium >= ₹1 and entry-day quantity >= 10; stock CE/PE entry premium must also be ₹1–₹10; index options are exempt from the ₹10 cap",
-    "stop_loss": "5% below actual entry; evaluate daily LOW including entry day; if a later session opens below SL, exit at that OPEN, otherwise at SL",
+    "stop_loss": "Initial 5% stop; after each +20% premium gain, ratchet stop to the prior +20% milestone (+20% locks entry, +40% locks +20%, etc.). Test active stop against daily LOW; a later gap below stop exits at observed OPEN. New milestone applies from the next daily observation.",
     "expiry_survivor": "Only a trade that never hit SL and reaches expiry with verified underlying expiry close/intrinsic valuation is an EXPIRY78 survivor",
 }
 
@@ -114,28 +114,46 @@ def evaluate_expiry78_contract(
         if entry_day >= expiry_day:
             continue
         entry_price = limit_price
-        stop = round(entry_price * 0.95, 4)
+        initial_stop = round(entry_price * 0.95, 4)
+        active_stop = initial_stop
+        peak_premium = entry_price
+        trail_history: list[dict[str, Any]] = []
         exit_day = None
         exit_price = None
         exit_reason = None
         expiry_bar = next((bar for bar in bars if bar["date"] == expiry_day.isoformat()), None)
 
-        # Daily-low stop check starts on the entry day. A same-day low breach
-        # is conservatively treated as stopped. On later sessions a gap below
-        # the stop exits at the observed open, not at the unavailable stop price.
+        # Check the stop active at the start of each daily observation first.
+        # A milestone reached in this candle ratchets the stop for the next
+        # observation, avoiding assumptions about intraday high/low sequence.
         for bar in bars:
             day = date.fromisoformat(bar["date"])
             if day < entry_day:
                 continue
-            if float(bar["low"]) <= stop:
+            if float(bar["low"]) <= active_stop:
                 exit_day = bar["date"]
-                exit_price = (float(bar["open"]) if day > entry_day and float(bar["open"]) < stop else stop)
+                exit_price = (float(bar["open"]) if day > entry_day and float(bar["open"]) < active_stop else active_stop)
                 exit_reason = "SAME_DAY_STOP" if day == entry_day else (
-                    "GAP_THROUGH_STOP" if float(bar["open"]) < stop else "STOP_LOSS"
+                    "GAP_THROUGH_STOP" if float(bar["open"]) < active_stop else "TRAILING_STOP" if trail_history else "STOP_LOSS"
                 )
                 break
             if day >= expiry_day:
                 break
+            peak_premium = max(peak_premium, float(bar["high"]))
+            gain_steps = int(((peak_premium / entry_price) - 1.0 + 1e-9) // 0.20)
+            if gain_steps >= 1:
+                locked_gain = (gain_steps - 1) * 0.20
+                ratcheted_stop = round(entry_price * (1.0 + locked_gain), 4)
+                if ratcheted_stop > active_stop:
+                    active_stop = ratcheted_stop
+                    trail_history.append({
+                        "date": bar["date"],
+                        "peak_premium": round(peak_premium, 4),
+                        "milestone_gain_pct": gain_steps * 20,
+                        "locked_gain_pct": round(locked_gain * 100, 2),
+                        "stop_price": active_stop,
+                        "effective_from": "NEXT_DAILY_OBSERVATION",
+                    })
 
         trade: dict[str, Any] = {
             "symbol": contract.get("symbol"),
@@ -149,7 +167,11 @@ def evaluate_expiry78_contract(
             "entry_date": entry_day.isoformat(),
             "entry_price": entry_price,
             "entry_day_quantity": float(entry_bar["quantity"]),
-            "stop_loss": stop,
+            "initial_stop_loss": initial_stop,
+            "stop_loss": active_stop,
+            "trailing_stop": active_stop if trail_history else None,
+            "trail_history": trail_history,
+            "peak_premium": round(peak_premium, 4),
             "exit_date": exit_day,
             "exit_price": round(exit_price, 4) if exit_price is not None else None,
             "exit_reason": exit_reason,
@@ -216,6 +238,7 @@ def evaluate_expiry78_contract(
         "trade_count": len(trades),
         "survivor_count": sum(bool(item["expiry_survivor"]) for item in trades),
         "stop_loss_count": sum(item["classification"] == "SL" for item in trades),
+        "trailing_stop_count": sum(bool(item.get("trail_history")) for item in trades),
         "rules": RULES,
         "data_quality": {
             "raw_bars": len(bars_raw),
