@@ -53,7 +53,7 @@ class MarketDataSourceRegistryTests(unittest.TestCase):
     def test_catalog_only_provider_cannot_be_enabled(self):
         registry = MarketDataSourceRegistry(":memory:")
         with self.assertRaisesRegex(ValueError, "not implemented and verified"):
-            registry.set_source("live", "zerodha", "client-1", True)
+            registry.set_source("live", "custom_vendor", "vendor-1", True)
         registry.close()
 
     def test_provider_must_support_selected_channel(self):
