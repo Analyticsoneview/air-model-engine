@@ -102,7 +102,7 @@ class MarketDataService:
             query_symbol = (instrument.underlying_symbol or instrument.symbol).upper()
             segment = "NSE_FO" if "FO" in instrument.segment.upper() else "NSE_CM"
             candidates = await adapter.search_instruments(
-                query_symbol, limit=200, exchange_segment=segment
+                query_symbol, limit=50000, exchange_segment=segment
             )
             nse_instrument = next((item for item in candidates
                 if item.symbol.upper() == query_symbol
@@ -252,7 +252,7 @@ class MarketDataService:
             ]
         if not mapped:
             native = await adapter.search_instruments(
-                symbol, limit=500, exchange_segment="NSE_FO"
+                symbol, limit=50000, exchange_segment="NSE_FO"
             )
             mapped = [{
                 "exchange": x.exchange, "symbol": x.symbol, "token": x.token,
@@ -465,7 +465,7 @@ class MarketDataService:
                 try:
                     if provider == "nse_bhavcopy":
                         candidates = await adapter.search_instruments(
-                            symbol, limit=200,
+                            symbol, limit=50000,
                             exchange_segment="NSE_FO" if option_type in {"CE", "PE"} else "NSE_CM"
                         )
                     else:
