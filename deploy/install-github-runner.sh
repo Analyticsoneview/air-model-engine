@@ -22,7 +22,7 @@ else
 fi
 usermod -aG docker "$RUNNER_USER"
 apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates jq openjdk-17-jdk
+DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates jq openjdk-17-jdk sudo
 
 if [[ -e "$RUNNER_DIR/.runner" ]]; then
   echo "A runner is already configured in $RUNNER_DIR."
@@ -49,6 +49,8 @@ else
 fi
 tar -xzf "$RUNNER_DIR/runner.tar.gz" -C "$RUNNER_DIR"
 rm -f "$RUNNER_DIR/runner.tar.gz"
+chown -R "$RUNNER_USER:$RUNNER_USER" "$RUNNER_DIR"
+"$RUNNER_DIR/bin/installdependencies.sh"
 chown -R "$RUNNER_USER:$RUNNER_USER" "$RUNNER_DIR"
 
 sudo -u "$RUNNER_USER" "$RUNNER_DIR/config.sh" \
