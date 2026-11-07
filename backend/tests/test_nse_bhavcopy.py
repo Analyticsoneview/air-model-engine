@@ -71,7 +71,6 @@ class NSEBhavcopyTests(unittest.TestCase):
             self.assertEqual(len(store.query("CM", symbol="INFY")), 1)
             self.assertEqual(len(store.query("FO", symbol="NIFTY", instrument_type="OPT")), 1)
             self.assertEqual(len(store.query("FO", symbol="NIFTY", instrument_type="FUT")), 1)
-            store.close = lambda: None
 
 
 if __name__ == "__main__":
