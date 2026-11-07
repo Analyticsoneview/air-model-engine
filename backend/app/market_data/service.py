@@ -42,6 +42,55 @@ class MarketDataService:
         self.instruments = instruments
         self._subscriptions: dict[str, MarketInstrument] = {}
 
+    async def _remap_instruments(self, provider: str, account_id: str, adapter: Any,
+                                 instruments: list[MarketInstrument]) -> list[MarketInstrument]:
+        """Resolve fallback tokens by contract identity; provider tokens are never reused."""
+        result = []
+        for original in instruments:
+            rows = self.instruments.search(provider, account_id, original.symbol, 500) if self.instruments else []
+            if not rows:
+                try:
+                    native = await adapter.search_instruments(original.symbol, limit=500)
+                    rows = [{
+                        "exchange": item.exchange, "symbol": item.symbol, "token": item.token,
+                        "segment": item.segment, "expiry": item.expiry,
+                        "strike": str(item.strike) if item.strike is not None else None,
+                        "option_type": item.option_type, "lot_size": item.lot_size,
+                        "instrument_type": item.instrument_type,
+                    } for item in native]
+                except Exception:
+                    rows = []
+            matches = []
+            for row in rows:
+                if str(row.get("symbol") or "").upper() != original.symbol.upper():
+                    continue
+                if original.option_type and str(row.get("option_type") or "").upper() != original.option_type.upper():
+                    continue
+                if original.expiry and str(row.get("expiry") or "")[:10] != str(original.expiry)[:10]:
+                    continue
+                if original.strike is not None:
+                    try:
+                        if Decimal(str(row.get("strike"))) != original.strike:
+                            continue
+                    except Exception:
+                        continue
+                if original.exchange and str(row.get("exchange") or "").upper() != original.exchange.upper():
+                    continue
+                matches.append(row)
+            if not matches:
+                raise RuntimeError(
+                    f"Failover provider {provider} has no matching token for "
+                    f"{original.symbol} {original.expiry or ''} {original.strike or ''} {original.option_type or ''}"
+                )
+            row = matches[0]
+            result.append(MarketInstrument(
+                exchange=row["exchange"], symbol=row["symbol"], token=str(row["token"]),
+                segment=row["segment"], expiry=row.get("expiry"),
+                strike=Decimal(str(row["strike"])) if row.get("strike") is not None else None,
+                option_type=row.get("option_type"), lot_size=row.get("lot_size"),
+                instrument_type=row.get("instrument_type")))
+        return result
+
     async def historical(self, instrument: MarketInstrument, start: datetime,
                          end: datetime, interval: str) -> list[HistoricalBar]:
         source = self.router.resolve("historical")
@@ -59,8 +108,11 @@ class MarketDataService:
             fallback = self.router.resolve("historical")
             if not fallback:
                 raise RuntimeError("Historical source failover did not establish a connection")
+            fallback_provider, fallback_account, fallback_adapter = fallback[0]
+            mapped = await self._remap_instruments(
+                fallback_provider, fallback_account, fallback_adapter, [instrument])
             return sorted(
-                await fallback[0][2].get_historical(instrument, start, end, interval),
+                await fallback_adapter.get_historical(mapped[0], start, end, interval),
                 key=lambda item: item.start_time,
             )
 
@@ -89,8 +141,10 @@ class MarketDataService:
             if not fallback:
                 raise RuntimeError("Live source failover did not establish a connection")
             provider, account_id, adapter = fallback[0]
-            await adapter.subscribe(list({item.token: item for item in
-                [*self._subscriptions.values(), *instruments]}.values()))
+            all_instruments = list({(item.symbol, item.expiry, str(item.strike), item.option_type): item
+                                    for item in [*self._subscriptions.values(), *instruments]}.values())
+            mapped = await self._remap_instruments(provider, account_id, adapter, all_instruments)
+            await adapter.subscribe(mapped)
         for item in instruments:
             self._subscriptions[item.token] = item
         return {"provider": provider, "account_id": account_id,
@@ -375,6 +429,9 @@ class MarketDataService:
         if live.get("failover") == "switched" and self._subscriptions:
             source = self.router.resolve("live")
             if source:
-                await source[0][2].subscribe(list(self._subscriptions.values()))
+                provider, account_id, adapter = source[0]
+                mapped = await self._remap_instruments(
+                    provider, account_id, adapter, list(self._subscriptions.values()))
+                await adapter.subscribe(mapped)
         return {"historical": historical, "live": live,
                 "routing": self.router.status(), "stream": self.hub.status()}
