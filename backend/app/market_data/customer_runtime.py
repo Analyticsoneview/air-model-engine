@@ -66,15 +66,20 @@ class CustomerMarketDataRuntime:
 
             router = MarketDataRouter()
             hub = MarketDataHub()
-            requested = None if key[0] == "nse_bhavcopy" else {
-                "provider": key[0], "account_id": key[1]
-            }
+            requested = ({"provider": selection["provider"], "account_id": selection["account_id"]}
+                         if selection else None)
+            entitled = self._is_operator(customer_id) or (
+                access.get("tier") == "PAID" and access.get("broker_data_enabled") is True
+            )
             source_status = {
                 "requested_source": requested,
                 "effective_source": "NSE",
-                "connection_status": "not_requested" if requested is None else "connecting",
-                "fallback_active": False,
-                "fallback_reason": None,
+                "connection_status": (
+                    "not_entitled" if requested and not entitled else
+                    "not_requested" if requested is None else "connecting"
+                ),
+                "fallback_active": bool(requested and not entitled),
+                "fallback_reason": "paid_entitlement_required" if requested and not entitled else None,
             }
             nse_adapter = NSEBhavcopyMarketDataAdapter()
             if key[0] == "nse_bhavcopy":
@@ -82,18 +87,20 @@ class CustomerMarketDataRuntime:
                 await router.set_source("historical", key[0], key[1])
             else:
                 router.register("official", nse_adapter)
-                adapter = self.adapter_factory(customer_id, key[0], key[1], hub)
-                router.register(key[1], adapter)
                 try:
+                    adapter = self.adapter_factory(customer_id, key[0], key[1], hub)
+                    router.register(key[1], adapter)
                     await router.set_source("historical", key[0], key[1])
                     await router.set_source("live", key[0], key[1])
                     source_status.update({
                         "effective_source": "BROKER",
                         "connection_status": "authenticated",
+                        "fallback_active": False,
+                        "fallback_reason": None,
                     })
                 except Exception as exc:
-                    # A selected/saved broker is not an active source until both
-                    # channels authenticate. Fall back to official NSE EOD data.
+                    # Missing credentials, rejected authentication or unavailable
+                    # broker services must never masquerade as a broker data feed.
                     try:
                         await router.clear_main_account()
                     except Exception:
