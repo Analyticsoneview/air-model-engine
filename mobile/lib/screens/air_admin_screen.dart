@@ -616,7 +616,7 @@ class _AirAdminTelegramScreenState extends State<AirAdminTelegramScreen> {
                 const SizedBox(height: 8),
                 TextField(
                   controller: chatId,
-                  keyboardType: TextInputType.number,
+                  keyboardType: const TextInputType.numberWithOptions(signed: true),
                   decoration: const InputDecoration(
                     labelText: 'Telegram chat ID',
                     hintText: '-1001234567890',
@@ -779,7 +779,7 @@ class _AirAdminTelegramScreenState extends State<AirAdminTelegramScreen> {
                       Icon(Icons.telegram_rounded, color: cs.primary),
                       const SizedBox(width: 8),
                       const Expanded(child: Text('BOT CONNECTION', style: TextStyle(fontWeight: FontWeight.w900))),
-                      Text(_botConfigured ? 'TOKEN SET' : 'TOKEN MISSING',
+                      Text(_botConfigured ? 'TOKEN SECRET PRESENT' : 'TOKEN MISSING',
                           style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900,
                               color: _botConfigured ? Colors.green : cs.error)),
                     ]),
