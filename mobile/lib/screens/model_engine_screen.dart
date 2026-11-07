@@ -120,8 +120,10 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       case 'HOLD': return '📌 HOLD';
       case 'RE-ENTRY': return '🔁 RE-ENTRY';
       case 'SL': return 'SL HIT';
-      case 'TARGETS': return 'TARGET HIT';
+      case 'SLHIT': return 'SL HIT';
+      case 'TARGETS': return '45% TARGET HIT';
       case 'EXPIRED': return 'EXPIRED';
+      case 'OPEN': return '📌 OPEN';
       case 'RECOVERED_WATCH':
         final outcome = (r['recovered_outcome'] ?? '').toString().toUpperCase();
         if (outcome == 'TARGET_FIRST') return '👀 RECOVERED • TARGET HIT';
