@@ -178,7 +178,10 @@ class MarketDataService:
                 if str(item.get("underlying_symbol") or item.get("symbol") or "").upper() == symbol
             ]
         if not mapped:
-            native = await adapter.search_instruments(symbol, limit=500)
+            native = await adapter.search_instruments(
+                            symbol, limit=500,
+                            exchange_segment="NSE_FO" if option_type in {"CE", "PE"} else "NSE_CM"
+                        )
             mapped = [{
                 "exchange": x.exchange, "symbol": x.symbol, "token": x.token,
                 "segment": x.segment, "expiry": x.expiry,
@@ -368,7 +371,10 @@ class MarketDataService:
             mapped = self.instruments.search(provider, account_id, symbol, 200)
             if not mapped:
                 try:
-                    candidates = await adapter.search_instruments(symbol, limit=200)
+                    candidates = await adapter.search_instruments(
+                        symbol, limit=200,
+                        exchange_segment="NSE_FO" if option_type in {"CE", "PE"} else "NSE_CM"
+                    )
                     mapped = [item.__dict__ for item in candidates]
                 except Exception:
                     return
