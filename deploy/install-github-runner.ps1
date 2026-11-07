@@ -42,10 +42,16 @@ if ($asset.Digest -and $asset.Digest.StartsWith("sha256:")) {
 
 Expand-Archive -Path $archive -DestinationPath $RunnerRoot -Force
 Remove-Item $archive -Force
-$tokenSecure = Read-Host "Enter the short-lived repository runner registration token" -AsSecureString
-$tokenPtr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($tokenSecure)
-try {
+$tokenPtr = [IntPtr]::Zero
+$tokenSecure = $null
+if ($env:AIR_RUNNER_TOKEN) {
+    $token = $env:AIR_RUNNER_TOKEN
+} else {
+    $tokenSecure = Read-Host "Enter the short-lived repository runner registration token" -AsSecureString
+    $tokenPtr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($tokenSecure)
     $token = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($tokenPtr)
+}
+try {
     Push-Location $RunnerRoot
     try {
         & .\config.cmd --unattended --url $repoUrl --token $token --name "$env:COMPUTERNAME-air" --labels "air,windows,x64" --work "_work" --runasservice
