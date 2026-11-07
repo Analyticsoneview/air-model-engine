@@ -946,9 +946,16 @@ class _AirAdminMarketDataSourcesScreenState
           (provider['channels'] as List<dynamic>? ?? const []).contains(_channel))
       .toList();
 
+  Map<String, dynamic>? _providerByCode(List<Map<String, dynamic>> rows, Object? code) {
+    for (final row in rows) {
+      if (row['code'] == code) return row;
+    }
+    return null;
+  }
+
   Future<void> _save(bool enabled) async {
     if (_provider == null) return;
-    final selected = _providers.where((p) => p['code'] == _provider).firstOrNull;
+    final selected = _providerByCode(_providers, _provider);
     if (selected == null) return;
     if (enabled && !_ready(selected, _channel)) {
       setState(() => _error = 'This provider adapter is not ready for $_channel data yet.');
@@ -979,7 +986,7 @@ class _AirAdminMarketDataSourcesScreenState
     final cs = Theme.of(context).colorScheme;
     final providers = _channelProviders;
     final current = _selections[_channel] as Map<String, dynamic>?;
-    final selectedProvider = providers.where((p) => p['code'] == _provider).firstOrNull;
+    final selectedProvider = _providerByCode(providers, _provider);
     return Scaffold(
       appBar: AppBar(
         title: const Text('MARKET DATA SOURCES'),
@@ -1030,7 +1037,7 @@ class _AirAdminMarketDataSourcesScreenState
                         overflow: TextOverflow.ellipsis),
                   )).toList(),
                   onChanged: _loading ? null : (value) {
-                    final p = providers.where((item) => item['code'] == value).firstOrNull;
+                    final p = _providerByCode(providers, value);
                     setState(() {
                       _provider = value;
                       _account.text = '';
