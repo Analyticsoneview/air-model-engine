@@ -175,7 +175,7 @@ def build_pnl_calendar(strategy_views: dict[str, Any], *, year: int | None = Non
                         bucket["charges_estimated_count"] += 1
                     else:
                         bucket["charges_actual_count"] += 1
-         if exit_day:
+        if exit_day:
             exit_bucket = days[exit_day]
             exit_bucket["trade_count"] += 1
             exit_bucket["realized_trade_count"] += int(trade.get("gross_pnl") is not None)
