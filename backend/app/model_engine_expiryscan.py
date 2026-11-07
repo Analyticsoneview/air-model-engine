@@ -26,6 +26,13 @@ def scan_expiries(store: AirQocStore, *, account_id: str, today: date | None = N
         ) ranked WHERE rn=1 ORDER BY expiry, underlying_scrip, strike, option_type
     """, (account_id,)).fetchall()
     candidates: list[dict[str, Any]] = []
+
+    def previous_weekday(day: date) -> date:
+        candidate = date.fromordinal(day.toordinal() - 1)
+        while candidate.weekday() >= 5:
+            candidate = date.fromordinal(candidate.toordinal() - 1)
+        return candidate
+
     for raw in observations:
         row = dict(raw)
         try:
@@ -53,6 +60,8 @@ def scan_expiries(store: AirQocStore, *, account_id: str, today: date | None = N
         status = ("EXPIRED" if is_expired else
                   "LIQUIDITY_SCREEN_PASSED" if all(checks.values()) else
                   "INSUFFICIENT_DATA" if missing else "WATCH_NOT_QUALIFIED")
+        close_before_date = previous_weekday(expiry_date) if not is_expired else None
+        close_alert_due = bool(close_before_date and today == close_before_date)
         candidates.append({
             "underlying_scrip": row["underlying_scrip"],
             "underlying_segment": row["underlying_segment"],
@@ -64,6 +73,14 @@ def scan_expiries(store: AirQocStore, *, account_id: str, today: date | None = N
             "days_to_expiry": dte,
             "expiry_date_valid": True,
             "expired": is_expired,
+            "close_before_expiry_date": close_before_date.isoformat() if close_before_date else None,
+            "close_alert_due": close_alert_due,
+            "notification": ({
+                "type": "EXPIRY_CLOSE_REMINDER",
+                "message": "Review and close this EXPIRYSCAN contract before expiry.",
+                "due_date": today.isoformat(),
+                "expiry": row["expiry"],
+            } if close_alert_due else None),
             "survivor": (not is_expired and dte <= 7),
             "last_price": row["last_price"],
             "underlying_price": row["underlying_price"],
@@ -92,6 +109,7 @@ def scan_expiries(store: AirQocStore, *, account_id: str, today: date | None = N
         })
     future_candidates = [r for r in candidates if not r["expired"]]
     expired_candidates = [r for r in candidates if r["expired"]]
+    close_alerts = [r for r in future_candidates if r["close_alert_due"]]
     sort_key = lambda r: (
         0 if r["survivor"] else 1,
         r["days_to_expiry"],
@@ -109,8 +127,10 @@ def scan_expiries(store: AirQocStore, *, account_id: str, today: date | None = N
         "survivor_count": sum(r["survivor"] for r in future_candidates),
         "expired_count": len(expired_candidates),
         "expired_rows_returned": min(limit, len(expired_candidates)),
+        "close_alert_count": len(close_alerts),
+        "close_alerts": close_alerts[:limit],
         "qualified_trade_signals": 0,
-        "note": "Valid future expiry dates within max_dte remain in EXPIRYSCAN. Valid past expiry dates are separately classified EXPIRED and supplied in expired_rows. Invalid/missing dates are omitted, never guessed. This is an evidence-only screen, not a qualified trade signal.",
+        "note": "Valid future expiry dates within max_dte remain in EXPIRYSCAN. Valid past expiry dates are separately classified EXPIRED. close_alerts flags the prior weekday as the reminder date; exchange holidays require the exchange calendar and are not inferred. This is an evidence-only screen, not an order or auto-close.",
         "rows": future_candidates[:limit],
         "expired_rows": expired_candidates[:limit],
     }
