@@ -57,10 +57,10 @@ unset RUNNER_TOKEN
 if [[ "$OS" == "Linux" ]]; then
   chown -R "$RUNNER_USER:$RUNNER_USER" "$RUNNER_DIR"
   "$RUNNER_DIR/svc.sh" install "$RUNNER_USER"; "$RUNNER_DIR/svc.sh" start
-  echo 'Set AIR_RUNNER_LABELS to ["self-hosted","linux","x64","air"] (or ARM64 for an ARM64 host).'
+  echo 'Set AIR_CI_RUNNER_LABELS to ["self-hosted","linux","x64","air"] (or ARM64 for an ARM64 host). Set AIR_RUNNER_LABELS to the same value too if this Linux PC should run the PWA and Docker Buildx workflows.'
 else
   "$RUNNER_DIR/svc.sh" install; "$RUNNER_DIR/svc.sh" start
-  echo 'Set AIR_RUNNER_LABELS to ["self-hosted","macOS","X64","air"] (or ARM64 for Apple Silicon).'
+  echo 'Set AIR_CI_RUNNER_LABELS to ["self-hosted","macOS","X64","air"] (or ARM64 for Apple Silicon). Keep AIR_RUNNER_LABELS unset; Linux-only workflows remain on ubuntu-latest.'
 fi
 echo
 echo "AIR GitHub runner installed and started. Verify Online/Idle in repository Settings > Actions > Runners."
