@@ -226,8 +226,9 @@ class _NseDataScreenState extends State<NseDataScreen> {
                       const SizedBox(height: 7),
                       Builder(builder: (context) {
                         final cleanup = _status['expired_fo_cleanup'] as Map<String, dynamic>;
+                        final snapshot = cleanup['strategy_snapshot'] as Map<String, dynamic>? ?? const {};
                         return Text(
-                          'FO expiry cleanup: ${cleanup['removed_records'] ?? 0} expired rows removed • ${cleanup['removed_contract_keys'] ?? 0} contracts • strategy/P&L history retained',
+                          'FO expiry cleanup: ${cleanup['removed_records'] ?? 0} rows / ${cleanup['removed_contract_keys'] ?? 0} contracts removed • ${snapshot['daily_bars_attached'] ?? 0} daily bars saved to ${snapshot['strategy_rows_updated'] ?? 0} strategy records',
                           style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant),
                         );
                       }),
