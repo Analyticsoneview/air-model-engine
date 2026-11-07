@@ -299,6 +299,15 @@ class AirApiClient {
     ));
   }
 
+  Future<Map<String, dynamic>> operatorVerifyMarketDataSource(
+      String channel, {int waitSeconds = 12}) async {
+    return _decode(await _client.post(
+      Uri.parse('$baseUrl/api/v1/operator/market-data/verify/$channel')
+          .replace(queryParameters: {'wait_seconds': waitSeconds.toString()}),
+      headers: _headers,
+    ));
+  }
+
   Future<Map<String, dynamic>> operatorSelectMarketDataSource(
       String channel, String provider, {String? accountId, bool enabled = true}) async {
     return _decode(await _client.put(
