@@ -56,8 +56,8 @@ def _candidate_key(strategy: str, row: dict[str, Any]) -> str:
     identity = row.get("signal_id") or "|".join(str(row.get(key) or "") for key in (
         "symbol", "underlying_scrip", "expiry", "strike", "option_type"
     ))
-    status = (row.get("classification") or row.get("position_status")
-              or row.get("scan_status") or "QUALIFIED")
+    status = (row.get("scan_status") or row.get("classification")
+              or row.get("position_status") or "QUALIFIED")
     material = f"{strategy.upper()}|{identity}|{str(status).upper()}"
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
@@ -67,8 +67,8 @@ def _format_message(strategy: str, row: dict[str, Any]) -> str:
     option = row.get("option_type") or ""
     strike = row.get("strike")
     expiry = row.get("expiry") or "—"
-    status = (row.get("classification") or row.get("position_status")
-              or row.get("scan_status") or "QUALIFIED")
+    status = (row.get("scan_status") or row.get("classification")
+              or row.get("position_status") or "QUALIFIED")
     lines = [f"AIR {strategy} | {str(status).replace('_', ' ')}",
              f"Contract: {symbol} {option} {strike if strike is not None else ''}".strip(),
              f"Expiry: {expiry}"]
