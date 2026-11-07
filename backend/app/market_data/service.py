@@ -206,16 +206,18 @@ class MarketDataService:
         subscriptions = list(options)
         if underlying:
             subscriptions.append(underlying)
+        before = {item.token: self.hub.tick_count_for(item.token) for item in subscriptions}
+        request_started = datetime.now(timezone.utc)
         await self.subscribe(subscriptions)
         deadline = asyncio.get_running_loop().time() + max(0.5, wait_seconds)
         while asyncio.get_running_loop().time() < deadline:
-            if any(self.hub.latest_for(item.token) for item in options):
+            if any(self.hub.tick_count_for(item.token) > before[item.token] for item in options):
                 break
             await asyncio.sleep(0.1)
         chain: dict[str, dict[str, Any]] = {}
         for instrument in options:
             tick = self.hub.latest_for(instrument.token)
-            if not tick:
+            if not tick or self.hub.tick_count_for(instrument.token) <= before[instrument.token]:
                 continue
             strike = str(instrument.strike)
             side = "ce" if instrument.option_type == "CE" else "pe"
@@ -229,6 +231,9 @@ class MarketDataService:
                 "top_ask_price": tick.get("ask"),
             }
         spot_tick = self.hub.latest_for(underlying.token) if underlying else None
+        if spot_tick and datetime.fromisoformat(
+            str(spot_tick.get("received_at")).replace("Z", "+00:00")) < request_started:
+            spot_tick = None
         if sum(len(sides) for sides in chain.values()) == 0:
             raise RuntimeError(f"No live option quotes received for {symbol} {expiry}")
         await self.unsubscribe(subscriptions)
