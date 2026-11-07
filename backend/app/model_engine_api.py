@@ -446,7 +446,7 @@ async def get_model_engine_pnl_calendar(
 
 @router.post("/telegram/test")
 async def test_air_telegram_notifications(
-    customer_id: str = Depends(require_customer),
+    customer_id: str = Depends(_operator),
 ) -> dict:
     """Send a test message to all configured AIR Telegram destinations."""
     result = await send_telegram_message(
