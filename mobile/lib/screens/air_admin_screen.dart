@@ -673,7 +673,7 @@ class _AirAdminBrokerAccountsScreenState
                   'Requested: ${row['market_data_selection']?['provider'] ?? 'NSE DEFAULT'} · '
                   'Effective: ${row['market_data_runtime']?['effective_source'] ?? 'NSE'}\n'
                   'Connection: ${row['market_data_runtime']?['connection_status'] ?? 'unknown'}'
-                  '${row['market_data_runtime']?['fallback_active'] == true ? ' · NSE FALLBACK ACTIVE' : ''}'),
+                  '${row['market_data_runtime']?['fallback_active'] == true ? ' · NSE FALLBACK ACTIVE (${row['market_data_runtime']?['fallback_reason'] ?? 'broker unavailable'})' : ''}'),
               isThreeLine: true,
               leading: const Icon(Icons.account_balance_wallet_outlined),
               trailing: Wrap(
