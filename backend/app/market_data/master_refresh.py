@@ -29,7 +29,7 @@ DEFAULT_MASTER_URLS = {
 ALIASES = {
     "exchange": ("exchange", "exch", "exch_seg", "exchange_code", "sem_exm_exch_id"),
     "symbol": ("tradingsymbol", "trading_symbol", "symbol", "sem_trading_symbol", "name"),
-    "underlying_symbol": ("underlying_symbol", "underlying", "sem_underlying_symbol", "name"),
+    "underlying_symbol": ("underlying_symbol", "underlying", "sem_underlying_symbol"),
     "token": ("instrument_token", "instrument_key", "token", "symboltoken", "symbol_token",
               "security_id", "sem_smst_security_id", "fy_token"),
     "segment": ("segment", "exchange_segment", "exch_seg", "sem_segment"),
@@ -56,12 +56,15 @@ def _normalize(provider: str, row: dict[str, Any]) -> dict[str, Any] | None:
     value = _key_map(row)
     exchange = str(value.get("exchange") or "").strip().upper()
     symbol = str(value.get("symbol") or "").strip().upper()
-    underlying_symbol = str(value.get("underlying_symbol") or symbol).strip().upper()
+    raw_type = str(value.get("option_type") or "").strip().upper()
+    underlying_raw = value.get("underlying_symbol")
+    if not underlying_raw and raw_type in {"CE", "PE", "FUT", "OPTIDX", "OPTSTK", "FUTIDX", "FUTSTK"}:
+        underlying_raw = row.get("name")
+    underlying_symbol = str(underlying_raw or symbol).strip().upper()
     token = str(value.get("token") or "").strip()
     segment = str(value.get("segment") or "").strip().upper()
     if not all((exchange, symbol, token, segment)):
         return None
-    raw_type = str(value.get("option_type") or "").strip().upper()
     option_type = {"CE": "CE", "PE": "PE", "CALL": "CE", "PUT": "PE"}.get(raw_type)
     instrument_type = raw_type or None
     if option_type is None and raw_type in {"OPTIDX", "OPTSTK"}:
