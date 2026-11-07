@@ -344,6 +344,8 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
         .whereType<Map<String, dynamic>>()
         .where((trade) => trade['entry_date'] == key || trade['exit_date'] == key)
         .toList();
+    all.addAll(((_pnlCalendar['physical_settlement'] as Map?)?['rows'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>().where((trade) => trade['exit_date'] == key));
     final dayRows = (_pnlCalendar['days'] as List<dynamic>? ?? const [])
         .whereType<Map<String, dynamic>>().where((row) => row['date'] == key).toList();
     final day = dayRows.isEmpty ? <String, dynamic>{} : dayRows.first;
@@ -404,6 +406,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     final overall = summary['overall'] is Map ? summary['overall'] as Map : const {};
     final expiry = summary['EXPIRY78'] is Map ? summary['EXPIRY78'] as Map : const {};
     final recovered = summary['RECOVERED'] is Map ? summary['RECOVERED'] as Map : const {};
+    final physical = summary['PHYSICAL_SETTLEMENT'] is Map ? summary['PHYSICAL_SETTLEMENT'] as Map : const {};
     final monthRows = (_pnlCalendar['months'] as List<dynamic>? ?? const []).whereType<Map<String, dynamic>>();
     final monthKey = '${_calendarMonth.year.toString().padLeft(4, '0')}-${_calendarMonth.month.toString().padLeft(2, '0')}';
     final month = monthRows.firstWhere((r) => r['month'] == monthKey, orElse: () => <String, dynamic>{});
@@ -428,6 +431,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
           if (gross != null && gross != 0) Text('G ${_money(gross)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 8)),
           if (net != null && net != 0) Text('N ${_money(net)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: (net as num) >= 0 ? Colors.green : Colors.red)),
           if (cap != null && cap != 0) Text('C ${_money(cap)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 8)),
+          if ((row['physical_settlement_contracts'] ?? 0) != 0) Text('PS G ${_money(row['physical_settlement_gross_pnl'])}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 8)),
           if ((row['trade_count'] ?? 0) != 0 || (row['entries_count'] ?? 0) != 0)
             Text('Trades ${row['trade_count'] ?? 0} • Entry ${row['entries_count'] ?? 0}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 7)),
         ]),
@@ -477,6 +481,9 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
         const Text('STRATEGY-WISE', style: TextStyle(fontWeight: FontWeight.w900)),
         Text('EXPIRY78 • Capital ${_money(expiry['capital_deployed'])} • Gross ${_money(expiry['gross_pnl'])} • Charges ${_money(expiry['estimated_or_actual_charges'])} • Net ${_money(expiry['net_pnl'])}', style: const TextStyle(fontSize: 10)),
         Text('RECOVERED • Capital ${_money(recovered['capital_deployed'])} • Gross ${_money(recovered['gross_pnl'])} • Charges ${_money(recovered['estimated_or_actual_charges'])} • Net ${_money(recovered['net_pnl'])}', style: const TextStyle(fontSize: 10)),
+        const Divider(),
+        Text('PHYSICAL SETTLEMENT • ${physical['contract_count'] ?? 0} contracts • Capital ${_money(physical['capital_deployed'])} • Source gross ${_money(physical['gross_pnl'])} • Charges PENDING • Net PENDING',
+          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
       ]))),
       Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('ESTIMATED CHARGES MODEL', style: TextStyle(fontWeight: FontWeight.w900)),
