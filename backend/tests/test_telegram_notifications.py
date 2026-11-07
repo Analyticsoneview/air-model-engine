@@ -1,4 +1,8 @@
-import pytest
+import os
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 from app import telegram_notifications as telegram
 
@@ -28,59 +32,60 @@ class FakeClient:
         return FakeResponse()
 
 
-@pytest.mark.asyncio
-async def test_notify_candidates_sends_once_per_candidate_and_chat(monkeypatch, tmp_path):
-    FakeClient.sent = []
-    monkeypatch.setattr(telegram.httpx, "AsyncClient", FakeClient)
-    monkeypatch.setenv("AIR_TELEGRAM_BOT_TOKEN", "test-token")
-    monkeypatch.setenv("AIR_TELEGRAM_CHAT_IDS", "111,-100222")
-    monkeypatch.setenv("AIR_TELEGRAM_DEDUPE_DB_PATH", str(tmp_path / "telegram.sqlite3"))
+class TelegramNotificationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_notify_candidates_sends_once_per_candidate_and_chat(self):
+        FakeClient.sent = []
+        with tempfile.TemporaryDirectory() as folder, \
+             patch.object(telegram.httpx, "AsyncClient", FakeClient), \
+             patch.dict(os.environ, {
+                 "AIR_TELEGRAM_BOT_TOKEN": "test-token",
+                 "AIR_TELEGRAM_CHAT_IDS": "111,-100222",
+                 "AIR_TELEGRAM_DEDUPE_DB_PATH": str(Path(folder) / "telegram.sqlite3"),
+             }, clear=False):
+            row = {
+                "signal_id": "EXP78-001", "symbol": "TEST", "option_type": "CE",
+                "strike": 100, "expiry": "2026-11-27", "classification": "NEW",
+                "entry_price": 12.5, "stop_loss": 10.0,
+            }
+            first = await telegram.notify_candidates("EXPIRY78", [row])
+            second = await telegram.notify_candidates("EXPIRY78", [row])
 
-    row = {
-        "signal_id": "EXP78-001",
-        "symbol": "TEST",
-        "option_type": "CE",
-        "strike": 100,
-        "expiry": "2026-11-27",
-        "classification": "NEW",
-        "entry_price": 12.5,
-        "stop_loss": 10.0,
-    }
+        self.assertEqual(first["sent"], 2)
+        self.assertEqual(second["sent"], 0)
+        self.assertEqual(len(FakeClient.sent), 2)
+        self.assertTrue(all("AIR EXPIRY78" in item[1]["text"] for item in FakeClient.sent))
 
-    first = await telegram.notify_candidates("EXPIRY78", [row])
-    second = await telegram.notify_candidates("EXPIRY78", [row])
+    async def test_expiryscan_message_is_not_misrepresented_as_qoc_trade(self):
+        FakeClient.sent = []
+        with tempfile.TemporaryDirectory() as folder, \
+             patch.object(telegram.httpx, "AsyncClient", FakeClient), \
+             patch.dict(os.environ, {
+                 "AIR_TELEGRAM_BOT_TOKEN": "test-token",
+                 "AIR_TELEGRAM_CHAT_IDS": "111",
+                 "AIR_TELEGRAM_DEDUPE_DB_PATH": str(Path(folder) / "telegram.sqlite3"),
+             }, clear=False):
+            await telegram.notify_candidates("EXPIRYSCAN", [{
+                "symbol": "TEST", "option_type": "PE", "strike": 200,
+                "expiry": "2026-11-27", "scan_status": "LIQUIDITY_SCREEN_PASSED",
+            }])
 
-    assert first["sent"] == 2
-    assert second["sent"] == 0
-    assert len(FakeClient.sent) == 2
-    assert all("AIR EXPIRY78" in item[1]["text"] for item in FakeClient.sent)
+        self.assertEqual(len(FakeClient.sent), 1)
+        self.assertIn("Liquidity-screen pass only", FakeClient.sent[0][1]["text"])
+
+    def test_settings_supports_docker_secret_file(self):
+        with tempfile.TemporaryDirectory() as folder:
+            token_file = Path(folder) / "telegram-token"
+            token_file.write_text("secret-token", encoding="utf-8")
+            with patch.dict(os.environ, {
+                "AIR_TELEGRAM_BOT_TOKEN": "",
+                "AIR_TELEGRAM_BOT_TOKEN_FILE": str(token_file),
+                "AIR_TELEGRAM_CHAT_IDS": "111,-100222",
+            }, clear=False):
+                token, chat_ids = telegram._settings()
+
+        self.assertEqual(token, "secret-token")
+        self.assertEqual(chat_ids, ["111", "-100222"])
 
 
-@pytest.mark.asyncio
-async def test_expiryscan_message_is_not_misrepresented_as_qoc_trade(monkeypatch, tmp_path):
-    FakeClient.sent = []
-    monkeypatch.setattr(telegram.httpx, "AsyncClient", FakeClient)
-    monkeypatch.setenv("AIR_TELEGRAM_BOT_TOKEN", "test-token")
-    monkeypatch.setenv("AIR_TELEGRAM_CHAT_IDS", "111")
-    monkeypatch.setenv("AIR_TELEGRAM_DEDUPE_DB_PATH", str(tmp_path / "telegram.sqlite3"))
-
-    await telegram.notify_candidates("EXPIRYSCAN", [{
-        "symbol": "TEST", "option_type": "PE", "strike": 200,
-        "expiry": "2026-11-27", "scan_status": "LIQUIDITY_SCREEN_PASSED",
-    }])
-
-    assert len(FakeClient.sent) == 1
-    assert "Liquidity-screen pass only" in FakeClient.sent[0][1]["text"]
-
-
-def test_settings_supports_docker_secret_file(monkeypatch, tmp_path):
-    token_file = tmp_path / "telegram-token"
-    token_file.write_text("secret-token", encoding="utf-8")
-    monkeypatch.delenv("AIR_TELEGRAM_BOT_TOKEN", raising=False)
-    monkeypatch.setenv("AIR_TELEGRAM_BOT_TOKEN_FILE", str(token_file))
-    monkeypatch.setenv("AIR_TELEGRAM_CHAT_IDS", "111,-100222")
-
-    token, chat_ids = telegram._settings()
-
-    assert token == "secret-token"
-    assert chat_ids == ["111", "-100222"]
+if __name__ == "__main__":
+    unittest.main()
