@@ -112,3 +112,10 @@ docker service logs -f air_air-caddy
 Back up the persistent air_data, caddy_data and caddy_config volumes. Test restore before storing broker credentials. Maintain a secure backup of the Fernet credential key and the Android signing keystore. Loss of either can permanently prevent recovery of encrypted broker credentials or future in-place APK upgrades.
 
 For GitHub-controlled immutable image builds and gated deployment, also follow GITHUB_DEPLOYMENT.md. The initial local installer deploys locally; it does not configure a GitHub SSH deploy key or deploy secrets.
+
+
+## Admin-only broker account administration
+
+Broker account ownership is controlled by an approved AIR operator identity. In the Android app, open **Admin → Broker Account Control** to assign multiple accounts per broker to a customer's approved E.164 mobile identity, save encrypted credentials, and remove accounts. Customers can only view accounts assigned to their own identity in AIR Connections.
+
+The customer-facing account creation, credential-save, and removal API routes also require operator authorization. Hiding controls in the app is not the security boundary: direct customer API calls are rejected by the backend. Removing an account also removes its encrypted credential record. Account assignment does not enable order placement; execution permissions remain disabled until a broker authorization flow is separately verified.
