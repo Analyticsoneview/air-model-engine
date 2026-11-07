@@ -222,6 +222,16 @@ class _NseDataScreenState extends State<NseDataScreen> {
                       if ((bootstrap['repaired_sessions'] as num? ?? 0) > 0)
                         _CoverageChip(label: 'AUTO-REPAIRED', value: '${bootstrap['repaired_sessions']}', color: Colors.green),
                     ]),
+                    if (_status['expired_fo_cleanup'] is Map) ...[
+                      const SizedBox(height: 7),
+                      Builder(builder: (context) {
+                        final cleanup = _status['expired_fo_cleanup'] as Map<String, dynamic>;
+                        return Text(
+                          'FO expiry cleanup: ${cleanup['removed_records'] ?? 0} expired rows removed • ${cleanup['removed_contract_keys'] ?? 0} contracts • strategy/P&L history retained',
+                          style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant),
+                        );
+                      }),
+                    ],
                     if ((bootstrap['integrity_mismatches'] as List<dynamic>? ?? const []).isNotEmpty) ...[
                       const SizedBox(height: 8),
                       ...((bootstrap['integrity_mismatches'] as List<dynamic>).take(3)).map((item) {
