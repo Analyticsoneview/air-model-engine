@@ -21,6 +21,7 @@ from app.market_data.hub import MarketDataHub
 from app.market_data.router import MarketDataRouter
 from app.market_data.dhan_adapter import DhanMarketDataAdapter
 from app.market_data.broker_adapters import (ZerodhaMarketDataAdapter, UpstoxMarketDataAdapter, FyersMarketDataAdapter, AngelOneMarketDataAdapter)
+from app.market_data.broker_streams import (ZerodhaWebSocketAdapter, UpstoxWebSocketAdapter, FyersWebSocketAdapter, AngelOneWebSocketAdapter)
 from app.market_data.nse_adapter import NSEBhavcopyMarketDataAdapter
 from app.market_data.instrument_registry import MarketInstrumentDirectory
 from app.market_data.contracts import MarketInstrument
@@ -94,15 +95,15 @@ def _market_adapter_for(operator_id: str, provider: str, account_id: str):
     if provider == "zerodha":
         if not credentials.get("api_key") or not credentials.get("access_token"):
             raise ValueError("Zerodha api_key and access_token are required")
-        return ZerodhaMarketDataAdapter(account_id, credentials["api_key"], credentials["access_token"], market_data_hub, poll_seconds)
+        return ZerodhaWebSocketAdapter(account_id, credentials["api_key"], credentials["access_token"], market_data_hub, poll_seconds)
     if provider == "upstox":
         if not credentials.get("access_token"):
             raise ValueError("Upstox access_token is required")
-        return UpstoxMarketDataAdapter(account_id, credentials["access_token"], market_data_hub, poll_seconds)
+        return UpstoxWebSocketAdapter(account_id, credentials["access_token"], market_data_hub, poll_seconds)
     if provider == "fyers":
         if not credentials.get("app_id") or not credentials.get("access_token"):
             raise ValueError("FYERS app_id and access_token are required")
-        return FyersMarketDataAdapter(account_id, credentials["app_id"], credentials["access_token"], market_data_hub, poll_seconds)
+        return FyersWebSocketAdapter(account_id, credentials["app_id"], credentials["access_token"], market_data_hub, poll_seconds)
     if provider == "angelone":
         required = ("api_key", "jwt_token")
         if any(not credentials.get(key) for key in required):
@@ -114,7 +115,7 @@ def _market_adapter_for(operator_id: str, provider: str, account_id: str):
         }
         if not all(network.values()):
             raise ValueError("Angel SmartAPI server network identity headers are not configured")
-        return AngelOneMarketDataAdapter(account_id, credentials, market_data_hub, network, poll_seconds)
+        return AngelOneWebSocketAdapter(account_id, credentials, market_data_hub, network, poll_seconds)
     raise ValueError("No market-data adapter is registered for this provider")
 
 
