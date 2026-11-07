@@ -84,6 +84,24 @@ class MarketDataRouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(router.status()["data_connection_policy"],
                          "independent_historical_and_live_sources")
 
+    async def test_failed_switch_retains_previous_connected_source(self):
+        router = MarketDataRouter()
+        current = FakeAdapter()
+
+        class BrokenAdapter(FakeAdapter):
+            async def authenticate(self, account_id):
+                raise RuntimeError("invalid credentials")
+
+        broken = BrokenAdapter()
+        broken.provider_code = "broken"
+        router.register("current-account", current)
+        router.register("broken-account", broken)
+        await router.set_source("live", "fake", "current-account")
+        with self.assertRaises(RuntimeError):
+            await router.set_source("live", "broken", "broken-account")
+        self.assertEqual(router.resolve("live")[0][1], "current-account")
+        self.assertEqual(router.status()["connection_state"]["live"], "connected")
+
     async def test_shared_adapter_is_not_closed_when_one_channel_switches(self):
         router = MarketDataRouter()
         shared = FakeAdapter()
