@@ -422,8 +422,15 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
                 await client.get("https://www.nseindia.com/", timeout=12.0)
             except httpx.HTTPError:
                 log.warning("NSE homepage warm-up failed; attempting archive host directly")
-            calendar = await _refresh_trading_calendar(client, store, today.year)
-            holidays = {item["date"] for item in calendar["segments"]["CM"]}
+            calendars = {}
+            for calendar_year in range(start.year, today.year + 1):
+                calendars[str(calendar_year)] = await _refresh_trading_calendar(client, store, calendar_year)
+            holidays = {
+                item["date"]
+                for year_calendar in calendars.values()
+                for item in year_calendar["segments"]["CM"]
+            }
+            calendar = calendars[str(today.year)]
             # On restart, backfill from the last paired CM+FO session as well as
             # maintaining the rolling three-calendar-month minimum.
             with store._db() as db:
@@ -442,8 +449,8 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
             state.update({
                 "start_date": start.isoformat(),
                 "weekdays_to_check": len(days),
-                "calendar_year": today.year,
-                "calendar_source": calendar["source"],
+                "calendar_years": list(calendars.keys()),
+                "calendar_source": "NSE official holiday-master trading calendar",
                 "calendar_fetched_at": calendar["fetched_at"],
                 "recovery_start_date": start.isoformat(),
             })
