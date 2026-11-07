@@ -33,8 +33,19 @@ class MarketInstrumentDirectory:
                 option_type TEXT,
                 lot_size INTEGER,
                 instrument_type TEXT,
+                tick_size TEXT,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY(provider, account_id, token)
+            )
+        """)
+        columns = {row["name"] for row in self.db.execute("PRAGMA table_info(market_instruments)")}
+        if "tick_size" not in columns:
+            self.db.execute("ALTER TABLE market_instruments ADD COLUMN tick_size TEXT")
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS market_master_refresh (
+                provider TEXT NOT NULL, account_id TEXT NOT NULL,
+                row_count INTEGER NOT NULL, source TEXT, refreshed_at TEXT NOT NULL,
+                PRIMARY KEY(provider, account_id)
             )
         """)
         self.db.execute("""
@@ -55,8 +66,8 @@ class MarketInstrumentDirectory:
             self.db.execute("""
                 INSERT INTO market_instruments(
                     provider,account_id,exchange,symbol,token,segment,expiry,strike,
-                    option_type,lot_size,instrument_type,updated_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                    option_type,lot_size,instrument_type,tick_size,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
                 ON CONFLICT(provider,account_id,token) DO UPDATE SET
                     exchange=excluded.exchange,symbol=excluded.symbol,segment=excluded.segment,
                     expiry=excluded.expiry,strike=excluded.strike,option_type=excluded.option_type,
@@ -64,6 +75,55 @@ class MarketInstrumentDirectory:
                     updated_at=CURRENT_TIMESTAMP
             """, (*values, expiry, strike, option_type, lot_size, instrument_type))
         return self.get(provider, account_id, values[4]) or {}
+
+    def replace_snapshot(self, provider: str, account_id: str,
+                         instruments: list[dict]) -> int:
+        """Replace one provider/account master atomically after caller validation."""
+        provider, account_id = provider.strip().lower(), account_id.strip()
+        if not provider or not account_id or not instruments:
+            raise ValueError("Provider, account and non-empty instrument master are required")
+        required = ("exchange", "symbol", "token", "segment")
+        seen = set()
+        values = []
+        for item in instruments:
+            if any(not str(item.get(key) or "").strip() for key in required):
+                raise ValueError("Instrument master contains incomplete rows")
+            token = str(item["token"]).strip()
+            if token in seen:
+                continue
+            seen.add(token)
+            values.append((provider, account_id, str(item["exchange"]).upper(),
+                str(item["symbol"]).upper(), token, str(item["segment"]).upper(),
+                item.get("expiry"), item.get("strike"), item.get("option_type"),
+                item.get("lot_size"), item.get("instrument_type"), item.get("tick_size")))
+        stamp = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            self.db.execute("DELETE FROM market_instruments WHERE provider=? AND account_id=?",
+                            (provider, account_id))
+            self.db.executemany("""
+                INSERT INTO market_instruments(
+                    provider,account_id,exchange,symbol,token,segment,expiry,strike,
+                    option_type,lot_size,instrument_type,tick_size,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """, [(*row, stamp) for row in values])
+            self.db.execute("""
+                INSERT INTO market_master_refresh(provider,account_id,row_count,refreshed_at)
+                VALUES(?,?,?,?)
+                ON CONFLICT(provider,account_id) DO UPDATE SET
+                    row_count=excluded.row_count,refreshed_at=excluded.refreshed_at
+            """, (provider, account_id, len(values), stamp))
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+        return len(values)
+
+    def master_status(self) -> list[dict]:
+        return [dict(row) for row in self.db.execute(
+            "SELECT provider,account_id,row_count,source,refreshed_at FROM market_master_refresh "
+            "ORDER BY provider,account_id"
+        ).fetchall()]
 
     def get(self, provider: str, account_id: str, token: str) -> dict | None:
         row = self.db.execute("""
