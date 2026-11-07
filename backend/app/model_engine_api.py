@@ -129,7 +129,7 @@ async def get_model_engine_ledger(
     customer_id: str = Depends(require_customer),
 ) -> dict:
     customer_service = await get_customer_market_data_service(customer_id)
-    rows = await customer_service.hydrate_strategy_rows(_ledger.list_signals(customer_id, limit))
+    rows = await customer_service.hydrate_strategy_rows(_strategy_rows_for_customer(customer_id, limit))
     groups = {key: [] for key in
               ("SURVIVOR", "NEW", "HOLD", "WAIT", "RE-ENTRY", "SL", "TARGETS", "EXPIRED", "EXPIRYSCAN")}
     for row in rows:
@@ -285,7 +285,7 @@ async def get_original366_engine(
 ) -> dict:
     """Build the RECOVERED watch from the ORIGINAL366 cohort and post-stop daily closes."""
     customer_service = await get_customer_market_data_service(customer_id)
-    rows = await customer_service.hydrate_strategy_rows(_ledger.list_signals(customer_id, limit), max_contracts=2000)
+    rows = await customer_service.hydrate_strategy_rows(_strategy_rows_for_customer(customer_id, limit), max_contracts=2000)
     contracts = evaluate_original366_rows(rows, as_of=as_of)
     trades = [trade for contract in contracts
               for trade in (contract.get("original366") or {}).get("trades", [])]
@@ -401,7 +401,7 @@ async def get_expiry78_engine(
 ) -> dict:
     """Replay verified daily option OHLCV for explicitly tagged EXPIRY78 contracts."""
     customer_service = await get_customer_market_data_service(customer_id)
-    rows = await customer_service.hydrate_strategy_rows(_ledger.list_signals(customer_id, limit), max_contracts=2000)
+    rows = await customer_service.hydrate_strategy_rows(_strategy_rows_for_customer(customer_id, limit), max_contracts=2000)
     contracts = evaluate_expiry78_rows(rows, as_of=as_of)
     trades = [trade for contract in contracts
               for trade in (contract.get("expiry78") or {}).get("trades", [])]
@@ -492,7 +492,7 @@ async def get_model_engine_pnl_calendar(
     from app.model_engine_pnl_calendar import build_pnl_calendar
     from app.model_engine_physical_settlement import build_physical_settlement_review
     customer_service = await get_customer_market_data_service(customer_id)
-    rows = await customer_service.hydrate_strategy_rows(_ledger.list_signals(customer_id, limit), max_contracts=2000)
+    rows = await customer_service.hydrate_strategy_rows(_strategy_rows_for_customer(customer_id, limit), max_contracts=2000)
     master = build_master(rows)
     physical_review = build_physical_settlement_review()
     return build_pnl_calendar(master.get("strategies") or {},
