@@ -364,7 +364,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                 DataCell(_cell(_v(r, 'entry_premium'))),
                 DataCell(_cell(_v(r, 'source_recorded_expiry_value'))),
                 DataCell(_cell(_v(r, 'delivery_direction_if_itm'))),
-                DataCell(_cell('₹${_v(r, 'funds_obligation_at_strike_if_itm')}')),
+                DataCell(_cell(_v(r, 'funds_obligation_at_strike_if_itm'))),
                 DataCell(_cell(_v(r, 'itm_status'))),
                 DataCell(_cell(_v(r, 'settlement_status'))),
               ])).toList()))),
