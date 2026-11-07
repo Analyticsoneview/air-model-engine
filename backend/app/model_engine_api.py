@@ -422,6 +422,9 @@ async def get_model_engine_pnl_calendar(
 ) -> dict:
     """Calendar P&L with separate entry-capital and exit-realization dates."""
     from app.model_engine_pnl_calendar import build_pnl_calendar
+    from app.model_engine_physical_settlement import build_physical_settlement_review
     rows = _ledger.list_signals(customer_id, limit)
     master = build_master(rows)
-    return build_pnl_calendar(master.get("strategies") or {}, year=year, month=month)
+    physical_review = build_physical_settlement_review()
+    return build_pnl_calendar(master.get("strategies") or {},
+                              physical_review=physical_review, year=year, month=month)
