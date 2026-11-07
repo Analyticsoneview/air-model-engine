@@ -9,19 +9,23 @@ from __future__ import annotations
 from typing import Any
 
 from app.model_engine_expiry78 import evaluate_expiry78_rows
+from app.model_engine_original366 import evaluate_original366_rows
 
 STOCK_ENTRY_MIN = 1.0
 STOCK_ENTRY_MAX = 10.0
 
 ORIGINAL366_BASELINE = {
-    "trades": 366,
-    "expiry_winners": 32,
-    "five_percent_stop_losses": 334,
-    "gross_pnl_rupees": 1071850,
-    "charges_rupees": 21602,
-    "net_pnl_rupees": 1050248,
-    "capital_rupees": 1514362,
-    "baseline_status": "PRESERVED_NOT_RECALCULATED",
+    "reference_cohort": "ORIGINAL366",
+    "display_section": "RECOVERED",
+    "source_entries": 534,
+    "full_expiry_coverage_cohort": 366,
+    "partial_coverage_excluded": 83,
+    "no_post_entry_data_excluded": 85,
+    "five_percent_sl_hits_in_full_coverage_cohort": 366,
+    "same_day_sl_hits": 274,
+    "later_session_sl_hits": 69,
+    "gap_open_sl_hits": 23,
+    "baseline_status": "COHORT_FILTER_ONLY",
 }
 
 STRATEGY_RULES = {
@@ -29,14 +33,14 @@ STRATEGY_RULES = {
         "name": "EXPIRY78",
         "membership": "EXPIRY78",
         "stock_entry_filter": "₹1–₹10 entry premium for stock CE/PE; index options retain existing rules",
-        "qualification": "Seven-rule replay: valid positive option OHLCV; bullish real-body engulfing against the previous valid traded observation; entry limit = 40% of engulfing HIGH; later daily LOW touch strictly before expiry; entry premium >= ₹1 and entry-day quantity >= 10; 5% protected stop with conservative same-day and gap-through handling; only unstopped positions with verified expiry intrinsic valuation qualify as survivors.",
+        "qualification": "Seven-rule replay: valid positive option OHLCV; bullish real-body engulfing against the previous valid traded observation; entry limit = 40% of engulfing HIGH; later daily LOW touch strictly before expiry; entry premium >= ₹1 and entry-day quantity >= 10; initial 5% stop, then ratchet to the prior +20% premium milestone at every +20% gain (+20% locks entry, +40% locks +20%, etc.); conservative same-candle handling and gap-through exits at observed OPEN; only unstopped positions with verified expiry intrinsic valuation qualify as survivors.",
         "candidate_filter_stage": "ENTRY_QUALIFICATION",
     },
     "ORIGINAL366": {
-        "name": "ORIGINAL 366",
+        "name": "RECOVERED",
         "membership": "ORIGINAL366",
-        "stock_entry_filter": "₹1–₹10 applies only when qualifying new stock CE/PE candidates; index options retain existing rules",
-        "qualification": "Keep original 366-trade historical baseline immutable. Filter only newly qualifying stock-option candidates; do not rewrite historical baseline until an explicit recalculation.",
+        "stock_entry_filter": "Reference cohort was filtered using actual entry premium ₹1–₹10 for stock CE/PE; index options exempt; shelf_sessions at least 10",
+        "qualification": "Display the 366 full-expiry-coverage records selected from the original 534-entry population. Preserve original 5% SLHIT history. After SL, a verified daily option CLOSE above original entry adds a RECOVERED watch. Evaluate that watch retrospectively from the SAME ORIGINAL entry price using 10% SL and 45% target; target/stop are checked chronologically and same-candle ambiguity is stop-first. This is not a new fill, re-entry or order.",
         "candidate_filter_stage": "NEW_CANDIDATE_QUALIFICATION",
     },
     "RECOVERY": {
@@ -153,7 +157,7 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for strategy, rules in STRATEGY_RULES.items():
         groups = {key: [] for key in
-                  ("OPEN", "NEW", "HOLD", "WAIT", "SLHIT", "REENTRY", "EXPIRED", "TARGETS")}
+                  ("OPEN", "NEW", "HOLD", "WAIT", "SLHIT", "REENTRY", "EXPIRED", "TARGETS", "RECOVERED")}
         accepted: list[dict[str, Any]] = []
         rejected_stock_filter = 0
         rejected_recovery_proof = 0
@@ -179,7 +183,7 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
             bucket = status if status in groups else None
             if bucket:
                 groups[bucket].append(row)
-        groups["OPEN"] = groups["NEW"] + groups["HOLD"]
+        groups["OPEN"] = groups["NEW"] + groups["HOLD"] + (groups["REENTRY"] if strategy in ("EXPIRY78", "RECOVERY") else [])
         for values in groups.values():
             values.sort(key=_sort_key, reverse=True)
         result[strategy] = {
@@ -195,6 +199,115 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
         }
         if strategy == "ORIGINAL366":
             result[strategy]["baseline"] = dict(ORIGINAL366_BASELINE)
+
+    # ORIGINAL366 replay replaces persisted lifecycle rows for the same signal IDs.
+    # Invalid qualification evidence is excluded from active groups and surfaced
+    # separately; expiry outcomes are grouped only under EXPIRED.
+    original_evaluated = evaluate_original366_rows(rows)
+    if original_evaluated:
+        prior = result["ORIGINAL366"]["groups"]
+        replayed_ids = {str(item.get("signal_id") or "") for item in original_evaluated}
+        original_groups = {
+            key: [row for row in prior.get(key, [])
+                  if str(row.get("signal_id") or "") not in replayed_ids]
+            for key in ("NEW", "HOLD", "WAIT", "SLHIT", "ORIGINAL_SLHIT", "REENTRY", "EXPIRED", "TARGETS", "RECOVERED")
+        }
+        original_groups["OPEN"] = []
+        original_groups["REJECTED"] = []
+        original_groups["EXPIRED_WIN"] = []
+        original_groups["EXPIRED_LOSS"] = []
+        replay_trades = []
+        for source in original_evaluated:
+            replay = source.get("original366") or {}
+            trades = replay.get("trades") or []
+            if not trades:
+                status = replay.get("status")
+                if status == "REJECTED":
+                    original_groups["REJECTED"].append({**source, "classification": "REJECTED", "reason": replay.get("reason")})
+                else:
+                    original_groups["WAIT"].append({**source, "classification": "WAIT", "reason": replay.get("reason")})
+                continue
+            for trade in trades:
+                item = {**source, **trade, "strategy": "ORIGINAL366"}
+                replay_trades.append(item)
+                status = trade.get("classification")
+                if status == "SLHIT":
+                    # Preserve the original 5% stop as historical evidence,
+                    # separately from the RECOVERED alternative 10% stop.
+                    original_groups["ORIGINAL_SLHIT"].append(item)
+                elif status in ("EXPIRED_WIN", "EXPIRED_LOSS"):
+                    original_groups["EXPIRED"].append(item)
+                    original_groups[status].append(item)
+                elif status in original_groups:
+                    original_groups[status].append(item)
+                if trade.get("recovered_watch"):
+                    watch = trade["recovered_watch"]
+                    exit_model = watch.get("exit_model") or {}
+                    outcome = str(exit_model.get("outcome") or "UNRESOLVED").upper()
+                    recovered_row = {
+                        **item,
+                        "classification": "RECOVERED_WATCH",
+                        "signal_date": watch.get("trigger_date"),
+                        "entry_price": watch.get("reference_entry_price", item.get("entry_price")),
+                        "stop_loss": exit_model.get("stop_loss"),
+                        "target_1": exit_model.get("target"),
+                        "latest_price": watch.get("trigger_close"),
+                        "exit_date": exit_model.get("exit_date"),
+                        "exit_price": exit_model.get("exit_price"),
+                        "exit_reason": exit_model.get("exit_reason"),
+                        "pnl_points": exit_model.get("pnl_points"),
+                        "pnl_pct": exit_model.get("return_pct"),
+                        "recovered_outcome": outcome,
+                        "watch": watch,
+                        "position_status": "WATCH_ONLY_NOT_OPEN",
+                    }
+                    original_groups["RECOVERED"].append(recovered_row)
+                    if outcome == "TARGET_FIRST":
+                        recovered_row["classification"] = "TARGETS"
+                        recovered_row["position_status"] = "CLOSED_TARGET"
+                        original_groups["TARGETS"].append(recovered_row)
+                    elif outcome == "STOP_FIRST":
+                        recovered_row["classification"] = "SLHIT"
+                        recovered_row["position_status"] = "CLOSED_STOP"
+                        original_groups["SLHIT"].append(recovered_row)
+                    elif outcome == "EXPIRY_SETTLEMENT":
+                        recovered_row["classification"] = "EXPIRED"
+                        recovered_row["position_status"] = "EXPIRED"
+                        original_groups["EXPIRED"].append(recovered_row)
+                    else:
+                        expiry_text = str(item.get("expiry") or "")[:10]
+                        try:
+                            from datetime import date
+                            still_before_expiry = bool(expiry_text and date.fromisoformat(expiry_text) > date.today())
+                        except ValueError:
+                            still_before_expiry = False
+                        if still_before_expiry:
+                            recovered_row["classification"] = "OPEN"
+                            recovered_row["position_status"] = "OPEN"
+                            original_groups["OPEN"].append(recovered_row)
+                        else:
+                            recovered_row["classification"] = "WAIT"
+                            recovered_row["position_status"] = "WAIT_EXPIRY_VALUATION"
+                            original_groups["WAIT"].append(recovered_row)
+        # OPEN is the active RECOVERED alternative-model cohort, not the
+        # original 5% lifecycle (preserved in ORIGINAL_SLHIT).
+        for values in original_groups.values():
+            values.sort(key=_sort_key, reverse=True)
+        result["ORIGINAL366"]["groups"] = original_groups
+        result["ORIGINAL366"]["counts"] = {key: len(value) for key, value in original_groups.items()}
+        result["ORIGINAL366"]["count"] = len(accepted)
+        result["ORIGINAL366"]["replay"] = {
+            "contracts_replayed": len(original_evaluated),
+            "trades_replayed": len(replay_trades),
+            "expiry_winners": len(original_groups["EXPIRED_WIN"]),
+            "expiry_losses": len(original_groups["EXPIRED_LOSS"]),
+            "stop_losses": len(original_groups["SLHIT"]),
+            "gross_pnl_rupees": round(sum(item.get("gross_pnl_rupees") or 0 for item in replay_trades), 2),
+            "charges_rupees": round(sum(item.get("charges_rupees") or 0 for item in replay_trades), 2),
+            "net_pnl_rupees": round(sum(item.get("net_pnl_rupees") or 0 for item in replay_trades), 2),
+            "baseline": dict(ORIGINAL366_BASELINE),
+            "baseline_status": "COHORT_FILTER_ONLY",
+        }
 
     # EXPIRY78's seven-rule engine is replayed only when verified daily option
     # OHLCV bars are attached to an explicitly tagged EXPIRY78 contract. Ledger
@@ -235,7 +348,7 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 engine_trade_count += 1
                 engine_survivors += int(bool(trade.get("expiry_survivor")))
                 engine_stops += int(trade.get("classification") == "SL")
-        engine_groups["OPEN"] = engine_groups["NEW"] + engine_groups["HOLD"]
+        engine_groups["OPEN"] = engine_groups["NEW"] + engine_groups["HOLD"] + engine_groups["REENTRY"]
         for values in engine_groups.values():
             values.sort(key=_sort_key, reverse=True)
         result["EXPIRY78"]["groups"] = engine_groups

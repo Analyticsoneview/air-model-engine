@@ -10,14 +10,17 @@ class ModelEngineScreen extends StatefulWidget {
 
 class _ModelEngineScreenState extends State<ModelEngineScreen> {
   final AirApiClient _api = AirApiClient();
-  static const _sections = ['OPEN', 'NEW', 'HOLD', 'REENTRY', 'SURVIVOR', 'WAIT', 'SLHIT', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN', 'COMBINED', 'EXPIRY78', 'ORIGINAL366', 'RECOVERY'];
-  static const _strategyTabs = ['EXPIRY78', 'ORIGINAL366', 'RECOVERY'];
+  static const _sections = ['OPEN', 'NEW', 'HOLD', 'REENTRY', 'SURVIVOR', 'WAIT', 'SLHIT', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN', 'COMBINED', 'EXPIRY78', 'RECOVERED', 'RECOVERY'];
+  static const _strategyTabs = ['EXPIRY78', 'RECOVERED', 'RECOVERY'];
+
+  String _strategyKey(String section) => section == 'RECOVERED' ? 'ORIGINAL366' : section;
   Map<String, dynamic> _groups = {};
   Map<String, dynamic> _strategies = {};
   Map<String, dynamic> _counts = {};
   Map<String, dynamic> _summary = {};
   Map<String, dynamic> _breakdowns = {};
   List<Map<String, dynamic>> _expiryRows = [];
+  List<Map<String, dynamic>> _expiryAlerts = [];
   String? _expiryNote;
   int _selected = 0;
   bool _authenticated = false, _loading = false;
@@ -54,7 +57,11 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
         _groups = result['groups'] as Map<String, dynamic>? ?? {};
         _strategies = result['strategies'] as Map<String, dynamic>? ?? {};
         if (expiryResult != null) {
-          _expiryRows = (expiryResult['rows'] as List<dynamic>? ?? const [])
+          _expiryRows = [
+            ...(expiryResult['rows'] as List<dynamic>? ?? const []),
+            ...(expiryResult['expired_rows'] as List<dynamic>? ?? const []),
+          ].whereType<Map<String, dynamic>>().toList();
+          _expiryAlerts = (expiryResult['close_alerts'] as List<dynamic>? ?? const [])
               .whereType<Map<String, dynamic>>().toList();
           _expiryNote = expiryResult['note']?.toString();
         }
@@ -72,8 +79,13 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
 
   String _tabCount(String section) {
     if (_strategyTabs.contains(section)) {
-      final data = _strategies[section];
-      return data is Map ? (data['count'] ?? 0).toString() : '0';
+      final data = _strategies[_strategyKey(section)];
+      if (data is! Map) return '0';
+      if (section == 'RECOVERED') {
+        final counts = data['counts'];
+        return counts is Map ? (counts['RECOVERED'] ?? 0).toString() : '0';
+      }
+      return (data['count'] ?? 0).toString();
     }
     if (section == 'EXPIRYSCAN') return _expiryRows.length.toString();
     return (_counts[section] ?? 0).toString();
@@ -113,8 +125,16 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       case 'HOLD': return '📌 HOLD';
       case 'RE-ENTRY': return '🔁 RE-ENTRY';
       case 'SL': return 'SL HIT';
-      case 'TARGETS': return 'TARGET HIT';
+      case 'SLHIT': return 'SL HIT';
+      case 'TARGETS': return '45% TARGET HIT';
       case 'EXPIRED': return 'EXPIRED';
+      case 'OPEN': return '📌 OPEN';
+      case 'RECOVERED_WATCH':
+        final outcome = (r['recovered_outcome'] ?? '').toString().toUpperCase();
+        if (outcome == 'TARGET_FIRST') return '👀 RECOVERED • TARGET HIT';
+        if (outcome == 'STOP_FIRST') return '👀 RECOVERED • SL HIT';
+        if (outcome == 'EXPIRY_SETTLEMENT') return '👀 RECOVERED • EXPIRY';
+        return '👀 RECOVERED WATCH';
       default: return _v(r, 'classification');
     }
   }
@@ -206,7 +226,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     final selectedSection = _sections[_selected];
     final expirySelected = selectedSection == 'EXPIRYSCAN';
     final strategySelected = _strategyTabs.contains(selectedSection);
-    final strategyData = _strategies[selectedSection] as Map<String, dynamic>?;
+    final strategyData = _strategies[_strategyKey(selectedSection)] as Map<String, dynamic>?;
     final strategyGroups = strategyData?['groups'] as Map<String, dynamic>?;
     final strategyRows = strategyGroups == null ? null : strategyGroups[_strategyStatus];
     final selectedRows = strategySelected ? strategyRows : _groups[selectedSection];
@@ -246,7 +266,10 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
               Wrap(spacing: 7, runSpacing: 7, children: _sections.map((s) => ChoiceChip(
                 label: Text('$s  ${_tabCount(s)}', style: const TextStyle(fontSize: 10)),
                 selected: _sections[_selected] == s,
-                onSelected: (_) => setState(() => _selected = _sections.indexOf(s)),
+                onSelected: (_) => setState(() {
+                  _selected = _sections.indexOf(s);
+                  _strategyStatus = s == 'RECOVERED' ? 'OPEN' : 'OPEN';
+                }),
               )).toList()),
             ],
           ))),
@@ -258,16 +281,20 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                 style: TextStyle(fontSize: 10, height: 1.35, color: cs.onSurfaceVariant),
               ),
             )),
-            if (selectedSection == 'ORIGINAL366' && strategyData?['baseline'] is Map) Card(child: Padding(
+            if (selectedSection == 'RECOVERED' && strategyData?['baseline'] is Map) Card(child: Padding(
               padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('ORIGINAL 366 • PRESERVED BASELINE', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11)),
+                const Text('RECOVERED • ORIGINAL366 COHORT FILTER', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11)),
                 const SizedBox(height: 6),
-                Text('366 trades • 32 expiry winners • 334 five-percent SL outcomes', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
-                Text('Gross ₹10,71,850 • Charges ₹21,602 • Net ₹10,50,248 • Capital ₹15,14,362', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
-                Text('Baseline is preserved; not recalculated from filtered candidates.', style: TextStyle(fontSize: 10, color: cs.primary)),
+                Text('534 original entries → 366 full-expiry-coverage records', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+                Text('83 partial-coverage excluded • 85 no post-entry data excluded', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+                Text('366 original 5% SL hits: 274 same-day • 69 later-session • 23 gap/open', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+                Text('RECOVERED trigger: post-SL daily CLOSE above original entry. Alternative replay uses that SAME entry: 10% SL / 45% target; same-candle conflict = SL first.', style: TextStyle(fontSize: 10, color: cs.primary)),
+                Text('OPEN / TARGETS / SLHIT / EXPIRED are alternative-model outcomes. Original 5% SL history remains separately preserved.', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
               ]),
             )),
-            Wrap(spacing: 7, runSpacing: 7, children: ['OPEN', 'NEW', 'HOLD', 'WAIT', 'SLHIT', 'REENTRY'].map((status) => ChoiceChip(
+            Wrap(spacing: 7, runSpacing: 7, children: (selectedSection == 'RECOVERED'
+              ? ['OPEN', 'TARGETS', 'SLHIT', 'EXPIRED', 'WAIT']
+              : ['OPEN', 'NEW', 'HOLD', 'WAIT', 'SLHIT', 'REENTRY']).map((status) => ChoiceChip(
               label: Text('$status  ${((strategyData?['counts'] as Map?)?[status] ?? 0)}', style: const TextStyle(fontSize: 10)),
               selected: _strategyStatus == status,
               onSelected: (_) => setState(() => _strategyStatus = status),
@@ -275,6 +302,21 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
           ],
           if (_sections[_selected] == 'WAIT' && !strategySelected) Padding(padding: const EdgeInsets.all(8), child: Text('WAIT is reserved for candidates explicitly marked pending by a verified workflow. Missing data is never treated as WAIT.', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant))),
           if (expirySelected && _expiryNote != null) Padding(padding: const EdgeInsets.all(8), child: Text(_expiryNote!, style: const TextStyle(fontSize: 11))),
+          if (_expiryAlerts.isNotEmpty) Card(child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('EXPIRYSCAN • CLOSE-BEFORE-EXPIRY REMINDERS', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11)),
+              const SizedBox(height: 6),
+              ..._expiryAlerts.map((r) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Text(
+                  '${r['symbol']} ${r['option_type']} ${r['strike']} • Expiry ${r['expiry']} • Review/close before expiry',
+                  style: TextStyle(fontSize: 10, color: cs.error, fontWeight: FontWeight.w700),
+                ),
+              )),
+              const Text('Reminder is shown on the prior weekday when the app refreshes. Exchange holidays are not yet calendar-adjusted. No order is placed.', style: TextStyle(fontSize: 9)),
+            ]),
+          )),
           if (expirySelected && _expiryRows.isNotEmpty) Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal,
             child: DataTable(columns: const [
               DataColumn(label: Text('CLASSIFICATION')), DataColumn(label: Text('PRIORITY')), DataColumn(label: Text('UNDERLYING ID')),
@@ -313,7 +355,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
         if (_error != null) Padding(padding: const EdgeInsets.only(top: 10),
           child: Text(_error!, style: TextStyle(color: cs.error, fontSize: 11))),
         const SizedBox(height: 12),
-        Text('AIR MASTER keeps strategy membership isolated. EXPIRY78 applies its pre-expiry entry lifecycle; ORIGINAL366 preserves its 366-trade baseline while filtering new stock-option candidates; RECOVERY requires verified recovery evidence and its own lot-size rules. The ₹1–₹10 entry-premium filter applies to stock CE/PE only; index options retain existing rules. OPEN = NEW + HOLD. WAIT, RE-ENTRY, SL HIT, TARGETS and EXPIRED remain distinct lifecycle states. No automatic order placement.',
+        Text('AIR MASTER keeps strategy membership isolated. EXPIRY78 applies its seven-rule expiry-survivor lifecycle; RECOVERED is the ORIGINAL366 reference cohort (366 of 534) and adds a watch-only row after a post-SL daily option close above original entry premium; RECOVERY remains a separate re-entry strategy. OPEN = NEW + HOLD. No automatic order placement.',
           style: TextStyle(fontSize: 10, height: 1.4, color: cs.onSurfaceVariant)),
       ]),
     );

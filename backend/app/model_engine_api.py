@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -9,6 +10,8 @@ from app.model_engine_ledger import ModelEngineLedger
 from app.model_engine_master import build_master
 from app.model_engine_expiryscan import scan_expiries
 from app.model_engine_expiry78 import RULES as EXPIRY78_RULES, evaluate_expiry78_rows
+from app.model_engine_original366 import ORIGINAL366_RULES, evaluate_original366_rows
+from app.model_engine_strategies import ORIGINAL366_BASELINE
 from app.expiry_case_study_27oct2026 import historical_expired_contracts
 from app.air_qoc_store import AirQocStore
 from app.brokers.customer_accounts import CustomerAccountDirectory
@@ -16,6 +19,18 @@ from app.security import require_customer
 
 router = APIRouter(prefix="/api/v1/model-engine", tags=["AIR Model Engine"])
 _ledger = ModelEngineLedger()
+
+
+def _has_strategy_membership(row: dict, strategy: str) -> bool:
+    evidence = row.get("evidence") if isinstance(row.get("evidence"), dict) else {}
+    memberships = evidence.get("strategy_memberships") or evidence.get("strategies") or []
+    if isinstance(memberships, str):
+        memberships = [memberships]
+    normalized = {str(value).upper().replace(" ", "") for value in memberships}
+    single = evidence.get("strategy") or row.get("strategy")
+    if single:
+        normalized.add(str(single).upper().replace(" ", ""))
+    return strategy.upper().replace(" ", "") in normalized
 
 
 def _operator(customer_id: str = Depends(require_customer)) -> str:
@@ -211,6 +226,119 @@ def _expiry_scan_for_customer(customer_id: str, *, max_dte: int = 45,
         store.close()
 
 
+
+@router.get("/original366")
+async def get_original366_engine(
+    limit: int = Query(default=2000, ge=1, le=2000),
+    as_of: str | None = Query(default=None, description="Replay cutoff date YYYY-MM-DD"),
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    """Build the RECOVERED watch from the ORIGINAL366 cohort and post-stop daily closes."""
+    rows = _ledger.list_signals(customer_id, limit)
+    contracts = evaluate_original366_rows(rows, as_of=as_of)
+    trades = [trade for contract in contracts
+              for trade in (contract.get("original366") or {}).get("trades", [])]
+    winners = [trade for trade in trades if trade.get("classification") == "EXPIRED_WIN"]
+    expiry_losses = [trade for trade in trades if trade.get("classification") == "EXPIRED_LOSS"]
+    stopped = [trade for trade in trades if trade.get("classification") == "SLHIT"]
+    recovered_watch = []
+    recovered_groups = {key: [] for key in ("OPEN", "TARGETS", "SLHIT", "EXPIRED", "WAIT")}
+    original_sl_hits = stopped
+    cutoff_day = date.fromisoformat(as_of[:10]) if as_of else date.today()
+    for trade in stopped:
+        watch = trade.get("recovered_watch")
+        if not watch:
+            continue
+        exit_model = watch.get("exit_model") or {}
+        outcome = str(exit_model.get("outcome") or "UNRESOLVED").upper()
+        row = {
+            **trade, "classification": "RECOVERED_WATCH", "watch": watch,
+            "signal_date": watch["trigger_date"],
+            "latest_price": watch["trigger_close"],
+            "entry_price": watch.get("reference_entry_price", trade.get("entry_price")),
+            "stop_loss": exit_model.get("stop_loss"),
+            "target_1": exit_model.get("target"),
+            "exit_date": exit_model.get("exit_date"),
+            "exit_price": exit_model.get("exit_price"),
+            "exit_reason": exit_model.get("exit_reason"),
+            "pnl_points": exit_model.get("pnl_points"),
+            "pnl_pct": exit_model.get("return_pct"),
+            "recovered_outcome": outcome,
+            "position_status": "WATCH_ONLY_NOT_OPEN",
+            "reason": "Post-stop close above original entry; alternative exits use original entry with 10% SL / 45% target",
+        }
+        recovered_watch.append(row)
+        if outcome == "TARGET_FIRST":
+            row["classification"] = "TARGETS"
+            row["position_status"] = "CLOSED_TARGET"
+            recovered_groups["TARGETS"].append(row)
+        elif outcome == "STOP_FIRST":
+            row["classification"] = "SLHIT"
+            row["position_status"] = "CLOSED_STOP"
+            recovered_groups["SLHIT"].append(row)
+        elif outcome == "EXPIRY_SETTLEMENT":
+            row["classification"] = "EXPIRED"
+            row["position_status"] = "EXPIRED"
+            recovered_groups["EXPIRED"].append(row)
+        else:
+            expiry_text = str(trade.get("expiry") or "")[:10]
+            try:
+                active = bool(expiry_text and date.fromisoformat(expiry_text) > cutoff_day)
+            except ValueError:
+                active = False
+            if active:
+                row["classification"] = "OPEN"
+                row["position_status"] = "OPEN"
+                recovered_groups["OPEN"].append(row)
+            else:
+                row["classification"] = "WAIT"
+                row["position_status"] = "WAIT_EXPIRY_VALUATION"
+                recovered_groups["WAIT"].append(row)
+    new_rows = [
+        row for row in rows
+        if str(row.get("classification") or "").upper() == "NEW"
+        and _has_strategy_membership(row, "ORIGINAL366")
+    ]
+    return {
+        "strategy": "RECOVERED",
+        "cohort_id": "ORIGINAL366",
+        "as_of": as_of,
+        "rules": ORIGINAL366_RULES,
+        "cohort_reference": dict(ORIGINAL366_BASELINE),
+        "baseline_status": "COHORT_FILTER_ONLY",
+        "contracts_replayed": len(contracts),
+        "trade_count": len(trades),
+        "expiry_winners": len(winners),
+        "expiry_losses": len(expiry_losses),
+        "stop_losses": len(stopped),
+        "recovered_watch_count": len(recovered_watch),
+        "counts": {**{key: len(value) for key, value in recovered_groups.items()},
+                   "EXPIRED": len(recovered_groups["EXPIRED"]) + len(winners) + len(expiry_losses),
+                   "RECOVERED": len(recovered_watch), "ORIGINAL_SLHIT": len(original_sl_hits)},
+        "groups": {
+            **recovered_groups,
+            "ORIGINAL_SLHIT": original_sl_hits,
+            "RECOVERED": recovered_watch,
+            "NEW": [trade for trade in trades if trade.get("classification") == "NEW"],
+            "HOLD": [trade for trade in trades if trade.get("classification") == "HOLD"],
+            "REENTRY": [
+                row for row in rows
+                if str(row.get("classification") or "").upper() in ("RE-ENTRY", "REENTRY")
+                and isinstance(row.get("evidence"), dict)
+                and row["evidence"].get("reentry_verified") is True
+                and _has_strategy_membership(row, "ORIGINAL366")
+            ],
+            "EXPIRED": recovered_groups["EXPIRED"] + winners + expiry_losses,
+            "EXPIRED_WIN": winners,
+            "EXPIRED_LOSS": expiry_losses,
+        },
+        "contracts": contracts,
+        "new_candidates_pending_replay": len(new_rows),
+        "data_status": "POPULATED" if contracts else "AWAITING_VERIFIED_DAILY_OHLCV",
+        "note": "RECOVERED is a watch/backtest section for the ORIGINAL366 reference cohort. A post-original-5%-SL daily close above original entry adds a watch row; its retrospective alternative exit uses the same original entry price with 10% SL / 45% target. Alternative-model points are historical analysis only; no live position, re-entry or broker order is created.",
+    }
+
+
 @router.get("/expiry78")
 async def get_expiry78_engine(
     limit: int = Query(default=2000, ge=1, le=2000),
@@ -249,7 +377,7 @@ async def get_expiry78_engine(
         "expiry_survivors": sum(bool(trade.get("expiry_survivor")) for trade in trades),
         "stop_losses": sum(trade.get("classification") == "SL" for trade in trades),
         "groups": {
-            "OPEN": new_trades + hold_trades,
+            "OPEN": new_trades + hold_trades + verified_reentries,
             "NEW": new_trades,
             "HOLD": hold_trades,
             "WAIT": [trade for trade in trades if trade.get("classification") == "WAIT"],

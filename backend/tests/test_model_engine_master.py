@@ -44,7 +44,7 @@ def test_master_deduplicates_and_declares_deferred_views():
     assert result["count"] == 1
     assert result["audit"]["deduplicated"] == 1
     assert "EXPIRY78" in result["vocabulary"]["implemented_views"]
-    assert "ORIGINAL366" in result["vocabulary"]["deferred_views"]
+    assert "ORIGINAL366" in result["vocabulary"]["implemented_views"]
     assert "RECOVERY" in result["vocabulary"]["deferred_views"]
     assert "MASTER" in MASTER_COMMANDS
 
@@ -111,8 +111,8 @@ def test_strategy_views_are_isolated_and_stock_entry_filter_is_model_scoped():
     assert {r["signal_id"] for r in result["ORIGINAL366"]["groups"]["NEW"]} == {"original-index"}
     assert result["ORIGINAL366"]["audit"]["stock_candidates_rejected_outside_1_to_10"] == 1
     assert {r["signal_id"] for r in result["RECOVERY"]["groups"]["REENTRY"]} == {"recovery-stock"}
-    assert result["ORIGINAL366"]["baseline"]["trades"] == 366
-    assert result["ORIGINAL366"]["baseline"]["baseline_status"] == "PRESERVED_NOT_RECALCULATED"
+    assert result["ORIGINAL366"]["baseline"]["full_expiry_coverage_cohort"] == 366
+    assert result["ORIGINAL366"]["baseline"]["baseline_status"] == "COHORT_FILTER_ONLY"
 
 
 def test_recovery_lot_size_rule_is_enforced():
@@ -128,3 +128,143 @@ def test_recovery_lot_size_rule_is_enforced():
     result = build_strategy_views([recovery])
     assert result["RECOVERY"]["counts"]["REENTRY"] == 0
     assert result["RECOVERY"]["audit"]["recovery_candidates_rejected_without_verified_recovery_evidence"] == 1
+
+
+def test_original366_replay_is_independent_and_does_not_rewrite_historical_baseline():
+    from app.model_engine_strategies import ORIGINAL366_BASELINE, build_strategy_views
+
+    contract = {
+        "signal_id": "orig-engine-row",
+        "classification": "NEW",
+        "signal_date": "2026-11-03",
+        "entry_date": "2026-11-03",
+        "symbol": "TESTCO",
+        "instrument_type": "STOCK",
+        "option_type": "CE",
+        "expiry": "2026-11-20",
+        "strike": 100,
+        "entry_price": 8.0,
+        "remaining_trading_sessions": 13,
+        "evidence": {
+            "strategy_memberships": ["ORIGINAL366"],
+            "daily_option_bars": [
+                {"date": "2026-11-03", "open": 8, "high": 8.5, "low": 7.8, "close": 8.2, "quantity": 100},
+            ],
+        },
+    }
+    views = build_strategy_views([contract])
+    original = views["ORIGINAL366"]
+    assert original["replay"]["contracts_replayed"] == 1
+    assert original["counts"]["HOLD"] == 1
+    assert original["baseline"] == ORIGINAL366_BASELINE
+    assert original["baseline"]["reference_cohort"] == "ORIGINAL366"
+    assert original["baseline"]["display_section"] == "RECOVERED"
+    assert original["baseline"]["source_entries"] == 534
+    assert original["baseline"]["full_expiry_coverage_cohort"] == 366
+    assert original["baseline"]["partial_coverage_excluded"] == 83
+    assert original["baseline"]["no_post_entry_data_excluded"] == 85
+    assert original["baseline"]["five_percent_sl_hits_in_full_coverage_cohort"] == 366
+
+
+
+def test_original366_post_stop_close_is_added_to_recovered_open_lifecycle():
+    from app.model_engine_strategies import build_strategy_views
+
+    contract = {
+        "signal_id": "recovered-watch-row",
+        "classification": "SLHIT",
+        "signal_date": "2026-11-03",
+        "entry_date": "2026-11-03",
+        "symbol": "TESTCO",
+        "instrument_type": "STOCK",
+        "option_type": "CE",
+        "expiry": "2026-11-20",
+        "strike": 100,
+        "entry_price": 8.0,
+        "remaining_trading_sessions": 13,
+        "evidence": {
+            "strategy_memberships": ["ORIGINAL366"],
+            "daily_option_bars": [
+                {"date": "2026-11-03", "open": 8, "high": 8.5, "low": 7.4, "close": 7.6, "quantity": 100},
+                {"date": "2026-11-04", "open": 8.1, "high": 8.8, "low": 7.9, "close": 8.2, "quantity": 100},
+            ],
+        },
+    }
+    original = build_strategy_views([contract])["ORIGINAL366"]
+    assert original["rules"]["name"] == "RECOVERED"
+    assert original["counts"]["ORIGINAL_SLHIT"] == 1
+    assert original["counts"]["RECOVERED"] == 1
+    assert original["counts"]["OPEN"] == 1
+    assert original["counts"]["SLHIT"] == 0
+    watch = original["groups"]["RECOVERED"][0]
+    assert watch["classification"] == "OPEN"
+    assert watch["position_status"] == "OPEN"
+    assert watch["entry_price"] == 8.0
+    assert watch["stop_loss"] == 7.2
+    assert watch["target_1"] == 11.6
+    assert watch["watch"]["exit_model"]["simulation_basis"] == "ORIGINAL_ENTRY_PRICE_RETROSPECTIVE_EXIT_MODEL"
+    assert original["counts"]["OPEN"] == 1
+
+
+
+def _recovered_lifecycle_contract(expiry="2026-11-20", final_bar=None):
+    bars = [
+        {"date": "2026-11-03", "open": 8.0, "high": 8.5, "low": 7.4, "close": 7.6, "quantity": 100},
+        {"date": "2026-11-04", "open": 8.1, "high": 8.8, "low": 7.9, "close": 8.2, "quantity": 100},
+    ]
+    if final_bar:
+        bars.append(final_bar)
+    return {
+        "signal_id": "recovered-lifecycle",
+        "classification": "SLHIT",
+        "signal_date": "2026-11-03",
+        "entry_date": "2026-11-03",
+        "symbol": "TESTCO",
+        "instrument_type": "STOCK",
+        "option_type": "CE",
+        "expiry": expiry,
+        "strike": 100,
+        "entry_price": 8.0,
+        "remaining_trading_sessions": 13,
+        "evidence": {"strategy_memberships": ["ORIGINAL366"], "daily_option_bars": bars},
+    }
+
+
+def test_recovered_target_exit_moves_to_targets_not_open():
+    from app.model_engine_strategies import build_strategy_views
+
+    contract = _recovered_lifecycle_contract(final_bar={
+        "date": "2026-11-05", "open": 8.3, "high": 11.8, "low": 8.1, "close": 11.2, "quantity": 100,
+    })
+    view = build_strategy_views([contract])["ORIGINAL366"]
+    assert view["counts"]["TARGETS"] == 1
+    assert view["counts"]["OPEN"] == 0
+    assert view["groups"]["TARGETS"][0]["exit_price"] == 11.6
+
+
+def test_recovered_stop_exit_moves_to_slhit_not_open():
+    from app.model_engine_strategies import build_strategy_views
+
+    contract = _recovered_lifecycle_contract(final_bar={
+        "date": "2026-11-05", "open": 7.5, "high": 8.9, "low": 7.0, "close": 7.4, "quantity": 100,
+    })
+    view = build_strategy_views([contract])["ORIGINAL366"]
+    assert view["counts"]["SLHIT"] == 1
+    assert view["counts"]["OPEN"] == 0
+    assert view["groups"]["SLHIT"][0]["exit_price"] == 7.2
+
+
+def test_recovered_expiry_settlement_moves_to_expired_not_open():
+    from app.model_engine_strategies import build_strategy_views
+
+    contract = _recovered_lifecycle_contract(
+        expiry="2026-11-06",
+        final_bar={
+            "date": "2026-11-06", "open": 8.0, "high": 8.5, "low": 7.8,
+            "close": 8.1, "quantity": 100, "underlying_close": 115,
+        },
+    )
+    view = build_strategy_views([contract])["ORIGINAL366"]
+    assert view["counts"]["EXPIRED"] == 1
+    assert view["counts"]["OPEN"] == 0
+    assert view["groups"]["EXPIRED"][0]["exit_reason"] == "EXPIRY_INTRINSIC_NO_TARGET_OR_STOP"
