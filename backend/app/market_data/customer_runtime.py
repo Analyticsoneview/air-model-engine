@@ -76,11 +76,12 @@ class CustomerMarketDataRuntime:
                 "fallback_active": False,
                 "fallback_reason": None,
             }
+            nse_adapter = NSEBhavcopyMarketDataAdapter()
             if key[0] == "nse_bhavcopy":
-                adapter = NSEBhavcopyMarketDataAdapter()
-                router.register(key[1], adapter)
+                router.register(key[1], nse_adapter)
                 await router.set_source("historical", key[0], key[1])
             else:
+                router.register("official", nse_adapter)
                 adapter = self.adapter_factory(customer_id, key[0], key[1], hub)
                 router.register(key[1], adapter)
                 try:
@@ -97,8 +98,6 @@ class CustomerMarketDataRuntime:
                         await router.clear_main_account()
                     except Exception:
                         pass
-                    nse = NSEBhavcopyMarketDataAdapter()
-                    router.register("official", nse)
                     await router.set_source("historical", "nse_bhavcopy", "official")
                     source_status.update({
                         "effective_source": "NSE",
@@ -153,13 +152,32 @@ async def get_customer_market_data_status(customer_id: str) -> dict:
     service = await _runtime.get_service(customer_id)
     status = dict(getattr(service, "customer_market_data_status", {}))
     status.update(service.router.status())
-    status["effective_source"] = status.get("effective_source") or (
-        "BROKER" if status.get("historical_source", {}).get("provider") != "nse_bhavcopy"
-        else "NSE"
-    )
+    historical = status.get("historical_source") or {}
+    live = status.get("live_source") or {}
+    hist_nse = historical.get("provider") == "nse_bhavcopy"
+    live_broker = bool(live) and live.get("provider") != "nse_bhavcopy"
+    hist_broker = bool(historical) and not hist_nse
+    if hist_nse and live_broker:
+        status["effective_source"] = "MIXED"
+    elif hist_broker and live_broker:
+        status["effective_source"] = "BROKER"
+    elif hist_broker:
+        status["effective_source"] = "BROKER_HISTORICAL_ONLY"
+    else:
+        status["effective_source"] = "NSE"
+    if status.get("connection_status") == "authenticated" and live_broker:
+        feed_state = (status.get("health", {}).get("live") or {}).get("feed_state", "unknown")
+        if feed_state not in {"connected", "streaming"}:
+            status["connection_status"] = str(feed_state).upper()
     status["source_label"] = (
-        f"{status.get('effective_source')} (fallback)"
-        if status.get("fallback_active") else status.get("effective_source")
+        f"{status['effective_source']} (NSE FALLBACK)"
+        if status.get("fallback_active") else status["effective_source"]
+    )
+    status["connection_message"] = (
+        "Broker unavailable; using NSE EOD data"
+        if status.get("fallback_active") else
+        "NSE EOD default" if not status.get("requested_source") else
+        f"Broker {status.get('connection_status', 'unknown')}"
     )
     return status
 
