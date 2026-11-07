@@ -26,7 +26,7 @@ class BrokerMarketDataNormalizationTests(unittest.TestCase):
 
     def test_invalid_decimal_does_not_escape_normalizer(self):
         self.assertIsNone(_decimal("not-a-price"))
-        self.assertEqual(_decimal("123.45"), 123.45)
+        self.assertEqual(str(_decimal("123.45")), "123.45")
 
 
 if __name__ == "__main__":
