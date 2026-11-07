@@ -180,7 +180,9 @@ async def capture_selected_provider_option_chains(*, force: bool = False) -> dic
         raise RuntimeError("No connected live market-data provider is selected")
     provider, account_id, _adapter = source[0]
     mappings = market_data_instruments.list_all(provider, account_id, limit=50000)
-    if not mappings and provider == "dhan":
+    if provider == "dhan":
+        # Dhan's official option-chain endpoint carries OI and bid/ask snapshots;
+        # keep using it rather than reconstructing the chain from websocket ticks.
         return await capture_dhan_eod_snapshots(force=force, account_id_override=account_id)
     option_rows = [row for row in mappings
                    if str(row.get("option_type") or "").upper() in {"CE", "PE"}
