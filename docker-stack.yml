@@ -26,6 +26,7 @@ services:
       AIR_TELEGRAM_SCHEDULER_ENABLED: ${AIR_TELEGRAM_SCHEDULER_ENABLED:-false}
       AIR_MARKET_SOURCE_DB_PATH: /var/lib/air/market_sources.sqlite3
       AIR_MARKET_INSTRUMENT_DB_PATH: /var/lib/air/market_instruments.sqlite3
+      AIR_MARKET_DATA_POLL_SECONDS: ${AIR_MARKET_DATA_POLL_SECONDS:-3}
       AIR_NSE_DB_PATH: /var/lib/air/nse_bhavcopy.sqlite3
       AIR_NSE_ARCHIVE_DIR: /var/lib/air/nse_archives
       AIR_NSE_BOOTSTRAP_ENABLED: ${AIR_NSE_BOOTSTRAP_ENABLED:-true}
