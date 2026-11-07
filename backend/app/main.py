@@ -225,7 +225,7 @@ async def nse_bhavcopy_rows(
     market: str = Query(pattern="^(CM|FO)$"),
     symbol: str | None = Query(default=None, max_length=40),
     start_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
-    end_date: str | None = Query(default=None, pattern=r"^\\d{4}-\\d{2}-\\d{2}$"),
+    end_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     instrument_type: str | None = Query(default=None, max_length=30),
     limit: int = Query(default=100, ge=1, le=500),
     customer_id: str = Depends(require_customer),
