@@ -10,6 +10,7 @@ from typing import Any
 
 from app.model_engine_expiry78 import evaluate_expiry78_rows
 from app.model_engine_original366 import evaluate_original366_rows
+from app.model_engine_physical_forecast import forecast_physical_settlement, physical_settlement_early_warning
 
 STOCK_ENTRY_MIN = 1.0
 STOCK_ENTRY_MAX = 10.0
@@ -339,6 +340,7 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 })
             for trade in trades:
                 item = {**source, **trade, "strategy": "EXPIRY78"}
+                item["physical_settlement_forecast"] = forecast_physical_settlement(item)
                 bucket = {"SL": "SLHIT", "RE-ENTRY": "REENTRY"}.get(
                     str(trade.get("classification") or "").upper(),
                     str(trade.get("classification") or "").upper(),
@@ -366,4 +368,30 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "contracts_without_entry_touch": contracts_without_entry_touch,
             "note": "Only verified daily OHLCV evidence is replayed; contracts without attached daily bars are not backfilled or guessed.",
         })
+    # Add the same forecast payload to every row shown in the EXPIRY78 tab,
+    # including persisted lifecycle rows without an engine replay.
+    for bucket_rows in result.get("EXPIRY78", {}).get("groups", {}).values():
+        for item in bucket_rows:
+            if not isinstance(item, dict):
+                continue
+            item["physical_settlement_forecast"] = forecast_physical_settlement(item)
+            setup_date = str(item.get("signal_date") or "")[:10]
+            entry_date = str(item.get("entry_date") or "")[:10]
+            item["physical_delivery_at_setup"] = (
+                physical_settlement_early_warning(item, as_of=setup_date)
+                if setup_date else {"status": "DATA_REQUIRED", "icon": "⚪",
+                                    "qualified": False, "reason": "Verified setup date is missing"}
+            )
+            item["physical_delivery_at_entry"] = (
+                physical_settlement_early_warning(item, as_of=entry_date)
+                if entry_date else {"status": "PENDING_ENTRY", "icon": "⚪",
+                                    "qualified": False, "reason": "Limit entry is not filled yet"}
+            )
+            item["physical_delivery_current"] = physical_settlement_early_warning(item)
+            current = item["physical_delivery_current"]
+            item["physical_delivery_qualified"] = bool(
+                current.get("qualified") and
+                str(item.get("classification") or "").upper() in {"NEW", "HOLD", "WAIT", "RE-ENTRY", "REENTRY"}
+            )
+            item["physical_delivery_icon"] = current.get("icon", "⚪")
     return result

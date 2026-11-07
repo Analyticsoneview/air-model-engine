@@ -10,7 +10,7 @@ class ModelEngineScreen extends StatefulWidget {
 
 class _ModelEngineScreenState extends State<ModelEngineScreen> {
   final AirApiClient _api = AirApiClient();
-  static const _sections = ['OPEN', 'NEW', 'HOLD', 'REENTRY', 'SURVIVOR', 'WAIT', 'SLHIT', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN', 'COMBINED', 'EXPIRY78', 'RECOVERED', 'RECOVERY'];
+  static const _sections = ['P&L CALENDAR', 'OPEN', 'NEW', 'HOLD', 'REENTRY', 'SURVIVOR', 'WAIT', 'SLHIT', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN', 'PHYSICAL SETTLEMENT', 'COMBINED', 'EXPIRY78', 'RECOVERED', 'RECOVERY'];
   static const _strategyTabs = ['EXPIRY78', 'RECOVERED', 'RECOVERY'];
 
   String _strategyKey(String section) => section == 'RECOVERED' ? 'ORIGINAL366' : section;
@@ -20,6 +20,9 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   Map<String, dynamic> _summary = {};
   Map<String, dynamic> _breakdowns = {};
   List<Map<String, dynamic>> _expiryRows = [];
+  List<Map<String, dynamic>> _settlementRows = [];
+  Map<String, dynamic> _settlementSummary = {};
+  String? _settlementNote;
   List<Map<String, dynamic>> _expiryAlerts = [];
   String? _expiryNote;
   int _selected = 0;
@@ -28,6 +31,9 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   String? _error, _updatedAt;
   String _strategyStatus = 'OPEN';
   String _dataStatus = 'SIGN IN TO LOAD YOUR MODEL ENGINE LEDGER';
+  Map<String, dynamic> _pnlCalendar = {};
+  DateTime _calendarMonth = DateTime(DateTime.now().year, DateTime.now().month);
+  bool _calendarLoading = false;
 
   @override
   void initState() {
@@ -50,10 +56,17 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     try {
       final result = await _api.modelEngineMaster();
       Map<String, dynamic>? expiryResult;
+      Map<String, dynamic>? settlementResult;
+      Map<String, dynamic>? pnlResult;
       try { expiryResult = await _api.expiryScan(); }
       catch (e) { _expiryNote = 'EXPIRYSCAN unavailable: $e'; }
+      try { settlementResult = await _api.physicalSettlement(); }
+      catch (e) { _settlementNote = 'Physical settlement review unavailable: $e'; }
+      try { pnlResult = await _api.modelEnginePnlCalendar(year: _calendarMonth.year, month: _calendarMonth.month); }
+      catch (e) { _error = 'P&L calendar unavailable: $e'; }
       if (!mounted) return;
       setState(() {
+        if (pnlResult != null) _pnlCalendar = pnlResult;
         _groups = result['groups'] as Map<String, dynamic>? ?? {};
         _strategies = result['strategies'] as Map<String, dynamic>? ?? {};
         if (expiryResult != null) {
@@ -64,6 +77,12 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
           _expiryAlerts = (expiryResult['close_alerts'] as List<dynamic>? ?? const [])
               .whereType<Map<String, dynamic>>().toList();
           _expiryNote = expiryResult['note']?.toString();
+        }
+        if (settlementResult != null) {
+          _settlementRows = (settlementResult['rows'] as List<dynamic>? ?? const [])
+              .whereType<Map<String, dynamic>>().toList();
+          _settlementSummary = settlementResult['summary'] as Map<String, dynamic>? ?? {};
+          _settlementNote = settlementResult['note']?.toString();
         }
         _counts = result['counts'] as Map<String, dynamic>? ?? {};
         _summary = result['summary'] as Map<String, dynamic>? ?? {};
@@ -78,6 +97,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   String _v(Map<String, dynamic> row, String key) => row[key] == null ? '—' : row[key].toString();
 
   String _tabCount(String section) {
+    if (section == 'P&L CALENDAR') return '₹';
     if (_strategyTabs.contains(section)) {
       final data = _strategies[_strategyKey(section)];
       if (data is! Map) return '0';
@@ -88,14 +108,29 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       return (data['count'] ?? 0).toString();
     }
     if (section == 'EXPIRYSCAN') return _expiryRows.length.toString();
+    if (section == 'PHYSICAL SETTLEMENT') return _settlementRows.length.toString();
     return (_counts[section] ?? 0).toString();
   }
+  Widget _settlementMetric(String label, dynamic value) => Container(
+    padding: const EdgeInsets.all(9),
+    decoration: BoxDecoration(
+      border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(label, style: const TextStyle(fontSize: 8, fontWeight: FontWeight.w800)),
+      const SizedBox(height: 3),
+      Text(value == null ? '—' : (value is num && label.contains('FUNDS') ? '₹${value.toStringAsFixed(2)}' : value.toString()),
+        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900)),
+    ]),
+  );
+
   Widget _cell(String value) => Padding(
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
     child: Text(value, style: const TextStyle(fontSize: 10)),
   );
 
-  List<DataColumn> get _columns => const [
+  List<DataColumn> get _columns => [
     DataColumn(label: Text('MODEL SIGNAL DATE')),
     DataColumn(label: Text('ENTRY DATE')),
     DataColumn(label: Text('CLASSIFICATION')),
@@ -113,7 +148,9 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     DataColumn(label: Text('CURRENT P&L')),
     DataColumn(label: Text('DAYS TO EXPIRY')),
     DataColumn(label: Text('STATUS')),
-    DataColumn(label: Text('LATEST EVIDENCE')),
+    if (_sections[_selected] == 'EXPIRY78') const DataColumn(label: Text('DELIVERY ALERT • ENTRY / LIVE')),
+    if (_sections[_selected] == 'EXPIRY78') const DataColumn(label: Text('PHYSICAL SETTLEMENT FORECAST')),
+    const DataColumn(label: Text('LATEST EVIDENCE')),
   ];
 
   bool _isSurvivor(Map<String, dynamic> r) =>
@@ -148,6 +185,23 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       return '$quantity qty / ${lots.toStringAsFixed(lots % 1 == 0 ? 0 : 2)} lots';
     }
     return '$quantity qty';
+  }
+
+  String _stopDisplay(Map<String, dynamic> r) {
+    final stop = _v(r, 'stop_loss');
+    final trailing = r['trailing_stop'];
+    final history = r['trail_history'];
+    if (trailing != null || (history is List && history.isNotEmpty)) {
+      if (history is List && history.isNotEmpty && history.last is Map) {
+        final last = history.last as Map;
+        final milestone = last['milestone_gain_pct'];
+        final locked = last['locked_gain_pct'];
+        final steps = history.length;
+        return '$stop • 🔒 +${milestone ?? '—'}% HIT • LOCK +${locked ?? '—'}% • $steps STEP(S)';
+      }
+      return '$stop • 🔒 TRAILED';
+    }
+    return stop;
   }
 
   String _targets(Map<String, dynamic> r) {
@@ -186,6 +240,46 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     return parts.isEmpty ? '—' : parts.join(' | ');
   }
 
+  String _physicalForecastDisplay(Map<String, dynamic> r) {
+    final forecast = r['physical_settlement_forecast'];
+    if (forecast is! Map) return 'UNKNOWN • forecast unavailable';
+    final risk = forecast['physical_settlement_risk']?.toString() ?? 'UNKNOWN';
+    final itm = forecast['forecast_itm']?.toString() ?? 'UNKNOWN';
+    final probability = forecast['itm_probability_pct'];
+    final price = forecast['forecast_stock_price'];
+    final direction = forecast['delivery_direction_if_itm']?.toString() ?? '—';
+    final status = forecast['forecast_status']?.toString() ?? '';
+    final parts = <String>[risk, 'ITM: $itm'];
+    if (probability != null) parts.add('P(ITM): $probability%');
+    if (price != null) parts.add('Expiry est: ₹$price');
+    parts.add(direction);
+    if (status == 'INSUFFICIENT_UNDERLYING_OHLCV') parts.add('Underlying OHLCV missing');
+    return parts.join(' • ');
+  }
+
+  String _physicalDeliveryAlertDisplay(Map<String, dynamic> r) {
+    final setup = r['physical_delivery_at_setup'];
+    final entry = r['physical_delivery_at_entry'];
+    final current = r['physical_delivery_current'];
+    if (current is! Map) return '⚪ DATA REQUIRED';
+    final icon = current['icon']?.toString() ?? '⚪';
+    final status = current['status']?.toString() ?? 'UNKNOWN';
+    final setupStatus = setup is Map ? (setup['status']?.toString() ?? 'UNKNOWN') : 'UNKNOWN';
+    final entryStatus = entry is Map ? (entry['status']?.toString() ?? 'UNKNOWN') : 'UNKNOWN';
+    final distance = current['distance_to_strike_pct'];
+    final dte = current['days_to_expiry'];
+    final qualified = current['qualified'] == true;
+    final parts = <String>[
+      '$icon $status',
+      if (qualified) '🟢 PHYSICAL SETTLEMENT QUALIFIED',
+      'Setup: $setupStatus',
+      'Entry: $entryStatus',
+    ];
+    if (distance != null) parts.add('Strike gap: $distance%');
+    if (dte != null) parts.add('DTE: $dte');
+    return parts.join(' • ');
+  }
+
   DataRow _row(Map<String, dynamic> r) {
     final survivor = _isSurvivor(r);
     final dte = r['days_to_expiry'];
@@ -196,35 +290,217 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       _cell(_v(r, 'entry_date')),
       _cell(_classificationLabel(r)),
       _cell(instrument),
-      _cell(_v(r, 'symbol')),
+      _cell('${r['physical_delivery_icon'] ?? ''} ${_v(r, 'symbol')}'),
       _cell(_v(r, 'sector')),
       _cell(_v(r, 'option_type')),
       _cell(_v(r, 'strike')),
       _cell(_v(r, 'expiry')),
-      _cell(_v(r, 'entry_price')),
+      _cell(_v(r, 'entry_price') == '—' ? (r['entry_limit']?.toString() ?? '—') : _v(r, 'entry_price')),
       _cell(_v(r, 'latest_price')),
       _cell(_quantityLots(r)),
-      _cell(_v(r, 'stop_loss')),
+      _cell(_stopDisplay(r)),
       _cell(_targets(r)),
       _cell(_pnlDisplay(r)),
       _cell(dte == null ? '—' : '$dte calendar days'),
       _cell(status),
+      if (_sections[_selected] == 'EXPIRY78') _cell(_physicalDeliveryAlertDisplay(r)),
+      if (_sections[_selected] == 'EXPIRY78') _cell(_physicalForecastDisplay(r)),
       _cell(_evidenceDisplay(r)),
     ];
+    final deliveryCurrent = r['physical_delivery_current'];
+    final deliveryCritical = deliveryCurrent is Map && deliveryCurrent['status'] == 'CRITICAL';
+    final deliveryQualified = r['physical_delivery_qualified'] == true;
     return DataRow(
-      color: survivor
-          ? WidgetStateProperty.resolveWith<Color?>((states) =>
-              Theme.of(context).colorScheme.tertiary.withValues(alpha: 0.18))
-          : null,
+      color: WidgetStateProperty.resolveWith<Color?>((states) {
+        if (deliveryCritical) return Theme.of(context).colorScheme.errorContainer.withValues(alpha: 0.48);
+        if (deliveryQualified) return Theme.of(context).colorScheme.tertiaryContainer.withValues(alpha: 0.45);
+        if (survivor) return Theme.of(context).colorScheme.tertiary.withValues(alpha: 0.18);
+        return null;
+      }),
       cells: cells.map((cell) => DataCell(cell)).toList(),
     );
+  }
+
+
+  String _money(dynamic value) => value is num
+      ? '₹${value.toStringAsFixed(2)}' : '—';
+
+  Future<void> _changeCalendarMonth(int delta) async {
+    final next = DateTime(_calendarMonth.year, _calendarMonth.month + delta);
+    setState(() { _calendarMonth = next; _calendarLoading = true; });
+    try {
+      final result = await _api.modelEnginePnlCalendar(year: next.year, month: next.month);
+      if (mounted) setState(() => _pnlCalendar = result);
+    } catch (e) {
+      if (mounted) setState(() => _error = 'P&L calendar: $e');
+    } finally {
+      if (mounted) setState(() => _calendarLoading = false);
+    }
+  }
+
+  void _showPnlDate(DateTime date) {
+    final key = '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    final all = (_pnlCalendar['trades'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .where((trade) => trade['entry_date'] == key || trade['exit_date'] == key)
+        .toList();
+    all.addAll(((_pnlCalendar['physical_settlement'] as Map?)?['rows'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>().where((trade) => trade['exit_date'] == key));
+    final dayRows = (_pnlCalendar['days'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>().where((row) => row['date'] == key).toList();
+    final day = dayRows.isEmpty ? <String, dynamic>{} : dayRows.first;
+    showDialog<void>(context: context, builder: (context) => AlertDialog(
+      title: Text('TRADE HISTORY • $key'),
+      content: SizedBox(width: 620, child: SingleChildScrollView(child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            _settlementMetric('GROSS P&L • EXIT DATE', _money(day['gross_pnl'])),
+            _settlementMetric('CHARGES', _money(day['estimated_or_actual_charges'])),
+            _settlementMetric('NET P&L', _money(day['net_pnl'])),
+            _settlementMetric('CAPITAL DEPLOYED • ENTRY DATE', _money(day['capital_deployed'])),
+          ]),
+          const SizedBox(height: 10),
+          Text('Trades entered or exited on this date: ${all.length}', style: const TextStyle(fontWeight: FontWeight.w800)),
+          const SizedBox(height: 8),
+          ...all.map((trade) {
+            final charge = trade['charges'] is Map ? trade['charges'] as Map : const {};
+            final components = charge['components'] is Map ? charge['components'] as Map : const {};
+            return Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('${trade['strategy'] ?? '—'} • ${trade['symbol'] ?? '—'} ${trade['option_type'] ?? ''} ${trade['strike'] ?? ''}',
+                  style: const TextStyle(fontWeight: FontWeight.w900)),
+                Text('Entry ${trade['entry_date'] ?? '—'} @ ₹${trade['entry_price'] ?? '—'} • Qty ${trade['quantity'] ?? '—'} • Capital ${_money(trade['capital_deployed'])}',
+                  style: const TextStyle(fontSize: 11)),
+                Text('Exit ${trade['exit_date'] ?? 'OPEN'} @ ₹${trade['exit_price'] ?? '—'} • ${trade['classification'] ?? '—'}',
+                  style: const TextStyle(fontSize: 11)),
+                const Divider(),
+                Text('Gross ${_money(trade['gross_pnl'])}  |  Charges ${_money(charge['total'])}  |  Net ${_money(trade['net_pnl'])}',
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+                if (components.isNotEmpty) ...[
+                  const SizedBox(height: 5),
+                  const Text('CHARGES BREAKUP', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 10)),
+                  ...components.entries.map((entry) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 1),
+                    child: Row(children: [
+                      Expanded(child: Text(entry.key.toString().replaceAll('_', ' ').toUpperCase(), style: const TextStyle(fontSize: 10))),
+                      Text(_money(entry.value), style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700)),
+                    ]),
+                  )),
+                  Text('Basis: ${charge['basis'] ?? '—'}', style: const TextStyle(fontSize: 9, fontStyle: FontStyle.italic)),
+                ] else
+                  const Text('Charges / quantity / exit valuation not available; net P&L remains unverified.',
+                    style: TextStyle(fontSize: 10)),
+              ],
+            )));
+          }),
+          if (all.isEmpty) const Text('No trade entries or exits recorded for this date.'),
+        ],
+      ))),
+      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('CLOSE'))],
+    ));
+  }
+
+  Widget _pnlCalendarView() {
+    final summary = _pnlCalendar['summary'] is Map
+        ? _pnlCalendar['summary'] as Map : const {};
+    final overall = summary['overall'] is Map ? summary['overall'] as Map : const {};
+    final expiry = summary['EXPIRY78'] is Map ? summary['EXPIRY78'] as Map : const {};
+    final recovered = summary['RECOVERED'] is Map ? summary['RECOVERED'] as Map : const {};
+    final physical = summary['PHYSICAL_SETTLEMENT'] is Map ? summary['PHYSICAL_SETTLEMENT'] as Map : const {};
+    final monthRows = (_pnlCalendar['months'] as List<dynamic>? ?? const []).whereType<Map<String, dynamic>>();
+    final monthKey = '${_calendarMonth.year.toString().padLeft(4, '0')}-${_calendarMonth.month.toString().padLeft(2, '0')}';
+    final month = monthRows.firstWhere((r) => r['month'] == monthKey, orElse: () => <String, dynamic>{});
+    final days = (_pnlCalendar['days'] as List<dynamic>? ?? const []).whereType<Map<String, dynamic>>();
+    final dayMap = {for (final row in days) row['date'].toString(): row};
+    final firstWeekday = DateTime(_calendarMonth.year, _calendarMonth.month, 1).weekday % 7;
+    final count = DateTime(_calendarMonth.year, _calendarMonth.month + 1, 0).day;
+    final cells = <Widget>[];
+    for (var i = 0; i < firstWeekday; i++) { cells.add(const SizedBox(height: 86)); }
+    for (var d = 1; d <= count; d++) {
+      final date = DateTime(_calendarMonth.year, _calendarMonth.month, d);
+      final key = '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${d.toString().padLeft(2, '0')}';
+      final row = dayMap[key] ?? const {};
+      final gross = row['gross_pnl'];
+      final net = row['net_pnl'];
+      final cap = row['capital_deployed'];
+      cells.add(InkWell(onTap: () => _showPnlDate(date), child: Container(
+        height: 86, padding: const EdgeInsets.all(5),
+        decoration: BoxDecoration(border: Border.all(color: Theme.of(context).colorScheme.outlineVariant), borderRadius: BorderRadius.circular(7)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('$d', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 11)),
+          if (gross != null && gross != 0) Text('G ${_money(gross)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 8)),
+          if (net != null && net != 0) Text('N ${_money(net)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: (net as num) >= 0 ? Colors.green : Colors.red)),
+          if (cap != null && cap != 0) Text('C ${_money(cap)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 8)),
+          if ((row['physical_settlement_contracts'] ?? 0) != 0) Text('PS G ${_money(row['physical_settlement_gross_pnl'])}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 8)),
+          if ((row['trade_count'] ?? 0) != 0 || (row['entries_count'] ?? 0) != 0)
+            Text('Trades ${row['trade_count'] ?? 0} • Entry ${row['entries_count'] ?? 0}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 7)),
+        ]),
+      )));
+    }
+    while (cells.length % 7 != 0) { cells.add(const SizedBox(height: 86)); }
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('AIR • P&L CALENDAR', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14)),
+        const SizedBox(height: 5),
+        const Text('Realized P&L is assigned to exit date. Capital deployed is assigned to entry date. Tap any date for trade history and charge details.', style: TextStyle(fontSize: 10)),
+        const SizedBox(height: 10),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          _settlementMetric('CUMULATIVE CAPITAL DEPLOYED', _money(overall['capital_deployed'])),
+          _settlementMetric('PEAK CONCURRENT CAPITAL', _money(overall['peak_concurrent_capital'])),
+          _settlementMetric('GROSS REALIZED', _money(overall['gross_pnl'])),
+          _settlementMetric('CHARGES', _money(overall['estimated_or_actual_charges'])),
+          _settlementMetric('NET REALIZED', _money(overall['net_pnl'])),
+        ]),
+        Text('Missing net values: ${overall['net_pending_count'] ?? 0} trades • Estimated charges: ${overall['charges_estimated_count'] ?? 0} • Actual charge records: ${overall['charges_actual_count'] ?? 0}',
+          style: const TextStyle(fontSize: 9)),
+      ]))),
+      Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(children: [
+        Row(children: [
+          IconButton(onPressed: _calendarLoading ? null : () => _changeCalendarMonth(-1), icon: const Icon(Icons.chevron_left)),
+          Expanded(child: Text(monthKey, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15))),
+          IconButton(onPressed: _calendarLoading ? null : () => _changeCalendarMonth(1), icon: const Icon(Icons.chevron_right)),
+        ]),
+        if (_calendarLoading) const LinearProgressIndicator(),
+        Row(children: ['SUN','MON','TUE','WED','THU','FRI','SAT'].map((d) =>
+          Expanded(child: Center(child: Text(d, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800))))).toList()),
+        const SizedBox(height: 5),
+        GridView.count(crossAxisCount: 7, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 3, crossAxisSpacing: 3, childAspectRatio: 0.82, children: cells),
+      ]))),
+      Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('MONTH SUMMARY • $monthKey', style: const TextStyle(fontWeight: FontWeight.w900)),
+        const SizedBox(height: 6),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          _settlementMetric('CAPITAL DEPLOYED', _money(month['capital_deployed'])),
+          _settlementMetric('GROSS', _money(month['gross_pnl'])),
+          _settlementMetric('CHARGES', _money(month['estimated_or_actual_charges'])),
+          _settlementMetric('NET', _money(month['net_pnl'])),
+        ]),
+      ]))),
+      Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('STRATEGY-WISE', style: TextStyle(fontWeight: FontWeight.w900)),
+        Text('EXPIRY78 • Capital ${_money(expiry['capital_deployed'])} • Gross ${_money(expiry['gross_pnl'])} • Charges ${_money(expiry['estimated_or_actual_charges'])} • Net ${_money(expiry['net_pnl'])}', style: const TextStyle(fontSize: 10)),
+        Text('RECOVERED • Capital ${_money(recovered['capital_deployed'])} • Gross ${_money(recovered['gross_pnl'])} • Charges ${_money(recovered['estimated_or_actual_charges'])} • Net ${_money(recovered['net_pnl'])}', style: const TextStyle(fontSize: 10)),
+        const Divider(),
+        Text('PHYSICAL SETTLEMENT • ${physical['contract_count'] ?? 0} contracts • Capital ${_money(physical['capital_deployed'])} • Source gross ${_money(physical['gross_pnl'])} • Charges PENDING • Net PENDING',
+          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
+      ]))),
+      Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('ESTIMATED CHARGES MODEL', style: TextStyle(fontWeight: FontWeight.w900)),
+        ...((_pnlCalendar['charge_model'] as Map?)?['notes'] as List<dynamic>? ?? const [])
+            .map((note) => Padding(padding: const EdgeInsets.symmetric(vertical: 2), child: Text('• $note', style: const TextStyle(fontSize: 9)))),
+        const Text('Broker contract-note charges override estimates. Physical settlement charges are separately reviewed and excluded from these strategy totals.', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700)),
+      ]))),
+    ]);
   }
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final selectedSection = _sections[_selected];
+    final pnlSelected = selectedSection == 'P&L CALENDAR';
     final expirySelected = selectedSection == 'EXPIRYSCAN';
+    final settlementSelected = selectedSection == 'PHYSICAL SETTLEMENT';
     final strategySelected = _strategyTabs.contains(selectedSection);
     final strategyData = _strategies[_strategyKey(selectedSection)] as Map<String, dynamic>?;
     final strategyGroups = strategyData?['groups'] as Map<String, dynamic>?;
@@ -274,6 +550,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
             ],
           ))),
           const SizedBox(height: 10),
+          if (pnlSelected) _pnlCalendarView(),
           if (strategySelected) ...[
             if (strategyData?['rules'] is Map) Card(child: Padding(
               padding: const EdgeInsets.all(12), child: Text(
@@ -301,6 +578,46 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
             )).toList()),
           ],
           if (_sections[_selected] == 'WAIT' && !strategySelected) Padding(padding: const EdgeInsets.all(8), child: Text('WAIT is reserved for candidates explicitly marked pending by a verified workflow. Missing data is never treated as WAIT.', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant))),
+          if (settlementSelected) ...[
+            Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('EXPIRY78 • PHYSICAL DELIVERY REVIEW', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
+                const SizedBox(height: 6),
+                Text('27-Oct-2026 expiry • 13 stock-option expiry outcomes from the 45-contract backtest',
+                  style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+                const SizedBox(height: 8),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  _settlementMetric('TAKE SHARES IF CALLS ITM', _settlementSummary['take_delivery_share_quantity_if_all_calls_itm']),
+                  _settlementMetric('GIVE SHARES IF PUTS ITM', _settlementSummary['give_delivery_share_quantity_if_all_puts_itm']),
+                  _settlementMetric('CALL FUNDS PAYABLE', _settlementSummary['provisional_call_funds_payable_if_itm']),
+                  _settlementMetric('PUT FUNDS RECEIVABLE', _settlementSummary['provisional_put_funds_receivable_if_itm']),
+                ]),
+                const SizedBox(height: 8),
+                Text('PROVISIONAL • Underlying expiry closes are not attached. No contract is marked verified ITM. Strike-value amounts are conditional estimates, not confirmed pay-in/pay-out.',
+                  style: TextStyle(fontSize: 10, color: cs.error, fontWeight: FontWeight.w700)),
+                if (_settlementNote != null) Text(_settlementNote!, style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant)),
+              ],
+            ))),
+            if (_settlementRows.isNotEmpty) Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal,
+              child: DataTable(columns: const [
+                DataColumn(label: Text('SYMBOL')), DataColumn(label: Text('CE/PE')),
+                DataColumn(label: Text('STRIKE')), DataColumn(label: Text('QTY SHARES')),
+                DataColumn(label: Text('ENTRY PREMIUM')), DataColumn(label: Text('SOURCE EXIT VALUE')),
+                DataColumn(label: Text('DELIVERY IF ITM')), DataColumn(label: Text('STRIKE NOTIONAL')),
+                DataColumn(label: Text('ITM CHECK')), DataColumn(label: Text('STATUS')),
+              ], rows: _settlementRows.map((r) => DataRow(cells: [
+                DataCell(_cell(_v(r, 'symbol'))),
+                DataCell(_cell(_v(r, 'option_type'))),
+                DataCell(_cell(_v(r, 'strike'))),
+                DataCell(_cell(_v(r, 'quantity_shares'))),
+                DataCell(_cell(_v(r, 'entry_premium'))),
+                DataCell(_cell(_v(r, 'source_recorded_expiry_value'))),
+                DataCell(_cell(_v(r, 'delivery_direction_if_itm'))),
+                DataCell(_cell(_v(r, 'funds_obligation_at_strike_if_itm'))),
+                DataCell(_cell(_v(r, 'itm_status'))),
+                DataCell(_cell(_v(r, 'settlement_status'))),
+              ])).toList()))),
+          ],
           if (expirySelected && _expiryNote != null) Padding(padding: const EdgeInsets.all(8), child: Text(_expiryNote!, style: const TextStyle(fontSize: 11))),
           if (_expiryAlerts.isNotEmpty) Card(child: Padding(
             padding: const EdgeInsets.all(12),
@@ -337,7 +654,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                   'scan_status','observed_at']) DataCell(_cell(_v(r, key))),
               ],
             )).toList()))),
-          if (!expirySelected && rows.isEmpty || expirySelected && _expiryRows.isEmpty) Card(child: Padding(padding: const EdgeInsets.all(18),
+          if (!pnlSelected && !settlementSelected && ((!expirySelected && rows.isEmpty) || (expirySelected && _expiryRows.isEmpty))) Card(child: Padding(padding: const EdgeInsets.all(18),
             child: Column(children: [
               Icon(Icons.hourglass_empty_rounded, size: 28, color: cs.onSurfaceVariant),
               const SizedBox(height: 8),
@@ -346,7 +663,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
               Text('This section populates only from persisted verified records. No invented sample trades are displayed.',
                 textAlign: TextAlign.center, style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
             ]),
-          )) else if (!expirySelected) Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal,
+          )) else if (!pnlSelected && !expirySelected && !settlementSelected) Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal,
             child: DataTable(columnSpacing: 14, headingRowHeight: 38,
               dataRowMinHeight: 38, dataRowMaxHeight: 52,
               columns: _columns, rows: rows.map(_row).toList()))),
