@@ -76,6 +76,34 @@ class TelegramNotificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("SCREEN PASSED", FakeClient.sent[0][1]["text"])
 
 
+    async def test_stale_pending_delivery_is_retried_after_interrupted_send(self):
+        FakeClient.sent = []
+        with tempfile.TemporaryDirectory() as folder, \
+             patch.object(telegram.httpx, "AsyncClient", FakeClient), \
+             patch.dict(os.environ, {
+                 "AIR_TELEGRAM_BOT_TOKEN": "test-token",
+                 "AIR_TELEGRAM_CHAT_IDS": "111",
+                 "AIR_TELEGRAM_DEDUPE_DB_PATH": str(Path(folder) / "telegram.sqlite3"),
+             }, clear=False):
+            row = {
+                "signal_id": "EXP78-STALE", "symbol": "TEST", "option_type": "CE",
+                "strike": 100, "expiry": "2026-11-27", "classification": "NEW",
+            }
+            event_key = telegram._candidate_key("EXPIRY78", row)
+            db = telegram._connect()
+            db.execute(
+                "INSERT INTO telegram_deliveries(event_key, chat_id, status, created_at) "
+                "VALUES (?, ?, 'PENDING', datetime('now', '-1 hour'))",
+                (event_key, "111"),
+            )
+            db.commit()
+            db.close()
+
+            result = await telegram.notify_candidates("EXPIRY78", [row])
+
+        self.assertEqual(result["sent"], 1)
+        self.assertEqual(len(FakeClient.sent), 1)
+
     def test_recovered_is_explicitly_watch_only_and_escaped(self):
         message = telegram._format_message("RECOVERED", {
             "symbol": "TEST<STOCK>", "option_type": "CE", "strike": 100,
