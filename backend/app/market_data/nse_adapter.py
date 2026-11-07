@@ -12,11 +12,24 @@ class NSEBhavcopyMarketDataAdapter:
     provider_code = "nse_bhavcopy"
 
     async def authenticate(self, account_id: str) -> None:
-        status = nse_data_status()
-        if status.get("bootstrap", {}).get("status") not in {"READY", "PARTIAL"}:
-            raise RuntimeError("NSE Bhavcopy store has not completed its initial bootstrap")
         if account_id != "official":
             raise ValueError("NSE Bhavcopy uses the official source account")
+        # The local database connection is available before the asynchronous
+        # initial archive bootstrap completes. Data readiness is reported separately.
+        nse_data_status()
+
+    def health(self) -> dict:
+        status = nse_data_status()
+        bootstrap = status.get("bootstrap", {})
+        return {
+            "provider": self.provider_code,
+            "account_id": "official",
+            "feed_state": "connected",
+            "data_readiness": bootstrap.get("status", "NOT_STARTED"),
+            "first_available_date": status.get("markets", {}).get("CM", {}).get("first_date"),
+            "last_available_date": status.get("markets", {}).get("CM", {}).get("last_date"),
+            "data_scope": "EOD daily candles only",
+        }
 
     async def search_instruments(self, query: str, limit: int = 100,
                                  exchange_segment: str | None = None) -> list[MarketInstrument]:
