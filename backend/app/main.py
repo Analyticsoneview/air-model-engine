@@ -79,9 +79,54 @@ def require_air_admin(x_air_admin_key: str | None = Header(default=None)) -> Non
 
 @app.on_event("startup")
 async def start_air_qoc_jobs() -> None:
+    await _restore_market_data_source_connections()
     start_qoc_scheduler()
     start_telegram_scheduler()
     start_nse_data_jobs()
+
+
+async def _restore_market_data_source_connections() -> None:
+    """Restore enabled broker feeds after process restart; NSE EOD is disk-backed."""
+    selections = market_data_sources.selections()
+    operator_ids = [
+        value.strip() for value in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",")
+        if value.strip()
+    ]
+    for channel in ("historical", "live"):
+        selection = selections.get(channel)
+        if not selection or not selection.get("enabled"):
+            continue
+        provider = selection.get("provider")
+        account_id = selection.get("account_id")
+        if provider == "nse_bhavcopy" and channel == "historical":
+            continue
+        if provider != "dhan" or not account_id:
+            continue
+        for operator_id in operator_ids:
+            owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(operator_id)}
+            if ("dhan", account_id) not in owned:
+                continue
+            try:
+                credentials = get_vault().get(operator_id, "dhan", account_id)
+                access_token = credentials.get("access_token")
+                if not access_token:
+                    continue
+                if not market_data_router.is_registered("dhan", account_id):
+                    market_data_router.register(
+                        account_id,
+                        DhanMarketDataAdapter(
+                            credentials.get("client_id", account_id),
+                            access_token,
+                            market_data_hub,
+                        ),
+                    )
+                await market_data_router.set_source(channel, "dhan", account_id)
+                break
+            except Exception:
+                # Keep API startup available if a provider token expired or a
+                # vendor endpoint is temporarily unreachable. Admin status shows
+                # the persisted selection separately from runtime connection.
+                continue
 
 
 @app.on_event("shutdown")
@@ -869,6 +914,8 @@ async def operator_select_market_data_source(
     body: MarketDataSourceSelection,
     operator_id: str = Depends(require_air_operator),
 ) -> dict:
+    if channel not in ("historical", "live"):
+        raise HTTPException(status_code=422, detail="Channel must be historical or live")
     provider = body.provider.strip().lower()
     account_id = (body.account_id or "").strip() or None
     if not body.enabled:
@@ -880,6 +927,7 @@ async def operator_select_market_data_source(
     if provider == "nse_bhavcopy":
         if channel != "historical":
             raise HTTPException(status_code=422, detail="NSE Bhavcopy is an EOD historical source only")
+        await market_data_router.clear_source("historical")
         selected = market_data_sources.set_source(channel, provider, None, True)
         return {"selection": selected, "runtime": market_data_router.status(),
                 "status": "CONNECTED", "note": "NSE official EOD CM/FO store is the selected historical source."}
