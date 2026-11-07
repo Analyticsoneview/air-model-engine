@@ -105,6 +105,84 @@ class MarketDataService:
         for item in instruments:
             self._subscriptions.pop(item.token, None)
 
+    async def option_chain_snapshot(self, underlying_symbol: str, expiry: str,
+                                    *, wait_seconds: float = 3.0) -> dict[str, Any]:
+        """Build a provider-neutral option-chain snapshot from normalized live ticks.
+
+        The selected provider must have a valid option instrument master in AIR's
+        account-scoped mapping directory or implement native instrument search.
+        """
+        source = self.router.resolve("live")
+        if not source:
+            raise RuntimeError("No connected live market-data source")
+        provider, account_id, adapter = source[0]
+        symbol = underlying_symbol.strip().upper()
+        mapped = self.instruments.search(provider, account_id, symbol, 500) if self.instruments else []
+        if not mapped:
+            native = await adapter.search_instruments(symbol, limit=500)
+            mapped = [{
+                "exchange": x.exchange, "symbol": x.symbol, "token": x.token,
+                "segment": x.segment, "expiry": x.expiry,
+                "strike": str(x.strike) if x.strike is not None else None,
+                "option_type": x.option_type, "lot_size": x.lot_size,
+                "instrument_type": x.instrument_type,
+            } for x in native]
+        options = []
+        underlying = None
+        for item in mapped:
+            if str(item.get("symbol") or "").upper() != symbol:
+                continue
+            side = str(item.get("option_type") or "").upper()
+            if side in {"CE", "PE"} and str(item.get("expiry") or "")[:10] == expiry[:10]:
+                if item.get("strike") is None:
+                    continue
+                options.append(MarketInstrument(
+                    exchange=item["exchange"], symbol=item["symbol"], token=str(item["token"]),
+                    segment=item["segment"], expiry=item.get("expiry"),
+                    strike=Decimal(str(item["strike"])), option_type=side,
+                    lot_size=item.get("lot_size"), instrument_type=item.get("instrument_type")))
+            elif not side and underlying is None:
+                underlying = MarketInstrument(
+                    exchange=item["exchange"], symbol=item["symbol"], token=str(item["token"]),
+                    segment=item["segment"], instrument_type=item.get("instrument_type"))
+        if not options:
+            raise RuntimeError(f"No mapped CE/PE contracts for {symbol} expiry {expiry}")
+        subscriptions = list(options)
+        if underlying:
+            subscriptions.append(underlying)
+        await self.subscribe(subscriptions)
+        deadline = asyncio.get_running_loop().time() + max(0.5, wait_seconds)
+        while asyncio.get_running_loop().time() < deadline:
+            if any(self.hub.latest_for(item.token) for item in options):
+                break
+            await asyncio.sleep(0.1)
+        chain: dict[str, dict[str, Any]] = {}
+        for instrument in options:
+            tick = self.hub.latest_for(instrument.token)
+            if not tick:
+                continue
+            strike = str(instrument.strike)
+            side = "ce" if instrument.option_type == "CE" else "pe"
+            chain.setdefault(strike, {})[side] = {
+                "security_id": instrument.token,
+                "last_price": tick.get("ltp"),
+                "previous_close_price": tick.get("close"),
+                "volume": tick.get("volume"),
+                "oi": tick.get("open_interest"),
+                "top_bid_price": tick.get("bid"),
+                "top_ask_price": tick.get("ask"),
+            }
+        spot_tick = self.hub.latest_for(underlying.token) if underlying else None
+        return {
+            "provider": provider, "account_id": account_id,
+            "underlying_symbol": symbol, "expiry": expiry[:10],
+            "underlying_price": spot_tick.get("ltp") if spot_tick else None,
+            "observed_at": datetime.now(timezone.utc).isoformat(),
+            "chain": {"oc": chain},
+            "contracts_received": sum(len(sides) for sides in chain.values()),
+            "contracts_requested": len(options),
+        }
+
     async def hydrate_strategy_ledger(self, ledger: Any, customer_id: str,
                                       as_of: str) -> dict[str, Any]:
         """Hydrate missing option EOD evidence through the selected normalized provider."""
