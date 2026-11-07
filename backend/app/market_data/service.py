@@ -281,7 +281,13 @@ class MarketDataService:
                 candidates = self.instruments.search(provider, account_id, symbol, 500)
                 if not candidates:
                     try:
-                        native = await adapter.search_instruments(symbol, limit=500)
+                        if provider == "nse_bhavcopy":
+                            native = await adapter.search_instruments(
+                                symbol, limit=500,
+                                exchange_segment="NSE_FO" if option_type in {"CE", "PE"} else "NSE_CM"
+                            )
+                        else:
+                            native = await adapter.search_instruments(symbol, limit=500)
                         candidates = [{
                             "exchange": item.exchange, "symbol": item.symbol, "token": item.token,
                             "segment": item.segment, "expiry": item.expiry,
@@ -368,19 +374,22 @@ class MarketDataService:
                 return
             if not self.instruments:
                 return
-            mapped = self.instruments.search(provider, account_id, symbol, 200)
-            if not mapped:
-                try:
-                    candidates = await adapter.search_instruments(
-                        symbol, limit=200,
-                        exchange_segment="NSE_FO" if option_type in {"CE", "PE"} else "NSE_CM"
-                    )
-                    mapped = [item.__dict__ for item in candidates]
-                except Exception:
-                    return
             expiry = str(row.get("expiry") or "")[:10]
             option_type = str(row.get("option_type") or "").upper()
             strike = row.get("strike")
+            mapped = self.instruments.search(provider, account_id, symbol, 200)
+            if not mapped:
+                try:
+                    if provider == "nse_bhavcopy":
+                        candidates = await adapter.search_instruments(
+                            symbol, limit=200,
+                            exchange_segment="NSE_FO" if option_type in {"CE", "PE"} else "NSE_CM"
+                        )
+                    else:
+                        candidates = await adapter.search_instruments(symbol, limit=200)
+                    mapped = [item.__dict__ for item in candidates]
+                except Exception:
+                    return
             chosen = []
             for item in mapped:
                 if str(item.get("underlying_symbol") or item.get("symbol") or "").upper() != symbol:
