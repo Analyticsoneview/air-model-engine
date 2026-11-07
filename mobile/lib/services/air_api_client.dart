@@ -147,6 +147,17 @@ class AirApiClient {
     return _decode(response);
   }
 
+
+  Future<Map<String, dynamic>> modelEnginePnlCalendar({int? year, int? month}) async {
+    final query = <String, String>{
+      if (year != null) 'year': year.toString(),
+      if (month != null) 'month': month.toString(),
+    };
+    final uri = Uri.parse('$baseUrl/api/v1/model-engine/pnl-calendar')
+        .replace(queryParameters: query.isEmpty ? null : query);
+    return _decode(await _client.get(uri, headers: _headers));
+  }
+
   Future<Map<String, dynamic>> physicalSettlement() async {
     final response = await _client.get(
       Uri.parse('$baseUrl/api/v1/model-engine/physical-settlement'),
