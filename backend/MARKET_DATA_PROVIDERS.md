@@ -19,13 +19,14 @@ startup when the operator account and encrypted credentials are available.
 | External vendor adapter | Extension point | Extension point | Vendor-specific contract, credentials, SDK/API and entitlement checks are required |
 
 The provider catalog separates account/login support from market-data adapter readiness.
-Dhan is the only provider currently wired to a native streaming market-data WebSocket.
-Zerodha, Upstox, FYERS and Angel One have normalized REST history adapters and live
-quote polling adapters. Polling is not tick-by-tick streaming: it is rate-limited and
-depends on the broker's quote API entitlements. A source becomes authenticated when
-the profile handshake succeeds; actual quote delivery is only confirmed after valid
-instrument subscriptions produce fresh ticks. AIR never treats an account assignment
-or saved API key alone as a connected feed.
+Dhan, Zerodha, Upstox, FYERS and Angel One now have native streaming adapter
+implementations in the codebase alongside normalized historical REST adapters. The
+implementations use the brokers' supported WebSocket SDKs and reconnect features.
+They are not yet certified against the user's actual accounts. A source becomes
+authenticated when the profile handshake succeeds; actual quote delivery is only
+confirmed after valid instrument subscriptions produce fresh ticks. AIR never treats
+an account assignment or saved API key alone as a connected feed. Upstox V3 uses its
+official Protobuf-aware SDK, not an assumed JSON feed.
 
 ## Scope of the first provider-selection milestone
 
@@ -70,6 +71,23 @@ the encrypted credential vault. Enabling a source performs a real provider
 authentication handshake. Failed authentication leaves the runtime channel offline.
 Historical and live channels can point to different accounts/providers. No automatic
 provider failover is performed.
+
+## External vendor connector contract
+
+AIR includes a configurable JSON vendor adapter. Add an **External Market-Data Vendor**
+account in AIR Admin and save encrypted `base_url`, `websocket_url`, and `api_key`.
+The vendor must expose this contract:
+
+- `GET /health` — authenticated JSON success response.
+- `GET /instruments?q=...&limit=...&segment=...` — `{"instruments":[{"exchange","symbol","token","segment"}]}`.
+- `GET /history?token=...&symbol=...&from=...&to=...&interval=...` — `{"candles":[{"time","open","high","low","close","volume","open_interest"}]}`.
+- WSS — accepts `{"action":"subscribe","tokens":["..."]}` and `{"action":"unsubscribe","tokens":["..."]}`; emits JSON ticks with `token`, `ltp`, optional OHLCV/OI, bid/ask and timestamp.
+
+The connector defaults to `Authorization: Bearer <api_key>`. Vendor-specific paths and
+auth header/prefix can be stored in the encrypted credential record. Vendors with a
+different protocol require a dedicated subclass/mapper and must not be marked verified
+until tested against their actual API. This generic connector does not mean that
+unidentified data vendors are already integrated.
 
 ## Instrument-token mapping
 
