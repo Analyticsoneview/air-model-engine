@@ -1186,24 +1186,13 @@ async def select_main_account(selection: MainAccountSelection,
         owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(customer_id)}
         if (selection.provider.lower(), selection.account_id) not in owned:
             raise HTTPException(status_code=404, detail="Customer does not own this Main Account")
-        credentials = get_vault().get(customer_id, selection.provider, selection.account_id)
         provider = selection.provider.strip().lower()
         if not market_data_router.is_registered(provider, selection.account_id):
-            if provider == "dhan":
-                client_id = credentials.get("client_id", selection.account_id)
-                access_token = credentials.get("access_token")
-                if not access_token:
-                    raise HTTPException(status_code=422, detail="Dhan access_token is required")
-                market_data_router.register(
-                    selection.account_id,
-                    DhanMarketDataAdapter(client_id, access_token, market_data_hub),
-                )
-            else:
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"{provider} credentials are saved, but its live Main Account adapter is not yet connected",
-                )
+            adapter = _market_adapter_for(customer_id, provider, selection.account_id)
+            market_data_router.register(selection.account_id, adapter)
         await market_data_router.set_main_account(provider, selection.account_id)
+        market_data_sources.set_source("historical", provider, selection.account_id, True)
+        market_data_sources.set_source("live", provider, selection.account_id, True)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RuntimeError as exc:
