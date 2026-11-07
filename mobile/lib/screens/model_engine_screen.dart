@@ -412,6 +412,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     final overall = summary['overall'] is Map ? summary['overall'] as Map : const {};
     final expiry = summary['EXPIRY78'] is Map ? summary['EXPIRY78'] as Map : const {};
     final recovered = summary['RECOVERED'] is Map ? summary['RECOVERED'] as Map : const {};
+    final recovery = summary['RECOVERY'] is Map ? summary['RECOVERY'] as Map : const {};
     final physical = summary['PHYSICAL_SETTLEMENT'] is Map ? summary['PHYSICAL_SETTLEMENT'] as Map : const {};
     final monthRows = (_pnlCalendar['months'] as List<dynamic>? ?? const []).whereType<Map<String, dynamic>>();
     final monthKey = '${_calendarMonth.year.toString().padLeft(4, '0')}-${_calendarMonth.month.toString().padLeft(2, '0')}';
@@ -496,6 +497,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
         const Text('STRATEGY-WISE', style: TextStyle(fontWeight: FontWeight.w900)),
         Text('EXPIRY78 • Capital ${_money(expiry['capital_deployed'])} • Gross ${_money(expiry['gross_pnl'])} • Charges ${_money(expiry['estimated_or_actual_charges'])} • Net ${_money(expiry['net_pnl'])} • Expiry W/L ${expiry['expired_wins'] ?? 0}/${expiry['expired_losses'] ?? 0}', style: const TextStyle(fontSize: 10)),
         Text('RECOVERED • Capital ${_money(recovered['capital_deployed'])} • Gross ${_money(recovered['gross_pnl'])} • Charges ${_money(recovered['estimated_or_actual_charges'])} • Net ${_money(recovered['net_pnl'])} • Expiry W/L ${recovered['expired_wins'] ?? 0}/${recovered['expired_losses'] ?? 0}', style: const TextStyle(fontSize: 10)),
+        Text('RECOVERY • Capital ${_money(recovery['capital_deployed'])} • Gross ${_money(recovery['gross_pnl'])} • Charges ${_money(recovery['estimated_or_actual_charges'])} • Net ${_money(recovery['net_pnl'])} • Expiry W/L ${recovery['expired_wins'] ?? 0}/${recovery['expired_losses'] ?? 0}', style: const TextStyle(fontSize: 10)),
         const Divider(),
         Text('PHYSICAL SETTLEMENT • ${physical['contract_count'] ?? 0} contracts • Capital ${_money(physical['capital_deployed'])} • Source gross ${_money(physical['gross_pnl'])} • Charges PENDING • Net PENDING',
           style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
