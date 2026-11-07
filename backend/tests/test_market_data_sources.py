@@ -50,10 +50,10 @@ class MarketDataSourceRegistryTests(unittest.TestCase):
             self.assertEqual(reopened.selections()["live"]["account_id"], "1234567890")
             reopened.close()
 
-    def test_catalog_only_provider_cannot_be_enabled(self):
+    def test_unknown_provider_cannot_be_enabled(self):
         registry = MarketDataSourceRegistry(":memory:")
-        with self.assertRaisesRegex(ValueError, "not implemented and verified"):
-            registry.set_source("live", "custom_vendor", "vendor-1", True)
+        with self.assertRaisesRegex(ValueError, "does not support"):
+            registry.set_source("live", "unknown_vendor", "vendor-1", True)
         registry.close()
 
     def test_provider_must_support_selected_channel(self):
