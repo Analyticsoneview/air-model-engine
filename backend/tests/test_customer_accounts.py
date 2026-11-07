@@ -98,5 +98,16 @@ class CustomerAccountDirectoryTests(unittest.TestCase):
             self.assertTrue(access["broker_data_enabled"])
             reopened.close()
 
+
+    def test_removing_selected_broker_account_clears_customer_data_selection(self):
+        directory = CustomerAccountDirectory(":memory:")
+        directory.add(CustomerTradingAccount("customer-1", "Dhan", "D001"))
+        directory.set_market_data_access("customer-1", "PAID", True)
+        directory.set_market_data_selection("customer-1", "dhan", "D001")
+        directory.remove("customer-1", "dhan", "D001")
+        self.assertIsNone(directory.get_market_data_selection("customer-1"))
+        self.assertEqual(directory.get_market_data_access("customer-1")["tier"], "PAID")
+        directory.close()
+
 if __name__ == "__main__":
     unittest.main()
