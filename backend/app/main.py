@@ -33,6 +33,7 @@ from app.model_engine_api import router as model_engine_router
 from app.air_qoc_scheduler import start_qoc_scheduler, stop_qoc_scheduler, capture_dhan_eod_snapshots, capture_selected_provider_option_chains
 from app.air_telegram_scheduler import start_telegram_scheduler, stop_telegram_scheduler
 from app.telegram_notifications import send_telegram_message
+from app.account_reporting import AccountReporting
 from app import telegram_destinations
 from app.nse_bhavcopy import (nse_data_status, nse_data_rows, start_nse_data_jobs, stop_nse_data_jobs, trigger_nse_bootstrap)
 from app.security import create_access_token, hash_password, require_customer, verify_password
@@ -60,6 +61,8 @@ account_directory = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "d
 _credential_vault: CredentialVault | None = None
 _upstox_oauth_states: dict[tuple[str, str], str] = {}
 _fyers_oauth_states: dict[tuple[str, str], str] = {}
+account_reporting = AccountReporting(os.getenv('AIR_REPORT_DB_PATH', 'data/air_account_reports.sqlite3'))
+_report_scheduler_task: asyncio.Task | None = None
 
 
 def require_air_operator(customer_id: str = Depends(require_customer)) -> str:
@@ -142,6 +145,121 @@ async def start_air_qoc_jobs() -> None:
     # Safe by default: the scheduler captures data only for selected, authenticated operator/PAID accounts.
     start_qoc_scheduler(force=_has_enabled_customer_broker_sources())
     start_telegram_scheduler()
+    global _report_scheduler_task
+    _report_scheduler_task = asyncio.create_task(_account_report_scheduler_loop(), name='air-account-report-scheduler')
+
+
+
+async def _collect_broker_account_statement(customer_id: str, broker: str, account_id: str) -> dict:
+    """Read-only statement fetch for one owned account; never places or modifies orders."""
+    credentials = get_vault().get(customer_id, broker, account_id)
+    client = None
+    try:
+        if broker == "dhan":
+            client = DhanHQClient(credentials.get("client_id", account_id), credentials["access_token"])
+        elif broker == "zerodha":
+            client = KiteConnectClient(credentials["api_key"], credentials["access_token"])
+        elif broker == "upstox":
+            client = UpstoxClient(credentials["access_token"])
+        elif broker == "fyers":
+            client = FyersClient(credentials["app_id"], credentials["access_token"])
+        elif broker == "angelone":
+            client = AngelSmartAPI(
+                credentials["api_key"], credentials.get("client_code", account_id),
+                client_local_ip=os.getenv("AIR_CLIENT_LOCAL_IP", ""),
+                client_public_ip=os.getenv("AIR_CLIENT_PUBLIC_IP", ""),
+                mac_address=os.getenv("AIR_CLIENT_MAC_ADDRESS", ""),
+                access_token=credentials["jwt_token"],
+            )
+        else:
+            raise ValueError("Broker statement adapter is not available")
+        profile = await client.profile()
+        if broker == "zerodha":
+            orders, positions, holdings = await asyncio.gather(
+                client.orders(), client.positions(), client.holdings()
+            )
+        elif broker == "dhan":
+            orders = await client.order_book()
+            positions = await client.positions()
+            holdings = []
+        else:
+            orders, positions, holdings = await asyncio.gather(
+                client.order_book(), client.positions(), client.holdings()
+            )
+        return {"profile": profile, "orders": orders, "positions": positions, "holdings": holdings,
+                "source": broker, "account_id": account_id, "fetched_at": datetime.now().astimezone().isoformat()}
+    finally:
+        if client is not None:
+            await client.close()
+
+
+async def _account_report_scheduler_loop() -> None:
+    while True:
+        try:
+            await account_reporting.run_daily(account_directory, _collect_broker_account_statement)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Report scheduling must not interrupt API service.
+            pass
+        await asyncio.sleep(60)
+
+
+class ReportEmailRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=254)
+
+
+class ReportEmailVerify(BaseModel):
+    code: str = Field(min_length=6, max_length=6)
+
+
+@app.get("/api/v1/customer/reports/email")
+async def get_report_email(customer_id: str = Depends(require_customer)) -> dict:
+    return {"recipient": account_reporting.recipient(customer_id),
+            "schedule": "DAILY_16_00_IST", "formats": ["PDF", "CSV"],
+            "delivery": "SEPARATE_PER_ACCOUNT"}
+
+
+@app.post("/api/v1/customer/reports/email/verification")
+async def request_report_email_verification(body: ReportEmailRequest,
+                                            customer_id: str = Depends(require_customer)) -> dict:
+    try:
+        email = await asyncio.to_thread(account_reporting.request_verification, customer_id, body.email)
+        return {"status": "verification_sent", "email": email, "expires_in_minutes": 10}
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=503 if isinstance(exc, RuntimeError) else 422,
+                            detail=str(exc)) from exc
+
+
+@app.post("/api/v1/customer/reports/email/verification/confirm")
+async def confirm_report_email_verification(body: ReportEmailVerify,
+                                            customer_id: str = Depends(require_customer)) -> dict:
+    try:
+        recipient = account_reporting.confirm_verification(customer_id, body.code)
+        return {"status": "verified", "recipient": recipient}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/customer/reports/history")
+async def customer_report_history(limit: int = Query(default=50, ge=1, le=200),
+                                  customer_id: str = Depends(require_customer)) -> dict:
+    return {"reports": account_reporting.history(customer_id, limit)}
+
+
+@app.post("/api/v1/customer/reports/run")
+async def run_account_reports(customer_id: str = Depends(require_customer)) -> dict:
+    recipient = account_reporting.recipient(customer_id)
+    if not recipient or not recipient.get("verified"):
+        raise HTTPException(status_code=409, detail="Verify a report email address before generating email reports")
+    accounts = account_directory.list_for_customer(customer_id)
+    if not accounts:
+        raise HTTPException(status_code=404, detail="No broker accounts are assigned to this customer")
+    from datetime import datetime
+    report_date = datetime.now().astimezone().date().isoformat()
+    reports = await account_reporting.run_customer(customer_id, accounts,
+        _collect_broker_account_statement, report_date)
+    return {"reports": reports}
 
 
 async def _market_data_health_loop() -> None:
