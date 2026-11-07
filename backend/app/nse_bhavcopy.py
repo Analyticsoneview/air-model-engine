@@ -215,11 +215,15 @@ class NSEBhavcopyStore:
                 CREATE TABLE IF NOT EXISTS nse_bhavcopy_files (
                     market TEXT NOT NULL, trade_date TEXT NOT NULL,
                     status TEXT NOT NULL, record_count INTEGER NOT NULL DEFAULT 0,
+                    source_record_count INTEGER,
                     archive_path TEXT, source_url TEXT, error TEXT,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (market, trade_date)
                 )
             """)
+            file_columns = {row["name"] for row in db.execute("PRAGMA table_info(nse_bhavcopy_files)")}
+            if "source_record_count" not in file_columns:
+                db.execute("ALTER TABLE nse_bhavcopy_files ADD COLUMN source_record_count INTEGER")
             db.execute("""
                 CREATE TABLE IF NOT EXISTS nse_bhavcopy_meta (
                     key TEXT PRIMARY KEY, value TEXT NOT NULL,
@@ -237,21 +241,73 @@ class NSEBhavcopyStore:
 
     def set_file_status(self, market: str, trade_date: str, status: str,
                         count: int = 0, archive_path: str | None = None,
-                        source_url: str | None = None, error: str | None = None) -> None:
+                        source_url: str | None = None, error: str | None = None,
+                        source_record_count: int | None = None) -> None:
         with self._db() as db:
             db.execute("""
                 INSERT INTO nse_bhavcopy_files
-                    (market, trade_date, status, record_count, archive_path, source_url, error, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    (market, trade_date, status, record_count, source_record_count,
+                     archive_path, source_url, error, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(market, trade_date) DO UPDATE SET
                     status=excluded.status, record_count=excluded.record_count,
+                    source_record_count=excluded.source_record_count,
                     archive_path=excluded.archive_path, source_url=excluded.source_url,
                     error=excluded.error, updated_at=CURRENT_TIMESTAMP
-            """, (market, trade_date, status, count, archive_path, source_url, error))
+            """, (market, trade_date, status, count, source_record_count,
+                  archive_path, source_url, error))
+
+    def actual_record_count(self, market: str, trade_date: str) -> int:
+        with self._db() as db:
+            row = db.execute(
+                "SELECT COUNT(*) AS n FROM nse_bhavcopy WHERE market=? AND trade_date=?",
+                (market, trade_date),
+            ).fetchone()
+        return int(row["n"])
+
+    def reconcile_session(self, trade_date: str, expected_markets: tuple[str, ...]) -> dict[str, Any]:
+        checks = []
+        mismatch = False
+        for market in expected_markets:
+            status = self.file_status(market, trade_date)
+            actual = self.actual_record_count(market, trade_date)
+            source_count = status.get("source_record_count") if status else None
+            stored_count = status.get("record_count", 0) if status else 0
+            complete = bool(
+                status and status.get("status") == "IMPORTED"
+                and source_count is not None and source_count > 0
+                and actual == source_count and stored_count == source_count
+            )
+            mismatch = mismatch or not complete
+            checks.append({
+                "market": market, "status": status.get("status") if status else "MISSING",
+                "nse_source_records": source_count, "app_db_records": actual,
+                "imported_record_count": stored_count, "complete": complete,
+            })
+        if mismatch:
+            self.clear_session_for_repair(trade_date)
+        return {"date": trade_date, "status": "COMPLETE" if not mismatch else "PARTIAL",
+                "markets": checks, "repair_triggered": mismatch}
+
+    def clear_session_for_repair(self, trade_date: str) -> None:
+        """Remove both markets for a date so no mixed/partial session is exposed."""
+        with self._db() as db:
+            db.execute("DELETE FROM nse_bhavcopy WHERE trade_date=?", (trade_date,))
+            db.execute("""
+                UPDATE nse_bhavcopy_files
+                SET status='PARTIAL', record_count=0, source_record_count=NULL,
+                    error='Session count mismatch; cleaned for complete NSE re-download',
+                    updated_at=CURRENT_TIMESTAMP
+                WHERE trade_date=?
+            """, (trade_date,))
 
     def save_rows(self, market: str, trade_date: str, rows: list[dict[str, Any]]) -> int:
-        normalized = [_normalize(market, trade_date, row) for row in rows]
-        normalized = [row for row in normalized if row]
+        normalized_by_key = {}
+        for raw in rows:
+            row = _normalize(market, trade_date, raw)
+            if row:
+                normalized_by_key[row["instrument_key"]] = row
+        normalized = list(normalized_by_key.values())
         if not normalized:
             raise ValueError(f"NSE {market} archive contained no usable rows")
         columns = list(normalized[0].keys())
@@ -371,7 +427,7 @@ async def _download_one(client: httpx.AsyncClient, semaphore: asyncio.Semaphore,
         temp_path.write_bytes(response.content)
         temp_path.replace(archive_path)
         store.set_file_status(market, stamp, "IMPORTED", count,
-                              str(archive_path), url)
+                              str(archive_path), url, source_record_count=count)
         return {"market": market, "date": stamp, "status": "IMPORTED", "records": count}
     except (zipfile.BadZipFile, OSError, UnicodeError, csv.Error, ValueError) as exc:
         store.set_file_status(market, stamp, "FAILED", source_url=url,
@@ -464,6 +520,26 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
                 "calendar_fetched_at": calendar["fetched_at"],
                 "recovery_start_date": start.isoformat(),
             })
+            store.set_meta("bootstrap", state)
+            integrity_checks = []
+            for day in days:
+                stamp = day.isoformat()
+                expected_markets = tuple(
+                    market for market, holidays_for_market in (("CM", cm_holidays), ("FO", fo_holidays))
+                    if stamp not in holidays_for_market
+                )
+                if expected_markets:
+                    integrity_checks.append(store.reconcile_session(stamp, expected_markets))
+            state["integrity_checked_sessions"] = len(integrity_checks)
+            state["partial_sessions_found"] = sum(
+                item["status"] == "PARTIAL" for item in integrity_checks
+            )
+            state["repaired_sessions"] = sum(
+                item["repair_triggered"] for item in integrity_checks
+            )
+            state["integrity_mismatches"] = [
+                item for item in integrity_checks if item["repair_triggered"]
+            ]
             store.set_meta("bootstrap", state)
             for offset in range(0, len(days), 5):
                 batch = days[offset:offset + 5]
