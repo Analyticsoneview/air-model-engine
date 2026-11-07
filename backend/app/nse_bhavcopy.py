@@ -345,6 +345,13 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
     try:
         async with httpx.AsyncClient(headers=headers, timeout=timeout,
                                      follow_redirects=True, http2=False) as client:
+            # Warm the NSE site once for installations where archive requests
+            # require the standard NSE session cookies. Static archive access
+            # may still work if this landing-page request is blocked.
+            try:
+                await client.get("https://www.nseindia.com/", timeout=12.0)
+            except httpx.HTTPError:
+                log.warning("NSE homepage warm-up failed; attempting archive host directly")
             for offset in range(0, len(days), 5):
                 batch = days[offset:offset + 5]
                 tasks = [
@@ -404,7 +411,12 @@ _scheduler = None
 
 
 async def _daily_refresh() -> None:
-    await run_nse_bootstrap(force=True)
+    global _bootstrap_task
+    if _bootstrap_task is not None and not _bootstrap_task.done():
+        log.info("Skipping scheduled NSE refresh because a bootstrap is already running")
+        return
+    _bootstrap_task = asyncio.create_task(run_nse_bootstrap(force=True))
+    await _bootstrap_task
 
 
 def trigger_nse_bootstrap() -> dict[str, Any]:
