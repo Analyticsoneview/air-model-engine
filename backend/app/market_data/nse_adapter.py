@@ -62,12 +62,9 @@ class NSEBhavcopyMarketDataAdapter:
         rows = nse_data_rows(
             market, symbol=instrument.symbol,
             start_date=start.date().isoformat(), end_date=end.date().isoformat(),
-            limit=500,
+            instrument_id=instrument.token, limit=500,
         )
-        selected = [
-            row for row in rows
-            if str(row.get("instrument_id") or row.get("instrument_key") or "") == instrument.token
-        ]
+        selected = rows
         result = []
         for row in selected:
             stamp = datetime.combine(
