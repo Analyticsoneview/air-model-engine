@@ -28,6 +28,7 @@ class DhanMarketDataAdapter:
         self._feed: DhanFeedSocket | None = None
         self._reader: asyncio.Task | None = None
         self._symbols: dict[tuple[str, str], str] = {}
+        self._subscriptions: dict[tuple[str, str], MarketInstrument] = {}
         self._feed_state = "not_connected"
         self._last_feed_error: str | None = None
 
@@ -42,39 +43,66 @@ class DhanMarketDataAdapter:
         self._reader = asyncio.create_task(self._read_feed(), name=f"dhan-feed-{account_id}")
 
     async def _read_feed(self) -> None:
-        if self._feed is None:
-            return
-        try:
-            async for packet in self._feed.messages():
-                kind = packet.get("type")
-                if kind not in {"ticker", "quote", "full"}:
-                    continue
-                segment = SEGMENT_NAMES.get(packet.get("exchange_segment_id"), "UNKNOWN")
-                security_id = str(packet.get("security_id", ""))
-                symbol = self._symbols.get((segment, security_id), security_id)
-                tick: dict[str, Any] = {
-                    "provider": "dhan", "account_id": self.account_id,
-                    "exchange": segment, "symbol": symbol, "token": security_id,
-                    "ltp": packet.get("ltp"),
-                    "exchange_time": packet.get("exchange_time"),
-                    "received_at": datetime.now(timezone.utc).isoformat(),
-                    "volume": packet.get("volume"),
-                    "open_interest": packet.get("open_interest"),
-                    "open": packet.get("open"), "high": packet.get("high"),
-                    "low": packet.get("low"), "close": packet.get("close"),
-                    "bid": packet.get("depth", [{}])[0].get("bid_price") if packet.get("depth") else None,
-                    "ask": packet.get("depth", [{}])[0].get("ask_price") if packet.get("depth") else None,
-                    "feed_type": kind,
-                }
-                await self.hub.publish(tick)
-            self._feed_state = "disconnected"
-        except asyncio.CancelledError:
-            self._feed_state = "disconnected"
-            raise
-        except Exception as exc:
-            self._feed_state = "error"
-            self._last_feed_error = type(exc).__name__
-            self._reader = None
+        retry_delay = 1.0
+        while self._feed is not None:
+            try:
+                async for packet in self._feed.messages():
+                    kind = packet.get("type")
+                    if kind not in {"ticker", "quote", "full"}:
+                        continue
+                    segment = SEGMENT_NAMES.get(packet.get("exchange_segment_id"), "UNKNOWN")
+                    security_id = str(packet.get("security_id", ""))
+                    symbol = self._symbols.get((segment, security_id), security_id)
+                    tick: dict[str, Any] = {
+                        "provider": "dhan", "account_id": self.account_id,
+                        "exchange": segment, "symbol": symbol, "token": security_id,
+                        "ltp": packet.get("ltp"),
+                        "exchange_time": packet.get("exchange_time"),
+                        "received_at": datetime.now(timezone.utc).isoformat(),
+                        "volume": packet.get("volume"),
+                        "open_interest": packet.get("open_interest"),
+                        "open": packet.get("open"), "high": packet.get("high"),
+                        "low": packet.get("low"), "close": packet.get("close"),
+                        "bid": packet.get("depth", [{}])[0].get("bid_price") if packet.get("depth") else None,
+                        "ask": packet.get("depth", [{}])[0].get("ask_price") if packet.get("depth") else None,
+                        "feed_type": kind,
+                    }
+                    await self.hub.publish(tick)
+                raise RuntimeError("Dhan market feed closed")
+            except asyncio.CancelledError:
+                self._feed_state = "disconnected"
+                raise
+            except Exception as exc:
+                self._feed_state = "reconnecting"
+                self._last_feed_error = type(exc).__name__
+                old_feed = self._feed
+                try:
+                    await old_feed.close()
+                except Exception:
+                    pass
+                await asyncio.sleep(retry_delay)
+                try:
+                    if self._feed is not old_feed:
+                        continue
+                    replacement = DhanFeedSocket(self.client_id, self.access_token, mode="full")
+                    await replacement.connect()
+                    self._feed = replacement
+                    if self._subscriptions:
+                        requests = [
+                            {"exchange_segment": item.segment, "security_id": str(item.token)}
+                            for item in self._subscriptions.values()
+                        ]
+                        for offset in range(0, len(requests), 5000):
+                            await replacement.subscribe(requests[offset:offset + 5000])
+                    self._feed_state = "connected"
+                    self._last_feed_error = None
+                    retry_delay = 1.0
+                except asyncio.CancelledError:
+                    raise
+                except Exception as reconnect_error:
+                    self._feed_state = "error"
+                    self._last_feed_error = type(reconnect_error).__name__
+                    retry_delay = min(30.0, retry_delay * 2)
 
     def health(self) -> dict[str, Any]:
         return {
@@ -82,6 +110,7 @@ class DhanMarketDataAdapter:
             "account_id": self.account_id,
             "feed_state": self._feed_state,
             "reader_running": self._reader is not None and not self._reader.done(),
+            "subscribed_instruments": len(self._subscriptions),
             "last_error_type": self._last_feed_error,
         }
 
@@ -141,6 +170,7 @@ class DhanMarketDataAdapter:
             if segment not in SEGMENT_CODES:
                 raise ValueError(f"Unsupported Dhan exchange segment: {segment}")
             self._symbols[(segment, str(instrument.token))] = instrument.symbol
+            self._subscriptions[(segment, str(instrument.token))] = instrument
             request.append({"exchange_segment": segment, "security_id": str(instrument.token)})
         await self._feed.subscribe(request)
 
@@ -151,6 +181,10 @@ class DhanMarketDataAdapter:
             {"exchange_segment": item.segment, "security_id": str(item.token)}
             for item in instruments
         ])
+        for item in instruments:
+            key = (item.segment, str(item.token))
+            self._subscriptions.pop(key, None)
+            self._symbols.pop(key, None)
 
     async def close(self) -> None:
         if self._reader is not None:
@@ -164,6 +198,8 @@ class DhanMarketDataAdapter:
             await self._feed.close()
             self._feed = None
         self._feed_state = "disconnected"
+        self._subscriptions.clear()
+        self._symbols.clear()
         if self._rest is not None:
             await self._rest.close()
             self._rest = None
