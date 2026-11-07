@@ -29,6 +29,7 @@ DEFAULT_MASTER_URLS = {
 ALIASES = {
     "exchange": ("exchange", "exch", "exch_seg", "exchange_code", "sem_exm_exch_id"),
     "symbol": ("tradingsymbol", "trading_symbol", "symbol", "sem_trading_symbol", "name"),
+    "underlying_symbol": ("underlying_symbol", "underlying", "sem_underlying_symbol", "name"),
     "token": ("instrument_token", "instrument_key", "token", "symboltoken", "symbol_token",
               "security_id", "sem_smst_security_id", "fy_token"),
     "segment": ("segment", "exchange_segment", "exch_seg", "sem_segment"),
@@ -55,6 +56,7 @@ def _normalize(provider: str, row: dict[str, Any]) -> dict[str, Any] | None:
     value = _key_map(row)
     exchange = str(value.get("exchange") or "").strip().upper()
     symbol = str(value.get("symbol") or "").strip().upper()
+    underlying_symbol = str(value.get("underlying_symbol") or symbol).strip().upper()
     token = str(value.get("token") or "").strip()
     segment = str(value.get("segment") or "").strip().upper()
     if not all((exchange, symbol, token, segment)):
@@ -92,7 +94,8 @@ def _normalize(provider: str, row: dict[str, Any]) -> dict[str, Any] | None:
     except (TypeError, ValueError):
         tick_size = None
     return {
-        "exchange": exchange, "symbol": symbol, "token": token, "segment": segment,
+        "exchange": exchange, "symbol": symbol, "underlying_symbol": underlying_symbol,
+        "token": token, "segment": segment,
         "expiry": expiry, "strike": strike, "option_type": option_type,
         "lot_size": lot_size, "instrument_type": instrument_type, "tick_size": tick_size,
     }
