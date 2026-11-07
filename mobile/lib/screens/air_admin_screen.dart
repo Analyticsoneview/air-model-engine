@@ -671,7 +671,7 @@ class _AirAdminBrokerAccountsScreenState
               subtitle: Text('Customer: ${row['customer_id']}\n'
                   '${row['credentials_saved'] == true ? 'Encrypted credentials saved' : 'Credentials not saved'}\n'
                   'Market data: ${row['market_data_access']?['tier'] ?? 'STANDARD'} · '
-                  '${row['market_data_selection']?['provider'] == row['broker'] && row['market_data_selection']?['account_id'] == row['account_id'] ? 'ACTIVE BROKER SOURCE' : 'NSE DEFAULT'}'),
+                  '${row['market_data_selection'] == null ? 'NSE DEFAULT' : (row['market_data_selection']?['provider'] == row['broker'] && row['market_data_selection']?['account_id'] == row['account_id'] ? 'ACTIVE BROKER SOURCE' : 'OTHER ACCOUNT SELECTED')}'),
               isThreeLine: true,
               leading: const Icon(Icons.account_balance_wallet_outlined),
               trailing: Wrap(
