@@ -38,8 +38,6 @@ else
 fi
 unset TOKEN
 gh variable set AIR_CI_RUNNER_LABELS --repo "$REPO" --body "$LABELS"
-# Route Linux-only Docker/PWA jobs to this same Ubuntu host as well.
-gh variable set AIR_RUNNER_LABELS --repo "$REPO" --body "$LABELS"
 echo "Waiting for runner '$RUNNER_NAME' to report Online..."
 ONLINE=0
 for _ in $(seq 1 60); do
