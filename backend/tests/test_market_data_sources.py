@@ -102,6 +102,31 @@ class MarketDataRouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(router.resolve("live")[0][1], "current-account")
         self.assertEqual(router.status()["connection_state"]["live"], "connected")
 
+    async def test_health_aware_failover_switches_to_first_healthy_candidate(self):
+        router = MarketDataRouter()
+
+        class HealthAdapter(FakeAdapter):
+            def __init__(self, state):
+                super().__init__()
+                self.state = state
+            def health(self):
+                return {"feed_state": self.state}
+
+        primary = HealthAdapter("stale")
+        backup = HealthAdapter("connected")
+        backup.provider_code = "backup"
+        router.register("primary-account", primary)
+        router.register("backup-account", backup)
+        await router.set_source("live", "fake", "primary-account")
+        await router.configure_failover(
+            "live", [("backup", "backup-account")], enabled=True
+        )
+        result = await router.check_health("live")
+        self.assertEqual(result["failover"], "switched")
+        self.assertEqual(router.resolve("live")[0][1], "backup-account")
+        self.assertEqual(primary.closed, 1)
+        self.assertEqual(backup.authenticated, 1)
+
     async def test_shared_adapter_is_not_closed_when_one_channel_switches(self):
         router = MarketDataRouter()
         shared = FakeAdapter()
