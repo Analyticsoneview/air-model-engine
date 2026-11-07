@@ -21,6 +21,10 @@ The API performs the initial download in the background so health checks and log
 
 The bootstrap status includes the number of sessions checked, partial sessions detected, automatic repairs triggered, and the per-market NSE-source-versus-app-DB counts for mismatches. After each successful bootstrap/reconciliation, AIR removes FO rows whose contract expiry is before the current India-local date from the active NSE FO table. Expiry-day contracts remain until the following day. Per-session removed-row counts are tracked so intentional cleanup does not trigger false partial-session repairs; the original daily NSE ZIP archives remain retained. This cleanup touches only the NSE market-data database: it does not delete or rewrite model strategy signals, lifecycle outcomes, daily-bar evidence, or P&L records. The Data Center shows the cleanup count. The Data Center refreshes visible rows when a reconciliation/download batch changes, even if the overall row count stays the same. The system reports READY only when at least 45 paired CM/FO sessions are present in the three-calendar-month window and there are no failed downloads. A PARTIAL/FAILED state is visible and can be retried; AIR must not represent incomplete coverage as ready.
 
+## Expired-contract strategy and P&L history
+
+The active FO table contains only contracts that have not passed their expiry date. Expired contracts are removed after the daily import cycle. Strategy records are stored separately in the AIR Model Engine ledger and are not subject to NSE FO cleanup. Strategy replays must persist the verified contract bars, entry/exit details, quantity and expiry valuation in the strategy evidence/ledger before relying on them for historical reporting. The P&L calendar returns expired trade history separately and classifies known expiry outcomes as win, loss or breakeven; unknown quantity/valuation remains pending rather than being estimated.
+
 ## Data included
 
 CM rows include symbol, instrument ID, ISIN, OHLC, previous close, last/settlement price, volume, turnover and trade count.
