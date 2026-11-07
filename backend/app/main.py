@@ -21,6 +21,7 @@ from app.credential_vault import CredentialVault
 from app.market_data.dhan_adapter import DhanMarketDataAdapter
 from app.market_data.broker_streams import (ZerodhaWebSocketAdapter, UpstoxWebSocketAdapter, FyersWebSocketAdapter, AngelOneWebSocketAdapter)
 from app.market_data.nse_adapter import NSEBhavcopyMarketDataAdapter
+from app.market_data.hub import MarketDataHub
 from app.market_data.vendor_adapter import GenericVendorMarketDataAdapter
 from app.market_data.contracts import MarketInstrument
 from app.market_data.runtime import (market_data_router, market_data_hub, market_data_sources, market_data_instruments, market_data_service, execution_policy)
@@ -610,6 +611,20 @@ async def login_customer(body: CustomerLogin) -> dict:
             "customer_id": row["customer_id"], "role": "operator"}
 
 
+async def _verify_customer_market_data_connection(
+    customer_id: str, provider: str, account_id: str
+) -> None:
+    """Require a real provider handshake before a broker becomes the strategy source."""
+    adapter = _market_adapter_for(customer_id, provider, account_id, hub=MarketDataHub())
+    try:
+        await adapter.authenticate(account_id)
+    finally:
+        try:
+            await adapter.close()
+        except Exception:
+            pass
+
+
 @app.get("/api/v1/customer/market-data/access")
 async def customer_market_data_access(customer_id: str = Depends(require_customer)) -> dict:
     access = account_directory.get_market_data_access(customer_id)
@@ -634,7 +649,13 @@ async def customer_select_market_data_account(
     customer_id: str = Depends(require_customer),
 ) -> dict:
     try:
+        access = account_directory.get_market_data_access(customer_id)
+        if access["tier"] != "PAID" or not access["broker_data_enabled"]:
+            raise PermissionError("Broker market data requires an enabled paid entitlement")
         get_vault().get(customer_id, selection.provider.lower(), selection.account_id)
+        await _verify_customer_market_data_connection(
+            customer_id, selection.provider.lower(), selection.account_id
+        )
         row = account_directory.set_market_data_selection(
             customer_id, selection.provider, selection.account_id
         )
@@ -684,6 +705,9 @@ async def operator_set_customer_market_data_selection(
         raise HTTPException(status_code=404, detail="Broker account is not assigned to this customer")
     try:
         get_vault().get(target_customer_id, selection.provider.lower(), selection.account_id)
+        await _verify_customer_market_data_connection(
+            target_customer_id, selection.provider.lower(), selection.account_id
+        )
         account_directory.set_market_data_access(target_customer_id, "PAID", True)
         row = account_directory.set_market_data_selection(
             target_customer_id, selection.provider, selection.account_id
