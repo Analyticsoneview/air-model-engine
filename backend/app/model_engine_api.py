@@ -145,6 +145,7 @@ async def get_model_engine_ledger(
     groups["SURVIVOR"].sort(key=lambda row: (row.get("days_to_expiry", 999), -(row.get("score") or 0), row["signal_date"]))
     return {
         "source": "AIR Model Engine signal ledger",
+        "market_data_source": customer_service.router.status(),
         "count": len(rows),
         "counts": {key: len(value) for key, value in groups.items()},
         "groups": groups,
@@ -226,6 +227,7 @@ async def get_model_engine_master(
     result = build_master(rows)
     result.update({
         "source": "AIR Model Engine MASTER",
+        "market_data_source": customer_service.router.status(),
         "historical_expiry_cohorts": {
             "EXPIRY_2026-10-27_CASE_STUDY_11": {
                 "expiry": "2026-10-27",
@@ -354,6 +356,7 @@ async def get_original366_engine(
     return {
         "telegram_notifications": telegram_delivery,
         "strategy": "RECOVERED",
+        "market_data_source": customer_service.router.status(),
         "execution_policy": execution_policy.get(),
         "cohort_id": "ORIGINAL366",
         "as_of": as_of,
@@ -430,6 +433,7 @@ async def get_expiry78_engine(
     return {
         "telegram_notifications": telegram_delivery,
         "strategy": "EXPIRY78",
+        "market_data_source": customer_service.router.status(),
         "execution_policy": execution_policy.get(),
         "as_of": as_of,
         "rules": EXPIRY78_RULES,
@@ -462,6 +466,8 @@ async def get_expiry_scan(
     """Read-only scan of option-chain observations from the selected live provider."""
     result = await _expiry_scan_for_customer(customer_id, max_dte=max_dte, limit=limit)
     result["execution_policy"] = execution_policy.get()
+    customer_service = await _customer_market_data_service(customer_id)
+    result["market_data_source"] = customer_service.router.status()
     # This endpoint currently produces a liquidity-screen pass, not a full QOC
     # trade qualification. Telegram labels these notifications accordingly.
     qualified = [row for row in result.get("rows", [])
@@ -495,8 +501,10 @@ async def get_model_engine_pnl_calendar(
     rows = await customer_service.hydrate_strategy_rows(_strategy_rows_for_customer(customer_id, limit), max_contracts=2000)
     master = build_master(rows)
     physical_review = build_physical_settlement_review()
-    return build_pnl_calendar(master.get("strategies") or {},
-                              physical_review=physical_review, year=year, month=month)
+    result = build_pnl_calendar(master.get("strategies") or {},
+                                 physical_review=physical_review, year=year, month=month)
+    result["market_data_source"] = customer_service.router.status()
+    return result
 
 
 @router.post("/telegram/test")
