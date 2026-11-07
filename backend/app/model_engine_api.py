@@ -14,6 +14,7 @@ from app.model_engine_original366 import ORIGINAL366_RULES, evaluate_original366
 from app.model_engine_strategies import ORIGINAL366_BASELINE
 from app.expiry_case_study_27oct2026 import historical_expired_contracts
 from app.air_qoc_store import AirQocStore
+from app.access_control import access_store
 from app.brokers.customer_accounts import CustomerAccountDirectory
 from app.security import require_customer
 from app.telegram_notifications import notify_candidates, send_telegram_message
@@ -36,7 +37,9 @@ def _has_strategy_membership(row: dict, strategy: str) -> bool:
 
 def _is_operator_customer(customer_id: str) -> bool:
     allowed = {x.strip() for x in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",") if x.strip()}
-    return customer_id in allowed
+    if customer_id in allowed:
+        return True
+    return (access_store.mobile_for_request_id(customer_id) or "") in allowed
 
 
 def _operator(customer_id: str = Depends(require_customer)) -> str:
