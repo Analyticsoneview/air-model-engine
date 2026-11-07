@@ -86,6 +86,24 @@ Do not treat a queued job, a runner-registration success, or a job that fails be
 - Stop/uninstall the runner service before disposing of or repurposing the PC. Use the runner's local config.cmd remove (Windows) or config.sh remove (Linux) flow with a fresh removal token from GitHub.
 - A self-hosted runner can execute repository workflow code. Only run workflows from branches and contributors you trust.
 
-## macOS
+## 6. Install on macOS
 
-The current checked-in shell installer is Ubuntu-specific; do not run it on macOS. For macOS, use GitHub's **New self-hosted runner** page to download the official macOS package for the machine architecture, follow the displayed config.sh instructions, and install/start its service with svc.sh. Register labels air,macOS,ARM64 (Apple Silicon) or air,macOS,X64 (Intel), then set AIR_RUNNER_LABELS to the matching JSON labels. Validate Flutter, Android SDK and Java 17 availability on that host before routing Android CI to it. A dedicated macOS installer can be added if macOS runner support is needed.
+Run the shared shell installer as your signed-in macOS user (do not use sudo):
+
+~~~bash
+bash deploy/install-github-runner.sh
+~~~
+
+The script detects Intel versus Apple Silicon, downloads the matching official macOS runner package, verifies the published digest when available, registers the runner and installs/starts its service. Use this repository variable for Intel:
+
+~~~text
+["self-hosted","macOS","X64","air"]
+~~~
+
+For Apple Silicon, use:
+
+~~~text
+["self-hosted","macOS","ARM64","air"]
+~~~
+
+Before routing Android CI to macOS, confirm that Flutter, Android SDK and Java 17 setup actions complete successfully on that host.
