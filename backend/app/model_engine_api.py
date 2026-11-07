@@ -18,7 +18,7 @@ from app.access_control import access_store
 from app.brokers.customer_accounts import CustomerAccountDirectory
 from app.security import require_customer
 from app.telegram_notifications import notify_candidates, send_telegram_message
-from app.market_data.runtime import market_data_service
+from app.market_data.runtime import market_data_service, execution_policy
 
 router = APIRouter(prefix="/api/v1/model-engine", tags=["AIR Model Engine"])
 _ledger = ModelEngineLedger()
@@ -322,6 +322,7 @@ async def get_original366_engine(
     return {
         "telegram_notifications": telegram_delivery,
         "strategy": "RECOVERED",
+        "execution_policy": execution_policy.get(),
         "cohort_id": "ORIGINAL366",
         "as_of": as_of,
         "rules": ORIGINAL366_RULES,
@@ -396,6 +397,7 @@ async def get_expiry78_engine(
     return {
         "telegram_notifications": telegram_delivery,
         "strategy": "EXPIRY78",
+        "execution_policy": execution_policy.get(),
         "as_of": as_of,
         "rules": EXPIRY78_RULES,
         "contracts_replayed": len(contracts),
