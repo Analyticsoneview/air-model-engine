@@ -23,6 +23,7 @@ from app.market_data.broker_adapters import (ZerodhaMarketDataAdapter, UpstoxMar
 from app.market_data.broker_streams import (ZerodhaWebSocketAdapter, UpstoxWebSocketAdapter, FyersWebSocketAdapter, AngelOneWebSocketAdapter)
 from app.market_data.nse_adapter import NSEBhavcopyMarketDataAdapter
 from app.market_data.instrument_registry import MarketInstrumentDirectory
+from app.market_data.service import MarketDataService, set_default_market_data_service
 from app.market_data.contracts import MarketInstrument
 from app.market_data.provider_registry import MarketDataSourceRegistry
 from app.air_qoc_dhan import router as air_qoc_dhan_router
