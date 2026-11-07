@@ -43,16 +43,24 @@ docker stack deploy --with-registry-auth --prune -c docker-stack.yml "$STACK_NAM
 for service in "${STACK_NAME}_air-api" "${STACK_NAME}_air-pwa"; do
   ready=0
   replicas=""
+  container_id=""
+  health=""
   for attempt in $(seq 1 36); do
     replicas="$(docker service ls --filter "name=$service" --format '{{.Replicas}}' | head -n 1)"
     if [[ "$replicas" == "1/1" ]]; then
-      ready=1
-      break
+      container_id="$(docker ps --filter "label=com.docker.swarm.service.name=$service" --format '{{.ID}}' | head -n 1)"
+      if [[ -n "$container_id" ]]; then
+        health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$container_id")"
+        if [[ "$health" == "healthy" ]]; then
+          ready=1
+          break
+        fi
+      fi
     fi
     sleep 5
   done
   if [[ "$ready" -ne 1 ]]; then
-    echo "Service did not reach 1/1 replicas: $service (last state: ${replicas:-not found})" >&2
+    echo "Service did not become healthy: $service (replicas: ${replicas:-not found}, health: ${health:-unknown})" >&2
     docker service ps "$service" --no-trunc || true
     exit 1
   fi
