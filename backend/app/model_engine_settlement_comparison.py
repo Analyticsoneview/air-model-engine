@@ -141,17 +141,14 @@ def _build_rows(market: str, current_rows: list[dict], history_rows: list[dict],
     for row in current_rows:
         key = _identity(row, market)
         previous = previous_by_key.get(key)
-        settlement = row.get("settlement")
-        previous_settlement = previous.get("settlement") if previous else None
-        settlement_basis = "NSE FO SETTLEMENT PRICE"
-        if market == "CM":
-            if settlement is None:
-                settlement = row.get("close")
-                settlement_basis = "NSE CM CLOSE (CASH MARKET REFERENCE)"
-            else:
-                settlement_basis = "NSE CM SETTLEMENT PRICE"
-            if previous is not None and previous_settlement is None:
-                previous_settlement = previous.get("close")
+        settlement = row.get("settlement") if market == "FO" else row.get("close")
+        previous_settlement = (
+            previous.get("settlement") if market == "FO" else previous.get("close")
+        ) if previous else None
+        settlement_basis = (
+            "NSE FO SETTLEMENT PRICE" if market == "FO"
+            else "NSE CM CLOSE (CASH MARKET REFERENCE)"
+        )
         change, direction = _settlement_delta(settlement, previous_settlement)
         broker_close = broker_closes.get(key)
         variance, variance_pct, close_direction, action = _broker_signal(broker_close, settlement)
