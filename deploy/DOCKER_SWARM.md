@@ -111,3 +111,8 @@ curl -X PUT -H "X-AIR-ADMIN-KEY: $AIR_ADMIN_API_KEY" \
 Set `status` to `REJECTED` or `BLOCKED` to deny access. Blocking or rejecting invalidates existing device sessions immediately. The mobile app securely stores its approved session and restores it on subsequent launches. Each new device requires its own approval.
 
 The mobile number is an identifier, not proof of ownership. Since customer identity verification is intentionally omitted, the administrator must make the access decision using the request details and any separate business process.
+
+
+## GitHub Actions deployment
+
+For automated image builds and gated SSH deployment from GitHub Actions, follow [GITHUB_DEPLOYMENT.md](./GITHUB_DEPLOYMENT.md). Production deployment is manual and restricted to workflow dispatch from `main`.
