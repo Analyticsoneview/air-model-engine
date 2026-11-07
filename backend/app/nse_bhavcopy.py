@@ -439,9 +439,11 @@ def trigger_nse_bootstrap() -> dict[str, Any]:
 
 def start_nse_data_jobs() -> None:
     global _bootstrap_task, _scheduler
-    if os.getenv("AIR_NSE_BOOTSTRAP_ENABLED", "true").lower() == "true":
-        if _bootstrap_task is None or _bootstrap_task.done():
-            _bootstrap_task = asyncio.create_task(run_nse_bootstrap())
+    if os.getenv("AIR_NSE_BOOTSTRAP_ENABLED", "true").lower() != "true":
+        log.info("NSE historical data bootstrap and refresh are disabled")
+        return
+    if _bootstrap_task is None or _bootstrap_task.done():
+        _bootstrap_task = asyncio.create_task(run_nse_bootstrap())
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
         from apscheduler.triggers.cron import CronTrigger
