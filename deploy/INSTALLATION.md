@@ -92,9 +92,17 @@ The CI workflows default to ubuntu-latest when this variable is absent. Once con
 
 Follow ANDROID_RELEASE.md to create and protect the AIR signing keystore and configure the five GitHub variable/secrets. Then run Actions → AIR Android Customer Release. Distribute only the signed APK artifact from a successful run, together with its SHA-256 checksum. Install and test it on real Android devices before customer rollout. The workflow is ARM64 only and does not publish to Google Play.
 
-## Telegram and market-data activation
+## Telegram destination management and market-data activation
 
-Telegram token and destination chat IDs can be entered during install. If omitted, a random placeholder secret is created and polling remains disabled. To replace the token later, run `sudo bash /opt/air-model-engine/deploy/rotate-telegram-secret.sh`. The helper creates a versioned Swarm secret, updates the stack and removes the old secret after the API service converges. Verify the bot's private and group chat IDs independently. Then set AIR_TELEGRAM_SCHEDULER_ENABLED=true in /etc/air/air.env and redeploy the stack. Verify the bot's private and group chat IDs independently.
+The Telegram bot token remains a Docker secret. To replace it later, run `sudo bash /opt/air-model-engine/deploy/rotate-telegram-secret.sh`. The helper creates a versioned Swarm secret, updates the stack and removes the old secret after the API service converges. Never enter the bot token in the mobile app or commit it to GitHub.
+
+After the operator's device is approved, open **AIR Admin → Telegram destinations** in the Android app. Add one or more private chats and groups/supergroups by their numeric chat IDs. Private chat IDs must be positive; group/supergroup IDs must be negative. For every destination, choose one or more routes: RECOVERED, EXPIRY78 and EXPIRYSCAN. Destinations can be edited, disabled, re-enabled or removed without rebuilding the backend or app. A destination can receive multiple strategies, and one strategy can fan out to multiple private/group destinations.
+
+Use **TEST** on an individual destination, or the send action in the screen toolbar to test all enabled destinations. A successful test confirms that Telegram accepted the send request; it does not guarantee that future messages will be read. The bot must already have a conversation with the private user or be a member of the group, with permission to post. Add the bot to each group and send a message in a private chat first so Telegram has established the chat.
+
+The first saved managed destination makes the database-backed routing authoritative. Before that point, the legacy AIR_TELEGRAM_CHAT_IDS environment setting remains as a compatibility fallback. The managed destination registry is stored in the persistent application data volume (AIR_TELEGRAM_CONFIG_DB_PATH defaults to data/air_telegram_config.sqlite3). Existing destination IDs are not copied automatically into the managed registry; add and test them in the Admin screen before relying on managed routing.
+
+The scheduler remains disabled until the bot token and destinations have been tested. Then set AIR_TELEGRAM_SCHEDULER_ENABLED=true in /etc/air/air.env and redeploy the stack. Telegram routes are strategy-specific and delivery deduplication is tracked separately per destination.
 
 AIR_QOC_SCHEDULER_ENABLED remains false until the Dhan account, Data API entitlement, access token and instrument mappings have been verified. The deployment does not enable broker order placement.
 
