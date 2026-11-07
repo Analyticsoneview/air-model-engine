@@ -63,5 +63,5 @@ finally {
 
 Write-Host ""
 Write-Host "AIR self-hosted runner registered. Verify it is Online/Idle in repository Settings > Actions > Runners." -ForegroundColor Green
-Write-Host 'Then set repository Actions variable AIR_RUNNER_LABELS to ["self-hosted","windows","x64","air"].'
+Write-Host 'Then set repository Actions variable AIR_CI_RUNNER_LABELS to ["self-hosted","windows","x64","air"]. Keep AIR_RUNNER_LABELS unset on Windows; the PWA and Docker Buildx workflows require Linux.'
 Write-Host "Backend and Android workflows do not require Docker. Docker Desktop is needed only for workflows that build/run containers."
