@@ -161,3 +161,73 @@ def _format_message(strategy: str, row: dict[str, Any]) -> str:
               "<i>AIR — Analytical Investment Research</i>"]
     return "\n".join(lines)[:3900]
 
+
+
+async def send_telegram_message(text: str) -> dict[str, Any]:
+    """Send a test/operational message to every configured destination."""
+    token, chat_ids = _settings()
+    if not token or not chat_ids:
+        return {"configured": False, "sent": 0,
+                "reason": "Set AIR_TELEGRAM_BOT_TOKEN and AIR_TELEGRAM_CHAT_IDS."}
+    sent, failures = 0, []
+    async with httpx.AsyncClient(timeout=10) as client:
+        for chat_id in chat_ids:
+            try:
+                response = await client.post(
+                    f"https://api.telegram.org/bot{token}/sendMessage",
+                    json={"chat_id": chat_id, "text": text, "disable_web_page_preview": True},
+                )
+                response.raise_for_status()
+                payload = response.json()
+                if not payload.get("ok"):
+                    raise RuntimeError("Telegram API returned ok=false")
+                sent += 1
+            except Exception as exc:  # noqa: BLE001
+                failures.append({"chat_id": chat_id, "error": str(exc)[:240]})
+    return {"configured": True, "sent": sent, "failures": failures}
+
+
+async def notify_candidates(strategy: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Notify once per candidate/status/destination; safe to call on repeated API polls."""
+    token, chat_ids = _settings()
+    if not token or not chat_ids or not rows:
+        return {"configured": bool(token and chat_ids), "attempted": 0, "sent": 0}
+    attempted = sent = 0
+    failures: list[dict[str, str]] = []
+    async with httpx.AsyncClient(timeout=10) as client:
+        for row in rows:
+            event_key = _candidate_key(strategy, row)
+            message = _format_message(strategy, row)
+            for chat_id in chat_ids:
+                attempted += 1
+                db = _connect()
+                try:
+                    cur = db.execute(
+                        "INSERT OR IGNORE INTO telegram_deliveries(event_key, chat_id, status) "
+                        "VALUES (?, ?, 'PENDING')", (event_key, chat_id)
+                    )
+                    db.commit()
+                    if cur.rowcount == 0:
+                        continue
+                    response = await client.post(
+                        f"https://api.telegram.org/bot{token}/sendMessage",
+                        json={"chat_id": chat_id, "text": message, "parse_mode": "HTML",
+                              "disable_web_page_preview": True},
+                    )
+                    response.raise_for_status()
+                    if not response.json().get("ok"):
+                        raise RuntimeError("Telegram API returned ok=false")
+                    db.execute(
+                        "UPDATE telegram_deliveries SET status='SENT' "
+                        "WHERE event_key=? AND chat_id=?", (event_key, chat_id)
+                    )
+                    db.commit()
+                    sent += 1
+                except Exception as exc:  # noqa: BLE001
+                    db.execute("DELETE FROM telegram_deliveries WHERE event_key=? AND chat_id=?",
+                               (event_key, chat_id))
+                    db.commit()
+                    failures.append({"chat_id": chat_id, "error": str(exc)[:240]})
+                finally:
+                    db.close()
+    return {"configured": True, "attempted": attempted, "sent": sent, "failures": failures}
