@@ -54,8 +54,10 @@ if ($env:AIR_RUNNER_TOKEN) {
 try {
     Push-Location $RunnerRoot
     try {
-        & .\config.cmd --unattended --url $repoUrl --token $token --name "$env:COMPUTERNAME-air" --labels "air,windows,x64" --work "_work" --runasservice
+        & .\config.cmd --unattended --url $repoUrl --token $token --name "$env:COMPUTERNAME-air" --labels "air,windows,x64" --work "_work"
         if ($LASTEXITCODE -ne 0) { throw "GitHub runner registration failed with exit code $LASTEXITCODE." }
+        & .\svc.cmd install
+        if ($LASTEXITCODE -ne 0) { throw "Runner registered, but Windows service installation failed." }
         & .\svc.cmd start
         if ($LASTEXITCODE -ne 0) { throw "Runner registered, but its Windows service did not start. Inspect the runner service before continuing." }
     }
