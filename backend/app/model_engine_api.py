@@ -367,7 +367,7 @@ async def get_expiry78_engine(
     customer_id: str = Depends(require_customer),
 ) -> dict:
     """Replay verified daily option OHLCV for explicitly tagged EXPIRY78 contracts."""
-    rows = _ledger.list_signals(customer_id, limit)
+    rows = await market_data_service.hydrate_strategy_rows(_ledger.list_signals(customer_id, limit), max_contracts=2000)
     contracts = evaluate_expiry78_rows(rows, as_of=as_of)
     trades = [trade for contract in contracts
               for trade in (contract.get("expiry78") or {}).get("trades", [])]
@@ -455,7 +455,7 @@ async def get_model_engine_pnl_calendar(
     """Calendar P&L with separate entry-capital and exit-realization dates."""
     from app.model_engine_pnl_calendar import build_pnl_calendar
     from app.model_engine_physical_settlement import build_physical_settlement_review
-    rows = _ledger.list_signals(customer_id, limit)
+    rows = await market_data_service.hydrate_strategy_rows(_ledger.list_signals(customer_id, limit), max_contracts=2000)
     master = build_master(rows)
     physical_review = build_physical_settlement_review()
     return build_pnl_calendar(master.get("strategies") or {},
