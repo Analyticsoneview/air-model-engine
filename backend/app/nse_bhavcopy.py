@@ -356,18 +356,22 @@ class NSEBhavcopyStore:
         """
         with self._db() as db:
             rows = db.execute("""
-                SELECT trade_date, instrument_key, symbol, expiry
+                SELECT trade_date, instrument_key, symbol, expiry, strike, option_type
                 FROM nse_bhavcopy
-                WHERE market='FO' AND expiry IS NOT NULL
+                WHERE market='FO'
             """).fetchall()
             expired_rows = []
             expired_contracts = set()
             removed_by_date: dict[str, int] = {}
+            unparsed_expiry_records = 0
             for row in rows:
                 expiry = _expiry_iso(row["expiry"])
-                if expiry and date.fromisoformat(expiry) < as_of:
+                if not expiry:
+                    unparsed_expiry_records += 1
+                    continue
+                if date.fromisoformat(expiry) < as_of:
                     expired_rows.append((row["trade_date"], row["instrument_key"]))
-                    expired_contracts.add((row["symbol"], expiry, row["instrument_key"]))
+                    expired_contracts.add((row["symbol"], expiry, row["strike"], row["option_type"]))
                     removed_by_date[row["trade_date"]] = removed_by_date.get(row["trade_date"], 0) + 1
             if expired_rows:
                 db.executemany(
@@ -385,6 +389,7 @@ class NSEBhavcopyStore:
                 "as_of": as_of.isoformat(),
                 "removed_records": len(expired_rows),
                 "removed_contract_keys": len(expired_contracts),
+                "unparsed_expiry_records": unparsed_expiry_records,
                 "retained_raw_nse_archives": True,
                 "strategy_ledger_modified": False,
                 "updated_at": datetime.now(IST).isoformat(),
@@ -414,7 +419,8 @@ class NSEBhavcopyStore:
     def status(self) -> dict[str, Any]:
         with self._db() as db:
             file_rows = db.execute("""
-                SELECT market, status, COUNT(*) AS files, SUM(record_count) AS records,
+                SELECT market, status, COUNT(*) AS files,
+                       SUM(record_count - expired_removed_count) AS records,
                        SUM(expired_removed_count) AS expired_removed_records,
                        MIN(CASE WHEN status='IMPORTED' THEN trade_date END) AS first_date,
                        MAX(CASE WHEN status='IMPORTED' THEN trade_date END) AS last_date
