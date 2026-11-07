@@ -1,9 +1,8 @@
 """Optional AIR QOC option-chain snapshot scheduler.
 
-Disabled by default. Enable only after confirming each selected broker's market-data
-entitlement and permitted use. Runs at 15:20 Asia/Kolkata and captures account-scoped
-snapshots for operator and paid customers with an authenticated selected broker.
-It captures observations only; it does not generate trading signals or orders.
+Runs at 15:20 Asia/Kolkata when at least one operator/PAID customer has an explicitly
+selected broker account that passed the provider authentication handshake. Captures
+account-scoped snapshots only; it does not generate trading signals or orders.
 """
 from __future__ import annotations
 
