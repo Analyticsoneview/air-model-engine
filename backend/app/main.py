@@ -656,13 +656,14 @@ async def customer_market_data_access(customer_id: str = Depends(require_custome
         access_store.mobile_for_request_id(customer_id) or ""
     )
     operator = operator_identity in operator_ids
+    runtime_status = await get_customer_market_data_status(customer_id)
     return {
         "access": access,
         "selection": selection,
-        "effective_source": "BROKER" if (operator or (
-            access["tier"] == "PAID" and access["broker_data_enabled"]
-        )) and selection else "NSE",
-        "note": "STANDARD customers use NSE EOD data. Broker data requires a verified assigned broker account and an enabled PAID entitlement.",
+        "effective_source": runtime_status.get("effective_source", "NSE"),
+        "connection_status": runtime_status.get("connection_status"),
+        "market_data_source": runtime_status,
+        "note": "NSE EOD is the default and automatic fallback. Broker data is reported active only while its connection is available.",
     }
 
 
@@ -837,6 +838,18 @@ async def operator_list_broker_accounts(
     except HTTPException:
         credential_keys = set()
         vault_configured = False
+    runtime_status = {}
+    for target_id in {a.customer_id for a in accounts}:
+        try:
+            runtime_status[target_id] = await get_customer_market_data_status(target_id)
+        except Exception as exc:
+            runtime_status[target_id] = {
+                "requested_source": None,
+                "effective_source": "NSE",
+                "connection_status": "status_unavailable",
+                "fallback_active": True,
+                "fallback_reason": type(exc).__name__,
+            }
     return {"accounts": [
         {
             "customer_id": a.customer_id, "broker": a.broker, "account_id": a.account_id,
@@ -844,6 +857,7 @@ async def operator_list_broker_accounts(
             "credentials_saved": (a.customer_id, a.broker, a.account_id) in credential_keys,
             "market_data_access": account_directory.get_market_data_access(a.customer_id),
             "market_data_selection": account_directory.get_market_data_selection(a.customer_id),
+            "market_data_runtime": runtime_status.get(a.customer_id, {}),
         }
         for a in accounts
     ], "credential_vault_configured": vault_configured}
