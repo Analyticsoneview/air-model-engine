@@ -31,7 +31,11 @@ try {
         $env:AIR_RUNNER_TOKEN = $Token.Trim()
         try { & "$Root\deploy\install-github-runner.ps1" } finally { Remove-Item Env:AIR_RUNNER_TOKEN -ErrorAction SilentlyContinue }
         if ($LASTEXITCODE -ne 0) { Stop-AirSetup "Runner installation failed." }
-    } else { Write-Host "Runner already configured; skipping installation." }
+    } else {
+        Write-Host "Runner already configured; ensuring its service is started."
+        & (Join-Path $RunnerRoot "svc.cmd") start
+        if ($LASTEXITCODE -ne 0) { Stop-AirSetup "Existing Windows runner service could not be started." }
+    }
 }
 finally { $Token = $null }
 Invoke-Gh @("variable","set","AIR_CI_RUNNER_LABELS","--repo",$Repo,"--body",$Labels)
