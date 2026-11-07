@@ -31,6 +31,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   String? _error, _updatedAt;
   String _strategyStatus = 'OPEN';
   String _dataStatus = 'SIGN IN TO LOAD YOUR MODEL ENGINE LEDGER';
+  Map<String, dynamic> _marketDataSource = {};
   Map<String, dynamic> _pnlCalendar = {};
   DateTime _calendarMonth = DateTime(DateTime.now().year, DateTime.now().month);
   bool _calendarLoading = false;
@@ -89,6 +90,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
         _breakdowns = result['breakdowns'] as Map<String, dynamic>? ?? {};
         _updatedAt = result['updated_at']?.toString();
         _dataStatus = result['data_status']?.toString() ?? 'UNKNOWN';
+        _marketDataSource = result['market_data_source'] as Map<String, dynamic>? ?? {};
       });
     } catch (e) { if (mounted) setState(() => _error = e.toString()); }
     finally { if (mounted) setState(() => _loading = false); }
@@ -549,6 +551,12 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
               const SizedBox(height: 5),
               Text('Updated: ${_updatedAt ?? 'No verified records yet'} • shared AIR session • auto-refresh 5 min',
                 style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+              const SizedBox(height: 4),
+              Text(
+                'HISTORY: ${(_marketDataSource['historical_source'] as Map?)?['provider'] ?? 'NSE EOD'}'
+                '  •  LIVE: ${(_marketDataSource['live_source'] as Map?)?['provider'] ?? 'NOT CONNECTED'}',
+                style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant, fontWeight: FontWeight.w700),
+              ),
               const SizedBox(height: 8),
               Text('OPEN ${_summary['open'] ?? 0}  •  NEW ${_summary['new'] ?? 0}  •  HOLD ${_summary['hold'] ?? 0}  •  REENTRY ${_summary['reentry'] ?? 0}  •  SURVIVOR ${_summary['survivor_watch'] ?? 0}  •  SLHIT ${_summary['slhit'] ?? 0}',
                 style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
