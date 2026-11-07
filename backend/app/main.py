@@ -21,6 +21,7 @@ from app.market_data.router import MarketDataRouter
 from app.market_data.dhan_adapter import DhanMarketDataAdapter
 from app.market_data.broker_adapters import (ZerodhaMarketDataAdapter, UpstoxMarketDataAdapter, FyersMarketDataAdapter, AngelOneMarketDataAdapter)
 from app.market_data.nse_adapter import NSEBhavcopyMarketDataAdapter
+from app.market_data.instrument_registry import MarketInstrumentDirectory
 from app.market_data.contracts import MarketInstrument
 from app.market_data.provider_registry import MarketDataSourceRegistry
 from app.air_qoc_dhan import router as air_qoc_dhan_router
@@ -50,6 +51,7 @@ app.add_middleware(
 market_data_router = MarketDataRouter()
 market_data_hub = MarketDataHub()
 market_data_sources = MarketDataSourceRegistry()
+market_data_instruments = MarketInstrumentDirectory()
 auth_store = AuthStore(os.getenv("AIR_AUTH_DB_PATH", "data/air_auth.sqlite3"))
 account_directory = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3"))
 _credential_vault: CredentialVault | None = None
@@ -276,6 +278,20 @@ class MarketSubscriptionInstrument(BaseModel):
 
 class MarketSubscriptionRequest(BaseModel):
     instruments: list[MarketSubscriptionInstrument] = Field(min_length=1, max_length=5000)
+
+
+class MarketInstrumentMapping(BaseModel):
+    provider: str = Field(min_length=2, max_length=40)
+    account_id: str = Field(min_length=2, max_length=100)
+    exchange: str = Field(min_length=2, max_length=20)
+    symbol: str = Field(min_length=1, max_length=100)
+    token: str = Field(min_length=1, max_length=100)
+    segment: str = Field(min_length=2, max_length=30)
+    expiry: str | None = None
+    strike: str | None = None
+    option_type: str | None = None
+    lot_size: int | None = Field(default=None, ge=1)
+    instrument_type: str | None = None
 
 
 class MarketHistoricalRequest(BaseModel):
@@ -851,6 +867,22 @@ async def search_market_instruments(
     if not resolved:
         raise HTTPException(status_code=409, detail="No connected Main Account market-data adapter")
     provider, account_id, adapter = resolved[0]
+    mapped = market_data_instruments.search(provider, account_id, q, limit)
+    if mapped:
+        instruments = [
+            MarketInstrument(
+                exchange=row["exchange"], symbol=row["symbol"], token=row["token"],
+                segment=row["segment"], expiry=row.get("expiry"),
+                strike=Decimal(row["strike"]) if row.get("strike") else None,
+                option_type=row.get("option_type"),
+                lot_size=row.get("lot_size"), instrument_type=row.get("instrument_type"),
+            )
+            for row in mapped
+            if not segment or row["segment"].upper() == segment.upper()
+        ]
+        return {"provider": provider, "account_id": account_id,
+                "count": len(instruments), "instruments": instruments,
+                "source": "admin_instrument_directory"}
     try:
         rows = await adapter.search_instruments(q, limit=limit, exchange_segment=segment)
     except Exception as exc:
@@ -878,6 +910,51 @@ async def subscribe_market_data(body: MarketSubscriptionRequest,
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"provider": provider, "account_id": account_id,
             "subscribed_count": len(instruments), "status": "subscription_sent"}
+
+
+
+
+@app.get("/api/v1/operator/market-data/instruments")
+async def operator_list_market_instruments(
+    provider: str | None = None,
+    account_id: str | None = None,
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    rows = market_data_instruments.list_all(provider, account_id)
+    return {"instruments": rows, "count": len(rows)}
+
+
+@app.post("/api/v1/operator/market-data/instruments", status_code=201)
+async def operator_save_market_instrument(
+    body: MarketInstrumentMapping,
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(operator_id)}
+    if (body.provider.lower(), body.account_id) not in owned:
+        raise HTTPException(status_code=404, detail="Provider account is not assigned to this operator")
+    try:
+        row = market_data_instruments.upsert(
+            body.provider, body.account_id, exchange=body.exchange, symbol=body.symbol,
+            token=body.token, segment=body.segment, expiry=body.expiry,
+            strike=body.strike, option_type=body.option_type, lot_size=body.lot_size,
+            instrument_type=body.instrument_type,
+        )
+        return {"instrument": row, "status": "saved"}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.delete("/api/v1/operator/market-data/instruments/{provider}/{account_id}/{token}")
+async def operator_delete_market_instrument(
+    provider: str, account_id: str, token: str,
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(operator_id)}
+    if (provider.lower(), account_id) not in owned:
+        raise HTTPException(status_code=404, detail="Provider account is not assigned to this operator")
+    if not market_data_instruments.delete(provider, account_id, token):
+        raise HTTPException(status_code=404, detail="Instrument mapping not found")
+    return {"status": "removed", "provider": provider, "account_id": account_id, "token": token}
 
 
 @app.post("/api/v1/market-data/historical")
