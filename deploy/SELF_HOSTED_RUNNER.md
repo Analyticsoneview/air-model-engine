@@ -29,7 +29,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 The script downloads the official latest Windows x64 GitHub Actions runner, checks the published SHA-256 digest when supplied, asks for the short-lived registration token, registers the runner with labels air,windows,x64, and installs/starts its Windows service.
 
-For the Windows runner, set the repository variable shown in section 4 to:
+For the Windows runner, set AIR_CI_RUNNER_LABELS (section 4) to:
 
 ~~~text
 ["self-hosted","windows","x64","air"]
@@ -47,7 +47,7 @@ sudo bash deploy/install-github-runner.sh
 
 Enter the short-lived token when prompted. It installs the runner service and registers labels air,linux,x64.
 
-Use this repository variable:
+Use AIR_CI_RUNNER_LABELS (section 4):
 
 ~~~text
 ["self-hosted","linux","x64","air"]
@@ -62,9 +62,9 @@ In repository **Settings → Secrets and variables → Actions → Variables →
 - Name: AIR_RUNNER_LABELS
 - Value: the exact JSON array for the PC OS from section 2 or 3.
 
-The workflows use this variable for backend and Android jobs. If it is absent, they default to GitHub-hosted ubuntu-latest. Do not use Windows labels for a Linux runner or vice versa.
+The backend and Android workflows use AIR_CI_RUNNER_LABELS first, then AIR_RUNNER_LABELS as a compatibility fallback, then GitHub-hosted ubuntu-latest. Set AIR_CI_RUNNER_LABELS to the exact JSON labels for the PC. Keep AIR_RUNNER_LABELS unset when the PC is Windows or macOS: the separate PWA and Docker Buildx deployment workflows use Linux shell commands and must remain on ubuntu-latest or a Linux self-hosted runner. If the PC is Ubuntu and you also want those Linux workflows on it, set AIR_RUNNER_LABELS to the same Linux label array. Do not route Linux-only workflows to Windows/macOS.
 
-After registration, verify the runner appears as **Online** and **Idle** under repository Settings → Actions → Runners. The runner's labels must include self-hosted, the OS, x64, and air.
+After registration, verify the runner appears as **Online** and **Idle** under repository Settings → Actions → Runners. The runner's labels must include self-hosted, the OS, its architecture (x64/X64 or ARM64), and air.
 
 ## 5. Run and verify PR #7 checks
 
@@ -94,13 +94,13 @@ Run the shared shell installer as your signed-in macOS user (do not use sudo):
 bash deploy/install-github-runner.sh
 ~~~
 
-The script detects Intel versus Apple Silicon, downloads the matching official macOS runner package, verifies the published digest when available, registers the runner and installs/starts its service. Use this repository variable for Intel:
+The script detects Intel versus Apple Silicon, downloads the matching official macOS runner package, verifies the published digest when available, registers the runner and installs/starts its service. Set AIR_CI_RUNNER_LABELS for Intel:
 
 ~~~text
 ["self-hosted","macOS","X64","air"]
 ~~~
 
-For Apple Silicon, use:
+For Apple Silicon, set AIR_CI_RUNNER_LABELS to:
 
 ~~~text
 ["self-hosted","macOS","ARM64","air"]
