@@ -255,6 +255,41 @@ class AirApiClient {
         .whereType<Map<String, dynamic>>().toList(growable: false);
   }
 
+  Future<Map<String, dynamic>> operatorExecutionPolicy() async {
+    return _decode(await _client.get(
+      Uri.parse('$baseUrl/api/v1/operator/execution-policy'),
+      headers: _headers,
+    ));
+  }
+
+  Future<Map<String, dynamic>> updateOperatorExecutionPolicy({
+    required bool masterAutoEnabled,
+    required Map<String, bool> strategies,
+  }) async {
+    return _decode(await _client.put(
+      Uri.parse('$baseUrl/api/v1/operator/execution-policy'),
+      headers: _headers,
+      body: jsonEncode({
+        'master_auto_enabled': masterAutoEnabled,
+        'strategies': strategies,
+      }),
+    ));
+  }
+
+  Future<Map<String, dynamic>> refreshBrokerMasters() async {
+    return _decode(await _client.post(
+      Uri.parse('$baseUrl/api/v1/operator/market-data/masters/refresh'),
+      headers: _headers,
+    ));
+  }
+
+  Future<Map<String, dynamic>> brokerMasterStatus() async {
+    return _decode(await _client.get(
+      Uri.parse('$baseUrl/api/v1/operator/market-data/master-status'),
+      headers: _headers,
+    ));
+  }
+
   Future<Map<String, dynamic>> operatorConfigureMarketDataFailover(
       String channel, bool enabled, List<Map<String, String>> candidates) async {
     return _decode(await _client.put(
