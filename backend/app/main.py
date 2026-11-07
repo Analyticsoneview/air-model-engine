@@ -19,6 +19,7 @@ from app.credential_vault import CredentialVault
 from app.market_data.hub import MarketDataHub
 from app.market_data.router import MarketDataRouter
 from app.market_data.dhan_adapter import DhanMarketDataAdapter
+from app.market_data.broker_adapters import (ZerodhaMarketDataAdapter, UpstoxMarketDataAdapter, FyersMarketDataAdapter, AngelOneMarketDataAdapter)
 from app.market_data.contracts import MarketInstrument
 from app.market_data.provider_registry import MarketDataSourceRegistry
 from app.air_qoc_dhan import router as air_qoc_dhan_router
@@ -77,6 +78,41 @@ def require_air_admin(x_air_admin_key: str | None = Header(default=None)) -> Non
         raise HTTPException(status_code=403, detail="AIR administrator approval is required")
 
 
+def _market_adapter_for(operator_id: str, provider: str, account_id: str):
+    """Build a verified broker adapter from operator-owned encrypted credentials."""
+    credentials = get_vault().get(operator_id, provider, account_id)
+    if provider == "dhan":
+        access_token = credentials.get("access_token")
+        if not access_token:
+            raise ValueError("Dhan access token is missing")
+        return DhanMarketDataAdapter(credentials.get("client_id", account_id), access_token, market_data_hub)
+    if provider == "zerodha":
+        if not credentials.get("api_key") or not credentials.get("access_token"):
+            raise ValueError("Zerodha api_key and access_token are required")
+        return ZerodhaMarketDataAdapter(account_id, credentials["api_key"], credentials["access_token"], market_data_hub)
+    if provider == "upstox":
+        if not credentials.get("access_token"):
+            raise ValueError("Upstox access_token is required")
+        return UpstoxMarketDataAdapter(account_id, credentials["access_token"], market_data_hub)
+    if provider == "fyers":
+        if not credentials.get("app_id") or not credentials.get("access_token"):
+            raise ValueError("FYERS app_id and access_token are required")
+        return FyersMarketDataAdapter(account_id, credentials["app_id"], credentials["access_token"], market_data_hub)
+    if provider == "angelone":
+        required = ("api_key", "jwt_token")
+        if any(not credentials.get(key) for key in required):
+            raise ValueError("Angel api_key and verified jwt_token are required")
+        network = {
+            "client_local_ip": os.getenv("AIR_CLIENT_LOCAL_IP", ""),
+            "client_public_ip": os.getenv("AIR_CLIENT_PUBLIC_IP", ""),
+            "mac_address": os.getenv("AIR_CLIENT_MAC_ADDRESS", ""),
+        }
+        if not all(network.values()):
+            raise ValueError("Angel SmartAPI server network identity headers are not configured")
+        return AngelOneMarketDataAdapter(account_id, credentials, market_data_hub, network)
+    raise ValueError("No market-data adapter is registered for this provider")
+
+
 @app.on_event("startup")
 async def start_air_qoc_jobs() -> None:
     await _restore_market_data_source_connections()
@@ -100,27 +136,17 @@ async def _restore_market_data_source_connections() -> None:
         account_id = selection.get("account_id")
         if provider == "nse_bhavcopy" and channel == "historical":
             continue
-        if provider != "dhan" or not account_id:
+        if not provider or not account_id:
             continue
         for operator_id in operator_ids:
             owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(operator_id)}
-            if ("dhan", account_id) not in owned:
+            if (provider, account_id) not in owned:
                 continue
             try:
-                credentials = get_vault().get(operator_id, "dhan", account_id)
-                access_token = credentials.get("access_token")
-                if not access_token:
-                    continue
-                if not market_data_router.is_registered("dhan", account_id):
-                    market_data_router.register(
-                        account_id,
-                        DhanMarketDataAdapter(
-                            credentials.get("client_id", account_id),
-                            access_token,
-                            market_data_hub,
-                        ),
-                    )
-                await market_data_router.set_source(channel, "dhan", account_id)
+                if not market_data_router.is_registered(provider, account_id):
+                    adapter = _market_adapter_for(operator_id, provider, account_id)
+                    market_data_router.register(account_id, adapter)
+                await market_data_router.set_source(channel, provider, account_id)
                 break
             except Exception:
                 # Keep API startup available if a provider token expired or a
@@ -243,6 +269,16 @@ class MarketSubscriptionInstrument(BaseModel):
 
 class MarketSubscriptionRequest(BaseModel):
     instruments: list[MarketSubscriptionInstrument] = Field(min_length=1, max_length=5000)
+
+
+class MarketHistoricalRequest(BaseModel):
+    exchange: str = Field(min_length=2, max_length=20)
+    symbol: str = Field(min_length=1, max_length=100)
+    token: str = Field(min_length=1, max_length=100)
+    segment: str = Field(min_length=2, max_length=30)
+    start: str = Field(min_length=10, max_length=40)
+    end: str = Field(min_length=10, max_length=40)
+    interval: str = Field(min_length=1, max_length=12)
 
 
 class DhanHistoricalRequest(BaseModel):
