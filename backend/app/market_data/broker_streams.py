@@ -64,6 +64,8 @@ class _NativeStreamMixin:
 
     def _set_open(self) -> None:
         self._stream_open = True
+        self._state = "connected"
+        self._last_stream_error = None
         self._stream_ready = True
         self._state = "connected"
         self._last_stream_error = None
