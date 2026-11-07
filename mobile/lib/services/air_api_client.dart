@@ -334,6 +334,32 @@ class AirApiClient {
     ));
   }
 
+  Future<Map<String, dynamic>> operatorSetCustomerMarketDataAccess(
+      String customerId, {required String tier, required bool brokerDataEnabled}) async {
+    return _decode(await _client.put(
+      Uri.parse('$baseUrl/api/v1/operator/customers/'
+          '${Uri.encodeComponent(customerId)}/market-data-access'),
+      headers: _headers,
+      body: jsonEncode({
+        'tier': tier,
+        'broker_data_enabled': brokerDataEnabled,
+      }),
+    ));
+  }
+
+  Future<Map<String, dynamic>> operatorSetCustomerMarketDataSelection(
+      String customerId, String broker, String accountId) async {
+    return _decode(await _client.put(
+      Uri.parse('$baseUrl/api/v1/operator/customers/'
+          '${Uri.encodeComponent(customerId)}/market-data-selection'),
+      headers: _headers,
+      body: jsonEncode({
+        'provider': broker,
+        'account_id': accountId,
+      }),
+    ));
+  }
+
   Future<Map<String, dynamic>> operatorSaveBrokerCredentials(
       String customerId, String broker, String accountId,
       Map<String, String> credentials) async {
