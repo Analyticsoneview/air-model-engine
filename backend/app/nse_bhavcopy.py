@@ -487,7 +487,7 @@ class NSEBhavcopyStore:
         if instrument_id:
             clauses.append("(instrument_id=? OR instrument_key=?)")
             params.extend([instrument_id.strip(), instrument_id.strip()])
-        params.append(max(1, min(limit, 500)))
+        params.append(max(1, min(limit, 5000)))
         with self._db() as db:
             rows = db.execute(
                 "SELECT * FROM nse_bhavcopy WHERE " + " AND ".join(clauses) +
