@@ -240,14 +240,28 @@ async def get_original366_engine(
     winners = [trade for trade in trades if trade.get("classification") == "EXPIRED_WIN"]
     expiry_losses = [trade for trade in trades if trade.get("classification") == "EXPIRED_LOSS"]
     stopped = [trade for trade in trades if trade.get("classification") == "SLHIT"]
-    recovered_watch = [
-        {**trade, "classification": "RECOVERED_WATCH", "watch": trade["recovered_watch"],
-         "signal_date": trade["recovered_watch"]["trigger_date"],
-         "latest_price": trade["recovered_watch"]["trigger_close"],
-         "position_status": "WATCH_ONLY_NOT_OPEN",
-         "reason": "Post-stop daily close sustained above original entry premium"}
-        for trade in stopped if trade.get("recovered_watch")
-    ]
+    recovered_watch = []
+    for trade in stopped:
+        watch = trade.get("recovered_watch")
+        if not watch:
+            continue
+        exit_model = watch.get("exit_model") or {}
+        recovered_watch.append({
+            **trade, "classification": "RECOVERED_WATCH", "watch": watch,
+            "signal_date": watch["trigger_date"],
+            "latest_price": watch["trigger_close"],
+            "entry_price": watch.get("reference_entry_price", trade.get("entry_price")),
+            "stop_loss": exit_model.get("stop_loss"),
+            "target_1": exit_model.get("target"),
+            "exit_date": exit_model.get("exit_date"),
+            "exit_price": exit_model.get("exit_price"),
+            "exit_reason": exit_model.get("exit_reason"),
+            "pnl_points": exit_model.get("pnl_points"),
+            "pnl_pct": exit_model.get("return_pct"),
+            "recovered_outcome": exit_model.get("outcome"),
+            "position_status": "WATCH_ONLY_NOT_OPEN",
+            "reason": "Post-stop daily close above original entry; retrospective exits use original entry with 10% SL / 45% target",
+        })
     new_rows = [
         row for row in rows
         if str(row.get("classification") or "").upper() == "NEW"
