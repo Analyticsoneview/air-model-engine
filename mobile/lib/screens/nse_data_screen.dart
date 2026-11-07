@@ -77,8 +77,14 @@ class _NseDataScreenState extends State<NseDataScreen> {
       final status = await _api.nseDataStatus();
       if (!mounted) return;
       final oldCount = _recordsFor(_market);
+      final oldBootstrap = _status['bootstrap'] as Map<String, dynamic>? ?? const {};
+      final newBootstrap = status['bootstrap'] as Map<String, dynamic>? ?? const {};
+      final oldRunStamp = oldBootstrap['updated_at']?.toString();
+      final newRunStamp = newBootstrap['updated_at']?.toString();
       setState(() => _status = status);
-      if (_recordsFor(_market) != oldCount) {
+      // Reload the visible rows whenever a reconciliation/download batch changes,
+      // even when the total row count happens to remain unchanged.
+      if (_recordsFor(_market) != oldCount || oldRunStamp != newRunStamp) {
         await _loadRows();
       }
     } catch (_) {
@@ -211,7 +217,26 @@ class _NseDataScreenState extends State<NseDataScreen> {
                       _CoverageChip(label: 'CM', value: '${_number(cmRecords, decimals: 0)} rows', color: cs.primary),
                       _CoverageChip(label: 'FO', value: '${_number(foRecords, decimals: 0)} rows', color: cs.tertiary),
                       _CoverageChip(label: 'PAIRED SESSIONS', value: '${bootstrap['paired_sessions'] ?? 0}', color: cs.secondary),
+                      if ((bootstrap['partial_sessions_found'] as num? ?? 0) > 0)
+                        _CoverageChip(label: 'PARTIAL FOUND', value: '${bootstrap['partial_sessions_found']}', color: cs.error),
+                      if ((bootstrap['repaired_sessions'] as num? ?? 0) > 0)
+                        _CoverageChip(label: 'AUTO-REPAIRED', value: '${bootstrap['repaired_sessions']}', color: Colors.green),
                     ]),
+                    if ((bootstrap['integrity_mismatches'] as List<dynamic>? ?? const []).isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      ...((bootstrap['integrity_mismatches'] as List<dynamic>).take(3)).map((item) {
+                        final session = item as Map<String, dynamic>;
+                        final marketChecks = session['markets'] as List<dynamic>? ?? const [];
+                        final details = marketChecks.whereType<Map<String, dynamic>>()
+                            .map((check) => '${check['market']}: NSE ${check['nse_source_records'] ?? '—'} / DB ${check['app_db_records'] ?? 0}')
+                            .join('   ·   ');
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 3),
+                          child: Text('${session['date']}: $details',
+                              style: TextStyle(fontSize: 9, color: cs.error)),
+                        );
+                      }),
+                    ],
                   ],
                 ),
               ),
