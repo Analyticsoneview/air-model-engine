@@ -379,14 +379,22 @@ class MarketDataService:
                         "high": str(bar.high), "low": str(bar.low), "close": str(bar.close),
                         "volume": bar.volume, "open_interest": bar.open_interest}
                        for bar in bars]
+            active_source = self.router.resolve("historical")
+            actual_provider, actual_account = (
+                active_source[0][0], active_source[0][1]
+            ) if active_source else ("unknown", "unknown")
             added_count = ledger.attach_market_data_bars(
                 row["signal_id"], payload,
-                {"provider": provider, "account_id": account_id, "interval": "day",
+                {"provider": actual_provider, "account_id": actual_account, "interval": "day",
                  "retrieved_at": datetime.now(timezone.utc).isoformat()})
             if added_count:
                 updated += 1
                 added += added_count
-        return {"status": "COMPLETED", "provider": provider, "account_id": account_id,
+        active_source = self.router.resolve("historical")
+        actual_provider, actual_account = (
+            active_source[0][0], active_source[0][1]
+        ) if active_source else ("unknown", "unknown")
+        return {"status": "COMPLETED", "provider": actual_provider, "account_id": actual_account,
                 "signals_seen": len(rows), "contracts_matched": matched,
                 "strategy_records_updated": updated, "daily_bars_added": added,
                 "skipped": skipped}
@@ -489,6 +497,10 @@ class MarketDataService:
                 for bar in existing if isinstance(bar, dict)
                 and (bar.get("date") or bar.get("trade_date"))
             }
+            active_source = self.router.resolve("historical")
+            actual_provider, actual_account = (
+                active_source[0][0], active_source[0][1]
+            ) if active_source else ("unknown", "unknown")
             for bar in bars:
                 day = bar.start_time.astimezone(ZoneInfo("Asia/Kolkata")).date().isoformat()
                 by_date.setdefault(day, {
@@ -496,11 +508,11 @@ class MarketDataService:
                     "low": float(bar.low), "close": float(bar.close),
                     "quantity": bar.volume, "volume": bar.volume,
                     "open_interest": bar.open_interest,
-                    "source": provider,
+                    "source": actual_provider,
                 })
             evidence["daily_option_bars"] = [by_date[key] for key in sorted(by_date)]
             evidence["market_data_source"] = {
-                "provider": provider, "account_id": account_id,
+                "provider": actual_provider, "account_id": actual_account,
                 "instrument_token": instrument.token,
                 "normalized_by": "AIR_MARKET_DATA_SERVICE",
             }
