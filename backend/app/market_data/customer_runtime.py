@@ -157,6 +157,7 @@ async def get_customer_market_data_status(customer_id: str) -> dict:
     if _runtime is None:
         raise RuntimeError("Customer market-data runtime has not been configured")
     service = await _runtime.get_service(customer_id)
+    await service.health()
     status = dict(getattr(service, "customer_market_data_status", {}))
     status.update(service.router.status())
     historical = status.get("historical_source") or {}
