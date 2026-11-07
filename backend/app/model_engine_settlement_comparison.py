@@ -134,8 +134,6 @@ def _build_rows(market: str, current_rows: list[dict], history_rows: list[dict],
     previous_by_key: dict[tuple, dict] = {}
     for row in history_rows:
         key = _identity(row, market)
-        if row.get("trade_date") == max((r.get("trade_date") for r in history_rows), default=None):
-            continue
         old = previous_by_key.get(key)
         if old is None or str(row.get("trade_date") or "") > str(old.get("trade_date") or ""):
             previous_by_key[key] = row
@@ -198,11 +196,13 @@ async def get_settlement_comparison(
             "note": "NSE CM/FO EOD bhavcopy has not completed its initial import.",
         }
     trade_date = min(dates)
-    previous_start = (date.fromisoformat(trade_date) - timedelta(days=10)).isoformat()
-    cm_history = nse_data_rows("CM", start_date=previous_start, end_date=trade_date, limit=limit)
-    fo_history = nse_data_rows("FO", start_date=previous_start, end_date=trade_date, limit=limit)
-    cm_current = [row for row in cm_history if row.get("trade_date") == trade_date]
-    fo_current = [row for row in fo_history if row.get("trade_date") == trade_date]
+    current_day = date.fromisoformat(trade_date)
+    previous_end = (current_day - timedelta(days=1)).isoformat()
+    previous_start = (current_day - timedelta(days=10)).isoformat()
+    cm_current = nse_data_rows("CM", start_date=trade_date, end_date=trade_date, limit=limit)
+    fo_current = nse_data_rows("FO", start_date=trade_date, end_date=trade_date, limit=limit)
+    cm_history = nse_data_rows("CM", start_date=previous_start, end_date=previous_end, limit=limit)
+    fo_history = nse_data_rows("FO", start_date=previous_start, end_date=previous_end, limit=limit)
     service = await get_customer_market_data_service(customer_id)
     cm_broker, cm_provider, cm_note = await _broker_closes(service, "CM", cm_current, trade_date)
     fo_broker, fo_provider, fo_note = await _broker_closes(service, "FO", fo_current, trade_date)
