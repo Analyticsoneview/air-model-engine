@@ -35,7 +35,7 @@ The installer:
 8. Deploys the API, PWA and Caddy reverse proxy.
 9. Waits for all three Swarm services to converge to one replica.
 
-The default installer branch is feat/air-telegram-alerts while its pull request is awaiting verification. After the reviewed pull request is merged, run with AIR_INSTALL_REF=main to install from main. Do not deploy an unreviewed branch as a production release.
+The default installer branch is feat/air-telegram-alerts while its pull request is awaiting verification. After the reviewed pull request is merged and you have cloned main, run `sudo env AIR_INSTALL_REF=main bash deploy/install-air-ubuntu.sh` to install from main. Do not deploy an unreviewed branch as a production release.
 
 ## DNS and TLS
 
