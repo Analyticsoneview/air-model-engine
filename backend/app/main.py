@@ -785,9 +785,13 @@ async def operator_list_broker_accounts(
         credential_keys = set()
         vault_configured = False
     return {"accounts": [
-        {"customer_id": a.customer_id, "broker": a.broker, "account_id": a.account_id,
-         "order_enabled": a.enabled_for_orders,
-         "credentials_saved": (a.customer_id, a.broker, a.account_id) in credential_keys}
+        {
+            "customer_id": a.customer_id, "broker": a.broker, "account_id": a.account_id,
+            "order_enabled": a.enabled_for_orders,
+            "credentials_saved": (a.customer_id, a.broker, a.account_id) in credential_keys,
+            "market_data_access": account_directory.get_market_data_access(a.customer_id),
+            "market_data_selection": account_directory.get_market_data_selection(a.customer_id),
+        }
         for a in accounts
     ], "credential_vault_configured": vault_configured}
 
