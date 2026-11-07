@@ -105,21 +105,11 @@ Because OTP/phone verification was intentionally omitted, the mobile number is n
 
 ## GitHub Actions self-hosted runner
 
-If GitHub-hosted runner admission is unavailable because of account usage or billing limits, install the AIR runner on the Ubuntu host after the server is secured:
+For PR #7 backend and Android verification, use the cross-platform one-command utility in the repository root. It supports Windows 10/11 x64 and common systemd-based Linux distributions (Ubuntu, Debian, Fedora, RHEL, Rocky Linux and AlmaLinux). Follow [SELF_HOSTED_RUNNER.md](SELF_HOSTED_RUNNER.md).
 
-~~~bash
-sudo bash /opt/air-model-engine/deploy/install-github-runner.sh
-~~~
+The utility uses GitHub CLI browser authentication, requests a short-lived runner registration token directly from GitHub, registers the PC, sets `AIR_CI_RUNNER_LABELS`, waits for the runner to become Online, then dispatches and watches the backend and Android workflows. It does not set `AIR_RUNNER_LABELS`; Linux-only Docker/PWA workflows remain on their separately configured Linux runner.
 
-Generate a short-lived registration token from repository Settings → Actions → Runners → New self-hosted runner and enter it at the prompt. The script installs a dedicated airrunner account, Java 17, runner dependencies and the runner service. The runner belongs to the private AIR repository and receives Docker access for image builds; treat the host as a privileged CI machine.
-
-After it appears online in GitHub, add this repository Actions variable:
-
-~~~text
-AIR_RUNNER_LABELS=["self-hosted","linux","x64","air"]
-~~~
-
-The CI workflows default to ubuntu-latest when this variable is absent. Once configured, backend tests, Docker builds, PWA builds and Android builds can use the self-hosted runner. The iOS lab workflow remains macOS-hosted.
+The runner is a privileged CI machine. Do not route untrusted pull requests to it. PR #7 remains unmerged until backend tests, Flutter analysis/tests and the Android ARM64 build pass on the current PR head.
 
 ## Android customer APK
 
@@ -189,4 +179,4 @@ Failover currently permits a secondary account on the same broker only. Cross-br
 
 ## Cross-platform local startup and CI runner
 
-The local application startup command is documented in the repository root README and LOCAL_SETUP.md. For a personal Windows, Ubuntu/Linux or macOS PC used as a GitHub Actions runner, follow [SELF_HOSTED_RUNNER.md](SELF_HOSTED_RUNNER.md). It documents the platform-specific install commands, repository labels and PR #7 verification gate. Do not merge PR #7 until the backend and Android workflows pass on the current PR head.
+The local application startup command is documented in the repository root README and LOCAL_SETUP.md. For a personal Windows 10/11 or supported Linux PC, run the one-command AIR setup utility described in [SELF_HOSTED_RUNNER.md](SELF_HOSTED_RUNNER.md). It handles runner registration, repository CI routing and PR #7 verification. Do not merge PR #7 until the backend and Android workflows pass on the current PR head.
