@@ -17,6 +17,7 @@ import websockets
 
 from app.market_data.contracts import HistoricalBar, MarketInstrument
 from app.market_data.hub import MarketDataHub
+from app.market_data.session import nse_regular_session_active
 
 
 def _timestamp(value: Any) -> datetime:
@@ -190,7 +191,7 @@ class GenericVendorMarketDataAdapter:
         state = self._state
         if self._instruments and self._last_tick_at:
             age = (datetime.now(timezone.utc) - _timestamp(self._last_tick_at)).total_seconds()
-            if age > 30 and state == "connected":
+            if age > 30 and state == "connected" and nse_regular_session_active():
                 state = "stale"
         return {
             "provider": self.provider_code, "account_id": self.account_id,
