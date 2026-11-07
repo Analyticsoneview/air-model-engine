@@ -4,11 +4,11 @@ The repository now includes a one-command setup utility. It uses your local GitH
 
 ## Before the first run
 
-- Clone the repository and check out `feat/air-telegram-alerts`.
-- Install Git and GitHub CLI (`gh`): https://cli.github.com/
+- Have the AIR repository available locally and check out `feat/air-telegram-alerts`. Git is required to run from the repository checkout.
+- You do **not** need to install GitHub CLI manually. AIR-SETUP installs it using winget/Chocolatey on Windows or apt/dnf on supported Linux distributions.
 - Use a GitHub account with repository administration permission for `Analyticsoneview/air-model-engine` (runner registration and repository Actions variables require admin access).
 - Keep the PC powered on, awake, and connected to the internet.
-- The first run opens GitHub browser authentication if `gh` is not already signed in. Complete that approval locally.
+- The first run installs GitHub CLI if needed, then opens GitHub browser/device authentication if you are not already signed in. Complete that approval locally. Future runs reuse the saved sign-in.
 - Do not paste any token into chat. AIR-SETUP requests and handles the short-lived runner token locally.
 
 ## Run on Linux
@@ -19,7 +19,7 @@ From the repository root, on branch `feat/air-telegram-alerts`:
 bash AIR-SETUP.sh
 ~~~
 
-The script requests elevation when it installs the runner service. It registers labels for Linux and CPU architecture, configures `AIR_CI_RUNNER_LABELS`, waits for Online status, then runs `backend-tests.yml` and `android-lab.yml` and waits for their results.
+The script requests elevation to install GitHub CLI (if missing) and the runner service. It registers labels for Linux and CPU architecture, configures `AIR_CI_RUNNER_LABELS`, waits for Online status, then runs `backend-tests.yml` and `android-lab.yml` and waits for their results.
 
 Supported Linux distributions are Ubuntu, Debian, Fedora, RHEL, Rocky Linux and AlmaLinux with systemd. Alpine, non-systemd installations and unlisted distributions are not supported by this installer.
 
