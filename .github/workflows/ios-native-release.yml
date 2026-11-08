@@ -7,6 +7,11 @@ on:
       - '.github/workflows/ios-native-release.yml'
   workflow_dispatch:
     inputs:
+      build_signed_ipa:
+        description: Build a signed IPA (requires Apple signing secrets)
+        required: false
+        type: boolean
+        default: false
       upload_testflight:
         description: Upload the signed IPA to TestFlight (requires App Store Connect secrets)
         required: false
