@@ -2,7 +2,7 @@ name: AIR PR Validation and Auto Merge
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, edited]
+    types: [opened, synchronize, reopened, ready_for_review, edited, closed]
   workflow_dispatch:
 
 permissions:
@@ -83,4 +83,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: gh pr merge "$PR_NUMBER" --squash --delete-branch
+        run: gh pr merge "$PR_NUMBER" --squash
+
+  retarget-stacked-ui-pr:
+    name: Retarget dependent UI PR after PR 7 merges
+    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && github.event.pull_request.number == 7
+    runs-on: ubuntu-latest
+    steps:
+      - name: Move PR 8 onto main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh pr edit 8 --base main
