@@ -1,0 +1,147 @@
+name: AIR Native iOS IPA
+
+on:
+  pull_request:
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/ios-native-release.yml'
+  workflow_dispatch:
+    inputs:
+      upload_testflight:
+        description: Upload the signed IPA to TestFlight (requires App Store Connect secrets)
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: air-ios-native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios-compile:
+    name: iOS compile validation (unsigned)
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate iOS platform files
+        working-directory: mobile
+        run: flutter create . --platforms=ios --org com.analyticalstocks
+      - name: Resolve packages
+        working-directory: mobile
+        run: flutter pub get
+      - name: Analyze Flutter app
+        working-directory: mobile
+        run: flutter analyze lib
+      - name: Run Flutter tests
+        working-directory: mobile
+        run: flutter test
+      - name: Compile iOS release without signing
+        working-directory: mobile
+        run: flutter build ios --release --no-codesign
+      - name: Upload unsigned iOS app bundle for diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: AIR-iOS-unsigned-app
+          path: mobile/build/ios/iphoneos/Runner.app
+          if-no-files-found: error
+          retention-days: 14
+
+  signed-ipa:
+    name: Signed iOS IPA
+    if: github.event_name == 'workflow_dispatch'
+    needs: ios-compile
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Validate Apple signing configuration
+        run: |
+          test -n "$IOS_BUNDLE_ID" || { echo "Repository variable IOS_BUNDLE_ID is required"; exit 1; }
+          test -n "$APPLE_TEAM_ID" || { echo "Secret APPLE_TEAM_ID is required"; exit 1; }
+          test -n "$APPLE_CERTIFICATE_BASE64" || { echo "Secret APPLE_CERTIFICATE_BASE64 (.p12) is required"; exit 1; }
+          test -n "$APPLE_CERTIFICATE_PASSWORD" || { echo "Secret APPLE_CERTIFICATE_PASSWORD is required"; exit 1; }
+          test -n "$APPLE_PROVISIONING_PROFILE_BASE64" || { echo "Secret APPLE_PROVISIONING_PROFILE_BASE64 is required"; exit 1; }
+      - name: Generate iOS platform files
+        working-directory: mobile
+        run: flutter create . --platforms=ios --org com.analyticalstocks
+      - name: Install signing certificate and profile
+        env:
+          KEYCHAIN_PASSWORD: ${{ secrets.CI_KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$KEYCHAIN_PASSWORD" || { echo "Secret CI_KEYCHAIN_PASSWORD is required"; exit 1; }
+          CERT_PATH="$RUNNER_TEMP/air-signing.p12"
+          PROFILE_PATH="$RUNNER_TEMP/air-profile.mobileprovision"
+          KEYCHAIN_PATH="$RUNNER_TEMP/air-signing.keychain-db"
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$CERT_PATH"
+          echo "$APPLE_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+          security default-keychain -d user -s "$KEYCHAIN_PATH"
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print UUID' /dev/stdin <<< "$(security cms -D -i "$PROFILE_PATH")")
+          cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+      - name: Configure bundle identifier and export options
+        working-directory: mobile
+        run: |
+          set -euo pipefail
+          PROJECT="ios/Runner.xcodeproj/project.pbxproj"
+          if [ ! -f "$PROJECT" ]; then echo "Generated iOS Xcode project is missing"; exit 1; fi
+          sed -i '' "s/com.analyticalstocks.airModelEngine/$IOS_BUNDLE_ID/g" "$PROJECT"
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>teamID</key><string>$APPLE_TEAM_ID</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>destination</key><string>export</string>
+            <key>manageAppVersionAndBuildNumber</key><true/>
+          </dict></plist>
+          PLIST
+      - name: Build signed IPA
+        working-directory: mobile
+        run: flutter build ipa --release --export-options-plist="$RUNNER_TEMP/ExportOptions.plist"
+      - name: Upload signed IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AIR-iOS-IPA
+          path: mobile/build/ios/ipa/*.ipa
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload to TestFlight
+        if: inputs.upload_testflight == true
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$ASC_KEY_ID" || { echo "Secret APP_STORE_CONNECT_KEY_ID is required"; exit 1; }
+          test -n "$ASC_ISSUER_ID" || { echo "Secret APP_STORE_CONNECT_ISSUER_ID is required"; exit 1; }
+          test -n "$ASC_PRIVATE_KEY" || { echo "Secret APP_STORE_CONNECT_PRIVATE_KEY is required"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/private_keys"
+          printf '%s' "$ASC_PRIVATE_KEY" > "$RUNNER_TEMP/private_keys/AuthKey_$ASC_KEY_ID.p8"
+          IPA=$(find build/ios/ipa -name '*.ipa' -print -quit)
+          xcrun altool --upload-app --type ios --file "$IPA" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
