@@ -100,15 +100,19 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN_PATH"
           security default-keychain -d user -s "$KEYCHAIN_PATH"
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print UUID' /dev/stdin <<< "$(security cms -D -i "$PROFILE_PATH")")
+          security cms -D -i "$PROFILE_PATH" > "$RUNNER_TEMP/profile.plist"
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print UUID' "$RUNNER_TEMP/profile.plist")
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print Name' "$RUNNER_TEMP/profile.plist")
           cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+          echo "AIR_PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
       - name: Configure bundle identifier and export options
         working-directory: mobile
         run: |
           set -euo pipefail
           PROJECT="ios/Runner.xcodeproj/project.pbxproj"
           if [ ! -f "$PROJECT" ]; then echo "Generated iOS Xcode project is missing"; exit 1; fi
-          sed -i '' "s/com.analyticalstocks.airModelEngine/$IOS_BUNDLE_ID/g" "$PROJECT"
+          /usr/libexec/PlistBuddy -c "Set :objects" "$PROJECT" >/dev/null 2>&1 || true
+          perl -0pi -e 's/(PRODUCT_BUNDLE_IDENTIFIER = )[^;]+;/$1'"${IOS_BUNDLE_ID}"';/g' "$PROJECT"
           cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -117,6 +121,7 @@ jobs:
             <key>teamID</key><string>$APPLE_TEAM_ID</string>
             <key>signingStyle</key><string>manual</string>
             <key>destination</key><string>export</string>
+            <key>provisioningProfiles</key><dict><key>$IOS_BUNDLE_ID</key><string>$AIR_PROFILE_NAME</string></dict>
             <key>manageAppVersionAndBuildNumber</key><true/>
           </dict></plist>
           PLIST
