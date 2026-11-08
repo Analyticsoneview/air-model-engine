@@ -124,7 +124,7 @@ jobs:
   merge-after-validation:
     name: Merge PR after successful validation
     needs: [backend, android, ios]
-    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
+    if: github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.state == 'open' && github.event.pull_request.draft == false
     runs-on: [self-hosted, Windows, X64, air-ci]
     steps:
       - name: Merge validated pull request
