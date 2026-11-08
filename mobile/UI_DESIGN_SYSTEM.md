@@ -9,7 +9,7 @@
 - The app remains a research and broker-connectivity client; UI work must not enable broker order placement.
 
 ## Shared design tokens
-The source of truth is `lib/theme/air_theme.dart`.
+The source of truth is `lib/theme/air_theme.dart`; reusable primitives are in `lib/theme/air_components.dart` (AirPanel, AirMetricCard, AirStatusBadge, AirSectionHeader and AirEmptyState).
 - Dark background: `#101827`; surface: `#182438`; elevated surface: `#202E42`.
 - Light background: `#F4F6FA`; surface: `#FFFFFF`.
 - Dark brand accent: `#D6AA52`; light brand accent: `#A97B25`.
