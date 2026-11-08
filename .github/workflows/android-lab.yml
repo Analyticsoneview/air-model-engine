@@ -17,50 +17,37 @@ permissions:
 
 jobs:
   android-lab:
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
+    runs-on: [self-hosted, Windows, X64, air-ci]
+    timeout-minutes: 45
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Set up Java
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Cache Gradle dependencies
-        uses: gradle/actions/setup-gradle@v4
-
+      - name: Verify build tools
+        shell: pwsh
+        run: |
+          flutter --version
+          java -version
+          adb version
       - name: Generate Android platform
         working-directory: mobile
+        shell: pwsh
         run: flutter create . --platforms=android --org com.analyticalstocks
-
       - name: Resolve packages
         working-directory: mobile
+        shell: pwsh
         run: flutter pub get
-
       - name: Analyze Flutter app
         working-directory: mobile
+        shell: pwsh
         run: flutter analyze lib
-
       - name: Run Flutter tests
         working-directory: mobile
+        shell: pwsh
         run: flutter test
-
       - name: Build optimized ARM64 lab APK
         working-directory: mobile
-        run: flutter build apk --release --target-platform android-arm64 --dart-define=APP_ENV=lab --dart-define=AIR_API_BASE_URL=${{ vars.AIR_API_BASE_URL }}
-
+        shell: pwsh
+        run: flutter build apk --release --target-platform android-arm64 --dart-define=APP_ENV=lab --dart-define=AIR_API_BASE_URL="${{ vars.AIR_API_BASE_URL }}"
       - name: Upload optimized APK artifact
         uses: actions/upload-artifact@v4
         with:
