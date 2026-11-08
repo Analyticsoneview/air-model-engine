@@ -1,0 +1,86 @@
+name: AIR PR Validation and Auto Merge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: air-pr-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend tests (Python 3.12)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install dependencies
+        working-directory: backend
+        run: python -m pip install -r requirements.txt
+      - name: Run backend tests
+        working-directory: backend
+        run: python -m unittest discover -s tests -v
+
+  android:
+    name: Android ARM64 APK build
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate Android platform
+        working-directory: mobile
+        run: flutter create . --platforms=android --org com.analyticalstocks
+      - name: Resolve packages
+        working-directory: mobile
+        run: flutter pub get
+      - name: Analyze Flutter app
+        working-directory: mobile
+        run: flutter analyze lib
+      - name: Run Flutter tests
+        working-directory: mobile
+        run: flutter test
+      - name: Build ARM64 lab APK
+        working-directory: mobile
+        env:
+          AIR_API_BASE_URL: ${{ vars.AIR_API_BASE_URL }}
+        run: flutter build apk --release --target-platform android-arm64 --dart-define=APP_ENV=lab --dart-define=AIR_API_BASE_URL="${AIR_API_BASE_URL}"
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AIR-Android-ARM64-PR-${{ github.event.pull_request.number || 'manual' }}
+          path: mobile/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
+
+  merge-after-validation:
+    name: Merge PR after successful validation
+    needs: [backend, android]
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Merge validated pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: gh pr merge "$PR_NUMBER" --squash --delete-branch
