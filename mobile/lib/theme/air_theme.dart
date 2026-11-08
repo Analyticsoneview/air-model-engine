@@ -81,7 +81,7 @@ abstract final class AirTheme {
           letterSpacing: .1,
         ),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: surface,
         elevation: 0,
         margin: EdgeInsets.zero,
