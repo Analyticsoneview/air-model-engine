@@ -2,8 +2,12 @@ name: AIR iOS Lab Unsigned IPA
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/ios-lab.yml'
   push:
-    branches: [main]
+    branches: [main, feat/air-telegram-alerts]
     paths:
       - 'mobile/**'
       - '.github/workflows/ios-lab.yml'
@@ -13,45 +17,51 @@ permissions:
 
 jobs:
   ios-lab:
-    runs-on: macos-latest
+    runs-on: [self-hosted, macOS, ARM64, air-mac]
+    timeout-minutes: 50
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-
+      - name: Verify Apple build tools
+        run: |
+          sw_vers
+          xcodebuild -version
+          xcrun --version
+          flutter --version
       - name: Generate iOS platform
         working-directory: mobile
         run: flutter create . --platforms=ios --org com.analyticalstocks
-
       - name: Resolve packages
         working-directory: mobile
         run: flutter pub get
-
       - name: Analyze Flutter app
         working-directory: mobile
         run: flutter analyze lib
-
+      - name: Run Flutter tests
+        working-directory: mobile
+        run: flutter test
       - name: Build unsigned iOS app
         working-directory: mobile
         run: flutter build ios --release --no-codesign --dart-define=APP_ENV=lab
-
-      - name: Package unsigned IPA
+      - name: Package and verify unsigned IPA
         working-directory: mobile
         run: |
+          set -euo pipefail
+          test -d build/ios/iphoneos/Runner.app
           mkdir -p build/ios/ipa/Payload
+          rm -rf build/ios/ipa/Payload/Runner.app
           cp -R build/ios/iphoneos/Runner.app build/ios/ipa/Payload/
           cd build/ios/ipa
-          /usr/bin/zip -r AIR-Model-Engine-iOS-Unsigned.ipa Payload
-
+          /usr/bin/zip -qry AIR-Model-Engine-iOS-Unsigned.ipa Payload
+          test -s AIR-Model-Engine-iOS-Unsigned.ipa
+          /usr/bin/unzip -t AIR-Model-Engine-iOS-Unsigned.ipa
+          shasum -a 256 AIR-Model-Engine-iOS-Unsigned.ipa > AIR-Model-Engine-iOS-Unsigned.ipa.sha256
       - name: Upload unsigned IPA artifact
         uses: actions/upload-artifact@v4
         with:
           name: AIR-Model-Engine-iOS-Unsigned-IPA
-          path: mobile/build/ios/ipa/AIR-Model-Engine-iOS-Unsigned.ipa
+          path: |
+            mobile/build/ios/ipa/AIR-Model-Engine-iOS-Unsigned.ipa
+            mobile/build/ios/ipa/AIR-Model-Engine-iOS-Unsigned.ipa.sha256
           if-no-files-found: error
           retention-days: 30
