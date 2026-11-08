@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ${{ fromJSON(vars.AIR_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    runs-on: [self-hosted, Windows, X64, air-ci]
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -49,16 +49,19 @@ jobs:
         working-directory: mobile
         env:
           AIR_API_BASE_URL: ${{ vars.AIR_API_BASE_URL }}
+        shell: pwsh
         run: |
-          if [ -z "$AIR_API_BASE_URL" ]; then
-            echo "AIR_API_BASE_URL repository variable is required for a connected build."
-            exit 1
-          fi
-          flutter build web --release --tree-shake-icons --no-source-maps --base-href "/" --dart-define=APP_ENV=production --dart-define=AIR_API_BASE_URL="$AIR_API_BASE_URL"
+          if ([string]::IsNullOrWhiteSpace($env:AIR_API_BASE_URL)) {
+            throw "AIR_API_BASE_URL repository variable is required for a connected build."
+          }
+          flutter build web --release --tree-shake-icons --no-source-maps --base-href "/" --dart-define=APP_ENV=production --dart-define=AIR_API_BASE_URL="$env:AIR_API_BASE_URL"
 
       - name: Report web bundle size
         working-directory: mobile
-        run: du -sh build/web
+        shell: pwsh
+        run: |
+          $bytes = (Get-ChildItem build/web -Recurse -File | Measure-Object -Property Length -Sum).Sum
+          Write-Host ("AIR PWA bundle size: {0:N2} MB" -f ($bytes / 1MB))
 
       - name: Upload self-hosted PWA bundle
         uses: actions/upload-artifact@v4
