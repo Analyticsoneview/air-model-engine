@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   ios-lab:
-    runs-on: [self-hosted, macOS, ARM64, air-mac]
+    runs-on: [self-hosted, macOS, air-mac]
     timeout-minutes: 50
     steps:
       - name: Checkout source
