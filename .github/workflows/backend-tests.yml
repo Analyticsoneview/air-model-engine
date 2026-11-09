@@ -1,8 +1,5 @@
 name: AIR Backend Tests
 on:
-  pull_request:
-  push:
-    branches: [main, feat/air-telegram-alerts]
   workflow_dispatch:
 permissions:
   contents: read
