@@ -1,9 +1,6 @@
 name: AIR Android Lab APK
 on:
   workflow_dispatch:
-  pull_request:
-  push:
-    branches: [main, feat/air-telegram-alerts]
 permissions:
   contents: read
 jobs:
