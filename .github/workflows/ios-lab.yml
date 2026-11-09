@@ -2,15 +2,6 @@ name: AIR iOS Lab Unsigned IPA
 
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - 'mobile/**'
-      - '.github/workflows/ios-lab.yml'
-  push:
-    branches: [main, feat/air-telegram-alerts]
-    paths:
-      - 'mobile/**'
-      - '.github/workflows/ios-lab.yml'
 
 permissions:
   contents: read
