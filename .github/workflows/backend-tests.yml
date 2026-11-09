@@ -9,7 +9,7 @@ permissions:
 jobs:
   backend-tests:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ${{ fromJSON(vars.AIR_CI_RUNNER_LABELS || '["self-hosted","windows","x64","air"]') }}
+    runs-on: ${{ fromJSON(vars.AIR_CI_RUNNER_LABELS || '["self-hosted","Windows","X64","air-ci"]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
