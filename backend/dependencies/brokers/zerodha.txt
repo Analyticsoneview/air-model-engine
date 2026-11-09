@@ -1,0 +1,2 @@
+# Zerodha Kite Connect SDK. Updates are proposed by the scheduled PyPI monitor.
+kiteconnect==5.0.1
