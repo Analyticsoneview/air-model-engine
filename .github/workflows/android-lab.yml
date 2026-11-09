@@ -12,12 +12,20 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - name: Expose installed Git Bash to runner service
+      - name: Expose Git Bash and jq to runner service
         shell: cmd
         run: |
+          set "CI_TOOLS=%RUNNER_TEMP%\air-ci-tools"
+          if not exist "%CI_TOOLS%\jq.exe" (
+            if not exist "%CI_TOOLS%" mkdir "%CI_TOOLS%"
+            curl.exe -fL --retry 3 --retry-delay 2 -o "%CI_TOOLS%\jq.exe" "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-windows-amd64.exe"
+            if errorlevel 1 exit /b 1
+          )
           if not exist "C:\Program Files\Git\bin\bash.exe" exit /b 1
+          echo %CI_TOOLS%>>"%GITHUB_PATH%"
           echo C:\Program Files\Git\bin>>"%GITHUB_PATH%"
           echo C:\Program Files\Git\usr\bin>>"%GITHUB_PATH%"
+          "%CI_TOOLS%\jq.exe" --version
       - name: Set up current stable Flutter and Dart
         uses: subosito/flutter-action@v2
         with:
@@ -25,7 +33,7 @@ jobs:
           cache: true
       - name: Verify build tools
         shell: cmd
-        run: flutter --version && java -version && adb version && where bash
+        run: flutter --version && java -version && adb version && where bash && where jq
       - name: Generate Android platform only when missing
         working-directory: mobile
         shell: cmd
