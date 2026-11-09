@@ -787,12 +787,4 @@ class _BhavcopyRowCard extends StatelessWidget {
   }
 }
 
-class _Metric extends StatelessWidget {
-  const _Metric({required this.label, required this.value});
-  final String label, value;
-  @override
-  Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
-    Text('$label ', style: TextStyle(fontSize: 8, color: Theme.of(context).colorScheme.onSurfaceVariant)),
-    Text(value, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800)),
-  ]);
-}
+
