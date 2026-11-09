@@ -79,8 +79,15 @@ jobs:
             New-Item -ItemType Directory -Force -Path $target | Out-Null
             & $env:AIR_PYTHON -m pip install --disable-pip-version-check --upgrade --target $target -r backend/dependencies/base.txt -r $broker.File
             if ($LASTEXITCODE -ne 0) { throw "$($broker.Name) SDK dependency resolution failed." }
+            # Upstox currently pulls an obsolete PyPI uuid package. uuid is in
+            # Python's standard library; remove the Python-2-only shadow locally.
+            if ($broker.Name -eq 'Upstox') {
+              $env:AIR_BROKER_TARGET = $target
+              & $env:AIR_PYTHON -c "import os,pathlib,shutil; p=pathlib.Path(os.environ['AIR_BROKER_TARGET']); (p/'uuid.py').unlink(missing_ok=True); [shutil.rmtree(x, ignore_errors=True) for x in p.glob('uuid-*.dist-info')]"
+              if ($LASTEXITCODE -ne 0) { throw 'Could not remove obsolete Upstox uuid shadow package.' }
+            }
             $env:AIR_BROKER_TARGET = $target
-            & $env:AIR_PYTHON -c "import os,sys,importlib; sys.path.insert(0, os.environ['AIR_BROKER_TARGET']); importlib.import_module('$($broker.Module)'); print('$($broker.Name) SDK import passed')"
+            & $env:AIR_PYTHON -c "import os,sys,importlib; sys.path.insert(0, os.environ['AIR_BROKER_TARGET']); import uuid; print('uuid module:', uuid.__file__); importlib.import_module('$($broker.Module)'); print('$($broker.Name) SDK import passed')"
             if ($LASTEXITCODE -ne 0) { throw "$($broker.Name) SDK import validation failed." }
             Remove-Item Env:AIR_BROKER_TARGET -ErrorAction SilentlyContinue
           }
@@ -129,12 +136,19 @@ jobs:
       - name: Install and verify required Android NDK
         run: |
           $sdk = 'C:\Android\Sdk'
-          $androidCli = Join-Path $sdk 'cmdline-tools\latest\bin\android.bat'
-          if (-not (Test-Path -LiteralPath $androidCli)) { throw "Android CLI not found: $androidCli" }
+          $sdkManager = Join-Path $sdk 'cmdline-tools\latest\bin\sdkmanager.bat'
+          if (-not (Test-Path -LiteralPath $sdkManager)) {
+            $candidates = @(Get-ChildItem -LiteralPath (Join-Path $sdk 'cmdline-tools') -Filter 'sdkmanager.bat' -File -Recurse -ErrorAction SilentlyContinue)
+            if ($candidates.Count -eq 0) { throw "Android sdkmanager.bat was not found under $sdk\cmdline-tools." }
+            $sdkManager = $candidates[0].FullName
+          }
           $ndk = Join-Path $sdk 'ndk\28.2.13676358'
           if (-not (Test-Path -LiteralPath (Join-Path $ndk 'source.properties'))) {
-            & $androidCli --sdk=$sdk sdk install 'ndk@28.2.13676358'
-            if ($LASTEXITCODE -ne 0) { throw 'Android CLI could not install NDK 28.2.13676358.' }
+            & $sdkManager "--sdk_root=$sdk" --install 'ndk;28.2.13676358'
+            if ($LASTEXITCODE -ne 0) {
+              & $sdkManager "--sdk_root=$sdk" --list
+              throw 'Android sdkmanager could not install NDK 28.2.13676358; see package list above.'
+            }
           }
           if (-not (Test-Path -LiteralPath (Join-Path $ndk 'source.properties'))) { throw 'Required Android NDK was not installed.' }
       - name: Generate Android platform when missing
