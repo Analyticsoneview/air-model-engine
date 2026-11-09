@@ -61,9 +61,31 @@ jobs:
           & $env:AIR_PYTHON -m pip install --disable-pip-version-check --upgrade pip setuptools wheel
           if ($LASTEXITCODE -ne 0) { throw 'Python packaging toolchain installation failed.' }
           & $env:AIR_PYTHON -m pip install --disable-pip-version-check -r backend/requirements.txt
-          if ($LASTEXITCODE -ne 0) { throw 'Backend and broker dependency installation failed.' }
+          if ($LASTEXITCODE -ne 0) { throw 'AIR core dependency installation failed.' }
           & $env:AIR_PYTHON -m pip check
-          if ($LASTEXITCODE -ne 0) { throw 'Backend/broker dependency consistency check failed.' }
+          if ($LASTEXITCODE -ne 0) { throw 'AIR core dependency consistency check failed.' }
+      - name: Validate each broker SDK in an isolated dependency environment
+        working-directory: .
+        run: |
+          $brokers = @(
+            @{ Name='Zerodha'; File='backend/dependencies/brokers/zerodha.txt'; Module='kiteconnect' },
+            @{ Name='Upstox'; File='backend/dependencies/brokers/upstox.txt'; Module='upstox_client' },
+            @{ Name='FYERS'; File='backend/dependencies/brokers/fyers.txt'; Module='fyers_apiv3' },
+            @{ Name='Angel One'; File='backend/dependencies/brokers/angel-one.txt'; Module='SmartApi' }
+          )
+          foreach ($broker in $brokers) {
+            $target = Join-Path $env:RUNNER_TEMP ('AIR-broker-' + ($broker.Name -replace '[^A-Za-z0-9]',''))
+            if (Test-Path $target) { Remove-Item $target -Recurse -Force }
+            New-Item -ItemType Directory -Force -Path $target | Out-Null
+            & $env:AIR_PYTHON -m pip install --disable-pip-version-check --upgrade --target $target -r backend/dependencies/base.txt -r $broker.File
+            if ($LASTEXITCODE -ne 0) { throw "$($broker.Name) SDK dependency resolution failed." }
+            $env:PYTHONPATH = $target
+            & $env:AIR_PYTHON -c "import importlib; importlib.import_module('$($broker.Module)'); print('$($broker.Name) SDK import passed')"
+            if ($LASTEXITCODE -ne 0) { throw "$($broker.Name) SDK import validation failed." }
+            & $env:AIR_PYTHON -m pip check
+            if ($LASTEXITCODE -ne 0) { throw "$($broker.Name) SDK dependency consistency check failed." }
+            Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+          }
       - name: Run backend tests
         working-directory: .
         run: |
@@ -106,6 +128,17 @@ jobs:
           "ANDROID_HOME=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "ANDROID_SDK_ROOT=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "PATH=C:\AIR\tools\flutter\bin;$sdk\platform-tools;$sdk\cmdline-tools\latest\bin;$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Install and verify required Android NDK
+        run: |
+          $sdk = 'C:\Android\Sdk'
+          $sdkManager = Join-Path $sdk 'cmdline-tools\latest\bin\sdkmanager.bat'
+          if (-not (Test-Path -LiteralPath $sdkManager)) { throw "Android sdkmanager not found: $sdkManager" }
+          $ndk = Join-Path $sdk 'ndk\28.2.13676358'
+          if (-not (Test-Path -LiteralPath (Join-Path $ndk 'source.properties'))) {
+            & $sdkManager "--sdk_root=$sdk" --install "ndk;28.2.13676358"
+            if ($LASTEXITCODE -ne 0) { throw 'Android NDK 28.2.13676358 installation failed.' }
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $ndk 'source.properties'))) { throw 'Required Android NDK was not installed.' }
       - name: Generate Android platform when missing
         working-directory: mobile
         run: |
