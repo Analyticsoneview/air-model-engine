@@ -11,24 +11,36 @@ jobs:
         shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "& '{0}'"
     steps:
       - uses: actions/checkout@v4
-      - name: Verify and repair machine-wide Python 3.12 runtime
+      - name: Verify Python 3.12 (runner-local, no admin rights)
         run: |
+          Remove-Item Env:PYTHONHOME -ErrorAction SilentlyContinue
+          Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
           $pythonHome = 'C:\AIR\tools\Python312'
           $python = Join-Path $pythonHome 'python.exe'
-          $encodings = Join-Path $pythonHome 'Lib\encodings\__init__.py'
-          if (-not (Test-Path -LiteralPath $encodings)) {
-            $installer = 'C:\AIR\python-3.12.10-amd64.exe'
-            New-Item -ItemType Directory -Force -Path 'C:\AIR' | Out-Null
+          $existingValid = $false
+          if (Test-Path -LiteralPath $python) {
+            & $python -c "import encodings,sys; print(sys.version); print(sys.executable)"
+            $stdlibExit = $LASTEXITCODE
+            & $python -m pip --version
+            $pipExit = $LASTEXITCODE
+            $existingValid = ($stdlibExit -eq 0 -and $pipExit -eq 0)
+          }
+          if (-not $existingValid) {
+            if ([string]::IsNullOrWhiteSpace($env:RUNNER_TEMP)) { throw 'RUNNER_TEMP is unavailable; cannot create a runner-local Python runtime.' }
+            $pythonHome = Join-Path $env:RUNNER_TEMP 'AIR-Python312'
+            $python = Join-Path $pythonHome 'python.exe'
+            $installer = Join-Path $env:RUNNER_TEMP 'python-3.12.10-amd64.exe'
+            $installLog = Join-Path $env:RUNNER_TEMP 'python-3.12.10-install.log'
+            New-Item -ItemType Directory -Force -Path $env:RUNNER_TEMP | Out-Null
             if (-not (Test-Path -LiteralPath $installer) -or (Get-Item $installer).Length -lt 10MB) {
               & curl.exe --fail --location --show-error --retry 4 --retry-all-errors --connect-timeout 30 --max-time 900 --output $installer 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe'
               if ($LASTEXITCODE -ne 0 -or -not (Test-Path $installer) -or (Get-Item $installer).Length -lt 10MB) { throw 'Official Python 3.12 installer download failed.' }
             }
-            $proc = Start-Process -FilePath $installer -ArgumentList @('/quiet','InstallAllUsers=1',('TargetDir=' + $pythonHome),'Include_pip=1','Include_launcher=0','Include_test=0','PrependPath=0','Shortcuts=0') -Wait -PassThru
-            if ($proc.ExitCode -notin @(0,3010)) { throw "Python 3.12 repair/install failed: $($proc.ExitCode)" }
+            $proc = Start-Process -FilePath $installer -ArgumentList @('/quiet','InstallAllUsers=0',('TargetDir=' + $pythonHome),'Include_pip=1','Include_launcher=0','Include_test=0','PrependPath=0','Shortcuts=0','/log',$installLog) -Wait -PassThru
+            if ($proc.ExitCode -notin @(0,3010)) { throw "Runner-local Python 3.12 install failed: $($proc.ExitCode). Installer log: $installLog" }
           }
+          $encodings = Join-Path $pythonHome 'Lib\encodings\__init__.py'
           if (-not (Test-Path -LiteralPath $encodings)) { throw "Python standard library is incomplete: $encodings is missing." }
-          Remove-Item Env:PYTHONHOME -ErrorAction SilentlyContinue
-          Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
           & $python -c "import encodings,sys; print(sys.version); print(sys.executable); print(encodings.__file__)"
           if ($LASTEXITCODE -ne 0) { throw 'Python standard-library import validation failed.' }
           & $python -m pip --version
