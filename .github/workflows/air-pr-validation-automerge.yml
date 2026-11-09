@@ -20,15 +20,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Verify Python
-        shell: powershell
+        shell: cmd
         run: python --version
       - name: Install dependencies
         working-directory: backend
-        shell: powershell
+        shell: cmd
         run: python -m pip install -r requirements.txt
       - name: Run backend tests
         working-directory: backend
-        shell: powershell
+        shell: cmd
         run: python -m unittest discover -s tests -v
 
   android:
@@ -38,7 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Verify Android build tools
-        shell: powershell
+        shell: cmd
         run: |
           python --version
           java -version
@@ -46,23 +46,23 @@ jobs:
           adb version
       - name: Generate Android platform
         working-directory: mobile
-        shell: powershell
+        shell: cmd
         run: flutter create . --platforms=android --org com.analyticalstocks
       - name: Resolve packages
         working-directory: mobile
-        shell: powershell
+        shell: cmd
         run: flutter pub get
       - name: Analyze Flutter app
         working-directory: mobile
-        shell: powershell
+        shell: cmd
         run: flutter analyze lib
       - name: Run Flutter tests
         working-directory: mobile
-        shell: powershell
+        shell: cmd
         run: flutter test
       - name: Build ARM64 lab APK
         working-directory: mobile
-        shell: powershell
+        shell: cmd
         run: flutter build apk --release --target-platform android-arm64 --dart-define=APP_ENV=lab --dart-define=AIR_API_BASE_URL="${{ vars.AIR_API_BASE_URL }}"
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -128,12 +128,12 @@ jobs:
     runs-on: [self-hosted, Windows, X64, air-ci]
     steps:
       - name: Merge validated pull request
-        shell: powershell
+        shell: cmd
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: gh pr merge "$env:PR_NUMBER" --squash
+        run: gh pr merge %PR_NUMBER% --squash
 
   retarget-stacked-ui-pr:
     name: Retarget dependent UI PR after PR 7 merges
@@ -141,7 +141,7 @@ jobs:
     runs-on: [self-hosted, Windows, X64, air-ci]
     steps:
       - name: Move PR 8 onto main
-        shell: powershell
+        shell: cmd
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
