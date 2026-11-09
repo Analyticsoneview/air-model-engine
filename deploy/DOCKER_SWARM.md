@@ -25,10 +25,23 @@ python3 -c "import secrets; print(secrets.token_urlsafe(48))" | docker secret cr
 
 Back up the Fernet key securely. Losing it makes encrypted broker credentials unrecoverable. The API reads all three secrets from Docker's `*_FILE` paths. Keep the admin key private; it is used to review customer requests and run operator-only backend actions.
 
-## 3. Bootstrap the first operator (before deployment)\n\nOn the server, from the checked-out repository, create the first operator in the same persistent auth database path the API will use. For the initial bootstrap, run the script with the data directory mounted at the same host path used by the API volume, or run it inside a one-off container sharing that volume:\n\n```bash\ncd backend\nAIR_AUTH_DB_PATH=/var/lib/air/auth.sqlite3 python scripts/bootstrap_operator.py\n```\n\nThe script prompts for email and password without echoing the password and prints the new customer UUID. Set that UUID as `AIR_OPERATOR_CUSTOMER_IDS` in the API service environment. Do not enable public signup. The bootstrap script must run against the exact auth database that the API will mount; creating a user in a different local file will not provision the deployed service.\n\n## 4. Set deployment variables
+## 3. Bootstrap the first operator
+
+The mobile number is the stable operator identity. Run the helper after creating /etc/air/air.env:
 
 ```bash
-export AIR_OPERATOR_CUSTOMER_IDS="<provisioned-customer-uuid>"
+cd /opt/air-model-engine
+sudo python3 backend/scripts/bootstrap_operator.py
+```
+
+The helper records the operator's E.164 mobile number in AIR_OPERATOR_CUSTOMER_IDS. The operator must submit an access request from the AIR app. Approve the first device with the root-only admin key using deploy/air-admin-cli.sh. After the operator device is approved, use the in-app Admin tab to manage later customer requests.
+
+Mobile numbers are identifiers only. This no-OTP design does not prove phone ownership; approval must be based on a separate trusted process. Do not enable public signup.
+
+## 4. Set deployment variables
+
+```bash
+export AIR_OPERATOR_CUSTOMER_IDS="<operator-mobile-e164>"
 export AIR_API_PORT=8000
 export AIR_BACKEND_IMAGE=air-model-engine-api:lab
 export AIR_PWA_IMAGE=air-model-engine-pwa:lab
@@ -56,7 +69,7 @@ docker service logs -f air_air-api
 docker service logs -f air_air-pwa
 ```
 
-The PWA listens on port 8080 inside the overlay as `air-pwa`; the API listens on port 8000 as `air-api`. Configure your existing TLS reverse proxy to route the app hostname to `air-pwa:8080` and API hostname to `air-api:8000`. Do not expose the PWA container directly to the public internet without TLS. The API's published port is for lab connectivity; firewall it or remove the `ports` block when only the reverse proxy should access it.
+The PWA listens on port 8080 inside the overlay as `air-pwa`; the API listens on port 8000 as `air-api`. Configure your existing TLS reverse proxy to route the app hostname to `air-pwa:8080` and API hostname to `air-api:8000`. Do not expose the PWA container directly to the public internet without TLS. The API is not published on the host; only the Caddy HTTPS ingress exposes ports 80 and 443.
 
 ## 6. AIR QOC data capture
 
@@ -111,3 +124,55 @@ curl -X PUT -H "X-AIR-ADMIN-KEY: $AIR_ADMIN_API_KEY" \
 Set `status` to `REJECTED` or `BLOCKED` to deny access. Blocking or rejecting invalidates existing device sessions immediately. The mobile app securely stores its approved session and restores it on subsequent launches. Each new device requires its own approval.
 
 The mobile number is an identifier, not proof of ownership. Since customer identity verification is intentionally omitted, the administrator must make the access decision using the request details and any separate business process.
+
+
+## GitHub Actions deployment
+
+For automated image builds and gated SSH deployment from GitHub Actions, follow [GITHUB_DEPLOYMENT.md](./GITHUB_DEPLOYMENT.md). Production deployment is manual and restricted to workflow dispatch from `main`.
+
+
+## 10. Account-wise P&L email reports
+
+AIR supports multiple assigned accounts for the same broker. Each account is fetched
+and reported independently; reports are never merged across account IDs. The Model
+Engine P&L Calendar includes **Broker Account P&L Email Reports**:
+
+1. Enter a destination email and request a verification code.
+2. Confirm the six-digit code sent to that mailbox.
+3. AIR then schedules a separate daily report for each assigned broker account at
+   **16:00 Asia/Kolkata (weekdays)**. The report includes a PDF summary and a CSV
+   containing broker-returned position, order and holding records.
+4. Use **Generate & Email Account Reports Now** for an on-demand run. Delivery and
+   per-account failures appear in report history.
+
+The P&L summary uses fields returned by the broker's positions endpoint. If a broker
+does not return a particular P&L field, AIR labels it unavailable; it does not
+substitute the strategy-ledger estimate or fabricate a zero. A disconnected account,
+missing credentials, failed broker request or empty statement is recorded as FAILED
+for that account and does not prevent other accounts from being reported. A manual
+run can retry a failed account.
+
+Configure the SMTP host, port, username and From address as deployment environment
+variables. Store the SMTP password in a Docker secret and create it before stack
+deployment:
+
+```bash
+printf '%s' '<SMTP password or app password>' | docker secret create air_smtp_password -
+```
+
+Set these deployment variables in the protected server environment (do not commit
+them to source control):
+
+```bash
+AIR_SMTP_HOST=smtp.your-provider.example
+AIR_SMTP_PORT=587
+AIR_SMTP_USERNAME=reports@your-domain.example
+AIR_REPORT_FROM_EMAIL=reports@your-domain.example
+```
+
+The stack mounts the secret at `/run/secrets/air_smtp_password`. The API requires
+SMTP configuration to send verification codes and reports. Without it, email setup
+and delivery return an explicit failure; no report is marked sent. Email verification
+codes expire after ten minutes and only their hash is stored. The recipient is
+customer-scoped and must be verified before report delivery.
+

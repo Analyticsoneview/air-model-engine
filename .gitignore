@@ -1,0 +1,12 @@
+# AIR local runtime secrets and generated configuration
+.air-secrets/
+.air-local.env
+.env
+.env.*
+!.env.example
+# Local build and runtime artifacts
+data/
+build/
+.dart_tool/
+__pycache__/
+*.py[cod]

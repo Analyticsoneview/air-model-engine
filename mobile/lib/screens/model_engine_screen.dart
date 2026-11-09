@@ -10,7 +10,7 @@ class ModelEngineScreen extends StatefulWidget {
 
 class _ModelEngineScreenState extends State<ModelEngineScreen> {
   final AirApiClient _api = AirApiClient();
-  static const _sections = ['P&L CALENDAR', 'OPEN', 'NEW', 'HOLD', 'REENTRY', 'SURVIVOR', 'WAIT', 'SLHIT', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN', 'PHYSICAL SETTLEMENT', 'COMBINED', 'EXPIRY78', 'RECOVERED', 'RECOVERY'];
+  static const _sections = ['P&L CALENDAR', 'OPEN', 'NEW', 'HOLD', 'REENTRY', 'SURVIVOR', 'WAIT', 'SLHIT', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN', 'SETTLEMENT UP / DOWN', 'PHYSICAL SETTLEMENT', 'COMBINED', 'EXPIRY78', 'RECOVERED', 'RECOVERY'];
   static const _strategyTabs = ['EXPIRY78', 'RECOVERED', 'RECOVERY'];
 
   String _strategyKey(String section) => section == 'RECOVERED' ? 'ORIGINAL366' : section;
@@ -22,7 +22,11 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   List<Map<String, dynamic>> _expiryRows = [];
   List<Map<String, dynamic>> _settlementRows = [];
   Map<String, dynamic> _settlementSummary = {};
+  Map<String, dynamic> _dailySettlementComparison = {};
+  String _settlementAsset = 'OPTIONS';
+  String _settlementDirection = 'ALL';
   String? _settlementNote;
+  String? _dailySettlementNote;
   List<Map<String, dynamic>> _expiryAlerts = [];
   String? _expiryNote;
   int _selected = 0;
@@ -31,9 +35,16 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   String? _error, _updatedAt;
   String _strategyStatus = 'OPEN';
   String _dataStatus = 'SIGN IN TO LOAD YOUR MODEL ENGINE LEDGER';
+  Map<String, dynamic> _marketDataSource = {};
   Map<String, dynamic> _pnlCalendar = {};
   DateTime _calendarMonth = DateTime(DateTime.now().year, DateTime.now().month);
   bool _calendarLoading = false;
+  final TextEditingController _reportEmailController = TextEditingController();
+  final TextEditingController _reportCodeController = TextEditingController();
+  Map<String, dynamic> _reportRecipient = {};
+  List<Map<String, dynamic>> _reportHistory = [];
+  String? _reportMessage;
+  bool _reportBusy = false;
 
   @override
   void initState() {
@@ -41,6 +52,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     _authenticated = _api.isAuthenticated;
     if (_authenticated) {
       _refresh();
+      _loadAccountReports();
       _autoRefreshTimer = Timer.periodic(const Duration(minutes: 5), (_) {
         if (mounted && !_loading) _refresh();
       });
@@ -48,7 +60,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   }
 
   @override
-  void dispose() { _autoRefreshTimer?.cancel(); _api.dispose(); super.dispose(); }
+  void dispose() { _autoRefreshTimer?.cancel(); _reportEmailController.dispose(); _reportCodeController.dispose(); _api.dispose(); super.dispose(); }
 
   Future<void> _refresh() async {
     if (!_api.isAuthenticated) return;
@@ -57,11 +69,14 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       final result = await _api.modelEngineMaster();
       Map<String, dynamic>? expiryResult;
       Map<String, dynamic>? settlementResult;
+      Map<String, dynamic>? dailySettlementResult;
       Map<String, dynamic>? pnlResult;
       try { expiryResult = await _api.expiryScan(); }
       catch (e) { _expiryNote = 'EXPIRYSCAN unavailable: $e'; }
       try { settlementResult = await _api.physicalSettlement(); }
       catch (e) { _settlementNote = 'Physical settlement review unavailable: $e'; }
+      try { dailySettlementResult = await _api.settlementComparison(); _dailySettlementNote = dailySettlementResult['note']?.toString(); }
+      catch (e) { _dailySettlementNote = 'Settlement UP / DOWN unavailable: $e'; }
       try { pnlResult = await _api.modelEnginePnlCalendar(year: _calendarMonth.year, month: _calendarMonth.month); }
       catch (e) { _error = 'P&L calendar unavailable: $e'; }
       if (!mounted) return;
@@ -77,7 +92,15 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
           _expiryAlerts = (expiryResult['close_alerts'] as List<dynamic>? ?? const [])
               .whereType<Map<String, dynamic>>().toList();
           _expiryNote = expiryResult['note']?.toString();
+        } else {
+          // Standard NSE-only customers still receive the shared published
+          // EXPIRYSCAN results; only a fresh live bid/ask scan needs a broker feed.
+          _expiryRows = ((result['groups'] as Map<String, dynamic>?)?['EXPIRYSCAN']
+                  as List<dynamic>? ?? const [])
+              .whereType<Map<String, dynamic>>().toList();
+          _expiryNote = 'Showing published NSE EOD EXPIRYSCAN results. Fresh live bid/ask capture requires a connected broker.';
         }
+        if (dailySettlementResult != null) _dailySettlementComparison = dailySettlementResult;
         if (settlementResult != null) {
           _settlementRows = (settlementResult['rows'] as List<dynamic>? ?? const [])
               .whereType<Map<String, dynamic>>().toList();
@@ -89,9 +112,103 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
         _breakdowns = result['breakdowns'] as Map<String, dynamic>? ?? {};
         _updatedAt = result['updated_at']?.toString();
         _dataStatus = result['data_status']?.toString() ?? 'UNKNOWN';
+        _marketDataSource = result['market_data_source'] as Map<String, dynamic>? ?? {};
       });
     } catch (e) { if (mounted) setState(() => _error = e.toString()); }
     finally { if (mounted) setState(() => _loading = false); }
+  }
+
+  Future<void> _loadAccountReports() async {
+    try {
+      final recipient = await _api.reportEmail();
+      final history = await _api.accountReportHistory();
+      if (!mounted) return;
+      setState(() {
+        _reportRecipient = recipient['recipient'] as Map<String, dynamic>? ?? {};
+        _reportHistory = (history['reports'] as List<dynamic>? ?? const [])
+            .whereType<Map<String, dynamic>>().toList();
+        if (_reportRecipient['email'] != null) {
+          _reportEmailController.text = _reportRecipient['email'].toString();
+        }
+      });
+    } catch (e) { if (mounted) setState(() => _reportMessage = e.toString()); }
+  }
+
+  Future<void> _requestReportCode() async {
+    setState(() { _reportBusy = true; _reportMessage = null; });
+    try {
+      final result = await _api.requestReportEmailVerification(_reportEmailController.text);
+      setState(() => _reportMessage = 'Verification code sent to ${result['email']}. Check your inbox.');
+    } catch (e) { setState(() => _reportMessage = e.toString()); }
+    finally { if (mounted) setState(() => _reportBusy = false); }
+  }
+
+  Future<void> _confirmReportCode() async {
+    setState(() { _reportBusy = true; _reportMessage = null; });
+    try {
+      await _api.confirmReportEmailVerification(_reportCodeController.text);
+      await _loadAccountReports();
+      setState(() => _reportMessage = 'Report email verified. Daily account reports are enabled.');
+    } catch (e) { setState(() => _reportMessage = e.toString()); }
+    finally { if (mounted) setState(() => _reportBusy = false); }
+  }
+
+  Future<void> _runAccountReports() async {
+    setState(() { _reportBusy = true; _reportMessage = null; });
+    try {
+      final result = await _api.runAccountReports();
+      final reports = (result['reports'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>();
+      setState(() {
+        _reportMessage = reports.map((r) => '${r['broker']}/${r['account_id']}: ${r['status']}').join(' • ');
+      });
+      await _loadAccountReports();
+    } catch (e) { setState(() => _reportMessage = e.toString()); }
+    finally { if (mounted) setState(() => _reportBusy = false); }
+  }
+
+  Widget _accountReportsView() {
+    final verified = _reportRecipient['verified'] == true;
+    final emailMatches = _reportEmailController.text.trim().toLowerCase() ==
+        (_reportRecipient['email']?.toString().toLowerCase() ?? '');
+    final needsVerification = !verified || !emailMatches;
+    return Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('BROKER ACCOUNT P&L EMAIL REPORTS', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
+        const SizedBox(height: 5),
+        const Text('Daily at 4:00 PM IST • separate email per broker account • PDF + CSV • broker-reported values only',
+          style: TextStyle(fontSize: 10)),
+        const SizedBox(height: 8),
+        TextField(controller: _reportEmailController, keyboardType: TextInputType.emailAddress,
+          onChanged: (_) => setState(() {}),
+          decoration: const InputDecoration(labelText: 'Report email address', border: OutlineInputBorder(), isDense: true)),
+        const SizedBox(height: 7),
+        if (needsVerification) ...[
+          SizedBox(width: double.infinity, child: OutlinedButton(
+            onPressed: _reportBusy ? null : _requestReportCode,
+            child: const Text('SEND VERIFICATION CODE'))),
+          TextField(controller: _reportCodeController, keyboardType: TextInputType.number,
+            maxLength: 6, decoration: const InputDecoration(labelText: '6-digit email code', border: OutlineInputBorder(), isDense: true)),
+          SizedBox(width: double.infinity, child: ElevatedButton(
+            onPressed: _reportBusy ? null : _confirmReportCode,
+            child: const Text('VERIFY EMAIL'))),
+        ] else ...[
+          Text('VERIFIED: ${_reportRecipient['email']}', style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w800, fontSize: 10)),
+          SizedBox(width: double.infinity, child: ElevatedButton(
+            onPressed: _reportBusy ? null : _runAccountReports,
+            child: const Text('GENERATE & EMAIL ACCOUNT REPORTS NOW'))),
+        ],
+        if (_reportBusy) const LinearProgressIndicator(),
+        if (_reportMessage != null) Padding(padding: const EdgeInsets.only(top: 6),
+          child: Text(_reportMessage!, style: const TextStyle(fontSize: 10))),
+        const Divider(),
+        const Text('RECENT DELIVERY HISTORY', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 10)),
+        if (_reportHistory.isEmpty) const Text('No account report attempts yet.', style: TextStyle(fontSize: 10)),
+        ..._reportHistory.take(8).map((r) => Padding(padding: const EdgeInsets.symmetric(vertical: 3),
+          child: Text('${r['report_date']} • ${r['broker']} / ${r['account_id']} • ${r['status']}${r['detail'] == null ? '' : ' • ${r['detail']}'}',
+            style: const TextStyle(fontSize: 9)))),
+      ],
+    )));
   }
 
   String _v(Map<String, dynamic> row, String key) => row[key] == null ? '—' : row[key].toString();
@@ -108,9 +225,108 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       return (data['count'] ?? 0).toString();
     }
     if (section == 'EXPIRYSCAN') return _expiryRows.length.toString();
+    if (section == 'SETTLEMENT UP / DOWN') {
+      final options = _dailySettlementComparison['options'] as Map<String, dynamic>?;
+      final stocks = _dailySettlementComparison['stocks'] as Map<String, dynamic>?;
+      final optionCount = (options?['rows'] as List<dynamic>?)?.length ?? 0;
+      final stockCount = (stocks?['rows'] as List<dynamic>?)?.length ?? 0;
+      return (optionCount + stockCount).toString();
+    }
     if (section == 'PHYSICAL SETTLEMENT') return _settlementRows.length.toString();
     return (_counts[section] ?? 0).toString();
   }
+
+  Widget _settlementComparisonView() {
+    final options = _dailySettlementComparison['options'] is Map
+        ? _dailySettlementComparison['options'] as Map<String, dynamic> : <String, dynamic>{};
+    final stocks = _dailySettlementComparison['stocks'] is Map
+        ? _dailySettlementComparison['stocks'] as Map<String, dynamic> : <String, dynamic>{};
+    final optionRows = (options['rows'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>().toList();
+    final stockRows = (stocks['rows'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>().toList();
+    final allRows = _settlementAsset == 'OPTIONS' ? optionRows : stockRows;
+    final rows = allRows.where((r) {
+      final direction = _settlementAsset == 'OPTIONS'
+          ? (r['broker_close_direction'] ?? '').toString()
+          : (r['settlement_direction'] ?? '').toString();
+      if (_settlementDirection == 'UP') {
+        return _settlementAsset == 'OPTIONS'
+            ? direction == 'OPTION CLOSE UP' : direction == 'UP';
+      }
+      if (_settlementDirection == 'DOWN') {
+        return _settlementAsset == 'OPTIONS'
+            ? direction == 'OPTION CLOSE DOWN' : direction == 'DOWN';
+      }
+      return true;
+    }).toList();
+    final tradeDate = _dailySettlementComparison['trade_date']?.toString() ?? '—';
+    final optionColumns = const [
+      'symbol','option_type','strike','expiry','broker_close','nse_settlement',
+      'broker_variance','broker_variance_pct','broker_close_direction','action',
+      'previous_nse_settlement','settlement_change','settlement_direction',
+      'volume','open_interest','oi_change','liquidity_status'
+    ];
+    final stockColumns = const [
+      'symbol','broker_close','nse_settlement','nse_settlement_basis','broker_variance','broker_variance_pct',
+      'previous_nse_settlement','settlement_change','settlement_direction','volume',
+      'open_interest','oi_change'
+    ];
+    final columns = _settlementAsset == 'OPTIONS' ? optionColumns : stockColumns;
+    String display(String key, dynamic value) {
+      if (value == null) return '—';
+      if (key == 'broker_variance_pct' && value is num) return '${value.toStringAsFixed(2)}%';
+      if (key.contains('variance') || key.contains('settlement') ||
+          key == 'broker_close' || key == 'nse_settlement' ||
+          key == 'previous_nse_settlement') {
+        if (value is num) return '₹${value.toStringAsFixed(2)}';
+      }
+      return value.toString();
+    }
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('NSE SETTLEMENT VS BROKER DAILY CLOSE', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
+          Text('NSE EOD session: $tradeDate • watch-only • no orders are placed',
+            style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+          const SizedBox(height: 8),
+          Wrap(spacing: 7, runSpacing: 7, children: [
+            _settlementMetric('STOCKS • SETTLEMENT UP', stocks['up'] ?? 0),
+            _settlementMetric('STOCKS • SETTLEMENT DOWN', stocks['down'] ?? 0),
+            _settlementMetric('OPTIONS • SELL WATCH', options['sell_watch'] ?? 0),
+            _settlementMetric('OPTIONS • BUY WATCH', options['buy_watch'] ?? 0),
+          ]),
+          const SizedBox(height: 8),
+          Text('OPTION RULE: Broker close − NSE settlement > 0 = OPTION CLOSE UP / SELL WATCH; < 0 = OPTION CLOSE DOWN / BUY WATCH.',
+            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Theme.of(context).colorScheme.primary)),
+          Text('Day-over-day NSE settlement movement is a separate field. Broker close is populated only from the selected broker historical feed and exact instrument-master match.',
+            style: TextStyle(fontSize: 9, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+          Text((_dailySettlementNote ?? options['broker_close_note'] ?? stocks['broker_close_note'] ?? _dailySettlementComparison['note'] ?? 'Broker close unavailable').toString(),
+            style: TextStyle(fontSize: 9, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+          Text('Bid/ask is not part of NSE EOD bhavcopy. Volume/OI are context only and do not imply liquidity qualification.',
+            style: TextStyle(fontSize: 9, color: Theme.of(context).colorScheme.error)),
+        ],
+      ))),
+      Wrap(spacing: 7, children: ['OPTIONS','STOCKS'].map((v) => ChoiceChip(
+        label: Text(v), selected: _settlementAsset == v,
+        onSelected: (_) => setState(() { _settlementAsset = v; _settlementDirection = 'ALL'; }),
+      )).toList()),
+      Wrap(spacing: 7, children: ['ALL','UP','DOWN'].map((v) => ChoiceChip(
+        label: Text(v), selected: _settlementDirection == v,
+        onSelected: (_) => setState(() => _settlementDirection = v),
+      )).toList()),
+      if (rows.isEmpty) Card(child: Padding(padding: const EdgeInsets.all(14),
+        child: Text('No ${_settlementAsset.toLowerCase()} rows for this filter. Missing broker closes are never treated as zero and do not create a signal.',
+          style: const TextStyle(fontSize: 11))))
+      else Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal,
+        child: DataTable(columnSpacing: 12, headingRowHeight: 42,
+          dataRowMinHeight: 40, dataRowMaxHeight: 64,
+          columns: columns.map((key) => DataColumn(label: Text(key.replaceAll('_',' ').toUpperCase()))).toList(),
+          rows: rows.map((r) => DataRow(cells: columns.map((key) =>
+            DataCell(_cell(display(key, r[key])))).toList())).toList()))),
+    ]);
+  }
+
   Widget _settlementMetric(String label, dynamic value) => Container(
     padding: const EdgeInsets.all(9),
     decoration: BoxDecoration(
@@ -373,6 +589,12 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                   style: const TextStyle(fontSize: 11)),
                 Text('Exit ${trade['exit_date'] ?? 'OPEN'} @ ₹${trade['exit_price'] ?? '—'} • ${trade['classification'] ?? '—'}',
                   style: const TextStyle(fontSize: 11)),
+                if (trade['expiry_outcome'] != null)
+                  Text('EXPIRY RESULT • ${trade['expiry_outcome']}',
+                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900,
+                      color: trade['expiry_outcome'] == 'EXPIRED_WIN' ? Colors.green :
+                        trade['expiry_outcome'] == 'EXPIRED_LOSS' ? Colors.red :
+                        Theme.of(context).colorScheme.onSurfaceVariant)),
                 const Divider(),
                 Text('Gross ${_money(trade['gross_pnl'])}  |  Charges ${_money(charge['total'])}  |  Net ${_money(trade['net_pnl'])}',
                   style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
@@ -406,6 +628,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     final overall = summary['overall'] is Map ? summary['overall'] as Map : const {};
     final expiry = summary['EXPIRY78'] is Map ? summary['EXPIRY78'] as Map : const {};
     final recovered = summary['RECOVERED'] is Map ? summary['RECOVERED'] as Map : const {};
+    final recovery = summary['RECOVERY'] is Map ? summary['RECOVERY'] as Map : const {};
     final physical = summary['PHYSICAL_SETTLEMENT'] is Map ? summary['PHYSICAL_SETTLEMENT'] as Map : const {};
     final monthRows = (_pnlCalendar['months'] as List<dynamic>? ?? const []).whereType<Map<String, dynamic>>();
     final monthKey = '${_calendarMonth.year.toString().padLeft(4, '0')}-${_calendarMonth.month.toString().padLeft(2, '0')}';
@@ -432,6 +655,10 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
           if (net != null && net != 0) Text('N ${_money(net)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: (net as num) >= 0 ? Colors.green : Colors.red)),
           if (cap != null && cap != 0) Text('C ${_money(cap)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 8)),
           if ((row['physical_settlement_contracts'] ?? 0) != 0) Text('PS G ${_money(row['physical_settlement_gross_pnl'])}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 8)),
+          if ((row['expired_contract_count'] ?? 0) != 0)
+            Text('EXP ${row['expired_wins'] ?? 0}W/${row['expired_losses'] ?? 0}L',
+              maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 7, fontWeight: FontWeight.w800)),
           if ((row['trade_count'] ?? 0) != 0 || (row['entries_count'] ?? 0) != 0)
             Text('Trades ${row['trade_count'] ?? 0} • Entry ${row['entries_count'] ?? 0}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 7)),
         ]),
@@ -442,7 +669,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('AIR • P&L CALENDAR', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14)),
         const SizedBox(height: 5),
-        const Text('Realized P&L is assigned to exit date. Capital deployed is assigned to entry date. Tap any date for trade history and charge details.', style: TextStyle(fontSize: 10)),
+        const Text('Realized P&L is assigned to exit date. Capital deployed is assigned to entry date. Expired contracts remain in strategy trade history with win/loss/breakeven outcomes after their market-data rows are cleaned. Tap any date for trade history and charge details.', style: TextStyle(fontSize: 10)),
         const SizedBox(height: 10),
         Wrap(spacing: 8, runSpacing: 8, children: [
           _settlementMetric('CUMULATIVE CAPITAL DEPLOYED', _money(overall['capital_deployed'])),
@@ -450,8 +677,11 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
           _settlementMetric('GROSS REALIZED', _money(overall['gross_pnl'])),
           _settlementMetric('CHARGES', _money(overall['estimated_or_actual_charges'])),
           _settlementMetric('NET REALIZED', _money(overall['net_pnl'])),
+          _settlementMetric('EXPIRED CONTRACTS', overall['expired_contract_count'] ?? 0),
+          _settlementMetric('EXPIRY WINS / LOSSES',
+            '${overall['expired_wins'] ?? 0} / ${overall['expired_losses'] ?? 0}'),
         ]),
-        Text('Missing net values: ${overall['net_pending_count'] ?? 0} trades • Estimated charges: ${overall['charges_estimated_count'] ?? 0} • Actual charge records: ${overall['charges_actual_count'] ?? 0}',
+        Text('Expiry breakeven: ${overall['expired_breakeven'] ?? 0} • Expiry P&L pending: ${overall['expired_pnl_pending'] ?? 0} • Missing net values: ${overall['net_pending_count'] ?? 0} trades • Estimated charges: ${overall['charges_estimated_count'] ?? 0} • Actual charge records: ${overall['charges_actual_count'] ?? 0}',
           style: const TextStyle(fontSize: 9)),
       ]))),
       Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(children: [
@@ -475,12 +705,15 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
           _settlementMetric('GROSS', _money(month['gross_pnl'])),
           _settlementMetric('CHARGES', _money(month['estimated_or_actual_charges'])),
           _settlementMetric('NET', _money(month['net_pnl'])),
+          _settlementMetric('EXPIRED W / L',
+            '${month['expired_wins'] ?? 0} / ${month['expired_losses'] ?? 0}'),
         ]),
       ]))),
       Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('STRATEGY-WISE', style: TextStyle(fontWeight: FontWeight.w900)),
-        Text('EXPIRY78 • Capital ${_money(expiry['capital_deployed'])} • Gross ${_money(expiry['gross_pnl'])} • Charges ${_money(expiry['estimated_or_actual_charges'])} • Net ${_money(expiry['net_pnl'])}', style: const TextStyle(fontSize: 10)),
-        Text('RECOVERED • Capital ${_money(recovered['capital_deployed'])} • Gross ${_money(recovered['gross_pnl'])} • Charges ${_money(recovered['estimated_or_actual_charges'])} • Net ${_money(recovered['net_pnl'])}', style: const TextStyle(fontSize: 10)),
+        Text('EXPIRY78 • Capital ${_money(expiry['capital_deployed'])} • Gross ${_money(expiry['gross_pnl'])} • Charges ${_money(expiry['estimated_or_actual_charges'])} • Net ${_money(expiry['net_pnl'])} • Expiry W/L ${expiry['expired_wins'] ?? 0}/${expiry['expired_losses'] ?? 0}', style: const TextStyle(fontSize: 10)),
+        Text('RECOVERED • Capital ${_money(recovered['capital_deployed'])} • Gross ${_money(recovered['gross_pnl'])} • Charges ${_money(recovered['estimated_or_actual_charges'])} • Net ${_money(recovered['net_pnl'])} • Expiry W/L ${recovered['expired_wins'] ?? 0}/${recovered['expired_losses'] ?? 0}', style: const TextStyle(fontSize: 10)),
+        Text('RECOVERY • Capital ${_money(recovery['capital_deployed'])} • Gross ${_money(recovery['gross_pnl'])} • Charges ${_money(recovery['estimated_or_actual_charges'])} • Net ${_money(recovery['net_pnl'])} • Expiry W/L ${recovery['expired_wins'] ?? 0}/${recovery['expired_losses'] ?? 0}', style: const TextStyle(fontSize: 10)),
         const Divider(),
         Text('PHYSICAL SETTLEMENT • ${physical['contract_count'] ?? 0} contracts • Capital ${_money(physical['capital_deployed'])} • Source gross ${_money(physical['gross_pnl'])} • Charges PENDING • Net PENDING',
           style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
@@ -501,6 +734,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     final pnlSelected = selectedSection == 'P&L CALENDAR';
     final expirySelected = selectedSection == 'EXPIRYSCAN';
     final settlementSelected = selectedSection == 'PHYSICAL SETTLEMENT';
+    final settlementComparisonSelected = selectedSection == 'SETTLEMENT UP / DOWN';
     final strategySelected = _strategyTabs.contains(selectedSection);
     final strategyData = _strategies[_strategyKey(selectedSection)] as Map<String, dynamic>?;
     final strategyGroups = strategyData?['groups'] as Map<String, dynamic>?;
@@ -532,6 +766,23 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
               const SizedBox(height: 5),
               Text('Updated: ${_updatedAt ?? 'No verified records yet'} • shared AIR session • auto-refresh 5 min',
                 style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+              const SizedBox(height: 4),
+              Text(
+                'REQUESTED: ${((_marketDataSource['requested_source'] as Map?)?['provider'] ?? 'NSE DEFAULT').toString().toUpperCase()}'
+                '  •  EFFECTIVE: ${(_marketDataSource['effective_source'] ?? 'NSE').toString().toUpperCase()}',
+                style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant, fontWeight: FontWeight.w700),
+              ),
+              Text(
+                'HISTORY: ${((_marketDataSource['historical_source'] as Map?)?['provider'] == 'nse_bhavcopy') ? 'NSE EOD' : ((_marketDataSource['historical_source'] as Map?)?['provider'] ?? 'NSE EOD').toString().toUpperCase()}'
+                '  •  LIVE: ${((_marketDataSource['live_source'] as Map?)?['provider'] ?? 'NOT CONNECTED').toString().toUpperCase()}'
+                '  •  STATUS: ${(_marketDataSource['connection_status'] ?? 'NSE DEFAULT').toString().toUpperCase()}',
+                style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant, fontWeight: FontWeight.w700),
+              ),
+              if (_marketDataSource['fallback_active'] == true)
+                Text(
+                  'NSE FALLBACK ACTIVE · Broker unavailable (${_marketDataSource['fallback_reason'] ?? 'connection failed'})',
+                  style: TextStyle(fontSize: 9, color: cs.error, fontWeight: FontWeight.w800),
+                ),
               const SizedBox(height: 8),
               Text('OPEN ${_summary['open'] ?? 0}  •  NEW ${_summary['new'] ?? 0}  •  HOLD ${_summary['hold'] ?? 0}  •  REENTRY ${_summary['reentry'] ?? 0}  •  SURVIVOR ${_summary['survivor_watch'] ?? 0}  •  SLHIT ${_summary['slhit'] ?? 0}',
                 style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
@@ -550,7 +801,8 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
             ],
           ))),
           const SizedBox(height: 10),
-          if (pnlSelected) _pnlCalendarView(),
+          if (pnlSelected) ...[_pnlCalendarView(), _accountReportsView()],
+          if (settlementComparisonSelected) _settlementComparisonView(),
           if (strategySelected) ...[
             if (strategyData?['rules'] is Map) Card(child: Padding(
               padding: const EdgeInsets.all(12), child: Text(
@@ -654,7 +906,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                   'scan_status','observed_at']) DataCell(_cell(_v(r, key))),
               ],
             )).toList()))),
-          if (!pnlSelected && !settlementSelected && ((!expirySelected && rows.isEmpty) || (expirySelected && _expiryRows.isEmpty))) Card(child: Padding(padding: const EdgeInsets.all(18),
+          if (!pnlSelected && !settlementSelected && !settlementComparisonSelected && ((!expirySelected && rows.isEmpty) || (expirySelected && _expiryRows.isEmpty))) Card(child: Padding(padding: const EdgeInsets.all(18),
             child: Column(children: [
               Icon(Icons.hourglass_empty_rounded, size: 28, color: cs.onSurfaceVariant),
               const SizedBox(height: 8),
@@ -663,7 +915,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
               Text('This section populates only from persisted verified records. No invented sample trades are displayed.',
                 textAlign: TextAlign.center, style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
             ]),
-          )) else if (!pnlSelected && !expirySelected && !settlementSelected) Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal,
+          )) else if (!pnlSelected && !expirySelected && !settlementSelected && !settlementComparisonSelected) Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal,
             child: DataTable(columnSpacing: 14, headingRowHeight: 38,
               dataRowMinHeight: 38, dataRowMaxHeight: 52,
               columns: _columns, rows: rows.map(_row).toList()))),

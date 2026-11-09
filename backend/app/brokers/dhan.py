@@ -158,6 +158,11 @@ class DhanHQClient:
         }
         return await self._request("POST", "/charts/rollingoption", json=payload)
 
+    async def positions(self) -> list[dict[str, Any]]:
+        """Return Dhan net positions for broker-reported realized and MTM P&L."""
+        data = await self._request("GET", "/positions")
+        return data if isinstance(data, list) else []
+
     async def order_book(self) -> list[dict[str, Any]]:
         data = await self._request("GET", "/orders")
         if not isinstance(data, list):

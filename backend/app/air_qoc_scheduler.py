@@ -1,9 +1,8 @@
-"""Optional daily AIR QOC option-chain snapshot scheduler.
+"""Optional AIR QOC option-chain snapshot scheduler.
 
-Disabled by default. Configure only after confirming Dhan Data API entitlement and
-permitted use. Runs at 15:45 Asia/Kolkata, fetches every active expiry for each
-explicitly configured underlying, and rate-limits unique option-chain requests.
-It captures observations only; it does not generate trading signals or orders.
+Runs at 15:20 Asia/Kolkata when at least one operator/PAID customer has an explicitly
+selected broker account that passed the provider authentication handshake. Captures
+account-scoped snapshots only; it does not generate trading signals or orders.
 """
 from __future__ import annotations
 
@@ -23,6 +22,8 @@ from app.brokers.dhan import DhanHQClient, DhanAPIError
 from app.brokers.customer_accounts import CustomerAccountDirectory
 from app.credential_vault import CredentialVault
 from app.air_qoc_universe import DETAILED_MASTER_URL, parse_dhan_instrument_master
+from app.market_data.runtime import market_data_instruments
+from app.market_data.customer_runtime import get_customer_market_data_service, invalidate_customer_market_data_service
 import httpx
 
 log = logging.getLogger("air.qoc.scheduler")
@@ -52,18 +53,19 @@ def _configured_underlyings() -> list[dict]:
     return result
 
 
-async def capture_dhan_eod_snapshots(*, force: bool = False) -> dict:
+async def capture_dhan_eod_snapshots(*, force: bool = False, account_id_override: str | None = None,
+                                    customer_id_override: str | None = None) -> dict:
     if not force and os.getenv("AIR_QOC_SCHEDULER_ENABLED", "false").lower() != "true":
         return {"status": "disabled"}
     customer_ids = [x.strip() for x in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",") if x.strip()]
-    account_id = os.getenv("AIR_QOC_DHAN_ACCOUNT_ID", "").strip()
-    if not customer_ids or not account_id:
-        raise RuntimeError("Configure AIR_OPERATOR_CUSTOMER_IDS and AIR_QOC_DHAN_ACCOUNT_ID")
-    customer_id = customer_ids[0]
+    account_id = (account_id_override or os.getenv("AIR_QOC_DHAN_ACCOUNT_ID", "")).strip()
+    customer_id = (customer_id_override or (customer_ids[0] if customer_ids else "")).strip()
+    if not customer_id or not account_id:
+        raise RuntimeError("A customer ID and selected Dhan account are required")
     accounts = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3"))
     owned = {(a.broker, a.account_id) for a in accounts.list_for_customer(customer_id)}
     if ("dhan", account_id) not in owned:
-        raise RuntimeError("Configured AIR QOC Dhan account is not registered to the operator")
+        raise RuntimeError("Selected Dhan account is not assigned to this customer")
     vault = CredentialVault(os.getenv("AIR_CREDENTIAL_DB_PATH", "data/air_credentials.sqlite3"))
     credentials = vault.get(customer_id, "dhan", account_id)
     client_id = credentials.get("client_id", account_id)
@@ -97,6 +99,7 @@ async def capture_dhan_eod_snapshots(*, force: bool = False) -> dict:
             renewed = await client.renew_token()
             credentials["access_token"] = renewed["accessToken"]
             vault.put(customer_id, "dhan", account_id, credentials)
+            await invalidate_customer_market_data_service(customer_id)
             await client.close()
             client = DhanHQClient(client_id, renewed["accessToken"])
             log.info("Renewed active Dhan Web token for configured AIR QOC account")
@@ -165,27 +168,133 @@ async def capture_dhan_eod_snapshots(*, force: bool = False) -> dict:
         accounts.close()
 
 
+async def capture_selected_provider_option_chains(*, force: bool = False) -> dict:
+    """Capture isolated option-chain snapshots for every entitled selected broker account."""
+    if not force and os.getenv("AIR_QOC_SCHEDULER_ENABLED", "false").lower() != "true":
+        return {"status": "disabled"}
+    accounts = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3"))
+    operator_ids = {x.strip() for x in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",") if x.strip()}
+    customer_ids = sorted({account.customer_id for account in accounts.list_all()} | operator_ids)
+    results = []
+    try:
+        for customer_id in customer_ids:
+            access = accounts.get_market_data_access(customer_id)
+            eligible = customer_id in operator_ids or (
+                access.get("tier") == "PAID" and access.get("broker_data_enabled") is True
+            )
+            selection = accounts.get_market_data_selection(customer_id)
+            if not eligible or not selection:
+                continue
+            provider, account_id = selection["provider"], selection["account_id"]
+            try:
+                if provider == "dhan":
+                    result = await capture_dhan_eod_snapshots(
+                        force=force, account_id_override=account_id,
+                        customer_id_override=customer_id,
+                    )
+                    results.append({"customer_id": customer_id, "provider": provider, **result})
+                    continue
+                service = await get_customer_market_data_service(customer_id)
+                source = service.router.resolve("live")
+                if not source or source[0][0:2] != (provider, account_id):
+                    raise RuntimeError("Selected customer live source is not connected")
+                mappings = market_data_instruments.list_all(provider, account_id, limit=50000)
+                option_rows = [
+                    row for row in mappings
+                    if str(row.get("option_type") or "").upper() in {"CE", "PE"}
+                    and row.get("expiry")
+                ]
+                groups: dict[tuple[str, str], list[dict]] = {}
+                for row in option_rows:
+                    underlying = str(row.get("underlying_symbol") or "").upper()
+                    if underlying:
+                        groups.setdefault((underlying, str(row["expiry"])[:10]), []).append(row)
+                if not groups:
+                    raise RuntimeError(f"No F&O master rows for {provider}/{account_id}")
+                store = AirQocStore()
+                captured = errors = 0
+                failed = []
+                try:
+                    for (symbol, expiry), rows in sorted(groups.items()):
+                        try:
+                            snapshot = await service.option_chain_snapshot(
+                                symbol, expiry,
+                                wait_seconds=float(os.getenv("AIR_QOC_LIVE_WAIT_SECONDS", "4")),
+                            )
+                            segment = "IDX_I" if any(
+                                "INDEX" in str(row.get("instrument_type") or "").upper()
+                                for row in rows
+                            ) else "NSE_FNO"
+                            captured += store.save_option_chain(
+                                provider=provider, account_id=account_id,
+                                underlying_scrip=symbol, underlying_segment=segment,
+                                expiry=expiry, underlying_price=snapshot.get("underlying_price"),
+                                observed_at=snapshot["observed_at"], chain=snapshot["chain"],
+                            )
+                        except Exception as exc:
+                            errors += 1
+                            failed.append({"symbol": symbol, "expiry": expiry,
+                                           "error_type": type(exc).__name__})
+                            log.exception("AIR option-chain capture failed for %s %s (%s)",
+                                          symbol, expiry, customer_id)
+                    expiry_scan = scan_expiries(
+                        store, provider=provider, account_id=account_id,
+                        max_dte=int(os.getenv("AIR_EXPIRYSCAN_MAX_DTE", "45")),
+                        limit=int(os.getenv("AIR_EXPIRYSCAN_MAX_ROWS", "2000")),
+                    )
+                    results.append({
+                        "customer_id": customer_id, "provider": provider, "account_id": account_id,
+                        "status": "completed_with_errors" if errors else "completed",
+                        "underlying_expiry_groups": len(groups), "contract_observations": captured,
+                        "failed_groups": failed,
+                        "expiry_scan": {"contracts": expiry_scan["total_contracts"],
+                                        "survivors_0_7_dte": expiry_scan["survivor_count"],
+                                        "expired": expiry_scan["expired_count"]},
+                        "observed_at": datetime.now(IST).isoformat(),
+                        "classification": "DATA_CAPTURE_ONLY_NOT_A_SIGNAL",
+                    })
+                finally:
+                    store.close()
+            except Exception as exc:
+                log.exception("AIR QOC customer capture failed for %s", customer_id)
+                results.append({"customer_id": customer_id, "provider": provider,
+                                "account_id": account_id, "status": "FAILED",
+                                "error_type": type(exc).__name__})
+        return {
+            "status": "completed_with_errors" if any(
+                item.get("status") in {"FAILED", "completed_with_errors"} for item in results
+            ) else "completed",
+            "customers_processed": len(results), "results": results,
+            "classification": "DATA_CAPTURE_ONLY_NOT_A_SIGNAL",
+        } if results else {
+            "status": "no_customer_broker_sources", "customers_processed": 0, "results": []
+        }
+    finally:
+        accounts.close()
+
+
 _scheduler: AsyncIOScheduler | None = None
 
 
-def start_qoc_scheduler() -> None:
+def start_qoc_scheduler(*, force: bool = False) -> None:
     global _scheduler
-    if os.getenv("AIR_QOC_SCHEDULER_ENABLED", "false").lower() != "true":
-        log.info("AIR QOC scheduler disabled")
+    if not force and os.getenv("AIR_QOC_SCHEDULER_ENABLED", "false").lower() != "true":
+        log.info("AIR QOC scheduler disabled; no explicit broker-data activation")
         return
     if _scheduler is not None:
         return
     _scheduler = AsyncIOScheduler(timezone=IST)
     _scheduler.add_job(
-        capture_dhan_eod_snapshots,
-        CronTrigger(hour=15, minute=45, day_of_week="mon-fri", timezone=IST),
-        id="air-qoc-dhan-eod-snapshots",
+        capture_selected_provider_option_chains,
+        CronTrigger(hour=15, minute=20, day_of_week="mon-fri", timezone=IST),
+        kwargs={"force": True},
+        id="air-qoc-selected-provider-eod-snapshots",
         replace_existing=True,
         max_instances=1,
         coalesce=True,
     )
     _scheduler.start()
-    log.info("AIR QOC Dhan snapshot scheduler enabled for 15:45 IST weekdays")
+    log.info("AIR QOC selected-provider snapshot scheduler enabled for 15:20 IST weekdays")
 
 
 def stop_qoc_scheduler() -> None:

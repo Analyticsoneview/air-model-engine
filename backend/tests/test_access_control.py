@@ -31,6 +31,16 @@ class AccessStoreTests(unittest.TestCase):
             self.assertFalse(store.is_session_active(session_id))
             store.close()
 
+    def test_device_request_resolves_to_stable_mobile_identity(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = AccessStore(str(Path(temp) / "auth.sqlite3"))
+            request = store.request_access("+919876543210", "device-identifier-0004")
+            self.assertEqual(
+                store.mobile_for_request_id(request["request_id"]),
+                "+919876543210",
+            )
+            store.close()
+
     def test_international_mobile_format_is_required(self):
         with tempfile.TemporaryDirectory() as temp:
             store = AccessStore(str(Path(temp) / "auth.sqlite3"))

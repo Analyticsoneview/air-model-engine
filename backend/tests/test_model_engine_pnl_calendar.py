@@ -50,3 +50,55 @@ def test_unknown_quantity_does_not_fabricate_rupee_pnl_or_capital():
     assert summary["capital_deployed"] == 0
     assert summary["gross_pnl"] == 0
     assert summary["capital_missing_quantity"] == 1
+
+
+def test_expired_contracts_are_retained_in_calendar_and_trade_history_with_win_loss_outcomes():
+    winner = _trade("EXP-WIN", "EXPIRY78", "2026-10-01", "2026-10-29", 5, 8, 100, 3)
+    winner.update({
+        "expiry": "2026-10-29", "classification": "EXPIRED",
+        "exit_reason": "EXPIRY_INTRINSIC_SETTLEMENT",
+    })
+    loser = _trade("EXP-LOSS", "EXPIRY78", "2026-10-02", "2026-10-29", 5, 0, 100, -5)
+    loser.update({
+        "expiry": "2026-10-29", "classification": "EXPIRED",
+        "exit_reason": "EXPIRY_INTRINSIC_SETTLEMENT",
+    })
+    breakeven = _trade("EXP-FLAT", "EXPIRY78", "2026-10-03", "2026-10-29", 5, 5, 100, 0)
+    breakeven.update({
+        "expiry": "2026-10-29", "classification": "EXPIRED",
+        "exit_reason": "EXPIRY_INTRINSIC_SETTLEMENT",
+    })
+
+    result = build_pnl_calendar({
+        "EXPIRY78": {"groups": {"EXPIRED": [winner, loser, breakeven]}}
+    }, year=2026, month=10)
+
+    assert result["expired_trade_summary"] == {
+        "count": 3, "wins": 1, "losses": 1, "breakeven": 1, "pnl_pending": 0,
+    }
+    assert {trade["expiry_outcome"] for trade in result["expired_trades"]} == {
+        "EXPIRED_WIN", "EXPIRED_LOSS", "EXPIRED_BREAKEVEN",
+    }
+    expiry_day = next(day for day in result["days"] if day["date"] == "2026-10-29")
+    assert expiry_day["expired_contract_count"] == 3
+    assert expiry_day["expired_wins"] == 1
+    assert expiry_day["expired_losses"] == 1
+    assert expiry_day["expired_breakeven"] == 1
+    assert len(result["trades"]) == 3
+
+
+def test_recovery_strategy_is_included_in_pnl_and_expired_trade_history():
+    trade = _trade("REC-EXP", "RECOVERY", "2026-10-05", "2026-10-29", 2, 0, 500, -2)
+    trade.update({
+        "expiry": "2026-10-29", "classification": "EXPIRED",
+        "exit_reason": "EXPIRY_INTRINSIC_SETTLEMENT",
+    })
+    result = build_pnl_calendar({
+        "RECOVERY": {"groups": {"EXPIRED": [trade]}},
+    })
+
+    assert result["summary"]["RECOVERY"]["trade_count"] == 1
+    assert result["summary"]["RECOVERY"]["expired_losses"] == 1
+    assert result["summary"]["overall"]["gross_pnl"] == -1000
+    assert result["expired_trades"][0]["strategy"] == "RECOVERY"
+    assert result["expired_trades"][0]["expiry_outcome"] == "EXPIRED_LOSS"

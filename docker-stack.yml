@@ -19,6 +19,22 @@ services:
       AIR_ALLOW_CUSTOMER_SIGNUP: "false"
       AIR_CORS_ORIGINS: ${AIR_CORS_ORIGINS:-https://air.example.com}
       AIR_OPERATOR_CUSTOMER_IDS: ${AIR_OPERATOR_CUSTOMER_IDS:?Set operator customer UUIDs}
+      AIR_TELEGRAM_BOT_TOKEN_FILE: /run/secrets/air_telegram_bot_token
+      AIR_TELEGRAM_CHAT_IDS: ${AIR_TELEGRAM_CHAT_IDS:-}
+      AIR_TELEGRAM_CONFIG_DB_PATH: /var/lib/air/air_telegram_config.sqlite3
+      AIR_TELEGRAM_DEDUPE_DB_PATH: /var/lib/air/air_telegram_notifications.sqlite3
+      AIR_TELEGRAM_SCHEDULER_ENABLED: ${AIR_TELEGRAM_SCHEDULER_ENABLED:-false}
+      AIR_SMTP_HOST: ${AIR_SMTP_HOST:-}
+      AIR_SMTP_PORT: ${AIR_SMTP_PORT:-587}
+      AIR_SMTP_USERNAME: ${AIR_SMTP_USERNAME:-}
+      AIR_REPORT_FROM_EMAIL: ${AIR_REPORT_FROM_EMAIL:-}
+      AIR_SMTP_PASSWORD_FILE: /run/secrets/air_smtp_password
+      AIR_MARKET_SOURCE_DB_PATH: /var/lib/air/market_sources.sqlite3
+      AIR_MARKET_INSTRUMENT_DB_PATH: /var/lib/air/market_instruments.sqlite3
+      AIR_MARKET_DATA_POLL_SECONDS: ${AIR_MARKET_DATA_POLL_SECONDS:-3}
+      AIR_NSE_DB_PATH: /var/lib/air/nse_bhavcopy.sqlite3
+      AIR_NSE_ARCHIVE_DIR: /var/lib/air/nse_archives
+      AIR_NSE_BOOTSTRAP_ENABLED: ${AIR_NSE_BOOTSTRAP_ENABLED:-true}
       AIR_CLIENT_LOCAL_IP: ${AIR_CLIENT_LOCAL_IP:-}
       AIR_CLIENT_PUBLIC_IP: ${AIR_CLIENT_PUBLIC_IP:-}
       AIR_CLIENT_MAC_ADDRESS: ${AIR_CLIENT_MAC_ADDRESS:-}
@@ -26,15 +42,12 @@ services:
       - air_jwt_secret
       - air_credential_key
       - air_admin_api_key
+      - air_telegram_bot_token
+      - air_smtp_password
     volumes:
       - air_data:/var/lib/air
     networks:
       - air_private
-    ports:
-      - target: 8000
-        published: ${AIR_API_PORT:-8000}
-        protocol: tcp
-        mode: ingress
     healthcheck:
       test:
         - CMD
@@ -47,6 +60,18 @@ services:
       start_period: 20s
     deploy:
       replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 10s
+        monitor: 60s
+        failure_action: rollback
+        order: stop-first
+      rollback_config:
+        parallelism: 1
+        delay: 5s
+        monitor: 60s
+        failure_action: pause
+        order: stop-first
       restart_policy:
         condition: on-failure
         delay: 5s
@@ -73,6 +98,18 @@ services:
       retries: 3
     deploy:
       replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 10s
+        monitor: 60s
+        failure_action: rollback
+        order: stop-first
+      rollback_config:
+        parallelism: 1
+        delay: 5s
+        monitor: 60s
+        failure_action: pause
+        order: stop-first
       restart_policy:
         condition: on-failure
       resources:
@@ -86,6 +123,39 @@ services:
         constraints:
           - node.role == manager
 
+  air-caddy:
+    image: caddy:2-alpine
+    environment:
+      AIR_APP_DOMAIN: ${AIR_APP_DOMAIN:?Set AIR_APP_DOMAIN}
+      AIR_API_DOMAIN: ${AIR_API_DOMAIN:?Set AIR_API_DOMAIN}
+      AIR_TLS_EMAIL: ${AIR_TLS_EMAIL:?Set AIR_TLS_EMAIL}
+    ports:
+      - target: 80
+        published: 80
+        protocol: tcp
+        mode: ingress
+      - target: 443
+        published: 443
+        protocol: tcp
+        mode: ingress
+      - target: 443
+        published: 443
+        protocol: udp
+        mode: ingress
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - air_private
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.role == manager
+
 networks:
   air_private:
     driver: overlay
@@ -94,6 +164,10 @@ networks:
 volumes:
   air_data:
     driver: local
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local
 
 secrets:
   air_jwt_secret:
@@ -101,4 +175,9 @@ secrets:
   air_credential_key:
     external: true
   air_admin_api_key:
+    external: true
+  air_telegram_bot_token:
+    external: true
+    name: ${AIR_TELEGRAM_SECRET_NAME:-air_telegram_bot_token}
+  air_smtp_password:
     external: true

@@ -1,0 +1,66 @@
+services:
+  air-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: air-model-engine-api:local
+    env_file:
+      - ./.air-local.env
+    environment:
+      AIR_JWT_SECRET_FILE: /run/secrets/air_jwt_secret
+      AIR_CREDENTIAL_KEY_FILE: /run/secrets/air_credential_key
+      AIR_ADMIN_API_KEY_FILE: /run/secrets/air_admin_api_key
+      AIR_AUTH_DB_PATH: /var/lib/air/auth.sqlite3
+      AIR_ACCOUNT_DB_PATH: /var/lib/air/accounts.sqlite3
+      AIR_CREDENTIAL_DB_PATH: /var/lib/air/credentials.sqlite3
+      AIR_ORDER_DB_PATH: /var/lib/air/orders.sqlite3
+      AIR_QOC_DB_PATH: /var/lib/air/qoc.sqlite3
+      AIR_MARKET_SOURCE_DB_PATH: /var/lib/air/market_sources.sqlite3
+      AIR_MARKET_INSTRUMENT_DB_PATH: /var/lib/air/market_instruments.sqlite3
+      AIR_NSE_DB_PATH: /var/lib/air/nse_bhavcopy.sqlite3
+      AIR_NSE_ARCHIVE_DIR: /var/lib/air/nse_archives
+      AIR_NSE_BOOTSTRAP_ENABLED: "true"
+      AIR_QOC_SCHEDULER_ENABLED: "false"
+      AIR_TELEGRAM_SCHEDULER_ENABLED: "false"
+      AIR_ALLOW_CUSTOMER_SIGNUP: "false"
+      AIR_CORS_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
+    secrets:
+      - air_jwt_secret
+      - air_credential_key
+      - air_admin_api_key
+    volumes:
+      - air_data:/var/lib/air
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  air-pwa:
+    build:
+      context: .
+      dockerfile: deploy/pwa.Dockerfile
+      args:
+        AIR_API_BASE_URL: http://localhost:8000
+    image: air-model-engine-pwa:local
+    depends_on:
+      air-api:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+secrets:
+  air_jwt_secret:
+    file: ./.air-secrets/jwt_secret
+  air_credential_key:
+    file: ./.air-secrets/credential_key
+  air_admin_api_key:
+    file: ./.air-secrets/admin_api_key
+
+volumes:
+  air_data:

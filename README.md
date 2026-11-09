@@ -16,8 +16,8 @@ AIR is a self-hosted research and broker-connectivity foundation with a Flutter 
 
 ## Current verified scope
 
-- Backend unit tests have passed in GitHub Actions on recent commits.
-- Android lab APK and unsigned iOS lab IPA builds passed on the recorded workflow run. The iOS IPA is not installable without Apple signing; use the PWA route for iPhone without an Apple Developer membership.
+- Backend unit tests passed in earlier GitHub Actions runs. The latest PR checks currently fail before a runner starts (no steps/logs), so the newest commits remain unverified.
+- Earlier recorded runs produced an Android lab APK and unsigned iOS lab IPA. The latest Android workflow retry is currently blocked before runner startup; the new signed customer APK workflow has not yet run. The iOS IPA is not installable without Apple signing; use the PWA route for iPhone without an Apple Developer membership.
 - Flutter web analysis, tests and self-hosted PWA bundle workflow are being validated separately.
 - Broker REST foundations exist for Angel One, DhanHQ, Zerodha, Upstox and FYERS. Dhan has the furthest market-feed integration; real-account entitlements and streaming for all brokers are not yet validated.
 - AIR QOC now has a read-only Dhan option-chain path, expiry lookup, normalized private SQLite snapshot storage and a Flutter research screen. An optional 15:45 IST weekday snapshot scheduler is implemented but disabled by default; it requires a registered Dhan account, encrypted credentials and verified Data API entitlement. It discovers the NSE F&O universe from Dhan's instrument master (with a configured fallback list), captures active-expiry option chains, then automatically runs the evidence-first EXPIRYSCAN liquidity screen. The Model Engine app refreshes the scan every five minutes while signed in. EXPIRYSCAN is not a qualified AIR QOC signal.
@@ -36,6 +36,8 @@ python -m pytest -q
 
 Follow [Docker Swarm deployment](deploy/DOCKER_SWARM.md). It covers Docker secrets, first-operator provisioning, PWA/API routing and the current single-replica limits.
 
+For the end-to-end Ubuntu installer, Caddy HTTPS setup, self-hosted GitHub runner and first operator activation, follow [AIR Installation](deploy/INSTALLATION.md). For the signed Android customer APK, follow [Android Release](deploy/ANDROID_RELEASE.md).
+
 ## AIR MASTER lifecycle layer
 
 - `GET /api/v1/model-engine/master` exposes a canonical, customer-scoped MASTER aggregation over persisted verified ledger rows.
@@ -53,3 +55,8 @@ Follow [Docker Swarm deployment](deploy/DOCKER_SWARM.md). It covers Docker secre
 - Configure TLS, firewalling, backups, monitoring and restore testing before any internet-facing deployment.
 
 Never treat a placeholder, sample response or unverified broker connection as a live market signal.
+
+
+## One-command cross-platform local startup
+
+Use Docker Compose v2 for the same local AIR stack on Windows, macOS and Linux. Follow [Local Setup](LOCAL_SETUP.md). After the one-time bootstrap, open a terminal in the repository and run the single command `AIRSTART`. The launcher generates local secrets, builds the backend and Flutter PWA, starts services, waits for API health and opens the local app. Local trading execution remains disabled; QOC and Telegram schedulers remain off until deliberately configured.

@@ -1,63 +1,51 @@
 name: AIR Android Lab APK
-
 on:
   workflow_dispatch:
   pull_request:
-    paths:
-      - 'mobile/**'
-      - '.github/workflows/android-lab.yml'
   push:
-    branches: [main]
-    paths:
-      - 'mobile/**'
-      - '.github/workflows/android-lab.yml'
-
+    branches: [main, feat/air-telegram-alerts]
 permissions:
   contents: read
-
 jobs:
   android-lab:
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
+    runs-on: [self-hosted, Windows, X64, air-ci]
+    timeout-minutes: 45
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-
-      - name: Set up Flutter
+      - uses: actions/checkout@v4
+      - name: Expose installed Git Bash to runner service
+        shell: cmd
+        run: |
+          if not exist "C:\Program Files\Git\bin\bash.exe" exit /b 1
+          echo C:\Program Files\Git\bin>>"%GITHUB_PATH%"
+          echo C:\Program Files\Git\usr\bin>>"%GITHUB_PATH%"
+      - name: Set up current stable Flutter and Dart
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
-
-      - name: Set up Java
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Cache Gradle dependencies
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Generate Android platform
+      - name: Verify build tools
+        shell: cmd
+        run: flutter --version && java -version && adb version && where bash
+      - name: Generate Android platform only when missing
         working-directory: mobile
-        run: flutter create . --platforms=android --org com.analyticalstocks
-
+        shell: cmd
+        run: if not exist android flutter create . --platforms=android --org com.analyticalstocks
       - name: Resolve packages
         working-directory: mobile
+        shell: cmd
         run: flutter pub get
-
       - name: Analyze Flutter app
         working-directory: mobile
+        shell: cmd
         run: flutter analyze lib
-
       - name: Run Flutter tests
         working-directory: mobile
+        shell: cmd
         run: flutter test
-
       - name: Build optimized ARM64 lab APK
         working-directory: mobile
-        run: flutter build apk --release --target-platform android-arm64 --dart-define=APP_ENV=lab --dart-define=AIR_API_BASE_URL=${{ vars.AIR_API_BASE_URL }}
-
+        shell: cmd
+        run: flutter build apk --release --target-platform android-arm64 --dart-define=APP_ENV=lab --dart-define=AIR_API_BASE_URL="${{ vars.AIR_API_BASE_URL }}"
       - name: Upload optimized APK artifact
         uses: actions/upload-artifact@v4
         with:
