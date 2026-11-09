@@ -1,4 +1,4 @@
-name: AIR PR Validation and Auto Merge
+name: AIR PR Validation (Backend + Android)
 
 on:
   pull_request:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: write
 
 concurrency:
@@ -15,17 +15,30 @@ concurrency:
 
 jobs:
   backend:
+    if: github.event.action != 'closed'
     name: Backend tests (Python 3.12)
     runs-on: [self-hosted, Windows, X64, air-ci]
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+      - name: Install isolated Python 3.12 for runner service
+        shell: cmd
+        run: |
+          set "PYTHON_VERSION=3.12.10"
+          set "PYTHON_DIR=%RUNNER_TEMP%\air-python312"
+          set "PYTHON_INSTALLER=%RUNNER_TEMP%\python-3.12.10-amd64.exe"
+          if not exist "%PYTHON_DIR%\python.exe" (
+            curl.exe -fL --retry 3 --retry-delay 2 -o "%PYTHON_INSTALLER%" "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe"
+            if errorlevel 1 exit /b 1
+            "%PYTHON_INSTALLER%" /quiet InstallAllUsers=0 TargetDir="%PYTHON_DIR%" Include_pip=1 Include_launcher=0 PrependPath=0 Include_test=0 Shortcuts=0
+            if errorlevel 1 exit /b 1
+          )
+          if not exist "%PYTHON_DIR%\python.exe" exit /b 1
+          echo %PYTHON_DIR%>>"%GITHUB_PATH%"
+          "%PYTHON_DIR%\python.exe" --version
+          "%PYTHON_DIR%\python.exe" -m pip --version
       - name: Verify Python
         shell: cmd
-        run: python --version
+        run: python --version && python -m pip --version
       - name: Install dependencies
         working-directory: backend
         shell: cmd
@@ -36,11 +49,18 @@ jobs:
         run: python -m unittest discover -s tests -v
 
   android:
+    if: github.event.action != 'closed'
     name: Android ARM64 APK build
     runs-on: [self-hosted, Windows, X64, air-ci]
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      - name: Expose installed Git Bash to runner service
+        shell: cmd
+        run: |
+          if not exist "C:\Program Files\Git\bin\bash.exe" exit /b 1
+          echo C:\Program Files\Git\bin>>"%GITHUB_PATH%"
+          echo C:\Program Files\Git\usr\bin>>"%GITHUB_PATH%"
       - name: Set up current stable Flutter and Dart
         uses: subosito/flutter-action@v2
         with:
@@ -49,10 +69,10 @@ jobs:
       - name: Verify Android build tools
         shell: cmd
         run: |
-          python --version
           java -version
           flutter --version
           adb version
+          where bash
       - name: Generate Android platform only when missing
         working-directory: mobile
         shell: cmd
@@ -81,73 +101,9 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  ios:
-    if: github.event_name == 'workflow_dispatch'
-    name: iOS unsigned IPA build
-    runs-on: [self-hosted, macOS, air-mac]
-    timeout-minutes: 50
-    steps:
-      - uses: actions/checkout@v4
-      - name: Verify Apple build tools
-        run: |
-          sw_vers
-          xcodebuild -version
-          flutter --version
-      - name: Generate iOS platform
-        working-directory: mobile
-        run: flutter create . --platforms=ios --org com.analyticalstocks
-      - name: Resolve packages
-        working-directory: mobile
-        run: flutter pub get
-      - name: Analyze Flutter app
-        working-directory: mobile
-        run: flutter analyze lib
-      - name: Run Flutter tests
-        working-directory: mobile
-        run: flutter test
-      - name: Build unsigned iOS app
-        working-directory: mobile
-        run: flutter build ios --release --no-codesign --dart-define=APP_ENV=lab
-      - name: Package and verify unsigned IPA
-        working-directory: mobile
-        run: |
-          set -euo pipefail
-          test -d build/ios/iphoneos/Runner.app
-          mkdir -p build/ios/ipa/Payload
-          rm -rf build/ios/ipa/Payload/Runner.app
-          cp -R build/ios/iphoneos/Runner.app build/ios/ipa/Payload/
-          cd build/ios/ipa
-          /usr/bin/zip -qry AIR-Model-Engine-iOS-Unsigned.ipa Payload
-          test -s AIR-Model-Engine-iOS-Unsigned.ipa
-          /usr/bin/unzip -t AIR-Model-Engine-iOS-Unsigned.ipa
-          shasum -a 256 AIR-Model-Engine-iOS-Unsigned.ipa > AIR-Model-Engine-iOS-Unsigned.ipa.sha256
-      - name: Upload unsigned IPA artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: AIR-iOS-Unsigned-PR-${{ github.event.pull_request.number || 'manual' }}
-          path: |
-            mobile/build/ios/ipa/AIR-Model-Engine-iOS-Unsigned.ipa
-            mobile/build/ios/ipa/AIR-Model-Engine-iOS-Unsigned.ipa.sha256
-          if-no-files-found: error
-          retention-days: 30
-
-  merge-after-validation:
-    name: Merge PR after successful validation
-    needs: [backend, android]
-    if: github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.state == 'open' && github.event.pull_request.draft == false
-    runs-on: [self-hosted, Windows, X64, air-ci]
-    steps:
-      - name: Merge validated pull request
-        shell: cmd
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: gh pr merge %PR_NUMBER% --squash
-
   retarget-stacked-ui-pr:
     name: Retarget dependent UI PR after PR 7 merges
-    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && github.event.pull_request.number == 7
+    if: github.event.action == 'closed' && github.event.pull_request.merged == true && github.event.pull_request.number == 7
     runs-on: [self-hosted, Windows, X64, air-ci]
     steps:
       - name: Move PR 8 onto main
