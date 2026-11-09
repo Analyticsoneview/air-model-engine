@@ -135,22 +135,26 @@ jobs:
           "PATH=C:\AIR\tools\flutter\bin;$sdk\platform-tools;$sdk\cmdline-tools\latest\bin;$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Install and verify required Android NDK
         run: |
-          $sdk = 'C:\Android\Sdk'
-          $sdkManager = Join-Path $sdk 'cmdline-tools\latest\bin\sdkmanager.bat'
-          if (-not (Test-Path -LiteralPath $sdkManager)) {
-            $candidates = @(Get-ChildItem -LiteralPath (Join-Path $sdk 'cmdline-tools') -Filter 'sdkmanager.bat' -File -Recurse -ErrorAction SilentlyContinue)
-            if ($candidates.Count -eq 0) { throw "Android sdkmanager.bat was not found under $sdk\cmdline-tools." }
-            $sdkManager = $candidates[0].FullName
-          }
-          $ndk = Join-Path $sdk 'ndk\28.2.13676358'
+          $sdk = 'C:\\Android\\Sdk'
+          $ndkVersion = '28.2.13676358'
+          $ndk = Join-Path $sdk ('ndk\\' + $ndkVersion)
           if (-not (Test-Path -LiteralPath (Join-Path $ndk 'source.properties'))) {
-            & $sdkManager "--sdk_root=$sdk" --install 'ndk;28.2.13676358'
+            $sdkManager = Join-Path $sdk 'cmdline-tools\\latest\\bin\\sdkmanager.bat'
+            if (-not (Test-Path -LiteralPath $sdkManager)) {
+              $candidates = @(Get-ChildItem -LiteralPath (Join-Path $sdk 'cmdline-tools') -Filter 'sdkmanager.bat' -File -Recurse -ErrorAction SilentlyContinue)
+              if ($candidates.Count -eq 0) { throw "Android sdkmanager.bat was not found under $sdk\\cmdline-tools." }
+              $sdkManager = $candidates[0].FullName
+            }
+            # sdkmanager accepts package paths as positional arguments; --install is not required.
+            # Keep the semicolon package ID in one quoted argument for Windows batch invocation.
+            $package = "ndk;$ndkVersion"
+            & $sdkManager "--sdk_root=$sdk" $package
             if ($LASTEXITCODE -ne 0) {
               & $sdkManager "--sdk_root=$sdk" --list
-              throw 'Android sdkmanager could not install NDK 28.2.13676358; see package list above.'
+              throw "Android sdkmanager could not install $package; see package list above."
             }
           }
-          if (-not (Test-Path -LiteralPath (Join-Path $ndk 'source.properties'))) { throw 'Required Android NDK was not installed.' }
+          if (-not (Test-Path -LiteralPath (Join-Path $ndk 'source.properties'))) { throw "Required Android NDK $ndkVersion was not installed." }
       - name: Generate Android platform when missing
         working-directory: mobile
         run: |
