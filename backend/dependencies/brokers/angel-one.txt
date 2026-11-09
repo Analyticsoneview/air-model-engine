@@ -1,0 +1,4 @@
+# Angel One SmartAPI SDK and its streaming transport.
+smartapi-python==1.5.5
+websocket-client>=1.8,<2
+protobuf>=5.28,<7
