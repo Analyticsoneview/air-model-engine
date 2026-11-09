@@ -45,8 +45,13 @@ jobs:
         working-directory: .
         run: |
           Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+          # Install build backends before source-distributed broker SDKs (including Upstox).
+          & $env:AIR_PYTHON -m pip install --disable-pip-version-check --upgrade pip setuptools wheel
+          if ($LASTEXITCODE -ne 0) { throw 'Python packaging toolchain installation failed.' }
           & $env:AIR_PYTHON -m pip install --disable-pip-version-check -r backend/requirements.txt
-          if ($LASTEXITCODE -ne 0) { throw 'Backend dependency installation failed.' }
+          if ($LASTEXITCODE -ne 0) { throw 'Backend and broker dependency installation failed.' }
+          & $env:AIR_PYTHON -m pip check
+          if ($LASTEXITCODE -ne 0) { throw 'Backend/broker dependency consistency check failed.' }
       - name: Run backend unit tests
         working-directory: .
         run: |
