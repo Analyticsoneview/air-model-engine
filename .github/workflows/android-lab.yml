@@ -9,7 +9,7 @@ permissions:
 jobs:
   android-lab:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ${{ fromJSON(vars.AIR_CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    runs-on: ${{ fromJSON(vars.AIR_CI_RUNNER_LABELS || '["self-hosted","windows","x64","air"]') }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
