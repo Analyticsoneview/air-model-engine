@@ -1,10 +1,8 @@
 name: AIR Backend Tests
 on:
+  pull_request:
   push:
     branches: [main, feat/air-telegram-alerts]
-    paths: ['backend/**', '.github/workflows/backend-tests.yml']
-  pull_request:
-    paths: ['backend/**', '.github/workflows/backend-tests.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -13,15 +11,22 @@ jobs:
     runs-on: [self-hosted, Windows, X64, air-ci]
     steps:
       - uses: actions/checkout@v4
-      - name: Diagnose Python available to runner service
+      - name: Install isolated Python 3.12 for runner service
         shell: cmd
         run: |
-          echo PATH=%PATH%
-          where python || echo python not on PATH
-          where py || echo py launcher not on PATH
-          reg query HKLM\\SOFTWARE\\Python\\PythonCore /s
-          reg query HKLM\\SOFTWARE\\WOW6432Node\\Python\\PythonCore /s
-          dir C:\\Python* /b
+          set "PYTHON_VERSION=3.12.10"
+          set "PYTHON_DIR=%RUNNER_TEMP%\air-python312"
+          set "PYTHON_INSTALLER=%RUNNER_TEMP%\python-3.12.10-amd64.exe"
+          if not exist "%PYTHON_DIR%\python.exe" (
+            curl.exe -fL --retry 3 --retry-delay 2 -o "%PYTHON_INSTALLER%" "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe"
+            if errorlevel 1 exit /b 1
+            "%PYTHON_INSTALLER%" /quiet InstallAllUsers=0 TargetDir="%PYTHON_DIR%" Include_pip=1 Include_launcher=0 PrependPath=0 Include_test=0 Shortcuts=0
+            if errorlevel 1 exit /b 1
+          )
+          if not exist "%PYTHON_DIR%\python.exe" exit /b 1
+          echo %PYTHON_DIR%>>"%GITHUB_PATH%"
+          "%PYTHON_DIR%\python.exe" --version
+          "%PYTHON_DIR%\python.exe" -m pip --version
       - name: Verify Python
         shell: cmd
         run: python --version && python -m pip --version
