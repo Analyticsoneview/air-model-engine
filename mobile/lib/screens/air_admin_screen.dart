@@ -349,7 +349,9 @@ class _AirAdminBrokerAccountsScreenState
 
   Future<void> _assign() async {
     if (_customer.text.trim().isEmpty || _account.text.trim().isEmpty ||
-        _broker.text.trim().isEmpty) return;
+        _broker.text.trim().isEmpty) {
+      return;
+    }
     setState(() { _loading = true; _error = null; });
     try {
       await _api.operatorAssignBrokerAccount(
@@ -540,7 +542,6 @@ class _AirAdminBrokerAccountsScreenState
       'fyers': ['app_id', 'app_secret', 'redirect_uri'],
       'angelone': ['api_key', 'pin'],
       'custom_vendor': ['base_url', 'websocket_url', 'api_key', 'health_path', 'instruments_path', 'historical_path'],
-      'custom_vendor': ['base_url', 'websocket_url', 'api_key'],
     }[broker] ?? const <String>[];
     if (fields.isEmpty) return;
     final controllers = {for (final field in fields) field: TextEditingController()};
@@ -622,7 +623,7 @@ class _AirAdminBrokerAccountsScreenState
           ),
           const SizedBox(height: 9),
           DropdownButtonFormField<String>(
-            value: _broker.text,
+            initialValue: _broker.text,
             decoration: const InputDecoration(labelText: 'Broker', border: OutlineInputBorder()),
             items: const [
               DropdownMenuItem(value: 'dhan', child: Text('Dhan')),
@@ -808,7 +809,7 @@ class _AirAdminTelegramScreenState extends State<AirAdminTelegramScreen> {
                 ),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
-                  value: type,
+                  initialValue: type,
                   decoration: const InputDecoration(labelText: 'Destination type'),
                   items: const [
                     DropdownMenuItem(value: 'PRIVATE', child: Text('Private chat')),
@@ -1292,7 +1293,7 @@ class _AirAdminMarketDataSourcesScreenState
                     style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900)),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
-                  value: providers.any((p) => p['code'] == _provider) ? _provider : null,
+                  initialValue: providers.any((provider) => provider['code'] == _provider) ? _provider : null,
                   isExpanded: true,
                   decoration: const InputDecoration(labelText: 'Provider', border: OutlineInputBorder()),
                   items: providers.map((p) => DropdownMenuItem<String>(
@@ -1301,7 +1302,6 @@ class _AirAdminMarketDataSourcesScreenState
                         overflow: TextOverflow.ellipsis),
                   )).toList(),
                   onChanged: _loading ? null : (value) {
-                    final p = _providerByCode(providers, value);
                     setState(() {
                       _provider = value;
                       _account.text = '';
