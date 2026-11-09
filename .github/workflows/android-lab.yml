@@ -8,8 +8,7 @@ permissions:
   contents: read
 jobs:
   android-lab:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ${{ fromJSON(vars.AIR_CI_RUNNER_LABELS || '["self-hosted","Windows","X64","air-ci"]') }}
+    runs-on: [self-hosted, Windows, X64, air-ci]
     timeout-minutes: 90
     defaults:
       run:
