@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
 
 concurrency:
   group: air-pr-validation-${{ github.event.pull_request.number || github.ref }}
@@ -15,7 +14,7 @@ concurrency:
 
 jobs:
   backend:
-    if: github.event.action != 'closed'
+    if: github.event.action != 'closed' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     name: Backend tests (Python 3.12)
     runs-on: [self-hosted, Windows, X64, air-ci]
     steps:
@@ -122,6 +121,8 @@ jobs:
           retention-days: 30
 
   retarget-stacked-ui-pr:
+    permissions:
+      pull-requests: write
     name: Retarget dependent UI PR after PR 7 merges
     if: github.event.action == 'closed' && github.event.pull_request.merged == true && github.event.pull_request.number == 7
     runs-on: [self-hosted, Windows, X64, air-ci]
