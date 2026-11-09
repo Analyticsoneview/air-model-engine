@@ -17,7 +17,7 @@ jobs:
   backend:
     if: github.event.action != 'closed' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     name: Backend tests (Python 3.12)
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.AIR_CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -35,7 +35,7 @@ jobs:
   android:
     if: github.event.action != 'closed'
     name: Android ARM64 APK build
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.AIR_CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -52,6 +52,7 @@ jobs:
         run: flutter --version && dart --version && java -version
       - name: Generate Android platform only when missing
         working-directory: mobile
+        shell: bash
         run: |
           if [ ! -d android ]; then
             flutter create . --platforms=android --org com.analyticalstocks
