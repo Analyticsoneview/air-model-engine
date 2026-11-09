@@ -23,12 +23,29 @@ jobs:
         shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "& '{0}'"
     steps:
       - uses: actions/checkout@v4
-      - name: Verify machine-wide Python 3.12
+      - name: Verify and repair machine-wide Python 3.12 runtime
+        shell: powershell
         run: |
-          $python = 'C:\AIR\tools\Python312\python.exe'
-          if (-not (Test-Path -LiteralPath $python)) { throw "AIR Python 3.12 not found at $python." }
-          & $python --version
-          if ($LASTEXITCODE -ne 0) { throw 'AIR Python version check failed.' }
+          $pythonHome = 'C:\AIR\tools\Python312'
+          $python = Join-Path $pythonHome 'python.exe'
+          $encodings = Join-Path $pythonHome 'Lib\encodings\__init__.py'
+          if (-not (Test-Path -LiteralPath $encodings)) {
+            $installer = 'C:\AIR\python-3.12.10-amd64.exe'
+            New-Item -ItemType Directory -Force -Path 'C:\AIR' | Out-Null
+            if (-not (Test-Path -LiteralPath $installer) -or (Get-Item $installer).Length -lt 10MB) {
+              & curl.exe --fail --location --show-error --retry 4 --retry-all-errors --connect-timeout 30 --max-time 900 --output $installer 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe'
+              if ($LASTEXITCODE -ne 0 -or -not (Test-Path $installer) -or (Get-Item $installer).Length -lt 10MB) { throw 'Official Python 3.12 installer download failed.' }
+            }
+            $proc = Start-Process -FilePath $installer -ArgumentList @('/quiet','InstallAllUsers=1',('TargetDir=' + $pythonHome),'Include_pip=1','Include_launcher=0','Include_test=0','PrependPath=0','Shortcuts=0') -Wait -PassThru
+            if ($proc.ExitCode -notin @(0,3010)) { throw "Python 3.12 repair/install failed: $($proc.ExitCode)" }
+          }
+          if (-not (Test-Path -LiteralPath $encodings)) { throw "Python standard library is incomplete: $encodings is missing." }
+          Remove-Item Env:PYTHONHOME -ErrorAction SilentlyContinue
+          Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+          & $python -c "import encodings,sys; print(sys.version); print(sys.executable); print(encodings.__file__)"
+          if ($LASTEXITCODE -ne 0) { throw 'Python standard-library import validation failed.' }
+          & $python -m pip --version
+          if ($LASTEXITCODE -ne 0) { throw 'Python pip validation failed.' }
           "AIR_PYTHON=$python" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Install backend dependencies
         working-directory: .
