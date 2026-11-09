@@ -1,20 +1,8 @@
-fastapi>=0.115,<1.0
-uvicorn[standard]>=0.30,<1.0
-pydantic>=2.8,<3.0
-PyJWT>=2.9,<3.0
-pwdlib[argon2]>=0.2,<1.0
-cryptography>=43,<46
-httpx>=0.27,<1.0
-websockets>=14,<16
-APScheduler>=3.10,<4.0
-
-# Native broker market-data streaming SDKs
-kiteconnect>=5.0.1
-upstox-python-sdk>=2.23.0
-fyers-apiv3>=3.1.4
-smartapi-python>=1.5.5
-protobuf>=5.28,<7
-websocket-client>=1.8
-
-# Account-specific PDF P&L report generation
-reportlab>=4.2,<5
+# Complete backend install used by CI, Docker and local development.
+# Vendor SDKs are split into backend/dependencies/brokers for isolated ownership.
+-r dependencies/base.txt
+-r dependencies/brokers/zerodha.txt
+-r dependencies/brokers/upstox.txt
+-r dependencies/brokers/fyers.txt
+-r dependencies/brokers/angel-one.txt
+-r dependencies/brokers/dhan.txt
