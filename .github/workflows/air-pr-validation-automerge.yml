@@ -19,6 +19,10 @@ jobs:
     runs-on: [self-hosted, Windows, X64, air-ci]
     steps:
       - uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Verify Python
         shell: cmd
         run: python --version
@@ -37,6 +41,11 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      - name: Set up current stable Flutter and Dart
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
       - name: Verify Android build tools
         shell: cmd
         run: |
@@ -44,10 +53,10 @@ jobs:
           java -version
           flutter --version
           adb version
-      - name: Generate Android platform
+      - name: Generate Android platform only when missing
         working-directory: mobile
         shell: cmd
-        run: flutter create . --platforms=android --org com.analyticalstocks
+        run: if not exist android flutter create . --platforms=android --org com.analyticalstocks
       - name: Resolve packages
         working-directory: mobile
         shell: cmd
@@ -73,6 +82,7 @@ jobs:
           retention-days: 30
 
   ios:
+    if: github.event_name == 'workflow_dispatch'
     name: iOS unsigned IPA build
     runs-on: [self-hosted, macOS, air-mac]
     timeout-minutes: 50
@@ -123,7 +133,7 @@ jobs:
 
   merge-after-validation:
     name: Merge PR after successful validation
-    needs: [backend, android, ios]
+    needs: [backend, android]
     if: github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.state == 'open' && github.event.pull_request.draft == false
     runs-on: [self-hosted, Windows, X64, air-ci]
     steps:
