@@ -2,10 +2,8 @@ name: AIR Android Lab APK
 on:
   workflow_dispatch:
   pull_request:
-    paths: ['mobile/**', '.github/workflows/android-lab.yml']
   push:
     branches: [main, feat/air-telegram-alerts]
-    paths: ['mobile/**', '.github/workflows/android-lab.yml']
 permissions:
   contents: read
 jobs:
@@ -14,18 +12,20 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - name: Diagnose installed Flutter and Bash
+      - name: Expose installed Git Bash to runner service
         shell: cmd
         run: |
-          echo PATH=%PATH%
-          where flutter || echo flutter not on PATH
-          where bash || echo bash not on PATH
-          where git
-          git config --global --add safe.directory C:/src/flutter
-          C:\\src\\flutter\\bin\\flutter.bat --version
+          if not exist "C:\Program Files\Git\bin\bash.exe" exit /b 1
+          echo C:\Program Files\Git\bin>>"%GITHUB_PATH%"
+          echo C:\Program Files\Git\usr\bin>>"%GITHUB_PATH%"
+      - name: Set up current stable Flutter and Dart
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
       - name: Verify build tools
         shell: cmd
-        run: flutter --version && java -version && adb version
+        run: flutter --version && java -version && adb version && where bash
       - name: Generate Android platform only when missing
         working-directory: mobile
         shell: cmd
