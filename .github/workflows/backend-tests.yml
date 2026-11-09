@@ -44,6 +44,9 @@ jobs:
       - name: Verify Python
         shell: cmd
         run: python --version && python -m pip --version
+      - name: Install Python build tools
+        shell: cmd
+        run: python -m pip install --upgrade setuptools wheel
       - name: Install dependencies
         working-directory: backend
         shell: cmd
