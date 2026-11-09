@@ -17,7 +17,7 @@ jobs:
   backend:
     if: github.event.action != 'closed' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     name: Backend tests (Python 3.12)
-    runs-on: ${{ fromJSON(vars.AIR_CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    runs-on: ${{ fromJSON(vars.AIR_CI_RUNNER_LABELS || '["self-hosted","windows","x64","air"]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -35,7 +35,7 @@ jobs:
   android:
     if: github.event.action != 'closed'
     name: Android ARM64 APK build
-    runs-on: ${{ fromJSON(vars.AIR_CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    runs-on: ${{ fromJSON(vars.AIR_CI_RUNNER_LABELS || '["self-hosted","windows","x64","air"]') }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -80,7 +80,7 @@ jobs:
   merge-after-validation:
     if: github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.number == 7 && github.event.pull_request.draft == false
     needs: [backend, android]
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.AIR_CI_RUNNER_LABELS || '["self-hosted","windows","x64","air"]') }}
     permissions:
       contents: write
       pull-requests: write
@@ -94,7 +94,7 @@ jobs:
 
   retarget-stacked-ui-pr:
     if: github.event.action == 'closed' && github.event.pull_request.merged == true && github.event.pull_request.number == 7
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.AIR_CI_RUNNER_LABELS || '["self-hosted","windows","x64","air"]') }}
     permissions:
       pull-requests: write
     steps:
