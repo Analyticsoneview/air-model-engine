@@ -20,15 +20,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Verify Python
-        shell: pwsh
+        shell: powershell
         run: python --version
       - name: Install dependencies
         working-directory: backend
-        shell: pwsh
+        shell: powershell
         run: python -m pip install -r requirements.txt
       - name: Run backend tests
         working-directory: backend
-        shell: pwsh
+        shell: powershell
         run: python -m unittest discover -s tests -v
 
   android:
@@ -38,7 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Verify Android build tools
-        shell: pwsh
+        shell: powershell
         run: |
           python --version
           java -version
@@ -46,23 +46,23 @@ jobs:
           adb version
       - name: Generate Android platform
         working-directory: mobile
-        shell: pwsh
+        shell: powershell
         run: flutter create . --platforms=android --org com.analyticalstocks
       - name: Resolve packages
         working-directory: mobile
-        shell: pwsh
+        shell: powershell
         run: flutter pub get
       - name: Analyze Flutter app
         working-directory: mobile
-        shell: pwsh
+        shell: powershell
         run: flutter analyze lib
       - name: Run Flutter tests
         working-directory: mobile
-        shell: pwsh
+        shell: powershell
         run: flutter test
       - name: Build ARM64 lab APK
         working-directory: mobile
-        shell: pwsh
+        shell: powershell
         run: flutter build apk --release --target-platform android-arm64 --dart-define=APP_ENV=lab --dart-define=AIR_API_BASE_URL="${{ vars.AIR_API_BASE_URL }}"
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -128,7 +128,7 @@ jobs:
     runs-on: [self-hosted, Windows, X64, air-ci]
     steps:
       - name: Merge validated pull request
-        shell: pwsh
+        shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -141,7 +141,7 @@ jobs:
     runs-on: [self-hosted, Windows, X64, air-ci]
     steps:
       - name: Move PR 8 onto main
-        shell: pwsh
+        shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
