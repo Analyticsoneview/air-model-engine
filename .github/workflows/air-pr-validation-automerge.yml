@@ -94,8 +94,8 @@ jobs:
       - name: Run backend tests
         working-directory: backend
         run: |
-          # Run from the backend package root so embedded Python resolves app/ without PYTHONPATH.
-          & $env:AIR_PYTHON -m unittest discover -s tests -v
+          # Explicit top-level root ensures unittest adds backend/ to sys.path under embedded Python.
+          & $env:AIR_PYTHON -m unittest discover -s tests -t . -v
           if ($LASTEXITCODE -ne 0) { throw 'Backend tests failed.' }
 
   android:
@@ -139,22 +139,17 @@ jobs:
           $ndkVersion = '28.2.13676358'
           $ndk = Join-Path $sdk ('ndk\\' + $ndkVersion)
           if (-not (Test-Path -LiteralPath (Join-Path $ndk 'source.properties'))) {
-            $sdkManager = Join-Path $sdk 'cmdline-tools\\latest\\bin\\sdkmanager.bat'
-            if (-not (Test-Path -LiteralPath $sdkManager)) {
-              $candidates = @(Get-ChildItem -LiteralPath (Join-Path $sdk 'cmdline-tools') -Filter 'sdkmanager.bat' -File -Recurse -ErrorAction SilentlyContinue)
-              if ($candidates.Count -eq 0) { throw "Android sdkmanager.bat was not found under $sdk\\cmdline-tools." }
-              $sdkManager = $candidates[0].FullName
+            $androidCli = Join-Path $sdk 'cmdline-tools\\latest\\bin\\android.exe'
+            if (-not (Test-Path -LiteralPath $androidCli)) {
+              $candidates = @(Get-ChildItem -LiteralPath (Join-Path $sdk 'cmdline-tools') -Filter 'android.exe' -File -Recurse -ErrorAction SilentlyContinue)
+              if ($candidates.Count -eq 0) { throw "Android CLI was not found under $sdk\\cmdline-tools." }
+              $androidCli = $candidates[0].FullName
             }
-            # sdkmanager accepts package paths as positional arguments; --install is not required.
-            # Keep the semicolon package ID in one quoted argument for Windows batch invocation.
-            $package = "ndk;$ndkVersion"
-            & $sdkManager "--sdk_root=$sdk" $package
-            if ($LASTEXITCODE -ne 0) {
-              & $sdkManager "--sdk_root=$sdk" --list
-              throw "Android sdkmanager could not install $package; see package list above."
-            }
+            # New Android CLI uses slash-separated package IDs, unlike legacy sdkmanager's semicolon IDs.
+            & $androidCli "--sdk=$sdk" sdk install "ndk/$ndkVersion"
+            # Verify the filesystem result; the CLI may return a misleading exit code on some Windows installs.
           }
-          if (-not (Test-Path -LiteralPath (Join-Path $ndk 'source.properties'))) { throw "Required Android NDK $ndkVersion was not installed." }
+          if (-not (Test-Path -LiteralPath (Join-Path $ndk 'source.properties'))) { throw "Required Android NDK $ndkVersion is still missing after Android CLI install." }
       - name: Generate Android platform when missing
         working-directory: mobile
         run: |
