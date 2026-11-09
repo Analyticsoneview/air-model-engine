@@ -20,16 +20,30 @@ jobs:
     runs-on: [self-hosted, Windows, X64, air-ci]
     steps:
       - uses: actions/checkout@v4
-      - name: Install isolated Python 3.12 for runner service
+      - name: Bootstrap portable Python 3.12 for runner service
         shell: cmd
         run: |
-          set "PYTHON_VERSION=3.12.10"
           set "PYTHON_DIR=%RUNNER_TEMP%\air-python312"
-          set "PYTHON_INSTALLER=%RUNNER_TEMP%\python-3.12.10-amd64.exe"
+          set "PYTHON_ZIP=%RUNNER_TEMP%\python-3.12.10-embed-amd64.zip"
           if not exist "%PYTHON_DIR%\python.exe" (
-            curl.exe -fL --retry 3 --retry-delay 2 -o "%PYTHON_INSTALLER%" "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe"
+            if not exist "%PYTHON_ZIP%" (
+              curl.exe -fL --retry 3 --retry-delay 2 -o "%PYTHON_ZIP%" "https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip"
+              if errorlevel 1 exit /b 1
+            )
+            if not exist "%PYTHON_DIR%" mkdir "%PYTHON_DIR%"
+            powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -LiteralPath '%PYTHON_ZIP%' -DestinationPath '%PYTHON_DIR%' -Force"
             if errorlevel 1 exit /b 1
-            "%PYTHON_INSTALLER%" /quiet InstallAllUsers=0 TargetDir="%PYTHON_DIR%" Include_pip=1 Include_launcher=0 PrependPath=0 Include_test=0 Shortcuts=0
+            if not exist "%PYTHON_DIR%\python312._pth" exit /b 1
+            if not exist "%PYTHON_DIR%\Lib\site-packages" mkdir "%PYTHON_DIR%\Lib\site-packages"
+            (
+              echo python312.zip
+              echo .
+              echo Lib\site-packages
+              echo import site
+            ) > "%PYTHON_DIR%\python312._pth"
+            curl.exe -fL --retry 3 --retry-delay 2 -o "%PYTHON_DIR%\get-pip.py" "https://bootstrap.pypa.io/get-pip.py"
+            if errorlevel 1 exit /b 1
+            "%PYTHON_DIR%\python.exe" "%PYTHON_DIR%\get-pip.py"
             if errorlevel 1 exit /b 1
           )
           if not exist "%PYTHON_DIR%\python.exe" exit /b 1
@@ -55,12 +69,20 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - name: Expose installed Git Bash to runner service
+      - name: Expose Git Bash and jq to runner service
         shell: cmd
         run: |
+          set "CI_TOOLS=%RUNNER_TEMP%\air-ci-tools"
+          if not exist "%CI_TOOLS%\jq.exe" (
+            if not exist "%CI_TOOLS%" mkdir "%CI_TOOLS%"
+            curl.exe -fL --retry 3 --retry-delay 2 -o "%CI_TOOLS%\jq.exe" "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-windows-amd64.exe"
+            if errorlevel 1 exit /b 1
+          )
           if not exist "C:\Program Files\Git\bin\bash.exe" exit /b 1
+          echo %CI_TOOLS%>>"%GITHUB_PATH%"
           echo C:\Program Files\Git\bin>>"%GITHUB_PATH%"
           echo C:\Program Files\Git\usr\bin>>"%GITHUB_PATH%"
+          "%CI_TOOLS%\jq.exe" --version
       - name: Set up current stable Flutter and Dart
         uses: subosito/flutter-action@v2
         with:
@@ -73,6 +95,7 @@ jobs:
           flutter --version
           adb version
           where bash
+          where jq
       - name: Generate Android platform only when missing
         working-directory: mobile
         shell: cmd
