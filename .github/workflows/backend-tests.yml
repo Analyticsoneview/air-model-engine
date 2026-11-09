@@ -13,10 +13,15 @@ jobs:
     runs-on: [self-hosted, Windows, X64, air-ci]
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+      - name: Diagnose Python available to runner service
+        shell: cmd
+        run: |
+          echo PATH=%PATH%
+          where python || echo python not on PATH
+          where py || echo py launcher not on PATH
+          reg query HKLM\\SOFTWARE\\Python\\PythonCore /s
+          reg query HKLM\\SOFTWARE\\WOW6432Node\\Python\\PythonCore /s
+          dir C:\\Python* /b
       - name: Verify Python
         shell: cmd
         run: python --version && python -m pip --version
