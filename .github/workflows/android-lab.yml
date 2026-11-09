@@ -9,7 +9,7 @@ permissions:
 jobs:
   android-lab:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.AIR_CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -26,6 +26,7 @@ jobs:
         run: flutter --version && dart --version && java -version
       - name: Generate Android platform only when missing
         working-directory: mobile
+        shell: bash
         run: |
           if [ ! -d android ]; then
             flutter create . --platforms=android --org com.analyticalstocks
