@@ -33,14 +33,12 @@ jobs:
       - name: Install backend dependencies
         working-directory: .
         run: |
-          $env:PYTHONHOME = 'C:\AIR\tools\Python312'
           Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
           & $env:AIR_PYTHON -m pip install --disable-pip-version-check -r backend/requirements.txt
           if ($LASTEXITCODE -ne 0) { throw 'Backend dependency installation failed.' }
       - name: Run backend tests
         working-directory: .
         run: |
-          $env:PYTHONHOME = 'C:\AIR\tools\Python312'
           Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
           & $env:AIR_PYTHON -m unittest discover -s backend/tests -v
           if ($LASTEXITCODE -ne 0) { throw 'Backend tests failed.' }
