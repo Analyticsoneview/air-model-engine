@@ -17,7 +17,7 @@ jobs:
   backend:
     if: github.event.action != 'closed' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     name: Backend tests (Python 3.12)
-    runs-on: ${{ fromJSON(vars.AIR_CI_RUNNER_LABELS || '["self-hosted","Windows","X64","air-ci"]') }}
+    runs-on: [self-hosted, Windows, X64]
     defaults:
       run:
         shell: pwsh
@@ -44,7 +44,7 @@ jobs:
   android:
     if: github.event.action != 'closed'
     name: Android ARM64 APK build
-    runs-on: ${{ fromJSON(vars.AIR_CI_RUNNER_LABELS || '["self-hosted","Windows","X64","air-ci"]') }}
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 90
     defaults:
       run:
