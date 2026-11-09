@@ -12,7 +12,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Verify and repair machine-wide Python 3.12 runtime
-        shell: powershell
         run: |
           $pythonHome = 'C:\AIR\tools\Python312'
           $python = Join-Path $pythonHome 'python.exe'
