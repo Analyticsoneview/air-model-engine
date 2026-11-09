@@ -129,14 +129,12 @@ jobs:
       - name: Install and verify required Android NDK
         run: |
           $sdk = 'C:\Android\Sdk'
-          $sdkManager = Join-Path $sdk 'cmdline-tools\latest\bin\sdkmanager.bat'
-          if (-not (Test-Path -LiteralPath $sdkManager)) { throw "Android sdkmanager not found: $sdkManager" }
+          $androidCli = Join-Path $sdk 'cmdline-tools\latest\bin\android.bat'
+          if (-not (Test-Path -LiteralPath $androidCli)) { throw "Android CLI not found: $androidCli" }
           $ndk = Join-Path $sdk 'ndk\28.2.13676358'
           if (-not (Test-Path -LiteralPath (Join-Path $ndk 'source.properties'))) {
-            1..20 | ForEach-Object { 'y' } | & $sdkManager "--sdk_root=$sdk" --licenses
-            if ($LASTEXITCODE -ne 0) { throw 'Android SDK license acceptance failed.' }
-            & $sdkManager "--sdk_root=$sdk" --install "ndk;28.2.13676358"
-            if ($LASTEXITCODE -ne 0) { throw 'Android NDK 28.2.13676358 installation failed.' }
+            & $androidCli --sdk=$sdk sdk install 'ndk@28.2.13676358'
+            if ($LASTEXITCODE -ne 0) { throw 'Android CLI could not install NDK 28.2.13676358.' }
           }
           if (-not (Test-Path -LiteralPath (Join-Path $ndk 'source.properties'))) { throw 'Required Android NDK was not installed.' }
       - name: Generate Android platform when missing
