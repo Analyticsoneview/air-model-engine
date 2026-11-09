@@ -23,40 +23,35 @@ jobs:
         shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "& '{0}'"
     steps:
       - uses: actions/checkout@v4
-      - name: Verify Python 3.12 (runner-local, no admin rights)
+      - name: Bootstrap portable Python 3.12 (no installer or admin rights)
         run: |
           Remove-Item Env:PYTHONHOME -ErrorAction SilentlyContinue
           Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
-          $pythonHome = 'C:\AIR\tools\Python312'
+          $pythonHome = Join-Path $env:RUNNER_TEMP 'AIR-Python312-embed'
           $python = Join-Path $pythonHome 'python.exe'
-          $existingValid = $false
-          if (Test-Path -LiteralPath $python) {
-            & $python -c "import encodings,sys; print(sys.version); print(sys.executable)"
-            $stdlibExit = $LASTEXITCODE
-            & $python -m pip --version
-            $pipExit = $LASTEXITCODE
-            $existingValid = ($stdlibExit -eq 0 -and $pipExit -eq 0)
-          }
-          if (-not $existingValid) {
-            if ([string]::IsNullOrWhiteSpace($env:RUNNER_TEMP)) { throw 'RUNNER_TEMP is unavailable; cannot create a runner-local Python runtime.' }
-            $pythonHome = Join-Path $env:RUNNER_TEMP 'AIR-Python312'
-            $python = Join-Path $pythonHome 'python.exe'
-            $installer = Join-Path $env:RUNNER_TEMP 'python-3.12.10-amd64.exe'
-            $installLog = Join-Path $env:RUNNER_TEMP 'python-3.12.10-install.log'
-            New-Item -ItemType Directory -Force -Path $env:RUNNER_TEMP | Out-Null
-            if (-not (Test-Path -LiteralPath $installer) -or (Get-Item $installer).Length -lt 10MB) {
-              & curl.exe --fail --location --show-error --retry 4 --retry-all-errors --connect-timeout 30 --max-time 900 --output $installer 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe'
-              if ($LASTEXITCODE -ne 0 -or -not (Test-Path $installer) -or (Get-Item $installer).Length -lt 10MB) { throw 'Official Python 3.12 installer download failed.' }
+          $zip = Join-Path $env:RUNNER_TEMP 'python-3.12.10-embed-amd64.zip'
+          New-Item -ItemType Directory -Force -Path $pythonHome | Out-Null
+          if (-not (Test-Path -LiteralPath (Join-Path $pythonHome 'python312.zip'))) {
+            if (-not (Test-Path -LiteralPath $zip) -or (Get-Item $zip).Length -lt 10MB) {
+              & curl.exe --fail --location --show-error --retry 4 --retry-all-errors --connect-timeout 30 --max-time 900 --output $zip 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip'
+              if ($LASTEXITCODE -ne 0 -or -not (Test-Path $zip) -or (Get-Item $zip).Length -lt 10MB) { throw 'Python embeddable ZIP download failed.' }
             }
-            $proc = Start-Process -FilePath $installer -ArgumentList @('/quiet','InstallAllUsers=0',('TargetDir=' + $pythonHome),'Include_pip=1','Include_launcher=0','Include_test=0','PrependPath=0','Shortcuts=0','/log',$installLog) -Wait -PassThru
-            if ($proc.ExitCode -notin @(0,3010)) { throw "Runner-local Python 3.12 install failed: $($proc.ExitCode). Installer log: $installLog" }
+            Expand-Archive -LiteralPath $zip -DestinationPath $pythonHome -Force
           }
-          $encodings = Join-Path $pythonHome 'Lib\encodings\__init__.py'
-          if (-not (Test-Path -LiteralPath $encodings)) { throw "Python standard library is incomplete: $encodings is missing." }
+          $pth = Join-Path $pythonHome 'python312._pth'
+          if (-not (Test-Path $pth)) { throw "Python path configuration file missing: $pth" }
+          $pthLines = @('python312.zip','.', 'Lib\site-packages','import site')
+          Set-Content -LiteralPath $pth -Value $pthLines -Encoding ascii
+          New-Item -ItemType Directory -Force -Path (Join-Path $pythonHome 'Lib\site-packages') | Out-Null
           & $python -c "import encodings,sys; print(sys.version); print(sys.executable); print(encodings.__file__)"
-          if ($LASTEXITCODE -ne 0) { throw 'Python standard-library import validation failed.' }
+          if ($LASTEXITCODE -ne 0) { throw 'Portable Python standard-library validation failed.' }
+          $getPip = Join-Path $env:RUNNER_TEMP 'get-pip.py'
+          & curl.exe --fail --location --show-error --retry 4 --retry-all-errors --connect-timeout 30 --max-time 300 --output $getPip 'https://bootstrap.pypa.io/get-pip.py'
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $getPip)) { throw 'Could not download pip bootstrap.' }
+          & $python $getPip --disable-pip-version-check
+          if ($LASTEXITCODE -ne 0) { throw 'pip bootstrap failed for portable Python.' }
           & $python -m pip --version
-          if ($LASTEXITCODE -ne 0) { throw 'Python pip validation failed.' }
+          if ($LASTEXITCODE -ne 0) { throw 'Portable Python pip validation failed.' }
           "AIR_PYTHON=$python" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Install backend dependencies
         working-directory: .
