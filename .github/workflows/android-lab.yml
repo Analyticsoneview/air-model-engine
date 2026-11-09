@@ -1,52 +1,41 @@
 name: AIR Android Lab APK
-
 on:
   workflow_dispatch:
   pull_request:
-    paths:
-      - 'mobile/**'
-      - '.github/workflows/android-lab.yml'
+    paths: ['mobile/**', '.github/workflows/android-lab.yml']
   push:
     branches: [main, feat/air-telegram-alerts]
-    paths:
-      - 'mobile/**'
-      - '.github/workflows/android-lab.yml'
-
+    paths: ['mobile/**', '.github/workflows/android-lab.yml']
 permissions:
   contents: read
-
 jobs:
   android-lab:
     runs-on: [self-hosted, Windows, X64, air-ci]
     timeout-minutes: 45
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
       - name: Verify build tools
-        shell: powershell
-        run: |
-          flutter --version
-          java -version
-          adb version
+        shell: cmd
+        run: flutter --version && java -version && adb version
       - name: Generate Android platform
         working-directory: mobile
-        shell: powershell
+        shell: cmd
         run: flutter create . --platforms=android --org com.analyticalstocks
       - name: Resolve packages
         working-directory: mobile
-        shell: powershell
+        shell: cmd
         run: flutter pub get
       - name: Analyze Flutter app
         working-directory: mobile
-        shell: powershell
+        shell: cmd
         run: flutter analyze lib
       - name: Run Flutter tests
         working-directory: mobile
-        shell: powershell
+        shell: cmd
         run: flutter test
       - name: Build optimized ARM64 lab APK
         working-directory: mobile
-        shell: powershell
+        shell: cmd
         run: flutter build apk --release --target-platform android-arm64 --dart-define=APP_ENV=lab --dart-define=AIR_API_BASE_URL="${{ vars.AIR_API_BASE_URL }}"
       - name: Upload optimized APK artifact
         uses: actions/upload-artifact@v4
