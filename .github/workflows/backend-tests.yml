@@ -19,12 +19,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'AIR Python version check failed.' }
           "AIR_PYTHON=$python" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Install backend dependencies
-        working-directory: backend
+        working-directory: .
         run: |
-          & $env:AIR_PYTHON -m pip install --disable-pip-version-check -r requirements.txt
+          $env:PYTHONHOME = 'C:\AIR\tools\Python312'
+          Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+          & $env:AIR_PYTHON -m pip install --disable-pip-version-check -r backend/requirements.txt
           if ($LASTEXITCODE -ne 0) { throw 'Backend dependency installation failed.' }
       - name: Run backend unit tests
-        working-directory: backend
+        working-directory: .
         run: |
-          & $env:AIR_PYTHON -m unittest discover -s tests -v
+          $env:PYTHONHOME = 'C:\AIR\tools\Python312'
+          Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+          & $env:AIR_PYTHON -m unittest discover -s backend/tests -v
           if ($LASTEXITCODE -ne 0) { throw 'Backend unit tests failed.' }
