@@ -1,8 +1,5 @@
-# Complete backend install used by CI, Docker and local development.
-# Vendor SDKs are split into backend/dependencies/brokers for isolated ownership.
+# AIR core runtime used by the API, Docker and local development.
+# Broker SDKs are intentionally NOT combined here: FYERS pins websocket-client
+# 1.6.1 while Angel One requires >=1.8. Install each broker SDK in its own
+# isolated runtime using backend/dependencies/brokers/<broker>.txt.
 -r dependencies/base.txt
--r dependencies/brokers/zerodha.txt
--r dependencies/brokers/upstox.txt
--r dependencies/brokers/fyers.txt
--r dependencies/brokers/angel-one.txt
--r dependencies/brokers/dhan.txt
