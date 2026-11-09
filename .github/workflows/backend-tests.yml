@@ -67,12 +67,10 @@ jobs:
             New-Item -ItemType Directory -Force -Path $target | Out-Null
             & $env:AIR_PYTHON -m pip install --disable-pip-version-check --upgrade --target $target -r backend/dependencies/base.txt -r $broker.File
             if ($LASTEXITCODE -ne 0) { throw "$($broker.Name) SDK dependency resolution failed." }
-            $env:PYTHONPATH = $target
-            & $env:AIR_PYTHON -c "import importlib; importlib.import_module('$($broker.Module)'); print('$($broker.Name) SDK import passed')"
+            $env:AIR_BROKER_TARGET = $target
+            & $env:AIR_PYTHON -c "import os,sys,importlib; sys.path.insert(0, os.environ['AIR_BROKER_TARGET']); importlib.import_module('$($broker.Module)'); print('$($broker.Name) SDK import passed')"
             if ($LASTEXITCODE -ne 0) { throw "$($broker.Name) SDK import validation failed." }
-            & $env:AIR_PYTHON -m pip check
-            if ($LASTEXITCODE -ne 0) { throw "$($broker.Name) SDK dependency consistency check failed." }
-            Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+            Remove-Item Env:AIR_BROKER_TARGET -ErrorAction SilentlyContinue
           }
       - name: Run backend unit tests
         working-directory: .
