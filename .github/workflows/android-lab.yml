@@ -13,24 +13,23 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - name: Install verified Flutter 3.47.9 and Dart 3.13.7
+      - name: Install Flutter 3.47.9 from pinned Git tag
         shell: cmd
         run: |
           if not defined RUNNER_TOOL_CACHE set "RUNNER_TOOL_CACHE=%RUNNER_TEMP%\_tool"
           set "FLUTTER_ROOT=%RUNNER_TOOL_CACHE%\air-flutter-3.47.9"
-          set "FLUTTER_ZIP=%RUNNER_TEMP%\flutter_windows_3.47.9-stable.zip"
-          if not exist "%FLUTTER_ROOT%\flutter\bin\flutter.bat" (
-            if not exist "%FLUTTER_ZIP%" (
-              curl.exe -fL --retry 5 --retry-delay 5 --retry-all-errors --max-time 1800 -o "%FLUTTER_ZIP%" "https://storage.googleapis.com/flutter_infra_release/releases/stable/windows/flutter_windows_3.47.9-stable.zip"
-              if errorlevel 1 exit /b 1
-            )
-            powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $zip='%FLUTTER_ZIP%'; $expected='d8e2b5977e09082c6440f89dc1aa887b94c8fbcc3b39222797046295a3f68a9e'; $actual=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant(); if ($actual -ne $expected) { throw 'Flutter SDK SHA256 mismatch' }; New-Item -ItemType Directory -Force -Path '%FLUTTER_ROOT%' | Out-Null; Expand-Archive -LiteralPath $zip -DestinationPath '%FLUTTER_ROOT%' -Force"
+          if not exist "%FLUTTER_ROOT%\bin\flutter.bat" (
+            if exist "%FLUTTER_ROOT%" rmdir /s /q "%FLUTTER_ROOT%"
+            git clone --depth 1 --branch 3.47.9 --single-branch https://github.com/flutter/flutter.git "%FLUTTER_ROOT%"
             if errorlevel 1 exit /b 1
           )
-          if not exist "%FLUTTER_ROOT%\flutter\bin\flutter.bat" exit /b 1
-          echo %FLUTTER_ROOT%\flutter\bin>>"%GITHUB_PATH%"
-          "%FLUTTER_ROOT%\flutter\bin\flutter.bat" --version
-          "%FLUTTER_ROOT%\flutter\bin\cache\dart-sdk\bin\dart.exe" --version
+          set "FLUTTER_ACTUAL_SHA="
+          for /f %%i in ('git -C "%FLUTTER_ROOT%" rev-parse HEAD') do set "FLUTTER_ACTUAL_SHA=%%i"
+          if /I not "%FLUTTER_ACTUAL_SHA%"=="c197ca5199e9ee5661e865596c9c07294dfab51c" exit /b 1
+          echo %FLUTTER_ROOT%\bin>>"%GITHUB_PATH%"
+          "%FLUTTER_ROOT%\bin\flutter.bat" --version
+          "%FLUTTER_ROOT%\bin\flutter.bat" precache --android
+          "%FLUTTER_ROOT%\bin\cache\dart-sdk\bin\dart.exe" --version
       - name: Verify Android build tools
         shell: cmd
         run: flutter --version && dart --version && java -version && adb version
