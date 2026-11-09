@@ -1,0 +1,2 @@
+# Upstox SDK. Keep build tooling (setuptools/wheel) installed before this file.
+upstox-python-sdk==2.23.0
