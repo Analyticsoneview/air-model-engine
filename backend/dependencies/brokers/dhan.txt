@@ -1,0 +1,3 @@
+# Dhan adapter currently uses AIR's documented REST implementation via httpx
+# and the shared websockets package; it does not import the optional dhanhq SDK.
+# Add a Dhan SDK here only when the adapter actually adopts that SDK.
