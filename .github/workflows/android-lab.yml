@@ -9,49 +9,38 @@ permissions:
 jobs:
   android-lab:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, Windows, X64, air-ci]
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - name: Install Flutter 3.47.9 from pinned Git tag
-        shell: cmd
-        run: |
-          if not defined RUNNER_TOOL_CACHE set "RUNNER_TOOL_CACHE=%RUNNER_TEMP%\_tool"
-          set "FLUTTER_ROOT=%RUNNER_TOOL_CACHE%\air-flutter-3.47.9"
-          if not exist "%FLUTTER_ROOT%\bin\flutter.bat" (
-            if exist "%FLUTTER_ROOT%" rmdir /s /q "%FLUTTER_ROOT%"
-            git clone --depth 1 --branch 3.47.9 --single-branch https://github.com/flutter/flutter.git "%FLUTTER_ROOT%"
-            if errorlevel 1 exit /b 1
-          )
-          set "FLUTTER_ACTUAL_SHA="
-          for /f %%i in ('git -C "%FLUTTER_ROOT%" rev-parse HEAD') do set "FLUTTER_ACTUAL_SHA=%%i"
-          if /I not "%FLUTTER_ACTUAL_SHA%"=="c197ca5199e9ee5661e865596c9c07294dfab51c" exit /b 1
-          echo %FLUTTER_ROOT%\bin>>"%GITHUB_PATH%"
-          "%FLUTTER_ROOT%\bin\flutter.bat" --version
-          "%FLUTTER_ROOT%\bin\flutter.bat" precache --android
-          "%FLUTTER_ROOT%\bin\cache\dart-sdk\bin\dart.exe" --version
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          channel: stable
+          cache: true
       - name: Verify Android build tools
-        shell: cmd
-        run: flutter --version && dart --version && java -version && adb version
+        run: flutter --version && dart --version && java -version
       - name: Generate Android platform only when missing
         working-directory: mobile
-        shell: cmd
-        run: if not exist android flutter create . --platforms=android --org com.analyticalstocks
+        run: |
+          if [ ! -d android ]; then
+            flutter create . --platforms=android --org com.analyticalstocks
+          fi
       - name: Resolve packages
         working-directory: mobile
-        shell: cmd
         run: flutter pub get
       - name: Analyze Flutter app
         working-directory: mobile
-        shell: cmd
         run: flutter analyze lib
       - name: Run Flutter tests
         working-directory: mobile
-        shell: cmd
         run: flutter test
       - name: Build optimized ARM64 lab APK
         working-directory: mobile
-        shell: cmd
         run: flutter build apk --release --target-platform android-arm64 --dart-define=APP_ENV=lab --dart-define=AIR_API_BASE_URL="${{ vars.AIR_API_BASE_URL }}"
       - name: Upload optimized APK artifact
         uses: actions/upload-artifact@v4
