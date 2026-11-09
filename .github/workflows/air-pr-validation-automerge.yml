@@ -57,8 +57,8 @@ jobs:
           java-version: '17'
       - name: Verify preinstalled AIR Flutter and Android SDK
         run: |
-          $flutter = 'C:\src\flutter\bin\flutter.bat'
-          $dart = 'C:\src\flutter\bin\cache\dart-sdk\bin\dart.exe'
+          $flutter = 'C:\AIR\tools\flutter\bin\flutter.bat'
+          $dart = 'C:\AIR\tools\flutter\bin\cache\dart-sdk\bin\dart.exe'
           $sdk = 'C:\Android\Sdk'
           if (-not (Test-Path -LiteralPath $flutter)) { throw "AIR Flutter SDK not found at $flutter." }
           if (-not (Test-Path -LiteralPath $dart)) { throw "Dart SDK not found at $dart." }
@@ -66,7 +66,7 @@ jobs:
           if (-not (Test-Path -LiteralPath (Join-Path $sdk 'build-tools\35.0.0\aapt2.exe'))) { throw 'Android Build Tools 35.0.0 are missing.' }
           $env:ANDROID_HOME = $sdk
           $env:ANDROID_SDK_ROOT = $sdk
-          $env:PATH = "C:\src\flutter\bin;$sdk\platform-tools;$sdk\cmdline-tools\latest\bin;$env:PATH"
+          $env:PATH = "C:\AIR\tools\flutter\bin;$sdk\platform-tools;$sdk\cmdline-tools\latest\bin;$env:PATH"
           & $flutter --version
           if ($LASTEXITCODE -ne 0) { throw 'Flutter version check failed.' }
           & $dart --version
@@ -75,7 +75,7 @@ jobs:
           "AIR_FLUTTER=$flutter" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "ANDROID_HOME=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "ANDROID_SDK_ROOT=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "PATH=C:\src\flutter\bin;$sdk\platform-tools;$sdk\cmdline-tools\latest\bin;$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "PATH=C:\AIR\tools\flutter\bin;$sdk\platform-tools;$sdk\cmdline-tools\latest\bin;$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Generate Android platform when missing
         working-directory: mobile
         run: |
