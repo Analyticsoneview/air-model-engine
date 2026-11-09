@@ -111,23 +111,6 @@ class _NseDataScreenState extends State<NseDataScreen> {
     }
   }
 
-  Future<void> _requestBootstrap() async {
-    try {
-      final result = await _api.triggerNseBootstrap();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result['message']?.toString() ?? 'NSE bootstrap requested')),
-      );
-      await _refreshStatus();
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Bootstrap request failed: $error')),
-        );
-      }
-    }
-  }
-
   String _number(dynamic value, {int decimals = 2}) {
     if (value == null) return '—';
     final number = (value as num).toDouble();
