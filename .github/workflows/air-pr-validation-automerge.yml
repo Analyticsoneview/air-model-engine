@@ -94,7 +94,7 @@ jobs:
       - name: Run backend tests
         working-directory: .
         run: |
-          Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+          $env:PYTHONPATH = Join-Path $PWD 'backend'
           & $env:AIR_PYTHON -m unittest discover -s backend/tests -v
           if ($LASTEXITCODE -ne 0) { throw 'Backend tests failed.' }
 
