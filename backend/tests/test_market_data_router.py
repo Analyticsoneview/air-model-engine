@@ -24,9 +24,10 @@ class MarketDataRouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(router.resolve("live")), 1)
         self.assertIs(router.resolve("historical")[0][2], adapter)
         self.assertIs(router.resolve("live")[0][2], adapter)
-        self.assertEqual(router.status()["simultaneous_data_connections_allowed"], 1)
+        self.assertEqual(router.status()["historical_source"], {"provider": "fake", "account_id": "acct-1"})
+        self.assertEqual(router.status()["live_source"], {"provider": "fake", "account_id": "acct-1"})
 
-    async def test_switch_closes_old_before_authenticating_new(self):
+    async def test_switch_keeps_old_source_until_new_source_is_authenticated(self):
         router = MarketDataRouter()
         first, second = FakeAdapter(), FakeAdapter()
         first.provider_code = second.provider_code = "fake"
@@ -39,10 +40,12 @@ class MarketDataRouterTests(unittest.IsolatedAsyncioTestCase):
         await router.set_main_account("fake", "one")
         await router.set_main_account("fake", "two")
 
-        self.assertEqual(events, ["close-old", "auth-new"])
+        self.assertEqual(events, ["auth-new", "close-old"])
         self.assertEqual(router.status()["active_data_account"]["account_id"], "two")
+        self.assertIs(router.resolve("historical")[0][2], second)
+        self.assertIs(router.resolve("live")[0][2], second)
 
-    async def test_failed_switch_leaves_feed_offline_without_failover(self):
+    async def test_failed_switch_retains_previous_source_without_failover(self):
         router = MarketDataRouter()
         first, second = FakeAdapter(), FakeAdapter()
         first.provider_code = second.provider_code = "fake"
@@ -54,9 +57,9 @@ class MarketDataRouterTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(RuntimeError):
             await router.set_main_account("fake", "two")
 
-        self.assertEqual(router.resolve("historical"), [])
-        self.assertEqual(router.resolve("live"), [])
-        self.assertEqual(router.status()["connection_state"], "outage")
+        self.assertIs(router.resolve("historical")[0][2], first)
+        self.assertIs(router.resolve("live")[0][2], first)
+        self.assertEqual(router.status()["connection_state"]["historical"], "connected")
         self.assertFalse(router.status()["automatic_provider_failover"])
 
 
