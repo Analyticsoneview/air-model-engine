@@ -31,3 +31,12 @@ ORB must remain unavailable in a daily-only backtest. It can be enabled only whe
 7. Test no look-ahead, missing sessions, same-candle ambiguity, charges, drawdown, reproducibility and no-order execution guard.
 
 All historical runs are research-only and must never submit broker orders.
+
+## EXPIRYSCAN historical report
+
+- Authenticated `GET /api/v1/backtest/expiryscan?start_date=2026-10-01&end_date=2026-10-31` returns the preserved 27-Oct-2026 historical cohort when the requested period contains that expiry.
+- The report returns the 11 preserved contract summaries, the recorded 191 daily-observation count, historical entry date/premium, low/high summary, last-traded close, expiry intrinsic and premium-point/percentage outcome.
+- The expected pre-expiry review/closing date for this pinned cohort is 26-Oct-2026, grounded in the preserved 26-Oct option-bhavcopy source. It is a planned date, not evidence of an executed close.
+- The strategy catalogue exposes `available_for_historical_report=true` separately from `available_for_daily_backtest=false`. EXPIRYSCAN is selectable for its historical cohort report but is not misrepresented as a complete daily-candle replay.
+- The referenced `AIR_EXPIRYSCAN_EXPIRED_27Oct2026_11Contracts_DailyDetail.xlsx` is not present in this repository branch. Therefore this endpoint reports contract-level summary evidence and explicitly marks daily-detail rows pending. It does not reconstruct OHLC/qualification chronology or infer bid/ask liquidity from daily candles.
+- No rupee P&L is claimed without verified quantity, lot-size treatment, charges and slippage. No broker orders are submitted.
