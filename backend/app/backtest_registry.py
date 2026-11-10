@@ -34,7 +34,11 @@ def registered_backtest_strategies() -> list[dict[str, Any]]:
             "source": "app.model_engine_expiryscan.scan_expiries",
             "data_requirements": ["time-stamped persisted option-chain observations", "provider/account identity", "bid/ask, volume and OI evidence"],
             "available_for_daily_backtest": False,
-            "unavailable_reason": "EXPIRYSCAN currently evaluates latest persisted option-chain observations as an evidence-only watchlist; a point-in-time historical snapshot replay source and replay adapter are not implemented. It must not be approximated with EOD Bhavcopy bars.",
+            "available_for_forward_report": True,
+            "forward_report_endpoint": "/api/v1/backtest/expiryscan/forward/{account_id}",
+            "forward_report_horizon_days": 30,
+            "forward_qualification": "Existing positive volume, positive OI, two-sided bid/ask and spread-at-most-10-percent checks; this is a liquidity-screen pass, not a QOC trade signal.",
+            "unavailable_reason": "Historical point-in-time replay requires archived option-chain snapshots; daily Bhavcopy bars must not be substituted.",
         },
         {
             "id": "ORIGINAL366",
