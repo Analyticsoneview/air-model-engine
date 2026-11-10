@@ -740,13 +740,19 @@ async def admin_logout(admin: dict = Depends(require_admin)) -> dict:
     return {"status": "signed_out"}
 
 
+def require_admin_management(admin: dict = Depends(require_admin)) -> dict:
+    if admin["role"] not in {"SUPER_ADMIN", "ADMIN"}:
+        raise HTTPException(status_code=403, detail="Administrator management permission is required")
+    return admin
+
+
 @app.get("/api/v1/admin/access-requests")
 async def list_access_requests(status: str | None = Query(default=None, pattern="^(PENDING|APPROVED|REJECTED|BLOCKED)$"), admin: dict = Depends(require_admin)) -> dict:
     return {"requests": [dict(row) for row in access_store.list_requests(status)]}
 
 
 @app.put("/api/v1/admin/access-requests/{request_id}")
-async def review_access_request(request_id: str, body: AccessReview, admin: dict = Depends(require_admin)) -> dict:
+async def review_access_request(request_id: str, body: AccessReview, admin: dict = Depends(require_admin_management)) -> dict:
     if not access_store.review(request_id, body.status, body.note):
         raise HTTPException(status_code=404, detail="Access request not found")
     return {"request_id": request_id, "status": body.status, "updated": True}
