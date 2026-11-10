@@ -11,7 +11,6 @@ from typing import Any
 from app.model_engine_expiry78 import RULES as EXPIRY78_RULES
 from app.model_engine_original366 import ORIGINAL366_RULES
 from app.model_engine_strategies import STRATEGY_RULES
-from app.orb_strategy import OrbSignalEngine
 
 
 def registered_backtest_strategies() -> list[dict[str, Any]]:
