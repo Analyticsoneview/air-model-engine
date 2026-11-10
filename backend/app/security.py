@@ -89,8 +89,8 @@ async def require_admin(credentials: HTTPAuthorizationCredentials | None = Depen
         payload = jwt.decode(credentials.credentials, _secret("AIR_JWT_SECRET"),
             algorithms=["HS256"], issuer="air-model-engine", audience="air-admin-api",
             options={"require": ["sub", "role", "exp", "iat", "iss", "aud", "jti"]})
-        from app.admin_auth import admin_auth_store
-        session = admin_auth_store.session(payload["jti"])
+        from app.admin_auth import get_admin_auth_store
+        session = get_admin_auth_store().session(payload["jti"])
         if not session or session["admin_id"] != payload["sub"] or session["role"] != payload["role"]:
             raise ValueError("Administrator session revoked")
         return {"admin_id": session["admin_id"], "email": session["email"], "role": session["role"],
