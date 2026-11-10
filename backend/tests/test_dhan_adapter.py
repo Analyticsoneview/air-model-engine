@@ -44,7 +44,7 @@ class DhanAdapterTests(unittest.IsolatedAsyncioTestCase):
         await adapter.unsubscribe([instrument])
         self.assertEqual(feed.subscribed[0]["security_id"], "123")
         self.assertEqual(feed.unsubscribed[0]["exchange_segment"], "NSE_FNO")
-        self.assertEqual(adapter._symbols[("NSE_FNO", "123")], "NIFTY FUT")
+        self.assertNotIn(("NSE_FNO", "123"), adapter._symbols)
 
     async def test_binary_feed_packets_are_normalized_into_hub_ticks(self):
         hub = FakeHub()
