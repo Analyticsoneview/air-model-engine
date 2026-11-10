@@ -20,7 +20,8 @@ async def list_backtest_strategies(customer_id: str = Depends(require_customer))
     return {
         "strategies": strategies,
         "daily_candle_eligible": [item["id"] for item in strategies if item.get("available_for_daily_backtest")],
-        "intraday_only": [item["id"] for item in strategies if not item.get("available_for_daily_backtest")],
+        "intraday_only": [item["id"] for item in strategies if not item.get("available_for_daily_backtest") and item["id"] != "EXPIRYSCAN"],
+        "historical_report_available": [item["id"] for item in strategies if item.get("available_for_historical_report")],
         "selection_modes": ["SINGLE", "MULTIPLE", "ALL"],
         "execution": "HISTORICAL_RESEARCH_ONLY_NO_BROKER_ORDERS",
         "note": "Strategy discovery only; each report endpoint discloses its actual data coverage and limitations.",
