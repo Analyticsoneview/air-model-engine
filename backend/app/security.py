@@ -72,3 +72,28 @@ async def require_customer(credentials: HTTPAuthorizationCredentials | None = De
         return customer_id
     except Exception as exc:
         raise HTTPException(status_code=401, detail="Invalid or expired access token") from exc
+
+
+def create_admin_access_token(admin_id: str, role: str, session_id: str, expires_minutes: int = 20) -> str:
+    now = datetime.now(timezone.utc)
+    payload = {"sub": admin_id, "role": role, "iat": now,
+               "exp": now + timedelta(minutes=expires_minutes),
+               "iss": "air-model-engine", "aud": "air-admin-api", "jti": session_id}
+    return jwt.encode(payload, _secret("AIR_JWT_SECRET"), algorithm="HS256")
+
+
+async def require_admin(credentials: HTTPAuthorizationCredentials | None = Depends(_bearer)) -> dict:
+    if credentials is None:
+        raise HTTPException(status_code=401, detail="Administrator bearer token required")
+    try:
+        payload = jwt.decode(credentials.credentials, _secret("AIR_JWT_SECRET"),
+            algorithms=["HS256"], issuer="air-model-engine", audience="air-admin-api",
+            options={"require": ["sub", "role", "exp", "iat", "iss", "aud", "jti"]})
+        from app.admin_auth import admin_auth_store
+        session = admin_auth_store.session(payload["jti"])
+        if not session or session["admin_id"] != payload["sub"] or session["role"] != payload["role"]:
+            raise ValueError("Administrator session revoked")
+        return {"admin_id": session["admin_id"], "email": session["email"], "role": session["role"],
+                "session_id": payload["jti"]}
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail="Invalid, expired or revoked administrator session") from exc
