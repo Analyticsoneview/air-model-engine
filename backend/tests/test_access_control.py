@@ -6,15 +6,11 @@ from app.access_control import AccessStore
 
 
 class AccessStoreTests(unittest.TestCase):
-    def test_new_device_waits_for_approval_and_only_approved_device_gets_session(self):
+    def test_new_device_is_registered_and_gets_session_immediately(self):
         with tempfile.TemporaryDirectory() as temp:
             store = AccessStore(str(Path(temp) / "auth.sqlite3"))
             request = store.request_access("+14155550123", "device-identifier-0001")
-            self.assertEqual(request["status"], "PENDING")
-            with self.assertRaises(PermissionError):
-                store.create_session(request["request_id"])
-
-            self.assertTrue(store.review(request["request_id"], "APPROVED"))
+            self.assertEqual(request["status"], "APPROVED")
             session_id = store.create_session(request["request_id"])
             self.assertTrue(store.is_session_active(session_id))
             store.close()
@@ -41,6 +37,23 @@ class AccessStoreTests(unittest.TestCase):
             )
             store.close()
 
+    def test_subscription_plan_is_saved_and_expires(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = AccessStore(str(Path(temp) / "auth.sqlite3"))
+            store.assign_subscription("+919876543210", "MONTHLY",
+                "2026-01-01T00:00:00+00:00", "2026-01-31T00:00:00+00:00")
+            subscription = store.get_subscription("+919876543210")
+            self.assertEqual(subscription["plan_code"], "MONTHLY")
+            self.assertEqual(subscription["status"], "EXPIRED")
+            store.close()
+
+    def test_invalid_subscription_plan_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = AccessStore(str(Path(temp) / "auth.sqlite3"))
+            with self.assertRaises(ValueError):
+                store.assign_subscription("+919876543210", "LIFETIME",
+                    "2026-01-01T00:00:00+00:00", "2027-01-01T00:00:00+00:00")
+            store.close()
     def test_international_mobile_format_is_required(self):
         with tempfile.TemporaryDirectory() as temp:
             store = AccessStore(str(Path(temp) / "auth.sqlite3"))
