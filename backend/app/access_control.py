@@ -67,6 +67,12 @@ class AccessStore:
                    (request_id,mobile_e164,device_id,status) VALUES(?,?,?,'APPROVED')""",
                 (str(uuid4()), mobile, device),
             )
+            # Migrate previously pending beta requests into the direct dashboard flow.
+            # Explicitly rejected or blocked devices are not silently re-enabled.
+            self.db.execute(
+                "UPDATE air_access_requests SET status='APPROVED' WHERE mobile_e164=? AND device_id=? AND status='PENDING'",
+                (mobile, device),
+            )
         return self.get_request(mobile, device)
 
     def get_request(self, mobile_e164: str, device_id: str):
