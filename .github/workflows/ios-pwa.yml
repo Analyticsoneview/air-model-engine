@@ -23,11 +23,19 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
+      - name: Verify preinstalled AIR Flutter
+        shell: pwsh
+        run: |
+          $flutterBin = 'C:\AIR\tools\flutter\bin'
+          $flutter = Join-Path $flutterBin 'flutter.bat'
+          if (-not (Test-Path $flutter)) {
+            throw "Preinstalled AIR Flutter not found at $flutter"
+          }
+          & $flutter --version
+          if ($LASTEXITCODE -ne 0) {
+            throw "Preinstalled AIR Flutter failed its version check."
+          }
+          Add-Content -Path $env:GITHUB_PATH -Value $flutterBin
 
       - name: Generate Flutter web platform
         working-directory: mobile
