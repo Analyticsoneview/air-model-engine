@@ -137,21 +137,23 @@ jobs:
       - name: Install and verify required Android NDK
         run: |
           $sdk = 'C:\Android\Sdk'
-          # The current Command-line Tools ship the new Android CLI.
-          # sdkmanager.bat is a deprecated wrapper and misparses legacy NDK IDs.
-          $androidBin = Join-Path $sdk 'cmdline-tools\latest\bin'
-          $androidCli = Join-Path $androidBin 'android.exe'
-          if (-not (Test-Path -LiteralPath $androidCli)) {
-            $androidCli = Join-Path $androidBin 'android.bat'
-          }
-          if (-not (Test-Path -LiteralPath $androidCli)) {
-            $candidates = @(Get-ChildItem -LiteralPath (Join-Path $sdk 'cmdline-tools') -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Name -in @('android.exe','android.bat') })
-            if ($candidates.Count -eq 0) { throw "Android CLI executable was not found under $sdk\cmdline-tools." }
-            $androidCli = $candidates[0].FullName
-          }
+          # Android CLI is a separate Google product; it is not bundled in
+          # cmdline-tools/latest. Install it locally without admin privileges.
+          $installer = Join-Path $env:RUNNER_TEMP 'android-cli-install.cmd'
+          & curl.exe --fail --location --show-error --retry 4 --retry-all-errors --connect-timeout 30 --max-time 300 --output $installer 'https://dl.google.com/android/cli/latest/windows_x86_64/install.cmd'
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $installer)) { throw 'Android CLI installer download failed.' }
+          & cmd.exe /d /c $installer
+          if ($LASTEXITCODE -ne 0) { throw 'Android CLI user-scope installation failed.' }
+          $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+          if ($userPath) { $env:PATH = "$userPath;$env:PATH" }
+          $androidCommand = Get-Command 'android.exe' -ErrorAction SilentlyContinue
+          if (-not $androidCommand) { $androidCommand = Get-Command 'android' -ErrorAction SilentlyContinue }
+          if (-not $androidCommand) { throw 'Android CLI installed but android executable is not on the user PATH.' }
+          & $androidCommand.Source -V
+          if ($LASTEXITCODE -ne 0) { throw 'Android CLI version check failed.' }
           $ndk = Join-Path $sdk 'ndk\28.2.13676358'
           if (-not (Test-Path -LiteralPath (Join-Path $ndk 'source.properties'))) {
-            & $androidCli "--sdk=$sdk" sdk install 'ndk/28.2.13676358'
+            & $androidCommand.Source "--sdk=$sdk" sdk install 'ndk/28.2.13676358'
             if ($LASTEXITCODE -ne 0) { throw 'Android CLI could not install NDK 28.2.13676358.' }
           }
           if (-not (Test-Path -LiteralPath (Join-Path $ndk 'source.properties'))) { throw 'Required Android NDK 28.2.13676358 was not installed.' }
