@@ -57,6 +57,9 @@ jobs:
         working-directory: .
         run: |
           Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+          # Install PEP 517 build tooling before source-distributed broker SDKs such as Upstox.
+          & $env:AIR_PYTHON -m pip install --disable-pip-version-check --upgrade pip setuptools wheel
+          if ($LASTEXITCODE -ne 0) { throw 'Python packaging toolchain installation failed.' }
           & $env:AIR_PYTHON -m pip install --disable-pip-version-check -r backend/requirements.txt
           if ($LASTEXITCODE -ne 0) { throw 'Backend dependency installation failed.' }
       - name: Run backend tests
