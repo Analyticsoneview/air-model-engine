@@ -70,3 +70,12 @@ def verify_totp(secret:str,code:str,now:int|None=None)->bool:
         value=(struct.unpack(">I",digest[offset:offset+4])[0]&0x7fffffff)%1000000
         if hmac.compare_digest(f"{value:06d}",code): return True
     return False
+
+
+_admin_store = None
+
+def get_admin_auth_store() -> AdminAuthStore:
+    global _admin_store
+    if _admin_store is None:
+        _admin_store = AdminAuthStore()
+    return _admin_store
