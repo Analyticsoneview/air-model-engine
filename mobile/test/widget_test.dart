@@ -5,14 +5,11 @@ void main() {
   testWidgets('AIR phone onboarding gate renders before dashboard access', (tester) async {
     await tester.pumpWidget(const AirModelEngineApp());
 
-    // The gate starts an asynchronous secure-storage session restore and shows
-    // an indeterminate progress indicator while it runs. pumpAndSettle() can
-    // never settle while that indicator is active, so verify the stable gate
-    // content on the first frame instead.
+    // Verify stable onboarding content without waiting for the async session restore.
     expect(find.text('ANALYTICAL INVESTMENT RESEARCH'), findsOneWidget);
     expect(find.text('Your market intelligence workspace.'), findsOneWidget);
     expect(find.text('International mobile number'), findsOneWidget);
     expect(find.text('DASHBOARD ACCESS  •  SUBSCRIPTION-BASED STRATEGIES'), findsOneWidget);
-    expect(find.text('NO OTP  •  NO WHATSAPP  •  NO PASSWORD'), findsOneWidget);
+    expect(find.textContaining('Verify ownership before enabling payments'), findsOneWidget);
   });
 }
