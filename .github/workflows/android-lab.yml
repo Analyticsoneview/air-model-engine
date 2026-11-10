@@ -1,63 +1,69 @@
 name: AIR Android Lab APK
-
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - 'mobile/**'
-      - '.github/workflows/android-lab.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'mobile/**'
-      - '.github/workflows/android-lab.yml'
-
 permissions:
   contents: read
-
 jobs:
   android-lab:
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
+    runs-on: self-hosted
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "& '{0}'"
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-
-      - name: Set up Java
-        uses: actions/setup-java@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
-      - name: Cache Gradle dependencies
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Generate Android platform
+      - name: Verify preinstalled AIR Flutter and Android SDK
+        run: |
+          $flutter = 'C:\AIR\tools\flutter\bin\flutter.bat'
+          $dart = 'C:\AIR\tools\flutter\bin\cache\dart-sdk\bin\dart.exe'
+          $sdk = 'C:\Android\Sdk'
+          if (-not (Test-Path -LiteralPath $flutter)) { throw "AIR Flutter SDK not found at $flutter. Run AIR Master ZIP repair." }
+          if (-not (Test-Path -LiteralPath $dart)) { throw "Dart SDK not found at $dart." }
+          if (-not (Test-Path -LiteralPath (Join-Path $sdk 'platforms\android-35\android.jar'))) { throw 'Android 35 platform is missing.' }
+          if (-not (Test-Path -LiteralPath (Join-Path $sdk 'build-tools\35.0.0\aapt2.exe'))) { throw 'Android Build Tools 35.0.0 are missing.' }
+          $env:ANDROID_HOME = $sdk
+          $env:ANDROID_SDK_ROOT = $sdk
+          $env:PATH = "C:\AIR\tools\flutter\bin;$sdk\platform-tools;$sdk\cmdline-tools\latest\bin;$env:PATH"
+          & $flutter --version
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter version check failed.' }
+          & $dart --version
+          if ($LASTEXITCODE -ne 0) { throw 'Dart version check failed.' }
+          java -version
+          "AIR_FLUTTER=$flutter" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "ANDROID_HOME=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "ANDROID_SDK_ROOT=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "PATH=C:\AIR\tools\flutter\bin;$sdk\platform-tools;$sdk\cmdline-tools\latest\bin;$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Generate Android platform when missing
         working-directory: mobile
-        run: flutter create . --platforms=android --org com.analyticalstocks
-
-      - name: Resolve packages
+        run: |
+          if (-not (Test-Path -LiteralPath 'android')) {
+            & $env:AIR_FLUTTER create . --platforms=android --org com.analyticalstocks
+            if ($LASTEXITCODE -ne 0) { throw 'Flutter Android platform generation failed.' }
+          }
+      - name: Resolve Flutter packages
         working-directory: mobile
-        run: flutter pub get
-
+        run: |
+          & $env:AIR_FLUTTER pub get
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter package resolution failed.' }
       - name: Analyze Flutter app
         working-directory: mobile
-        run: flutter analyze lib
-
+        run: |
+          & $env:AIR_FLUTTER analyze lib
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter analysis failed.' }
       - name: Run Flutter tests
         working-directory: mobile
-        run: flutter test
-
+        run: |
+          & $env:AIR_FLUTTER test
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter tests failed.' }
       - name: Build optimized ARM64 lab APK
         working-directory: mobile
-        run: flutter build apk --release --target-platform android-arm64 --dart-define=APP_ENV=lab --dart-define=AIR_API_BASE_URL=${{ vars.AIR_API_BASE_URL }}
-
+        run: |
+          & $env:AIR_FLUTTER build apk --release --target-platform android-arm64 --dart-define=APP_ENV=lab --dart-define=AIR_API_BASE_URL="${{ vars.AIR_API_BASE_URL }}"
+          if ($LASTEXITCODE -ne 0) { throw 'Android ARM64 APK build failed.' }
       - name: Upload optimized APK artifact
         uses: actions/upload-artifact@v4
         with:

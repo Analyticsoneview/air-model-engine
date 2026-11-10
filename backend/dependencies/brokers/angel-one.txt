@@ -1,0 +1,5 @@
+# Angel One SmartAPI requires a newer websocket-client than FYERS.
+smartapi-python==1.5.5
+logzero>=1.7,<2
+websocket-client>=1.8,<2
+protobuf>=5.28,<7

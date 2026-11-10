@@ -1,4 +1,4 @@
-name: AIR PR Validation and Auto Merge
+name: AIR PR Validation (Backend + Android)
 
 on:
   pull_request:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: write
 
 concurrency:
@@ -14,83 +14,203 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  backend:
-    name: Backend tests (Python 3.12)
-    if: github.event_name == 'pull_request' && github.event.action != 'closed'
-    runs-on: ubuntu-latest
+  changes:
+    if: github.event.action != 'closed'
+    runs-on: self-hosted
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      android: ${{ steps.filter.outputs.android }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-          cache: pip
-          cache-dependency-path: backend/requirements.txt
-      - name: Install dependencies
-        working-directory: backend
-        run: python -m pip install -r requirements.txt
+          fetch-depth: 0
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - '.github/workflows/air-pr-validation-automerge.yml'
+            android:
+              - 'mobile/**'
+
+  backend:
+    needs: changes
+    if: github.event.action != 'closed' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    name: Backend tests (Python 3.12)
+    runs-on: self-hosted
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "& '{0}'"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bootstrap portable Python 3.12 (no installer or admin rights)
+        run: |
+          Remove-Item Env:PYTHONHOME -ErrorAction SilentlyContinue
+          Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+          $pythonHome = Join-Path $env:RUNNER_TEMP 'AIR-Python312-embed'
+          $python = Join-Path $pythonHome 'python.exe'
+          $zip = Join-Path $env:RUNNER_TEMP 'python-3.12.10-embed-amd64.zip'
+          New-Item -ItemType Directory -Force -Path $pythonHome | Out-Null
+          if (-not (Test-Path -LiteralPath (Join-Path $pythonHome 'python312.zip'))) {
+            if (-not (Test-Path -LiteralPath $zip) -or (Get-Item $zip).Length -lt 10MB) {
+              & curl.exe --fail --location --show-error --retry 4 --retry-all-errors --connect-timeout 30 --max-time 900 --output $zip 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip'
+              if ($LASTEXITCODE -ne 0 -or -not (Test-Path $zip) -or (Get-Item $zip).Length -lt 10MB) { throw 'Python embeddable ZIP download failed.' }
+            }
+            Expand-Archive -LiteralPath $zip -DestinationPath $pythonHome -Force
+          }
+          $pth = Join-Path $pythonHome 'python312._pth'
+          if (-not (Test-Path $pth)) { throw "Python path configuration file missing: $pth" }
+          $pthLines = @('python312.zip','.', 'Lib\site-packages', (Join-Path $env:GITHUB_WORKSPACE 'backend'), 'import site')
+          Set-Content -LiteralPath $pth -Value $pthLines -Encoding ascii
+          New-Item -ItemType Directory -Force -Path (Join-Path $pythonHome 'Lib\site-packages') | Out-Null
+          & $python -c "import encodings,sys; print(sys.version); print(sys.executable); print(encodings.__file__)"
+          if ($LASTEXITCODE -ne 0) { throw 'Portable Python standard-library validation failed.' }
+          $getPip = Join-Path $env:RUNNER_TEMP 'get-pip.py'
+          & curl.exe --fail --location --show-error --retry 4 --retry-all-errors --connect-timeout 30 --max-time 300 --output $getPip 'https://bootstrap.pypa.io/get-pip.py'
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $getPip)) { throw 'Could not download pip bootstrap.' }
+          & $python $getPip --disable-pip-version-check
+          if ($LASTEXITCODE -ne 0) { throw 'pip bootstrap failed for portable Python.' }
+          & $python -m pip --version
+          if ($LASTEXITCODE -ne 0) { throw 'Portable Python pip validation failed.' }
+          "AIR_PYTHON=$python" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Install AIR core dependencies
+        working-directory: .
+        run: |
+          Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+          & $env:AIR_PYTHON -m pip install --disable-pip-version-check --upgrade pip setuptools wheel
+          if ($LASTEXITCODE -ne 0) { throw 'Python packaging toolchain installation failed.' }
+          & $env:AIR_PYTHON -m pip install --disable-pip-version-check -r backend/requirements.txt
+          if ($LASTEXITCODE -ne 0) { throw 'AIR core dependency installation failed.' }
+          & $env:AIR_PYTHON -m pip check
+          if ($LASTEXITCODE -ne 0) { throw 'AIR core dependency consistency check failed.' }
+      - name: Validate broker SDKs in isolated dependency targets
+        working-directory: .
+        run: |
+          $brokers = @(
+            @{ Name='Zerodha'; File='backend/dependencies/brokers/zerodha.txt'; Module='kiteconnect' },
+            @{ Name='Upstox'; File='backend/dependencies/brokers/upstox.txt'; Module='upstox_client' },
+            @{ Name='FYERS'; File='backend/dependencies/brokers/fyers.txt'; Module='fyers_apiv3' },
+            @{ Name='Angel One'; File='backend/dependencies/brokers/angel-one.txt'; Module='SmartApi' }
+          )
+          foreach ($broker in $brokers) {
+            $target = Join-Path $env:RUNNER_TEMP ('AIR-broker-' + ($broker.Name -replace '[^A-Za-z0-9]',''))
+            if (Test-Path $target) { Remove-Item $target -Recurse -Force }
+            New-Item -ItemType Directory -Force -Path $target | Out-Null
+            & $env:AIR_PYTHON -m pip install --disable-pip-version-check --upgrade --target $target -r backend/dependencies/base.txt -r $broker.File
+            if ($LASTEXITCODE -ne 0) { throw "$($broker.Name) SDK dependency resolution failed." }
+            if ($broker.Name -eq 'Upstox') {
+              $env:AIR_BROKER_TARGET = $target
+              & $env:AIR_PYTHON -c "import os,pathlib,shutil; p=pathlib.Path(os.environ['AIR_BROKER_TARGET']); (p/'uuid.py').unlink(missing_ok=True); [shutil.rmtree(x, ignore_errors=True) for x in p.glob('uuid-*.dist-info')]"
+              if ($LASTEXITCODE -ne 0) { throw 'Could not remove obsolete Upstox uuid shadow package.' }
+            }
+            $env:AIR_BROKER_TARGET = $target
+            & $env:AIR_PYTHON -c "import os,sys,importlib; sys.path.insert(0, os.environ['AIR_BROKER_TARGET']); import uuid; print('uuid module:', uuid.__file__); importlib.import_module('$($broker.Module)'); print('$($broker.Name) SDK import passed')"
+            if ($LASTEXITCODE -ne 0) { throw "$($broker.Name) SDK import validation failed." }
+            Remove-Item Env:AIR_BROKER_TARGET -ErrorAction SilentlyContinue
+          }
       - name: Run backend tests
         working-directory: backend
-        run: python -m unittest discover -s tests -v
+        timeout-minutes: 10
+        run: |
+          Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+          & $env:AIR_PYTHON -m unittest discover -s tests -v
+          if ($LASTEXITCODE -ne 0) { throw 'Backend tests failed.' }
 
   android:
+    needs: [changes, backend]
+    if: always() && github.event.action != 'closed' && needs.backend.result == 'success' && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.android == 'true')
     name: Android ARM64 APK build
-    if: github.event_name == 'pull_request' && github.event.action != 'closed'
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
+    runs-on: self-hosted
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "& '{0}'"
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-      - uses: android-actions/setup-android@v3
-      - uses: gradle/actions/setup-gradle@v4
-      - name: Generate Android platform
+      - name: Verify preinstalled AIR Flutter and Android SDK
+        run: |
+          $flutter = 'C:\AIR\tools\flutter\bin\flutter.bat'
+          $dart = 'C:\AIR\tools\flutter\bin\cache\dart-sdk\bin\dart.exe'
+          $sdk = 'C:\Android\Sdk'
+          if (-not (Test-Path -LiteralPath $flutter)) { throw "AIR Flutter SDK not found at $flutter." }
+          if (-not (Test-Path -LiteralPath $dart)) { throw "Dart SDK not found at $dart." }
+          if (-not (Test-Path -LiteralPath (Join-Path $sdk 'platforms\android-35\android.jar'))) { throw 'Android 35 platform is missing.' }
+          if (-not (Test-Path -LiteralPath (Join-Path $sdk 'build-tools\35.0.0\aapt2.exe'))) { throw 'Android Build Tools 35.0.0 are missing.' }
+          $env:ANDROID_HOME = $sdk
+          $env:ANDROID_SDK_ROOT = $sdk
+          $env:PATH = "C:\AIR\tools\flutter\bin;$sdk\platform-tools;$sdk\cmdline-tools\latest\bin;$env:PATH"
+          & $flutter --version
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter version check failed.' }
+          & $dart --version
+          if ($LASTEXITCODE -ne 0) { throw 'Dart version check failed.' }
+          java -version
+          "AIR_FLUTTER=$flutter" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "ANDROID_HOME=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "ANDROID_SDK_ROOT=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "PATH=C:\AIR\tools\flutter\bin;$sdk\platform-tools;$sdk\cmdline-tools\latest\bin;$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Generate Android platform when missing
         working-directory: mobile
-        run: flutter create . --platforms=android --org com.analyticalstocks
+        run: |
+          if (-not (Test-Path -LiteralPath 'android')) {
+            & $env:AIR_FLUTTER create . --platforms=android --org com.analyticalstocks
+            if ($LASTEXITCODE -ne 0) { throw 'Flutter Android platform generation failed.' }
+          }
       - name: Resolve packages
         working-directory: mobile
-        run: flutter pub get
+        run: |
+          & $env:AIR_FLUTTER pub get
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter package resolution failed.' }
       - name: Analyze Flutter app
         working-directory: mobile
-        run: flutter analyze lib
+        run: |
+          & $env:AIR_FLUTTER analyze lib
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter analysis failed.' }
       - name: Run Flutter tests
         working-directory: mobile
-        run: flutter test
+        run: |
+          & $env:AIR_FLUTTER test
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter tests failed.' }
       - name: Build ARM64 lab APK
         working-directory: mobile
-        env:
-          AIR_API_BASE_URL: ${{ vars.AIR_API_BASE_URL }}
-        run: flutter build apk --release --target-platform android-arm64 --dart-define=APP_ENV=lab --dart-define=AIR_API_BASE_URL="${AIR_API_BASE_URL}"
+        run: |
+          & $env:AIR_FLUTTER build apk --release --target-platform android-arm64 --dart-define=APP_ENV=lab --dart-define=AIR_API_BASE_URL="${{ vars.AIR_API_BASE_URL }}"
+          if ($LASTEXITCODE -ne 0) { throw 'Android ARM64 APK build failed.' }
       - name: Upload APK
         uses: actions/upload-artifact@v4
+        timeout-minutes: 30
         with:
-          name: AIR-Android-ARM64-PR-${{ github.event.pull_request.number }}
+          compression-level: 0
+          name: AIR-Android-ARM64-PR-${{ github.event.pull_request.number || 'manual' }}
           path: mobile/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
           retention-days: 30
 
   merge-after-validation:
-    name: Merge PR after successful validation
-    needs: [backend, android]
-    if: github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.draft == false
+    needs: [changes, backend, android]
+    if: always() && github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.number == 7 && github.event.pull_request.draft == false && needs.backend.result == 'success' && (needs.android.result == 'success' || (needs.android.result == 'skipped' && needs.changes.outputs.android != 'true'))
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
-      - name: Merge validated pull request
+      - name: Squash merge PR 7 after both validations pass
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: gh pr merge "$PR_NUMBER" --squash
+        run: gh pr merge "$PR_NUMBER" --squash --delete-branch
 
   retarget-stacked-ui-pr:
-    name: Retarget dependent UI PR after PR 7 merges
-    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && github.event.pull_request.number == 7
+    if: github.event.action == 'closed' && github.event.pull_request.merged == true && github.event.pull_request.number == 7
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
     steps:
       - name: Move stacked PRs 8 and 9 onto main
         env:

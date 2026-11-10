@@ -38,6 +38,14 @@ BROKER_CATALOG = [
         "authorization_ready": False,
     },
     {
+        "code": "custom_vendor",
+        "name": "External Market-Data Vendor (AIR JSON adapter)",
+        "auth_mode": "encrypted_api_key_https",
+        "market_data": "historical_rest_and_json_websocket",
+        "execution": "disabled",
+        "authorization_ready": True,
+    },
+    {
         "code": "fyers",
         "name": "FYERS API v3",
         "auth_mode": "authorization_code_app_id_hash_exchange",

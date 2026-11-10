@@ -1,0 +1,14 @@
+{
+    email {$AIR_TLS_EMAIL}
+    admin off
+}
+
+{$AIR_APP_DOMAIN} {
+    encode zstd gzip
+    reverse_proxy air-pwa:8080
+}
+
+{$AIR_API_DOMAIN} {
+    encode zstd gzip
+    reverse_proxy air-api:8000
+}

@@ -1,40 +1,37 @@
-"""Create the first AIR operator locally before exposing the API.
+"""Provision the AIR operator identity for admin-approved mobile access.
 
-Run from the backend directory after installing requirements:
+Run once on the server:
     python scripts/bootstrap_operator.py
-The password is entered interactively and is never echoed or stored in shell history.
-"""
-import os
-from getpass import getpass
-from uuid import uuid4
 
-from app.auth_store import AuthStore
-from app.security import hash_password
+The mobile number is the stable operator identity. The first device still
+submits a request in the app; approve that request with the server-held
+AIR_ADMIN_API_KEY. No OTP or phone ownership verification is performed.
+"""
+import re
+from pathlib import Path
+
+E164 = re.compile(r"^\+[1-9][0-9]{7,14}$")
 
 
 def main() -> None:
-    db_path = os.getenv("AIR_AUTH_DB_PATH", "data/air_auth.sqlite3")
-    email = input("AIR operator email: ").strip()
-    password = getpass("Password (minimum 12 characters): ")
-    confirmation = getpass("Confirm password: ")
-    if password != confirmation:
-        raise SystemExit("Passwords do not match.")
-    if len(password) < 12:
-        raise SystemExit("Password must contain at least 12 characters.")
-
-    customer_id = str(uuid4())
-    store = AuthStore(db_path)
-    try:
-        store.create_customer(customer_id, email, hash_password(password))
-    except Exception as exc:
-        raise SystemExit(f"Could not create operator (email may already exist): {exc}") from exc
-    finally:
-        store.close()
-
-    print("\nAIR operator created.")
-    print(f"Customer UUID: {customer_id}")
-    print("Set AIR_OPERATOR_CUSTOMER_IDS to this UUID in the API service environment.")
-    print("Keep the UUID private; do not add it to source control.")
+    mobile = input("AIR operator mobile in international E.164 format (e.g. +919876543210): ").strip()
+    if not E164.fullmatch(mobile):
+        raise SystemExit("Invalid E.164 mobile number.")
+    env_path = Path("/etc/air/air.env")
+    if not env_path.exists():
+        raise SystemExit(f"{env_path} is missing. Run the AIR installer first.")
+    text = env_path.read_text(encoding="utf-8")
+    lines = [line for line in text.splitlines() if not line.startswith("AIR_OPERATOR_CUSTOMER_IDS=")]
+    lines.append(f'AIR_OPERATOR_CUSTOMER_IDS="{mobile}"')
+    env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    env_path.chmod(0o600)
+    print("\nAIR operator identity configured.")
+    print(f"Operator identity: {mobile}")
+    print("Restart/redeploy the API after saving this configuration.")
+    print("Submit an access request from the operator's device in the AIR app.")
+    print("Approve that exact request using the protected admin API key.")
+    print("After approval, the operator can manage access requests inside the AIR app.")
+    print("IMPORTANT: mobile number is an identifier only; no OTP proves ownership.")
 
 
 if __name__ == "__main__":

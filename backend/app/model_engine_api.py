@@ -14,8 +14,12 @@ from app.model_engine_original366 import ORIGINAL366_RULES, evaluate_original366
 from app.model_engine_strategies import ORIGINAL366_BASELINE
 from app.expiry_case_study_27oct2026 import historical_expired_contracts
 from app.air_qoc_store import AirQocStore
+from app.access_control import access_store
 from app.brokers.customer_accounts import CustomerAccountDirectory
 from app.security import require_customer
+from app.telegram_notifications import notify_candidates, send_telegram_message
+from app.market_data.runtime import execution_policy
+from app.market_data.customer_runtime import get_customer_market_data_service, get_customer_market_data_status
 
 router = APIRouter(prefix="/api/v1/model-engine", tags=["AIR Model Engine"])
 _ledger = ModelEngineLedger()
@@ -33,11 +37,58 @@ def _has_strategy_membership(row: dict, strategy: str) -> bool:
     return strategy.upper().replace(" ", "") in normalized
 
 
-def _operator(customer_id: str = Depends(require_customer)) -> str:
+def _strategy_rows_for_customer(customer_id: str, limit: int) -> list[dict]:
+    """Share the operator-published strategy feed while retaining tenant overrides."""
+    customer_id = access_store.mobile_for_request_id(customer_id) or customer_id
+    publishers = [
+        value.strip() for value in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",")
+        if value.strip()
+    ]
+    publisher_id = publishers[0] if publishers else customer_id
+    published = _ledger.list_signals(publisher_id, limit)
+    if publisher_id == customer_id:
+        return published
+    customer_rows = _ledger.list_signals(customer_id, limit)
+    merged = {str(row.get("signal_id")): row for row in published}
+    # Tenant-owned records override the published baseline only for that tenant.
+    for row in customer_rows:
+        merged[str(row.get("signal_id"))] = row
+    return list(merged.values())[:limit]
+
+
+async def _customer_market_data_service(customer_id: str):
+    try:
+        return await get_customer_market_data_service(customer_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Customer market-data source is unavailable: {type(exc).__name__}",
+        ) from exc
+
+
+def _is_operator_customer(customer_id: str) -> bool:
     allowed = {x.strip() for x in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",") if x.strip()}
-    if customer_id not in allowed:
+    if customer_id in allowed:
+        return True
+    return (access_store.mobile_for_request_id(customer_id) or "") in allowed
+
+
+def _operator(customer_id: str = Depends(require_customer)) -> str:
+    if not _is_operator_customer(customer_id):
         raise HTTPException(status_code=403, detail="AIR operator permission is required")
     return customer_id
+
+
+async def _notify_operator_candidates(
+    strategy: str, rows: list[dict], customer_id: str
+) -> dict:
+    # Strategy endpoints are customer-authenticated, but Telegram destinations
+    # are operator-owned. Never forward a non-operator customer's records.
+    if not _is_operator_customer(customer_id):
+        return {"configured": False, "attempted": 0, "sent": 0}
+    return await notify_candidates(strategy, rows)
 
 
 class SignalRecord(BaseModel):
@@ -78,7 +129,8 @@ async def get_model_engine_ledger(
     limit: int = Query(default=500, ge=1, le=2000),
     customer_id: str = Depends(require_customer),
 ) -> dict:
-    rows = _ledger.list_signals(customer_id, limit)
+    customer_service = await _customer_market_data_service(customer_id)
+    rows = await customer_service.hydrate_strategy_rows(_strategy_rows_for_customer(customer_id, limit))
     groups = {key: [] for key in
               ("SURVIVOR", "NEW", "HOLD", "WAIT", "RE-ENTRY", "SL", "TARGETS", "EXPIRED", "EXPIRYSCAN")}
     for row in rows:
@@ -94,6 +146,7 @@ async def get_model_engine_ledger(
     groups["SURVIVOR"].sort(key=lambda row: (row.get("days_to_expiry", 999), -(row.get("score") or 0), row["signal_date"]))
     return {
         "source": "AIR Model Engine signal ledger",
+        "market_data_source": await get_customer_market_data_status(customer_id),
         "count": len(rows),
         "counts": {key: len(value) for key, value in groups.items()},
         "groups": groups,
@@ -109,10 +162,11 @@ async def get_model_engine_master(
     customer_id: str = Depends(require_customer),
 ) -> dict:
     """Canonical MASTER view over verified persisted signals."""
-    rows = _ledger.list_signals(customer_id, limit)
+    customer_service = await _customer_market_data_service(customer_id)
+    rows = await customer_service.hydrate_strategy_rows(_strategy_rows_for_customer(customer_id, limit), max_contracts=2000)
     # Valid past-expiry observations from EXPIRYSCAN also belong in EXPIRED.
     try:
-        scan = _expiry_scan_for_customer(customer_id, max_dte=45, limit=2000)
+        scan = await _expiry_scan_for_customer(customer_id, max_dte=45, limit=2000)
         for item in scan.get("expired_rows", []):
             if item.get("classification") != "EXPIRED":
                 continue
@@ -174,6 +228,7 @@ async def get_model_engine_master(
     result = build_master(rows)
     result.update({
         "source": "AIR Model Engine MASTER",
+        "market_data_source": await get_customer_market_data_status(customer_id),
         "historical_expiry_cohorts": {
             "EXPIRY_2026-10-27_CASE_STUDY_11": {
                 "expiry": "2026-10-27",
@@ -193,6 +248,7 @@ async def upsert_model_engine_signal(
     body: SignalRecord,
     customer_id: str = Depends(_operator),
 ) -> dict:
+    customer_id = access_store.mobile_for_request_id(customer_id) or customer_id
     record = body.model_dump()
     if record.get('sector'):
         record.setdefault('evidence', {})['sector'] = record['sector']
@@ -206,25 +262,23 @@ async def upsert_model_engine_signal(
             "classification": record["classification"].upper()}
 
 
-def _expiry_scan_for_customer(customer_id: str, *, max_dte: int = 45,
-                              limit: int = 2000) -> dict:
-    account_id = os.getenv("AIR_QOC_DHAN_ACCOUNT_ID", "").strip()
-    if not account_id:
-        raise HTTPException(status_code=503, detail="Dhan snapshot account is not configured")
-    directory = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3"))
-    try:
-        owned = {(account.broker, account.account_id)
-                 for account in directory.list_for_customer(customer_id)}
-    finally:
-        directory.close()
-    if ("dhan", account_id) not in owned:
-        raise HTTPException(status_code=403, detail="No access to configured Dhan snapshot account")
+async def _expiry_scan_for_customer(customer_id: str, *, max_dte: int = 45,
+                                     limit: int = 2000) -> dict:
+    service = await _customer_market_data_service(customer_id)
+    source = service.router.resolve("live")
+    if not source:
+        raise HTTPException(
+            status_code=503,
+            detail="No live broker market-data connection is enabled for this customer",
+        )
+    provider, account_id, _adapter = source[0]
     store = AirQocStore()
     try:
-        return scan_expiries(store, account_id=account_id, max_dte=max_dte, limit=limit)
+        return service.expiry_scan(
+            store, provider=provider, account_id=account_id,
+            max_dte=max_dte, limit=limit)
     finally:
         store.close()
-
 
 
 @router.get("/original366")
@@ -234,7 +288,8 @@ async def get_original366_engine(
     customer_id: str = Depends(require_customer),
 ) -> dict:
     """Build the RECOVERED watch from the ORIGINAL366 cohort and post-stop daily closes."""
-    rows = _ledger.list_signals(customer_id, limit)
+    customer_service = await _customer_market_data_service(customer_id)
+    rows = await customer_service.hydrate_strategy_rows(_strategy_rows_for_customer(customer_id, limit), max_contracts=2000)
     contracts = evaluate_original366_rows(rows, as_of=as_of)
     trades = [trade for contract in contracts
               for trade in (contract.get("original366") or {}).get("trades", [])]
@@ -299,8 +354,12 @@ async def get_original366_engine(
         if str(row.get("classification") or "").upper() == "NEW"
         and _has_strategy_membership(row, "ORIGINAL366")
     ]
+    telegram_delivery = await _notify_operator_candidates("RECOVERED", recovered_groups["OPEN"], customer_id)
     return {
+        "telegram_notifications": telegram_delivery,
         "strategy": "RECOVERED",
+        "market_data_source": await get_customer_market_data_status(customer_id),
+        "execution_policy": execution_policy.get(),
         "cohort_id": "ORIGINAL366",
         "as_of": as_of,
         "rules": ORIGINAL366_RULES,
@@ -346,7 +405,8 @@ async def get_expiry78_engine(
     customer_id: str = Depends(require_customer),
 ) -> dict:
     """Replay verified daily option OHLCV for explicitly tagged EXPIRY78 contracts."""
-    rows = _ledger.list_signals(customer_id, limit)
+    customer_service = await _customer_market_data_service(customer_id)
+    rows = await customer_service.hydrate_strategy_rows(_strategy_rows_for_customer(customer_id, limit), max_contracts=2000)
     contracts = evaluate_expiry78_rows(rows, as_of=as_of)
     trades = [trade for contract in contracts
               for trade in (contract.get("expiry78") or {}).get("trades", [])]
@@ -368,8 +428,15 @@ async def get_expiry78_engine(
     ]
     new_trades = [trade for trade in trades if trade.get("classification") == "NEW"]
     hold_trades = [trade for trade in trades if trade.get("classification") == "HOLD"]
+    telegram_rows = new_trades + hold_trades + verified_reentries + [
+        trade for trade in trades if trade.get("classification") in ("SL", "EXPIRED")
+    ]
+    telegram_delivery = await _notify_operator_candidates("EXPIRY78", telegram_rows, customer_id)
     return {
+        "telegram_notifications": telegram_delivery,
         "strategy": "EXPIRY78",
+        "market_data_source": await get_customer_market_data_status(customer_id),
+        "execution_policy": execution_policy.get(),
         "as_of": as_of,
         "rules": EXPIRY78_RULES,
         "contracts_replayed": len(contracts),
@@ -398,8 +465,17 @@ async def get_expiry_scan(
     limit: int = Query(default=500, ge=1, le=2000),
     customer_id: str = Depends(require_customer),
 ) -> dict:
-    """Read-only scan of captured Dhan option-chain observations owned by this customer."""
-    return _expiry_scan_for_customer(customer_id, max_dte=max_dte, limit=limit)
+    """Read-only scan of option-chain observations from the selected live provider."""
+    result = await _expiry_scan_for_customer(customer_id, max_dte=max_dte, limit=limit)
+    result["execution_policy"] = execution_policy.get()
+    customer_service = await _customer_market_data_service(customer_id)
+    result["market_data_source"] = await get_customer_market_data_status(customer_id)
+    # This endpoint currently produces a liquidity-screen pass, not a full QOC
+    # trade qualification. Telegram labels these notifications accordingly.
+    qualified = [row for row in result.get("rows", [])
+                 if row.get("scan_status") == "LIQUIDITY_SCREEN_PASSED"]
+    result["telegram_notifications"] = await _notify_operator_candidates("EXPIRYSCAN", qualified, customer_id)
+    return result
 
 
 @router.get("/physical-settlement")
@@ -423,8 +499,25 @@ async def get_model_engine_pnl_calendar(
     """Calendar P&L with separate entry-capital and exit-realization dates."""
     from app.model_engine_pnl_calendar import build_pnl_calendar
     from app.model_engine_physical_settlement import build_physical_settlement_review
-    rows = _ledger.list_signals(customer_id, limit)
+    customer_service = await _customer_market_data_service(customer_id)
+    rows = await customer_service.hydrate_strategy_rows(_strategy_rows_for_customer(customer_id, limit), max_contracts=2000)
     master = build_master(rows)
     physical_review = build_physical_settlement_review()
-    return build_pnl_calendar(master.get("strategies") or {},
-                              physical_review=physical_review, year=year, month=month)
+    result = build_pnl_calendar(master.get("strategies") or {},
+                                 physical_review=physical_review, year=year, month=month)
+    result["market_data_source"] = await get_customer_market_data_status(customer_id)
+    return result
+
+
+@router.post("/telegram/test")
+async def test_air_telegram_notifications(
+    customer_id: str = Depends(_operator),
+) -> dict:
+    """Send a test message to all configured AIR Telegram destinations."""
+    result = await send_telegram_message(
+        "AIR Model Engine Telegram connection test\n"
+        "Private and group destinations are configured for strategy alerts."
+    )
+    if not result.get("configured"):
+        raise HTTPException(status_code=503, detail=result.get("reason"))
+    return {"status": "sent" if result.get("sent") else "failed", **result}

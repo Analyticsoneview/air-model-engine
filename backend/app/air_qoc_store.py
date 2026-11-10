@@ -57,7 +57,8 @@ class AirQocStore:
     def save_option_chain(self, *, account_id: str, underlying_scrip: int,
                           underlying_segment: str, expiry: str,
                           underlying_price: float | None,
-                          observed_at: str, chain: dict[str, Any]) -> int:
+                          observed_at: str, chain: dict[str, Any],
+                          provider: str = "dhan") -> int:
         rows = []
         for strike, sides in (chain.get("oc") or {}).items():
             if not isinstance(sides, dict):
@@ -68,7 +69,7 @@ class AirQocStore:
                     continue
                 greeks = item.get("greeks") or {}
                 rows.append((
-                    "dhan", account_id, underlying_scrip, underlying_segment, expiry,
+                    provider, account_id, underlying_scrip, underlying_segment, expiry,
                     underlying_price, str(strike), option_type, str(item.get("security_id") or ""),
                     _number(item.get("last_price")), _number(item.get("previous_close_price")),
                     _integer(item.get("volume")), _integer(item.get("previous_volume")),
@@ -88,13 +89,14 @@ class AirQocStore:
             """, rows)
         return len(rows)
 
-    def latest_observations(self, *, account_id: str, limit: int = 500) -> list[dict[str, Any]]:
+    def latest_observations(self, *, account_id: str, provider: str = "dhan",
+                            limit: int = 500) -> list[dict[str, Any]]:
         rows = self.db.execute("""
             SELECT * FROM option_observations
-            WHERE provider='dhan' AND account_id=?
+            WHERE provider=? AND account_id=?
             ORDER BY observed_at DESC, underlying_scrip, expiry, strike, option_type
             LIMIT ?
-        """, (account_id, limit)).fetchall()
+        """, (provider, account_id, limit)).fetchall()
         return [dict(row) for row in rows]
 
     def close(self) -> None:

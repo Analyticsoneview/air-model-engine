@@ -1,10 +1,6 @@
 name: AIR Native iOS IPA
 
 on:
-  pull_request:
-    paths:
-      - 'mobile/**'
-      - '.github/workflows/ios-native-release.yml'
   workflow_dispatch:
     inputs:
       build_signed_ipa:

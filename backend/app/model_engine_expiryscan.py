@@ -1,4 +1,4 @@
-"""Evidence-first EXPIRYSCAN from persisted Dhan option-chain observations.
+"""Evidence-first EXPIRYSCAN from persisted provider-normalized option-chain observations.
 
 EXPIRYSCAN is a research watchlist, never an automatic entry/order. Missing
 volume, OI or bid/ask evidence is explicitly flagged rather than inferred.
@@ -11,8 +11,9 @@ from typing import Any
 from app.air_qoc_store import AirQocStore
 
 
-def scan_expiries(store: AirQocStore, *, account_id: str, today: date | None = None,
-                  max_dte: int = 45, limit: int = 2000) -> dict[str, Any]:
+def scan_expiries(store: AirQocStore, *, account_id: str, provider: str = "dhan",
+                  today: date | None = None, max_dte: int = 45,
+                  limit: int = 2000) -> dict[str, Any]:
     today = today or date.today()
     # Latest observation PER CONTRACT, not simply the most recent N raw rows.
     observations = store.db.execute("""
@@ -22,9 +23,9 @@ def scan_expiries(store: AirQocStore, *, account_id: str, today: date | None = N
             ORDER BY observed_at DESC, id DESC
           ) AS rn
           FROM option_observations o
-          WHERE provider='dhan' AND account_id=?
+          WHERE provider=? AND account_id=?
         ) ranked WHERE rn=1 ORDER BY expiry, underlying_scrip, strike, option_type
-    """, (account_id,)).fetchall()
+    """, (provider, account_id)).fetchall()
     candidates: list[dict[str, Any]] = []
 
     def previous_weekday(day: date) -> date:
@@ -63,6 +64,7 @@ def scan_expiries(store: AirQocStore, *, account_id: str, today: date | None = N
         close_before_date = previous_weekday(expiry_date) if not is_expired else None
         close_alert_due = bool(close_before_date and today == close_before_date)
         candidates.append({
+            "provider": provider,
             "underlying_scrip": row["underlying_scrip"],
             "underlying_segment": row["underlying_segment"],
             "symbol": str(row["underlying_scrip"]),

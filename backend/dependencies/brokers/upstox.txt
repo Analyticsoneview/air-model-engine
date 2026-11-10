@@ -1,0 +1,2 @@
+# Upstox SDK. Install build tooling before this file.
+upstox-python-sdk==2.23.0

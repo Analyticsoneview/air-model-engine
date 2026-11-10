@@ -185,5 +185,109 @@ class ModelEngineLedger:
             result.append(item)
         return result
 
+    def attach_market_data_bars(self, signal_id: str, bars: list[dict[str, Any]],
+                                source: dict[str, Any]) -> int:
+        """Merge normalized daily bars into one signal's evidence without lifecycle writes."""
+        row = self.db.execute(
+            "SELECT evidence_json FROM model_signals WHERE signal_id=?", (signal_id,)
+        ).fetchone()
+        if not row:
+            return 0
+        evidence = json.loads(row["evidence_json"] or "{}")
+        current = evidence.get("daily_option_bars") or evidence.get("daily_bars") or []
+        merged = {str(item.get("date") or item.get("time"))[:10]: item
+                  for item in current if item.get("date") or item.get("time")}
+        added = 0
+        for bar in bars:
+            day = str(bar.get("date") or bar.get("time") or "")[:10]
+            if not day or day in merged:
+                continue
+            merged[day] = {
+                "date": day, "open": bar.get("open"), "high": bar.get("high"),
+                "low": bar.get("low"), "close": bar.get("close"),
+                "quantity": bar.get("volume"), "open_interest": bar.get("open_interest"),
+            }
+            added += 1
+        if added:
+            evidence["daily_option_bars"] = [merged[key] for key in sorted(merged)]
+            evidence["market_data_source"] = dict(source)
+            with self.db:
+                self.db.execute(
+                    "UPDATE model_signals SET evidence_json=?, updated_at=? WHERE signal_id=?",
+                    (json.dumps(evidence, default=str), datetime.now(timezone.utc).isoformat(), signal_id),
+                )
+        return added
+
+    def attach_expired_fo_bars(self, fo_rows: list[dict[str, Any]]) -> dict[str, int]:
+        """Snapshot NSE FO daily bars into matching strategy signals before market-data purge.
+
+        Only evidence_json is enriched. Signal lifecycle, entry/exit fields, quantity,
+        classification and P&L values are never overwritten.
+        """
+        grouped: dict[tuple[str, str, float, str], dict[str, dict[str, Any]]] = {}
+        for row in fo_rows:
+            symbol = str(row.get("symbol") or "").upper()
+            expiry = str(row.get("expiry") or "")[:10]
+            option_type = str(row.get("option_type") or "").upper()
+            strike = row.get("strike")
+            trade_day = str(row.get("trade_date") or "")[:10]
+            if not (symbol and expiry and option_type in ("CE", "PE")
+                    and strike is not None and trade_day):
+                continue
+            bar = {
+                "date": trade_day,
+                "open": row.get("open"), "high": row.get("high"),
+                "low": row.get("low"), "close": row.get("close"),
+                "quantity": row.get("volume"),
+                "underlying_close": row.get("underlying_price"),
+            }
+            key = (symbol, expiry, float(strike), option_type)
+            grouped.setdefault(key, {})[trade_day] = bar
+
+        updated_rows = 0
+        attached_bars = 0
+        matched_contracts = 0
+        with self.db:
+            for (symbol, expiry, strike, option_type), bars_by_date in grouped.items():
+                matches = self.db.execute("""
+                    SELECT signal_id, evidence_json FROM model_signals
+                    WHERE upper(symbol)=? AND expiry=? AND strike=? AND upper(option_type)=?
+                """, (symbol, expiry, strike, option_type)).fetchall()
+                if not matches:
+                    continue
+                matched_contracts += 1
+                for match in matches:
+                    evidence = json.loads(match["evidence_json"] or "{}")
+                    existing = evidence.get("daily_option_bars") or evidence.get("daily_bars") or []
+                    merged = {
+                        str(item.get("date"))[:10]: item
+                        for item in existing if isinstance(item, dict) and item.get("date")
+                    }
+                    before = len(merged)
+                    for day, bar in bars_by_date.items():
+                        merged.setdefault(day, bar)
+                    evidence["daily_option_bars"] = [merged[day] for day in sorted(merged)]
+                    evidence["expired_fo_snapshot"] = {
+                        "source": "NSE_UDIFF_FO_BHAVCOPY",
+                        "contract": {
+                            "symbol": symbol, "expiry": expiry,
+                            "strike": strike, "option_type": option_type,
+                        },
+                        "bars_through_expiry": len(merged),
+                        "snapshot_status": "PRESERVED_BEFORE_ACTIVE_FO_CLEANUP",
+                    }
+                    self.db.execute("""
+                        UPDATE model_signals SET evidence_json=?, updated_at=?
+                        WHERE signal_id=?
+                    """, (json.dumps(evidence, default=str), datetime.now(timezone.utc).isoformat(),
+                          match["signal_id"]))
+                    updated_rows += 1
+                    attached_bars += max(0, len(merged) - before)
+        return {
+            "matched_contracts": matched_contracts,
+            "strategy_rows_updated": updated_rows,
+            "daily_bars_attached": attached_bars,
+        }
+
     def close(self) -> None:
         self.db.close()

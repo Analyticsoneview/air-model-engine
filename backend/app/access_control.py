@@ -66,6 +66,13 @@ class AccessStore:
             (mobile_e164.strip(), device_id.strip()),
         ).fetchone()
 
+    def mobile_for_request_id(self, request_id: str) -> str | None:
+        row = self.db.execute(
+            "SELECT mobile_e164 FROM air_access_requests WHERE request_id=?",
+            (request_id,),
+        ).fetchone()
+        return row["mobile_e164"] if row else None
+
     def list_requests(self, status: str | None = None):
         if status:
             return self.db.execute(
