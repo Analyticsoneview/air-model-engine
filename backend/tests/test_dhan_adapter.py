@@ -53,7 +53,23 @@ class DhanAdapterTests(unittest.IsolatedAsyncioTestCase):
         adapter._feed = feed
         adapter.account_id = "10001"
         adapter._symbols[("NSE_FNO", "123")] = "NIFTY FUT"
-        await adapter._read_feed()
+        received = asyncio.Event()
+
+        class SignallingHub(FakeHub):
+            async def publish(self, tick):
+                await super().publish(tick)
+                received.set()
+
+        hub = SignallingHub()
+        adapter.hub = hub
+        reader = asyncio.create_task(adapter._read_feed())
+        try:
+            await asyncio.wait_for(received.wait(), timeout=2)
+        finally:
+            reader.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await reader
+
         self.assertEqual(len(hub.ticks), 1)
         tick = hub.ticks[0]
         self.assertEqual(tick["provider"], "dhan")
