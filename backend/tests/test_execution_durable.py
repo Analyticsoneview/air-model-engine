@@ -26,19 +26,24 @@ class DurableExecutionTests(unittest.IsolatedAsyncioTestCase):
             directory = CustomerAccountDirectory(":memory:")
             directory.add(CustomerTradingAccount("customer-a", "dhan", "A001", True))
 
-            first = ExecutionService(BrokerRegistry(), {}, directory, DurableOrderLedger(db))
+            first_ledger = DurableOrderLedger(db)
+            second_ledger = None
+            first = ExecutionService(BrokerRegistry(), {}, directory, first_ledger)
             first_result = await first.submit(
                 "dhan", order(), customer_id="customer-a",
                 confirmed_by_user=True, paper=True,
             )
 
-            second = ExecutionService(BrokerRegistry(), {}, directory, DurableOrderLedger(db))
+            second_ledger = DurableOrderLedger(db)
+            second = ExecutionService(BrokerRegistry(), {}, directory, second_ledger)
             second_result = await second.submit(
                 "dhan", order(), customer_id="customer-a",
                 confirmed_by_user=True, paper=True,
             )
             self.assertEqual(first_result, second_result)
             self.assertEqual(second_result.status, "PAPER_ACCEPTED")
+            second_ledger.close()
+            first_ledger.close()
             directory.close()
 
 
