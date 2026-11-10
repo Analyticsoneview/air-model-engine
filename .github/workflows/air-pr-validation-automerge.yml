@@ -92,8 +92,10 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && github.event.pull_request.number == 7
     runs-on: ubuntu-latest
     steps:
-      - name: Move PR 8 onto main
+      - name: Move stacked PRs 8 and 9 onto main
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh pr edit 8 --base main
+        run: |
+          gh pr edit 8 --base main
+          gh pr edit 9 --base main
