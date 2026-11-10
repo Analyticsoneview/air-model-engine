@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from app.auth_store import AuthStore
-from app.access_control import access_store
+from app.access_control import access_store\nfrom app.admin_auth import get_admin_auth_store
 from app.brokers.customer_accounts import CustomerAccountDirectory, CustomerTradingAccount
 from app.brokers.catalog import get_broker_catalog, is_supported_broker
 from app.brokers.dhan import DhanHQClient, DhanAPIError
@@ -41,7 +41,7 @@ from app.telegram_notifications import send_telegram_message
 from app.account_reporting import AccountReporting
 from app import telegram_destinations
 from app.nse_bhavcopy import (nse_data_status, nse_data_rows, start_nse_data_jobs, stop_nse_data_jobs, trigger_nse_bootstrap)
-from app.security import create_access_token, hash_password, require_customer, verify_password
+from app.security import create_access_token, create_admin_access_token, hash_password, require_customer, require_admin, verify_password
 
 app = FastAPI(title="AIR Model Engine API", version="0.3.0",
               description="Self-hosted AIR authentication, broker account and market-data gateway.")
@@ -712,13 +712,41 @@ async def current_customer(customer_id: str = Depends(require_customer)) -> dict
     return {"customer_id": customer_id, "status": "APPROVED"}
 
 
-@app.get("/api/v1/admin/access-requests", dependencies=[Depends(require_air_admin)])
-async def list_access_requests(status: str | None = Query(default=None, pattern="^(PENDING|APPROVED|REJECTED|BLOCKED)$")) -> dict:
+class AdminLoginRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=254)
+    password: str = Field(min_length=12, max_length=256)
+    totp_code: str = Field(pattern=r"^\\d{6}$")
+
+
+@app.post("/api/v1/admin/auth/login")
+async def admin_login(body: AdminLoginRequest) -> dict:
+    store = get_admin_auth_store()
+    admin = store.authenticate(body.email, body.password, body.totp_code)
+    if not admin:
+        raise HTTPException(status_code=401, detail="Invalid administrator credentials or MFA code")
+    token = create_admin_access_token(admin["admin_id"], admin["role"], admin["session_id"], expires_minutes=20)
+    return {"access_token": token, "token_type": "bearer", "expires_in": 1200,
+            "admin": {"admin_id": admin["admin_id"], "email": admin["email"], "role": admin["role"]}}
+
+
+@app.get("/api/v1/admin/auth/me")
+async def admin_me(admin: dict = Depends(require_admin)) -> dict:
+    return {key: value for key, value in admin.items() if key != "session_id"}
+
+
+@app.post("/api/v1/admin/auth/logout")
+async def admin_logout(admin: dict = Depends(require_admin)) -> dict:
+    get_admin_auth_store().revoke(admin["session_id"])
+    return {"status": "signed_out"}
+
+
+@app.get("/api/v1/admin/access-requests")
+async def list_access_requests(status: str | None = Query(default=None, pattern="^(PENDING|APPROVED|REJECTED|BLOCKED)$"), admin: dict = Depends(require_admin)) -> dict:
     return {"requests": [dict(row) for row in access_store.list_requests(status)]}
 
 
-@app.put("/api/v1/admin/access-requests/{request_id}", dependencies=[Depends(require_air_admin)])
-async def review_access_request(request_id: str, body: AccessReview) -> dict:
+@app.put("/api/v1/admin/access-requests/{request_id}")
+async def review_access_request(request_id: str, body: AccessReview, admin: dict = Depends(require_admin)) -> dict:
     if not access_store.review(request_id, body.status, body.note):
         raise HTTPException(status_code=404, detail="Access request not found")
     return {"request_id": request_id, "status": body.status, "updated": True}
