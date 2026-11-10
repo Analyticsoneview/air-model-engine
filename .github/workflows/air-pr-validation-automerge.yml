@@ -191,7 +191,6 @@ jobs:
           retention-days: 30
 
   merge-after-validation:
-    if: github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.number == 7 && github.event.pull_request.draft == false
     needs: [changes, backend, android]
     if: always() && github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.number == 7 && github.event.pull_request.draft == false && needs.backend.result == 'success' && (needs.android.result == 'success' || (needs.android.result == 'skipped' && needs.changes.outputs.android != 'true'))
     runs-on: ubuntu-latest
