@@ -1,0 +1,2 @@
+# FYERS API v3 pins websocket-client 1.6.1; isolate from Angel One.
+fyers-apiv3==3.1.4
