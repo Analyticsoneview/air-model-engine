@@ -19,7 +19,7 @@ class _AirAccessGateState extends State<AirAccessGate> {
   final _mobile = TextEditingController();
   String? _deviceId;
   String _status = 'NEW';
-  String _message = 'Enter your mobile number with international country code to request AIR access.';
+  String _message = 'Enter your international mobile number to open your AIR dashboard. Strategy access is activated separately through a subscription plan.';
   bool _busy = true;
   bool _approved = false;
 
@@ -46,7 +46,7 @@ class _AirAccessGateState extends State<AirAccessGate> {
         if (token == null || token.isEmpty) {
           final savedStatus = await _api.mobileStatus(savedMobile, deviceId);
           _status = savedStatus['status']?.toString() ?? 'NEW';
-          if (_status == 'PENDING') _message = 'Your AIR access request has been submitted. Your account is awaiting administrator approval. Please check back later.';
+          if (_status == 'PENDING') _message = 'Your earlier access request is pending. Contact AIR support to migrate this device to the new customer access flow.';
         }
       }
       if (token != null && token.isNotEmpty) {
@@ -96,9 +96,9 @@ class _AirAccessGateState extends State<AirAccessGate> {
         _approved = true;
       }
       if (status == 'PENDING') {
-        _message = 'Your AIR access request has been submitted. Your account is awaiting administrator approval. Please check back later.';
+        _message = 'This device has an older pending access request. Contact AIR support to activate the new customer onboarding.';
       } else if (status == 'APPROVED' && _approved) {
-        _message = 'Access approved. Opening your AIR workspace…';
+        _message = 'Your AIR dashboard is ready. Choose a subscription to unlock strategies.';
       } else if (status == 'REJECTED') {
         _message = 'This AIR access request was not approved. Please contact the AIR administrator.';
       } else if (status == 'BLOCKED') {
@@ -169,7 +169,7 @@ class _AirAccessGateState extends State<AirAccessGate> {
                     const SizedBox(height: 8),
                     const Text('Your market intelligence workspace.', style: TextStyle(color: Colors.white, fontSize: 25, fontWeight: FontWeight.w800)),
                     const SizedBox(height: 10),
-                    const Text('AIR access is controlled by administrator approval. Enter your international mobile number to submit a request for this device.', style: TextStyle(color: Color(0xFFB6C2D2), height: 1.5, fontSize: 13)),
+                    const Text('Enter your international mobile number to access your AIR dashboard. Choose a subscription later to unlock strategy workspaces.', style: TextStyle(color: Color(0xFFB6C2D2), height: 1.5, fontSize: 13)),
                     const SizedBox(height: 26),
                     TextField(
                       controller: _mobile,
@@ -197,7 +197,7 @@ class _AirAccessGateState extends State<AirAccessGate> {
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                         ),
-                        child: _busy ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('REQUEST AIR ACCESS', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: .7)),
+                        child: _busy ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('CONTINUE TO AIR', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: .7)),
                       ),
                     if (pending || approvedStatus)
                       OutlinedButton.icon(
@@ -222,9 +222,9 @@ class _AirAccessGateState extends State<AirAccessGate> {
                         ]),
                       ),
                     const SizedBox(height: 28),
-                    const Text('NO OTP  •  NO WHATSAPP  •  NO PASSWORD', textAlign: TextAlign.center, style: TextStyle(color: Color(0xFF7E8CA0), fontSize: 9, letterSpacing: 1, fontWeight: FontWeight.w700)),
+                    const Text('DASHBOARD ACCESS  •  SUBSCRIPTION-BASED STRATEGIES', textAlign: TextAlign.center, style: TextStyle(color: Color(0xFF7E8CA0), fontSize: 9, letterSpacing: 1, fontWeight: FontWeight.w700)),
                     const SizedBox(height: 8),
-                    const Text('One-time device approval. Access can be revoked by AIR administration.', textAlign: TextAlign.center, style: TextStyle(color: Color(0xFF7E8CA0), fontSize: 10)),
+                    const Text('Phone number identifies your customer profile. Verify ownership before enabling payments, broker credentials or trading permissions.', textAlign: TextAlign.center, style: TextStyle(color: Color(0xFF7E8CA0), fontSize: 10)),
                   ],
                 ),
               ),
