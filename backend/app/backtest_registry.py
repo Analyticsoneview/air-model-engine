@@ -27,6 +27,16 @@ def registered_backtest_strategies() -> list[dict[str, Any]]:
             "pnl_limitations": ["Rupee P&L requires verified historical lot size/position quantity and a configured charges model."],
         },
         {
+            "id": "EXPIRYSCAN",
+            "name": "EXPIRYSCAN",
+            "family": "OPTIONS_SNAPSHOT",
+            "rules": "Existing app.model_engine_expiryscan.scan_expiries evidence-screen rules",
+            "source": "app.model_engine_expiryscan.scan_expiries",
+            "data_requirements": ["time-stamped persisted option-chain observations", "provider/account identity", "bid/ask, volume and OI evidence"],
+            "available_for_daily_backtest": False,
+            "unavailable_reason": "EXPIRYSCAN currently evaluates latest persisted option-chain observations as an evidence-only watchlist; a point-in-time historical snapshot replay source and replay adapter are not implemented. It must not be approximated with EOD Bhavcopy bars.",
+        },
+        {
             "id": "ORIGINAL366",
             "name": "ORIGINAL366 / RECOVERED",
             "family": "OPTIONS_DAILY",
