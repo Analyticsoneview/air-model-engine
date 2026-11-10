@@ -356,7 +356,8 @@ class NSEBhavcopyStore:
         """
         with self._db() as db:
             rows = db.execute("""
-                SELECT trade_date, instrument_key, symbol, expiry, strike, option_type
+                SELECT trade_date, instrument_key, symbol, expiry, strike, option_type,
+                       open, high, low, close, volume, underlying_price
                 FROM nse_bhavcopy
                 WHERE market='FO'
             """).fetchall()
