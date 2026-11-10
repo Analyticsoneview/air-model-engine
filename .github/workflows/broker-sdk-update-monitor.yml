@@ -1,0 +1,50 @@
+name: AIR Broker SDK Update Monitor
+
+on:
+  schedule:
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: air-broker-sdk-update-monitor
+  cancel-in-progress: false
+
+jobs:
+  check-broker-sdks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check broker SDK releases on PyPI
+        run: python backend/scripts/check_broker_sdk_updates.py
+      - name: Open dependency update PR for validation
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: automation/broker-sdk-updates
+          delete-branch: true
+          commit-message: 'chore(brokers): refresh vendor SDK pins'
+          title: 'chore(brokers): refresh vendor SDK dependencies'
+          body: |
+            Automated daily check of stable PyPI releases for broker-specific SDKs.
+
+            - Updates only vendor-specific pinned requirement files.
+            - Does not install into production or deploy anything.
+            - Backend and Android PR checks must pass before merge.
+            - Review vendor changelogs and authentication/streaming behavior before approval.
+
+            See backend/broker-sdk-update-report.json for checked versions and results.
+          add-paths: |
+            backend/dependencies/brokers/*.txt
+            backend/broker-sdk-update-report.json
