@@ -16,7 +16,7 @@ concurrency:
 jobs:
   changes:
     if: github.event.action != 'closed'
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
       android: ${{ steps.filter.outputs.android }}
