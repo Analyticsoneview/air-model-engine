@@ -135,21 +135,22 @@ jobs:
           "PATH=C:\AIR\tools\flutter\bin;$sdk\platform-tools;$sdk\cmdline-tools\latest\bin;$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Install and verify required Android NDK
         run: |
-          $sdk = 'C:\\Android\\Sdk'
-          $ndkVersion = '28.2.13676358'
-          $ndk = Join-Path $sdk ('ndk\\' + $ndkVersion)
-          if (-not (Test-Path -LiteralPath (Join-Path $ndk 'source.properties'))) {
-            $androidCli = Join-Path $sdk 'cmdline-tools\\latest\\bin\\android.exe'
-            if (-not (Test-Path -LiteralPath $androidCli)) {
-              $candidates = @(Get-ChildItem -LiteralPath (Join-Path $sdk 'cmdline-tools') -Filter 'android.exe' -File -Recurse -ErrorAction SilentlyContinue)
-              if ($candidates.Count -eq 0) { throw "Android CLI was not found under $sdk\\cmdline-tools." }
-              $androidCli = $candidates[0].FullName
-            }
-            # New Android CLI uses slash-separated package IDs, unlike legacy sdkmanager's semicolon IDs.
-            & $androidCli "--sdk=$sdk" sdk install "ndk/$ndkVersion"
-            # Verify the filesystem result; the CLI may return a misleading exit code on some Windows installs.
+          $sdk = 'C:\Android\Sdk'
+          # The current Command-line Tools ship the new Android CLI.
+          # sdkmanager.bat is a deprecated wrapper and misparses legacy NDK IDs.
+          $androidCli = Join-Path $sdk 'cmdline-tools\latest\bin\android.bat'
+          if (-not (Test-Path -LiteralPath $androidCli)) {
+            $candidates = @(Get-ChildItem -LiteralPath (Join-Path $sdk 'cmdline-tools') -Filter 'android.bat' -File -Recurse -ErrorAction SilentlyContinue)
+            if ($candidates.Count -eq 0) { throw "Android CLI android.bat was not found under $sdk\cmdline-tools." }
+            $androidCli = $candidates[0].FullName
           }
-          if (-not (Test-Path -LiteralPath (Join-Path $ndk 'source.properties'))) { throw "Required Android NDK $ndkVersion is still missing after Android CLI install." }
+          $ndk = Join-Path $sdk 'ndk\28.2.13676358'
+          if (-not (Test-Path -LiteralPath (Join-Path $ndk 'source.properties'))) {
+            & $androidCli "--sdk=$sdk" sdk install 'ndk/28.2.13676358'
+            if ($LASTEXITCODE -ne 0) { throw 'Android CLI could not install NDK 28.2.13676358.' }
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $ndk 'source.properties'))) { throw 'Required Android NDK 28.2.13676358 was not installed.' }
+          Get-Content -LiteralPath (Join-Path $ndk 'source.properties')
       - name: Generate Android platform when missing
         working-directory: mobile
         run: |
