@@ -9,7 +9,7 @@ _E164 = re.compile(r"^\+[1-9][0-9]{7,14}$")
 
 
 class AccessStore:
-    """Admin-approved mobile/device access requests and revocable sessions."""
+    """Phone-number onboarding, revocable device sessions and subscription entitlements."""
 
     def __init__(self, db_path: str = "data/air_auth.sqlite3"):
         if db_path != ":memory:":
@@ -21,7 +21,7 @@ class AccessStore:
                 request_id TEXT PRIMARY KEY,
                 mobile_e164 TEXT NOT NULL,
                 device_id TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'PENDING'
+                status TEXT NOT NULL DEFAULT 'APPROVED'
                     CHECK(status IN ('PENDING','APPROVED','REJECTED','BLOCKED')),
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 reviewed_at TEXT,
@@ -35,6 +35,16 @@ class AccessStore:
                 request_id TEXT NOT NULL REFERENCES air_access_requests(request_id),
                 active INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS air_customer_subscriptions (
+                customer_id TEXT PRIMARY KEY,
+                plan_code TEXT NOT NULL CHECK(plan_code IN ('DAILY','MONTHLY','SIX_MONTHS','YEARLY')),
+                starts_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE','CANCELLED','EXPIRED')),
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         """)
         self.db.commit()
@@ -54,7 +64,7 @@ class AccessStore:
         with self.db:
             self.db.execute(
                 """INSERT OR IGNORE INTO air_access_requests
-                   (request_id,mobile_e164,device_id) VALUES(?,?,?)""",
+                   (request_id,mobile_e164,device_id,status) VALUES(?,?,?,'APPROVED')""",
                 (str(uuid4()), mobile, device),
             )
         return self.get_request(mobile, device)
@@ -125,6 +135,41 @@ class AccessStore:
             (session_id,),
         ).fetchone()
         return bool(row and row["active"] and row["status"] == "APPROVED")
+
+    def assign_subscription(self, customer_id: str, plan_code: str, starts_at: str, expires_at: str):
+        plan = plan_code.upper()
+        if plan not in {"DAILY", "MONTHLY", "SIX_MONTHS", "YEARLY"}:
+            raise ValueError("Unsupported AIR subscription plan")
+        with self.db:
+            self.db.execute(
+                """INSERT INTO air_customer_subscriptions
+                   (customer_id,plan_code,starts_at,expires_at,status,updated_at)
+                   VALUES(?,?,?,?, 'ACTIVE', CURRENT_TIMESTAMP)
+                   ON CONFLICT(customer_id) DO UPDATE SET
+                   plan_code=excluded.plan_code, starts_at=excluded.starts_at,
+                   expires_at=excluded.expires_at, status='ACTIVE', updated_at=CURRENT_TIMESTAMP""",
+                (customer_id, plan, starts_at, expires_at),
+            )
+
+    def get_subscription(self, customer_id: str):
+        row = self.db.execute(
+            """SELECT customer_id,plan_code,starts_at,expires_at,status
+               FROM air_customer_subscriptions WHERE customer_id=?""",
+            (customer_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        result = dict(row)
+        from datetime import datetime, timezone
+        try:
+            expiry = datetime.fromisoformat(result["expires_at"].replace("Z", "+00:00"))
+            if expiry.tzinfo is None:
+                expiry = expiry.replace(tzinfo=timezone.utc)
+            if expiry <= datetime.now(timezone.utc):
+                result["status"] = "EXPIRED"
+        except ValueError:
+            result["status"] = "EXPIRED"
+        return result
 
     def close(self):
         self.db.close()
