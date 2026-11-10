@@ -83,6 +83,22 @@ class AirApiClient {
     return _decode(await _client.get(uri, headers: _headers));
   }
 
+  Future<List<Map<String, dynamic>>> subscriptionPlans() async {
+    final data = _decode(await _client.get(
+      Uri.parse('$baseUrl/api/v1/subscription/plans'),
+      headers: _headers,
+    ));
+    return (data['plans'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>().toList(growable: false);
+  }
+
+  Future<Map<String, dynamic>> mySubscription() async {
+    return _decode(await _client.get(
+      Uri.parse('$baseUrl/api/v1/subscription/me'),
+      headers: _headers,
+    ));
+  }
+
   Future<Map<String, dynamic>> me() async {
     return _decode(await _client.get(
       Uri.parse('$baseUrl/api/v1/auth/me'),
