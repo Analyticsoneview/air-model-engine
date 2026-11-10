@@ -34,6 +34,8 @@ def registered_backtest_strategies() -> list[dict[str, Any]]:
             "source": "app.model_engine_expiryscan.scan_expiries",
             "data_requirements": ["time-stamped persisted option-chain observations", "provider/account identity", "bid/ask, volume and OI evidence"],
             "available_for_daily_backtest": False,
+            "available_for_historical_report": True,
+            "historical_report_mode": "PRESERVED_EXPIRY_COHORT_SUMMARY",
             "available_for_forward_report": True,
             "forward_report_endpoint": "/api/v1/backtest/expiryscan/forward/{account_id}",
             "forward_report_horizon_days": 30,
