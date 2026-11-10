@@ -54,15 +54,41 @@ jobs:
           & $python -m pip --version
           if ($LASTEXITCODE -ne 0) { throw 'Portable Python pip validation failed.' }
           "AIR_PYTHON=$python" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-      - name: Install backend dependencies
+      - name: Install AIR core dependencies
         working-directory: .
         run: |
           Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
-          # Install PEP 517 build tooling before source-distributed broker SDKs such as Upstox.
           & $env:AIR_PYTHON -m pip install --disable-pip-version-check --upgrade pip setuptools wheel
           if ($LASTEXITCODE -ne 0) { throw 'Python packaging toolchain installation failed.' }
           & $env:AIR_PYTHON -m pip install --disable-pip-version-check -r backend/requirements.txt
-          if ($LASTEXITCODE -ne 0) { throw 'Backend dependency installation failed.' }
+          if ($LASTEXITCODE -ne 0) { throw 'AIR core dependency installation failed.' }
+          & $env:AIR_PYTHON -m pip check
+          if ($LASTEXITCODE -ne 0) { throw 'AIR core dependency consistency check failed.' }
+      - name: Validate broker SDKs in isolated dependency targets
+        working-directory: .
+        run: |
+          $brokers = @(
+            @{ Name='Zerodha'; File='backend/dependencies/brokers/zerodha.txt'; Module='kiteconnect' },
+            @{ Name='Upstox'; File='backend/dependencies/brokers/upstox.txt'; Module='upstox_client' },
+            @{ Name='FYERS'; File='backend/dependencies/brokers/fyers.txt'; Module='fyers_apiv3' },
+            @{ Name='Angel One'; File='backend/dependencies/brokers/angel-one.txt'; Module='SmartApi' }
+          )
+          foreach ($broker in $brokers) {
+            $target = Join-Path $env:RUNNER_TEMP ('AIR-broker-' + ($broker.Name -replace '[^A-Za-z0-9]',''))
+            if (Test-Path $target) { Remove-Item $target -Recurse -Force }
+            New-Item -ItemType Directory -Force -Path $target | Out-Null
+            & $env:AIR_PYTHON -m pip install --disable-pip-version-check --upgrade --target $target -r backend/dependencies/base.txt -r $broker.File
+            if ($LASTEXITCODE -ne 0) { throw "$($broker.Name) SDK dependency resolution failed." }
+            if ($broker.Name -eq 'Upstox') {
+              $env:AIR_BROKER_TARGET = $target
+              & $env:AIR_PYTHON -c "import os,pathlib,shutil; p=pathlib.Path(os.environ['AIR_BROKER_TARGET']); (p/'uuid.py').unlink(missing_ok=True); [shutil.rmtree(x, ignore_errors=True) for x in p.glob('uuid-*.dist-info')]"
+              if ($LASTEXITCODE -ne 0) { throw 'Could not remove obsolete Upstox uuid shadow package.' }
+            }
+            $env:AIR_BROKER_TARGET = $target
+            & $env:AIR_PYTHON -c "import os,sys,importlib; sys.path.insert(0, os.environ['AIR_BROKER_TARGET']); import uuid; print('uuid module:', uuid.__file__); importlib.import_module('$($broker.Module)'); print('$($broker.Name) SDK import passed')"
+            if ($LASTEXITCODE -ne 0) { throw "$($broker.Name) SDK import validation failed." }
+            Remove-Item Env:AIR_BROKER_TARGET -ErrorAction SilentlyContinue
+          }
       - name: Run backend tests
         working-directory: .
         run: |
