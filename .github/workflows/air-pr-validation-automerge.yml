@@ -112,6 +112,7 @@ jobs:
           }
       - name: Run backend tests
         working-directory: backend
+        timeout-minutes: 10
         run: |
           Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
           & $env:AIR_PYTHON -m unittest discover -s tests -v
