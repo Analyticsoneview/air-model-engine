@@ -75,6 +75,18 @@ def _is_operator_customer(customer_id: str) -> bool:
     return (access_store.mobile_for_request_id(customer_id) or "") in allowed
 
 
+
+def _active_subscription(customer_id: str) -> dict | None:
+    if _is_operator_customer(customer_id):
+        return {"status": "ACTIVE", "plan_code": "OPERATOR", "expires_at": None}
+    return access_store.get_subscription(customer_id)
+
+def _require_strategy_subscription(customer_id: str) -> dict:
+    subscription = _active_subscription(customer_id)
+    if not subscription or subscription.get("status") != "ACTIVE":
+        raise HTTPException(status_code=403, detail="An active AIR subscription is required to access this strategy.")
+    return subscription
+
 def _operator(customer_id: str = Depends(require_customer)) -> str:
     if not _is_operator_customer(customer_id):
         raise HTTPException(status_code=403, detail="AIR operator permission is required")
@@ -129,6 +141,7 @@ async def get_model_engine_ledger(
     limit: int = Query(default=500, ge=1, le=2000),
     customer_id: str = Depends(require_customer),
 ) -> dict:
+    _require_strategy_subscription(customer_id)
     customer_service = await _customer_market_data_service(customer_id)
     rows = await customer_service.hydrate_strategy_rows(_strategy_rows_for_customer(customer_id, limit))
     groups = {key: [] for key in
@@ -240,6 +253,19 @@ async def get_model_engine_master(
         "updated_at": max((row.get("updated_at") for row in rows if row.get("updated_at")), default=None),
         "data_status": "POPULATED" if rows else "AWAITING_VERIFIED_SIGNALS",
     })
+    subscription = _active_subscription(customer_id)
+    if not subscription or subscription.get("status") != "ACTIVE":
+        # Keep the dashboard reachable while withholding all strategy records
+        # until a plan is active. Operator accounts retain unrestricted access.
+        result["strategies"] = {}
+        result["groups"] = {}
+        result["counts"] = {}
+        result["summary"] = {}
+        result["breakdowns"] = {}
+        result["data_status"] = "SUBSCRIPTION_REQUIRED"
+        result["subscription"] = {"status": "NONE", "strategy_access": False}
+    else:
+        result["subscription"] = {**subscription, "strategy_access": True}
     return result
 
 
@@ -287,6 +313,7 @@ async def get_original366_engine(
     as_of: str | None = Query(default=None, description="Replay cutoff date YYYY-MM-DD"),
     customer_id: str = Depends(require_customer),
 ) -> dict:
+    _require_strategy_subscription(customer_id)
     """Build the RECOVERED watch from the ORIGINAL366 cohort and post-stop daily closes."""
     customer_service = await _customer_market_data_service(customer_id)
     rows = await customer_service.hydrate_strategy_rows(_strategy_rows_for_customer(customer_id, limit), max_contracts=2000)
@@ -404,6 +431,7 @@ async def get_expiry78_engine(
     as_of: str | None = Query(default=None, description="Replay cutoff date YYYY-MM-DD"),
     customer_id: str = Depends(require_customer),
 ) -> dict:
+    _require_strategy_subscription(customer_id)
     """Replay verified daily option OHLCV for explicitly tagged EXPIRY78 contracts."""
     customer_service = await _customer_market_data_service(customer_id)
     rows = await customer_service.hydrate_strategy_rows(_strategy_rows_for_customer(customer_id, limit), max_contracts=2000)
@@ -465,6 +493,7 @@ async def get_expiry_scan(
     limit: int = Query(default=500, ge=1, le=2000),
     customer_id: str = Depends(require_customer),
 ) -> dict:
+    _require_strategy_subscription(customer_id)
     """Read-only scan of option-chain observations from the selected live provider."""
     result = await _expiry_scan_for_customer(customer_id, max_dte=max_dte, limit=limit)
     result["execution_policy"] = execution_policy.get()
@@ -482,6 +511,7 @@ async def get_expiry_scan(
 async def get_physical_settlement_review(
     customer_id: str = Depends(require_customer),
 ) -> dict:
+    _require_strategy_subscription(customer_id)
     """Read-only physical-delivery review for the historical EXPIRY78 cohort."""
     from app.model_engine_physical_settlement import build_physical_settlement_review
     result = build_physical_settlement_review()
@@ -496,6 +526,7 @@ async def get_model_engine_pnl_calendar(
     limit: int = Query(default=2000, ge=1, le=2000),
     customer_id: str = Depends(require_customer),
 ) -> dict:
+    _require_strategy_subscription(customer_id)
     """Calendar P&L with separate entry-capital and exit-realization dates."""
     from app.model_engine_pnl_calendar import build_pnl_calendar
     from app.model_engine_physical_settlement import build_physical_settlement_review
