@@ -1,6 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+import 'theme/air_theme.dart';
 
 import 'auth/air_access_gate.dart';
 
@@ -14,8 +17,6 @@ import 'services/air_api_client.dart';
 
 void main() => runApp(const AirModelEngineApp());
 
-enum AirLook { glass, dark, light }
-
 class AirModelEngineApp extends StatefulWidget {
   const AirModelEngineApp({super.key});
   @override
@@ -23,48 +24,39 @@ class AirModelEngineApp extends StatefulWidget {
 }
 
 class _AirModelEngineAppState extends State<AirModelEngineApp> {
-  AirLook look = AirLook.glass;
+  final FlutterSecureStorage _settingsStorage = FlutterSecureStorage();
+  AirLook look = AirLook.dark;
 
-  ThemeData get appTheme {
-    final light = look == AirLook.light;
-    final base = look == AirLook.glass
-        ? const Color(0xFF0B1220)
-        : light ? const Color(0xFFF3F6FB) : const Color(0xFF080D16);
-    final surface = look == AirLook.glass
-        ? const Color(0xB31B2A40)
-        : light ? Colors.white : const Color(0xFF151E2D);
-    const accent = Color(0xFFE5B85C);
-    final scheme = ColorScheme.fromSeed(
-      seedColor: accent,
-      brightness: light ? Brightness.light : Brightness.dark,
-      surface: surface,
-    );
-    return ThemeData(
-      useMaterial3: true,
-      brightness: light ? Brightness.light : Brightness.dark,
-      scaffoldBackgroundColor: base,
-      colorScheme: scheme,
-      cardColor: surface,
-      appBarTheme: AppBarTheme(
-        backgroundColor: base,
-        foregroundColor: light ? const Color(0xFF172235) : Colors.white,
-        elevation: 0,
-      ),
-      navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: surface,
-        indicatorColor: accent.withValues(alpha: .18),
-      ),
-    );
+  @override
+  void initState() {
+    super.initState();
+    _restoreAppearance();
+  }
+
+  Future<void> _restoreAppearance() async {
+    try {
+      final saved = await _settingsStorage.read(key: 'air_look');
+      if (!mounted || saved == null) return;
+      setState(() => look = saved == 'light' ? AirLook.light : AirLook.dark);
+    } catch (_) {
+      // Keep the premium dark default if platform storage is unavailable.
+    }
+  }
+
+  void _setLook(AirLook value) {
+    setState(() => look = value);
+    unawaited(_settingsStorage.write(key: 'air_look', value: value.name)
+        .catchError((Object _) {}));
   }
 
   @override
   Widget build(BuildContext context) => MaterialApp(
-    title: 'AIR Model Engine',
+    title: 'AIR | Investment Intelligence',
     debugShowCheckedModeBanner: false,
-    theme: appTheme,
+    theme: AirTheme.build(look),
     home: AirAccessGate(builder: (_) => AirShell(
       look: look,
-      onLookChanged: (value) => setState(() => look = value),
+      onLookChanged: _setLook,
     )),
   );
 }
@@ -79,32 +71,138 @@ class AirShell extends StatefulWidget {
 
 class _AirShellState extends State<AirShell> {
   int tab = 0;
+
   @override
   Widget build(BuildContext context) {
     final pages = [
       AirDashboard(look: widget.look, onLookChanged: widget.onLookChanged),
       const ModelEngineScreen(),
-      const OrbStrategyScreen(),
-      const SimplePage(title: 'Options Intelligence', icon: Icons.candlestick_chart_rounded, subtitle: 'Discover option opportunities with strike, expiry, premium and liquidity context.'),
-      const AirQocScreen(),
-      const NseDataScreen(),
-      const AirAdminScreen(),
-    ];
-    return Scaffold(
-      body: SafeArea(child: pages[tab]),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: tab,
-        onDestinationSelected: (v) => setState(() => tab = v),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.grid_view_rounded), label: 'Home'),
-          NavigationDestination(icon: Icon(Icons.analytics_rounded), label: 'Model Engine'),
-          NavigationDestination(icon: Icon(Icons.candlestick_chart_rounded), label: 'ORB'),
-          NavigationDestination(icon: Icon(Icons.show_chart_rounded), label: 'Options'),
-          NavigationDestination(icon: Icon(Icons.radar_rounded), label: 'AIR QOC'),
-          NavigationDestination(icon: Icon(Icons.storage_rounded), label: 'Data'),
-          NavigationDestination(icon: Icon(Icons.admin_panel_settings_outlined), label: 'Admin'),
-        ],
+      const SimplePage(
+        title: 'Markets & Options',
+        icon: Icons.candlestick_chart_rounded,
+        subtitle: 'Market overview, option chains, strike activity, expiry and liquidity context.',
       ),
+      const AirQocScreen(),
+      const AirMoreScreen(),
+    ];
+    final wide = MediaQuery.sizeOf(context).width >= 900;
+
+    return Scaffold(
+      body: SafeArea(
+        child: Row(
+          children: [
+            if (wide)
+              NavigationRail(
+                selectedIndex: tab,
+                onDestinationSelected: (value) => setState(() => tab = value),
+                extended: MediaQuery.sizeOf(context).width >= 1200,
+                labelType: NavigationRailLabelType.all,
+                leading: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 20),
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 42,
+                        height: 42,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.primary.withValues(alpha: .14),
+                          borderRadius: BorderRadius.circular(13),
+                        ),
+                        child: Text(
+                          'AIR',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.primary,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: .8,
+                          ),
+                        ),
+                      ),
+                      if (MediaQuery.sizeOf(context).width >= 1200) ...[
+                        const SizedBox(height: 8),
+                        const Text('INVESTMENT\nINTELLIGENCE', textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: .5)),
+                      ],
+                    ],
+                  ),
+                ),
+                destinations: const [
+                  NavigationRailDestination(icon: Icon(Icons.grid_view_rounded), label: Text('Home')),
+                  NavigationRailDestination(icon: Icon(Icons.analytics_rounded), label: Text('Intelligence')),
+                  NavigationRailDestination(icon: Icon(Icons.candlestick_chart_rounded), label: Text('Markets')),
+                  NavigationRailDestination(icon: Icon(Icons.radar_rounded), label: Text('AIR QOC')),
+                  NavigationRailDestination(icon: Icon(Icons.apps_rounded), label: Text('More')),
+                ],
+              ),
+            if (wide)
+              const VerticalDivider(width: 1, thickness: 1),
+            Expanded(child: pages[tab]),
+          ],
+        ),
+      ),
+      bottomNavigationBar: wide
+          ? null
+          : NavigationBar(
+              selectedIndex: tab,
+              onDestinationSelected: (value) => setState(() => tab = value),
+              destinations: const [
+                NavigationDestination(icon: Icon(Icons.grid_view_rounded), label: 'Home'),
+                NavigationDestination(icon: Icon(Icons.analytics_rounded), label: 'Intelligence'),
+                NavigationDestination(icon: Icon(Icons.candlestick_chart_rounded), label: 'Markets'),
+                NavigationDestination(icon: Icon(Icons.radar_rounded), label: 'AIR QOC'),
+                NavigationDestination(icon: Icon(Icons.apps_rounded), label: 'More'),
+              ],
+            ),
+    );
+  }
+}
+
+class AirMoreScreen extends StatelessWidget {
+  const AirMoreScreen({super.key});
+
+  void _open(BuildContext context, Widget page) {
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+    final modules = <({IconData icon, String title, String subtitle, Widget page})>[
+      (icon: Icons.candlestick_chart_rounded, title: 'ORB Strategy', subtitle: 'Opening-range research and strategy workspace', page: const OrbStrategyScreen()),
+      (icon: Icons.storage_rounded, title: 'NSE Data Center', subtitle: 'Historical market data and import status', page: const NseDataScreen()),
+      (icon: Icons.admin_panel_settings_outlined, title: 'AIR Administration', subtitle: 'Operator tools and customer access management', page: const AirAdminScreen()),
+      (icon: Icons.account_tree_outlined, title: 'Broker Connections', subtitle: 'Assigned accounts and data-source connection status', page: const AirConnectionScreen()),
+    ];
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+      children: [
+        Text('MORE', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+        const SizedBox(height: 5),
+        Text('Research workspaces, data services and account settings.',
+          style: TextStyle(color: muted, fontSize: 13)),
+        const SizedBox(height: 18),
+        for (final module in modules)
+          Card(
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+              leading: Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: .12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(module.icon, color: accent),
+              ),
+              title: Text(module.title, style: const TextStyle(fontWeight: FontWeight.w700)),
+              subtitle: Text(module.subtitle, style: const TextStyle(fontSize: 12)),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => _open(context, module.page),
+            ),
+          ),
+      ],
     );
   }
 }
@@ -131,8 +229,8 @@ class AirDashboard extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('AIR MODEL ENGINE', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, letterSpacing: .7)),
-            Text('Market intelligence terminal', style: TextStyle(fontSize: 10, color: Colors.grey)),
+            Text('AIR', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 1.2)),
+            Text('Investment intelligence terminal', style: TextStyle(fontSize: 10, color: Colors.grey)),
           ])),
           PopupMenuButton<AirLook>(
             tooltip: 'Appearance',
@@ -140,7 +238,7 @@ class AirDashboard extends StatelessWidget {
             onSelected: onLookChanged,
             icon: Icon(Icons.palette_outlined, color: accent),
             itemBuilder: (context) => const [
-              PopupMenuItem(value: AirLook.glass, child: Text('Glass')),
+              
               PopupMenuItem(value: AirLook.dark, child: Text('Dark')),
               PopupMenuItem(value: AirLook.light, child: Text('Light')),
             ],
