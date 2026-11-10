@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Verify preinstalled AIR Flutter
-        shell: pwsh
+        shell: powershell
         run: |
           $flutterBin = 'C:\AIR\tools\flutter\bin'
           $flutter = Join-Path $flutterBin 'flutter.bat'
@@ -39,25 +39,29 @@ jobs:
 
       - name: Generate Flutter web platform
         working-directory: mobile
+        shell: powershell
         run: flutter create . --platforms=web --org com.analyticalstocks
 
       - name: Resolve packages
         working-directory: mobile
+        shell: powershell
         run: flutter pub get
 
       - name: Analyze Flutter app
         working-directory: mobile
+        shell: powershell
         run: flutter analyze lib
 
       - name: Run Flutter tests
         working-directory: mobile
+        shell: powershell
         run: flutter test
 
       - name: Build optimized AIR PWA
         working-directory: mobile
         env:
           AIR_API_BASE_URL: ${{ vars.AIR_API_BASE_URL }}
-        shell: pwsh
+        shell: powershell
         run: |
           if ([string]::IsNullOrWhiteSpace($env:AIR_API_BASE_URL)) {
             throw "AIR_API_BASE_URL repository variable is required for a connected build."
@@ -66,7 +70,7 @@ jobs:
 
       - name: Report web bundle size
         working-directory: mobile
-        shell: pwsh
+        shell: powershell
         run: |
           $bytes = (Get-ChildItem build/web -Recurse -File | Measure-Object -Property Length -Sum).Sum
           Write-Host ("AIR PWA bundle size: {0:N2} MB" -f ($bytes / 1MB))
