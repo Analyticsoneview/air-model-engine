@@ -130,6 +130,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Android ARM64 APK build failed.' }
       - name: Upload APK
         uses: actions/upload-artifact@v4
+        timeout-minutes: 10
         with:
           name: AIR-Android-ARM64-PR-${{ github.event.pull_request.number || 'manual' }}
           path: mobile/build/app/outputs/flutter-apk/app-release.apk
