@@ -99,6 +99,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Backend tests failed.' }
 
   android:
+    needs: [backend]
     if: github.event.action != 'closed'
     name: Android ARM64 APK build
     runs-on: self-hosted
@@ -138,10 +139,14 @@ jobs:
           $sdk = 'C:\Android\Sdk'
           # The current Command-line Tools ship the new Android CLI.
           # sdkmanager.bat is a deprecated wrapper and misparses legacy NDK IDs.
-          $androidCli = Join-Path $sdk 'cmdline-tools\latest\bin\android.bat'
+          $androidBin = Join-Path $sdk 'cmdline-tools\latest\bin'
+          $androidCli = Join-Path $androidBin 'android.exe'
           if (-not (Test-Path -LiteralPath $androidCli)) {
-            $candidates = @(Get-ChildItem -LiteralPath (Join-Path $sdk 'cmdline-tools') -Filter 'android.bat' -File -Recurse -ErrorAction SilentlyContinue)
-            if ($candidates.Count -eq 0) { throw "Android CLI android.bat was not found under $sdk\cmdline-tools." }
+            $androidCli = Join-Path $androidBin 'android.bat'
+          }
+          if (-not (Test-Path -LiteralPath $androidCli)) {
+            $candidates = @(Get-ChildItem -LiteralPath (Join-Path $sdk 'cmdline-tools') -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Name -in @('android.exe','android.bat') })
+            if ($candidates.Count -eq 0) { throw "Android CLI executable was not found under $sdk\cmdline-tools." }
             $androidCli = $candidates[0].FullName
           }
           $ndk = Join-Path $sdk 'ndk\28.2.13676358'
