@@ -17,9 +17,15 @@ concurrency:
 
 jobs:
   customer-postgres-integration:
-    name: Customer auth PostgreSQL integration (GitHub-hosted PostgreSQL 16)
+    name: Customer auth PostgreSQL integration (disposable PostgreSQL 16)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      AIR_CUSTOMER_DATABASE_URL: postgresql+psycopg://air_test:air_test@127.0.0.1:5432/air_test
+      AIR_TEST_CUSTOMER_DATABASE_URL: postgresql+psycopg://air_test:air_test@127.0.0.1:5432/air_test
+    defaults:
+      run:
+        working-directory: backend
     steps:
       - uses: actions/checkout@v4
       - name: Start disposable PostgreSQL 16 container
