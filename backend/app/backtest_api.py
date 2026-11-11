@@ -8,14 +8,14 @@ from app.backtest_registry import registered_backtest_strategies
 from app.expiry_case_study_27oct2026 import (
     COHORT_ID, EXPIRY, SOURCE_WORKBOOK, historical_expired_contracts,
 )
-from app.security import require_customer
+from app.subscription_access import require_strategy_access
 
 router = APIRouter(prefix="/api/v1/backtest", tags=["AIR Historical Backtest"])
 
 
 @router.get("/strategies")
-async def list_backtest_strategies(customer_id: str = Depends(require_customer)) -> dict:
-    """List only existing AIR strategies and disclose their data eligibility."""
+async def list_backtest_strategies(customer_id: str = Depends(require_strategy_access)) -> dict:
+    """List existing AIR strategies only for customers with active entitlement."""
     strategies = registered_backtest_strategies()
     return {
         "strategies": strategies,
@@ -32,7 +32,7 @@ async def list_backtest_strategies(customer_id: str = Depends(require_customer))
 async def expiryscan_historical_report(
     start_date: date = Query(..., description="Inclusive report start YYYY-MM-DD"),
     end_date: date = Query(..., description="Inclusive report end YYYY-MM-DD"),
-    customer_id: str = Depends(require_customer),
+    customer_id: str = Depends(require_strategy_access),
 ) -> dict:
     """Return preserved historical EXPIRYSCAN expiry-cohort outcomes for a date range.
 
