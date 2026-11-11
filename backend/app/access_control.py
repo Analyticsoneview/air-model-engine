@@ -5,7 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 
-_E164 = re.compile(r"^\\+[1-9][0-9]{7,14}$")
+_E164 = re.compile(r"^\+[1-9][0-9]{7,14}$")
 
 
 class AccessStore:
