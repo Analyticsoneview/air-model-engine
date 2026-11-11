@@ -75,7 +75,7 @@ def test_original366_expiry_loss_and_missing_valuation_wait():
 
 
 def test_stock_premium_filter_and_index_exemption():
-    bars = [bar("2026-11-03", 8, 8.5, 7.8, 8.2)]
+    bars = [bar("2026-11-03", 120, 125, 117, 122)]
     stock = sample_contract(entry_price=12, bars=bars)
     index = sample_contract(instrument="INDEX", entry_price=120, bars=bars)
     assert evaluate_original366_contract(stock, as_of="2026-11-03")["status"] == "REJECTED"
