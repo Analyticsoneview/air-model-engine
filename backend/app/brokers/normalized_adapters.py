@@ -34,10 +34,14 @@ def _rows(value: Any, *keys: str) -> list[dict[str, Any]]:
     if isinstance(value, list):
         return [x for x in value if isinstance(x, dict)]
     if isinstance(value, dict):
-        for key in keys:
+        for key in (*keys, "data"):
             nested = value.get(key)
             if isinstance(nested, list):
                 return [x for x in nested if isinstance(x, dict)]
+            if isinstance(nested, dict):
+                rows = _rows(nested, *keys)
+                if rows:
+                    return rows
     return []
 
 
@@ -95,9 +99,9 @@ class ZerodhaBrokerAdapter(_NormalizedAdapter):
     broker_code = "zerodha"
     order_id_fields = ("order_id",)
     status_fields = ("status", "status_message")
-    position_keys = ("net", "day")
-    holding_keys = ()
-    order_keys = ()
+    position_keys = ("net", "day", "data")
+    holding_keys = ("data",)
+    order_keys = ("data",)
 
     async def authenticate(self, credentials: BrokerCredentials) -> dict[str, Any]:
         if not credentials.account_id.strip() or not credentials.api_key.strip() or not credentials.access_token:
@@ -154,9 +158,9 @@ class UpstoxBrokerAdapter(_NormalizedAdapter):
     broker_code="upstox"
     order_id_fields=("order_id","orderId")
     status_fields=("status","order_status")
-    position_keys=()
-    holding_keys=()
-    order_keys=()
+    position_keys=("data",)
+    holding_keys=("data",)
+    order_keys=("data",)
 
     async def authenticate(self, credentials: BrokerCredentials) -> dict[str, Any]:
         if not credentials.account_id.strip() or not credentials.api_key.strip() or not credentials.access_token:
@@ -210,9 +214,9 @@ class FyersBrokerAdapter(_NormalizedAdapter):
     broker_code="fyers"
     order_id_fields=("id","orderId")
     status_fields=("status","message")
-    position_keys=("netPositions","overall")
-    holding_keys=("holdings",)
-    order_keys=("orderBook",)
+    position_keys=("netPositions","overall","data")
+    holding_keys=("holdings","data")
+    order_keys=("orderBook","data")
 
     async def authenticate(self, credentials: BrokerCredentials) -> dict[str, Any]:
         metadata=credentials.metadata or {}
@@ -284,6 +288,8 @@ class AngelBrokerAdapter(_NormalizedAdapter):
             self.client=AngelSmartAPI(credentials.api_key,credentials.account_id,
                 client_local_ip=metadata["client_local_ip"],client_public_ip=metadata["client_public_ip"],
                 mac_address=metadata["mac_address"],access_token=credentials.access_token)
+        else:
+            self.client.set_access_token(credentials.access_token)
         profile=await self._profile()
         account=str(profile.get("clientcode") or profile.get("clientCode") or "")
         if account!=credentials.account_id.strip():raise PermissionError("Angel profile does not match selected account")
