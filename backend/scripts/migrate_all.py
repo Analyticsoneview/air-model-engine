@@ -47,7 +47,12 @@ def main() -> None:
 
     customer_result = migrate_customer_auth(customer_source, os.environ["AIR_CUSTOMER_DATABASE_URL"])
     admin_result = migrate_admin(admin_source, os.environ["AIR_ADMIN_DATABASE_URL"])
-    domain_result = migrate_domain_stores(Path("data"), dry_run=False)
+    # Core domain stores remain on SQLite until an operator explicitly enables
+    # the one-time import and configures the matching PostgreSQL selectors.
+    if os.getenv("AIR_DOMAIN_STORES_IMPORT_ON_STARTUP", "").strip().lower() in {"1", "true", "yes"}:
+        domain_result = migrate_domain_stores(Path("data"), dry_run=False)
+    else:
+        domain_result = {"status": "SKIPPED_EXPLICIT_CUTOVER_REQUIRED"}
 
     report = {
         "alembic": "UPGRADED",
@@ -57,7 +62,7 @@ def main() -> None:
     }
     print(json.dumps(report, indent=2, default=str))
 
-    allowed = {"IMPORTED_AND_RECONCILED", "ALREADY_IMPORTED", "NO_SOURCE_FILE"}
+    allowed = {"IMPORTED_AND_RECONCILED", "ALREADY_IMPORTED", "NO_SOURCE_FILE", "SKIPPED_EXPLICIT_CUTOVER_REQUIRED"}
     for name, result in (
         ("customer_auth", customer_result),
         ("admin_auth", admin_result),
