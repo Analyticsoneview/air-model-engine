@@ -76,6 +76,8 @@ class DhanBrokerAdapter(BrokerAdapter):
             by_key[(item.segment, str(security_id))] = item
         payload = await client.market_feed("quote", grouped)
         data = payload.get("data", payload) if isinstance(payload, dict) else {}
+        if not isinstance(data, dict):
+            raise RuntimeError("Unexpected Dhan market-feed response")
         output: list[Quote] = []
         for segment, rows in data.items():
             if not isinstance(rows, dict):
@@ -86,10 +88,15 @@ class DhanBrokerAdapter(BrokerAdapter):
                 instrument = by_key.get((segment, str(security_id)))
                 if instrument is None:
                     continue
+                ltp = _decimal(raw.get("last_price") or raw.get("ltp"))
+                # Never manufacture a zero-price quote: downstream risk and valuation
+                # checks must treat a missing/invalid provider price as unavailable.
+                if ltp is None or ltp <= 0:
+                    continue
                 output.append(Quote(
                     broker=self.broker_code, exchange=instrument.exchange,
                     token=instrument.token,
-                    ltp=_decimal(raw.get("last_price") or raw.get("ltp")) or Decimal("0"),
+                    ltp=ltp,
                     open=_decimal(raw.get("ohlc", {}).get("open") if isinstance(raw.get("ohlc"), dict) else raw.get("open")),
                     high=_decimal(raw.get("ohlc", {}).get("high") if isinstance(raw.get("ohlc"), dict) else raw.get("high")),
                     low=_decimal(raw.get("ohlc", {}).get("low") if isinstance(raw.get("ohlc"), dict) else raw.get("low")),
@@ -123,13 +130,20 @@ class DhanBrokerAdapter(BrokerAdapter):
 
     async def place_order(self, order: OrderRequest) -> BrokerOrder:
         client = self._require_account(order.account_id)
+        correlation_id = order.idempotency_key.strip()
+        if not correlation_id or len(correlation_id) > 30:
+            raise ValueError("Dhan idempotency_key must contain 1 to 30 characters")
+        if order.quantity <= 0:
+            raise ValueError("Order quantity must be positive")
+        if order.side.upper() not in {"BUY", "SELL"}:
+            raise ValueError("Order side must be BUY or SELL")
         response = await client.place_order(
             security_id=order.token, exchange_segment=order.exchange,
             transaction_type=order.side.upper(), product_type=order.product.upper(),
             order_type=order.order_type.upper(), quantity=order.quantity,
             validity=order.validity.upper(), price=order.price,
             trigger_price=order.trigger_price,
-            correlation_id=order.idempotency_key[:30],
+            correlation_id=correlation_id,
         )
         if not isinstance(response, dict):
             raise RuntimeError("Unexpected Dhan order response")
