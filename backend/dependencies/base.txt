@@ -11,5 +11,6 @@ APScheduler>=3.10,<4.0
 reportlab>=4.2,<5
 # Shared PostgreSQL + Redis connectivity; SQLite remains available for local/legacy mode.
 SQLAlchemy>=2.0,<3.0
+alembic>=1.13,<2.0
 psycopg[binary]>=3.2,<4.0
 redis>=5.0,<7.0
