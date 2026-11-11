@@ -1,5 +1,6 @@
 """SQLite parity and optional PostgreSQL integration tests for customer auth/access."""
 import os
+from datetime import datetime, timedelta, timezone
 import sqlite3
 import tempfile
 import unittest
@@ -123,8 +124,19 @@ def test_postgres_store_contract(postgres_url):
         assert access.is_session_active(session_id)
         assert access.review(request["request_id"], "BLOCKED", "integration test")
         assert not access.is_session_active(session_id)
+        starts = datetime.now(timezone.utc) + timedelta(days=1)
+        expires = starts + timedelta(days=30)
+        access.assign_subscription(customer_id, "MONTHLY", starts.isoformat(), expires.isoformat())
+        assert access.get_subscription(customer_id)["status"] == "PENDING"
+        active_start = datetime.now(timezone.utc) - timedelta(hours=1)
+        active_end = datetime.now(timezone.utc) + timedelta(hours=1)
+        access.assign_subscription(customer_id, "MONTHLY", active_start.isoformat(), active_end.isoformat())
+        assert access.get_subscription(customer_id)["status"] == "ACTIVE"
+        with pytest.raises(ValueError):
+            access.assign_subscription(customer_id, "MONTHLY", active_end.isoformat(), active_start.isoformat())
     finally:
         with auth.engine.begin() as conn:
+            conn.execute(text("DELETE FROM air_customer_subscriptions WHERE customer_id=:id"), {"id": customer_id})
             conn.execute(text("DELETE FROM customers WHERE customer_id=:id"), {"id": customer_id})
             conn.execute(text("DELETE FROM air_access_requests WHERE mobile_e164=:mobile AND device_id=:device"),
                          {"mobile": mobile, "device": device})
@@ -147,5 +159,6 @@ def test_alembic_customer_migration_chain_generates_postgresql_sql(monkeypatch, 
     assert "CREATE TABLE customers" in generated
     assert "CREATE TABLE air_access_requests" in generated
     assert "CREATE TABLE air_device_sessions" in generated
+    assert "CREATE TABLE air_customer_subscriptions" in generated
     assert "uq_customers_email_lower" in generated
     assert "uq_air_access_mobile_device" in generated
