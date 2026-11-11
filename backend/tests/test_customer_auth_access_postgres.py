@@ -49,9 +49,9 @@ def _source_db(path: Path):
     CREATE TABLE air_access_requests(request_id TEXT PRIMARY KEY,mobile_e164 TEXT,device_id TEXT,status TEXT,created_at TEXT,reviewed_at TEXT,reviewer_note TEXT);
     CREATE TABLE air_device_sessions(session_id TEXT PRIMARY KEY,request_id TEXT,active INTEGER,created_at TEXT);
     """)
-    db.execute("INSERT INTO customers VALUES(?,?,?,?,?)", ("cust-1", "user@example.com", "hash", 1, "2026-01-01 00:00:00"))
-    db.execute("INSERT INTO air_access_requests VALUES(?,?,?,?,?,?,?)", ("req-1", "+14155550123", "device-0001", "APPROVED", "2026-01-01 00:00:00", "2026-01-01 00:01:00", "approved"))
-    db.execute("INSERT INTO air_device_sessions VALUES(?,?,?,?)", ("sid-1", "req-1", 1, "2026-01-01 00:02:00"))
+    db.execute("INSERT INTO customers VALUES(?,?,?,?,?)", ("cust-1", "user@example.com", "hash", 1, "2026-01-01T05:30:00+05:30"))
+    db.execute("INSERT INTO air_access_requests VALUES(?,?,?,?,?,?,?)", ("req-1", "+14155550123", "device-0001", "APPROVED", "2026-01-01T05:30:00+05:30", "2026-01-01T05:31:00+05:30", "approved"))
+    db.execute("INSERT INTO air_device_sessions VALUES(?,?,?,?)", ("sid-1", "req-1", 1, "2026-01-01T05:32:00+05:30"))
     db.commit()
     db.close()
 
