@@ -67,6 +67,12 @@ class OAuthStateStoreTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "unavailable"):
             store.consume("upstox", "customer-3", "account-1", "state-value")
 
+    def test_local_state_expires(self):
+        store = OAuthStateStore(redis_url="")
+        store.issue("upstox", "customer-expiry", "account-expiry", "short-lived", ttl_seconds=1)
+        time.sleep(1.1)
+        self.assertFalse(store.consume("upstox", "customer-expiry", "account-expiry", "short-lived"))
+
     def test_invalid_ttl_is_rejected(self):
         store = OAuthStateStore(redis_url="")
         with self.assertRaises(ValueError):
