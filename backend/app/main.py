@@ -11,7 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from app.auth_store import AuthStore
-from app.access_control import access_store\nfrom app.admin_auth import get_admin_auth_store
+from app.access_control import access_store
+from app.admin_auth import get_admin_auth_store
 from app.brokers.customer_accounts import CustomerAccountDirectory, CustomerTradingAccount
 from app.brokers.catalog import get_broker_catalog, is_supported_broker
 from app.brokers.dhan import DhanHQClient, DhanAPIError
@@ -715,7 +716,7 @@ async def current_customer(customer_id: str = Depends(require_customer)) -> dict
 class AdminLoginRequest(BaseModel):
     email: str = Field(min_length=5, max_length=254)
     password: str = Field(min_length=12, max_length=256)
-    totp_code: str = Field(pattern=r"^\\d{6}$")
+    totp_code: str = Field(pattern=r"^\d{6}$")
 
 
 @app.post("/api/v1/admin/auth/login")
@@ -1849,7 +1850,7 @@ async def operator_test_telegram_destination(
     if not selected:
         raise HTTPException(status_code=409, detail="Add and enable at least one Telegram destination first")
     result = await send_telegram_message(
-        "✅ <b>AIR Telegram connection test</b>\\nThis destination is reachable. Alert routing is configured.",
+        "✅ <b>AIR Telegram connection test</b>\nThis destination is reachable. Alert routing is configured.",
         [row["chat_id"] for row in selected],
     )
     if not result.get("configured") or result.get("failures"):
