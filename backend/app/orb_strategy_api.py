@@ -44,7 +44,7 @@ async def orb_status(customer_id: str = Depends(require_strategy_access)) -> dic
 
 @router.post("/subscribe")
 async def orb_subscribe(body: OrbSubscribeRequest,
-                        customer_id: str = Depends(require_customer)) -> dict:
+                        customer_id: str = Depends(require_strategy_access)) -> dict:
     symbols = list(dict.fromkeys(str(value).strip().upper() for value in body.symbols if str(value).strip()))
     if not symbols:
         raise HTTPException(status_code=422, detail="At least one NSE symbol is required")
