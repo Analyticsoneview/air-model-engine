@@ -12,7 +12,7 @@ from uuid import uuid4
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
-_E164 = re.compile(r"^\\+[1-9][0-9]{7,14}$")
+_E164 = re.compile(r"^\+[1-9][0-9]{7,14}$")
 
 
 def customer_database_url() -> str:
