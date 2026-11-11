@@ -132,12 +132,14 @@ if [[ ! -s "$ADMIN_KEY_FILE" ]]; then
   chmod 600 "$ADMIN_KEY_FILE"
 fi
 ADMIN_KEY="$(cat "$ADMIN_KEY_FILE")"
+ADMIN_MFA_KEY="$(python3 -c 'import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())')"
 
 create_secret_if_missing air_jwt_secret "$JWT_SECRET"
 create_secret_if_missing air_credential_key "$CREDENTIAL_KEY"
 create_secret_if_missing air_admin_api_key "$ADMIN_KEY"
+create_secret_if_missing air_admin_mfa_key "$ADMIN_MFA_KEY"
 create_secret_if_missing air_telegram_bot_token "$TELEGRAM_TOKEN"
-unset JWT_SECRET CREDENTIAL_KEY ADMIN_KEY TELEGRAM_TOKEN
+unset JWT_SECRET CREDENTIAL_KEY ADMIN_KEY ADMIN_MFA_KEY TELEGRAM_TOKEN
 
 cat > "$ENV_FILE" <<ENV_EOF
 AIR_BACKEND_IMAGE=air-model-engine-api:lab
