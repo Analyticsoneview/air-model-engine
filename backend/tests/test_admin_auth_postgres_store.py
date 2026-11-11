@@ -134,6 +134,20 @@ def test_postgres_admin_password_rotation_revokes_other_sessions(admin_store):
     assert admin_store.session(second["session_id"]) is None
 
 
+def test_postgres_admin_logout_revokes_session(admin_store):
+    admin_id, secret = admin_store.bootstrap("root@example.com", "Long-Strong-Password-123!")
+    now = 1_800_000_000
+    login = admin_store.authenticate(
+        "root@example.com", "Long-Strong-Password-123!", _totp(secret, now),
+        rate_key="root|logout", now=now,
+    )
+    assert login and admin_store.session(login["session_id"]) is not None
+
+    admin_store.revoke(login["session_id"])
+
+    assert admin_store.session(login["session_id"]) is None
+
+
 def test_postgres_admin_cannot_remove_last_super_admin(admin_store):
     admin_id, _ = admin_store.bootstrap("root@example.com", "Long-Strong-Password-123!")
     # Use a distinct authenticated actor identity to reach the invariant checks;
