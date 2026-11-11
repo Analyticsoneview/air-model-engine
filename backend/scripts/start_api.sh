@@ -4,6 +4,12 @@ set -eu
 cd /app
 python -m scripts.migrate_all
 
+# Customer and Admin auth migrations are part of every PostgreSQL startup.
+# Point the API at those stores only after migrate_all completed successfully.
+: "${AIR_DATABASE_URL_FILE:?AIR_DATABASE_URL_FILE is required for PostgreSQL auth stores}"
+export AIR_CUSTOMER_DATABASE_URL_FILE="${AIR_CUSTOMER_DATABASE_URL_FILE:-$AIR_DATABASE_URL_FILE}"
+export AIR_ADMIN_DATABASE_URL_FILE="${AIR_ADMIN_DATABASE_URL_FILE:-$AIR_DATABASE_URL_FILE}"
+
 # When an operator explicitly opts into the one-time domain-store cutover,
 # point the API repositories at the same PostgreSQL secret after import succeeds.
 if [ "${AIR_DOMAIN_STORES_IMPORT_ON_STARTUP:-false}" = "true" ] || [ "${AIR_DOMAIN_STORES_IMPORT_ON_STARTUP:-false}" = "1" ]; then
