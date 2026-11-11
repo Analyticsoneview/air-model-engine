@@ -40,21 +40,29 @@ class ExecutionPolicy:
                 )
             """)
             self.db.commit()
-        with self.db:
-            self.db.execute("""
-                INSERT INTO execution_policy(id,master_auto_enabled,strategy_json,updated_at)
-                VALUES(1,0,'{}',?)
-                ON CONFLICT(id) DO NOTHING
-            """, (datetime.now(timezone.utc).isoformat(),))
+        if not self._is_postgres:
+            with self.db:
+                self.db.execute("""
+                    INSERT INTO execution_policy(id,master_auto_enabled,strategy_json,updated_at)
+                    VALUES(1,0,'{}',?)
+                    ON CONFLICT(id) DO NOTHING
+                """, (datetime.now(timezone.utc).isoformat(),))
 
     def get(self) -> dict:
         row = self.db.execute("SELECT * FROM execution_policy WHERE id=1").fetchone()
-        flags = json.loads(row["strategy_json"] or "{}")
+        if row is None:
+            flags = {}
+            master_auto_enabled = False
+            updated_at = None
+        else:
+            flags = json.loads(row["strategy_json"] or "{}")
+            master_auto_enabled = bool(row["master_auto_enabled"])
+            updated_at = row["updated_at"]
         return {
-            "master_auto_enabled": bool(row["master_auto_enabled"]),
+            "master_auto_enabled": master_auto_enabled,
             "strategies": {name: bool(flags.get(name, False)) for name in STRATEGIES},
             "effective_auto": {
-                name: bool(row["master_auto_enabled"]) and bool(flags.get(name, False))
+                name: master_auto_enabled and bool(flags.get(name, False))
                 for name in STRATEGIES
             },
             # Manual mode is available for operator review/selection. Actual
@@ -64,7 +72,7 @@ class ExecutionPolicy:
             "manual_review_enabled": True,
             "manual_order_submission_enabled": False,
             "default_mode": "MANUAL",
-            "updated_at": row["updated_at"],
+            "updated_at": updated_at,
             "live_orders_enabled": False,
             "note": "Policy only. Broker order submission remains separately gated until live execution adapters and risk controls are verified.",
         }
@@ -78,10 +86,14 @@ class ExecutionPolicy:
         # A strategy cannot remain effectively automatic when the master is OFF.
         stamp = datetime.now(timezone.utc).isoformat()
         with self.db:
-            self.db.execute(
-                "UPDATE execution_policy SET master_auto_enabled=?,strategy_json=?,updated_at=? WHERE id=1",
-                (int(master_auto_enabled), json.dumps(current, sort_keys=True), stamp),
-            )
+            self.db.execute("""
+                INSERT INTO execution_policy(id,master_auto_enabled,strategy_json,updated_at)
+                VALUES(1,?,?,?)
+                ON CONFLICT(id) DO UPDATE SET
+                    master_auto_enabled=excluded.master_auto_enabled,
+                    strategy_json=excluded.strategy_json,
+                    updated_at=excluded.updated_at
+            """, (bool(master_auto_enabled), json.dumps(current, sort_keys=True), stamp))
         return self.get()
 
     def authorize_mode(self, strategy: str, requested_mode: str) -> str:
