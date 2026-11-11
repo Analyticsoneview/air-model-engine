@@ -275,7 +275,7 @@ class AirDashboard extends StatelessWidget {
         const SizedBox(height: 18),
         Row(children: [
           const Expanded(child: Text('YOUR WORKSPACE', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1))),
-          Text('4 MODULES', style: TextStyle(fontSize: 9, color: muted, letterSpacing: .6)),
+          Text('5 MODULES', style: TextStyle(fontSize: 9, color: muted, letterSpacing: .6)),
         ]),
         const SizedBox(height: 9),
         Row(children: [
