@@ -16,6 +16,9 @@ from app.brokers.customer_accounts import CustomerAccountDirectory, CustomerTrad
 from app.credential_vault import CredentialVault
 from app.services.execution_policy import ExecutionPolicy
 from app.services.order_ledger import DurableOrderLedger
+from app.admin_auth_postgres import PostgresAdminAuthStore
+from app.security import hash_password
+from scripts.import_sqlite_admin_auth import run as import_sqlite_admin_auth
 from scripts.import_sqlite_domain_stores import run as import_sqlite_domain_stores
 
 
@@ -29,6 +32,74 @@ pytestmark = pytest.mark.skipif(
     not all(os.getenv(name) for name in _REQUIRED_DATABASES),
     reason="Core PostgreSQL repository selectors are not configured",
 )
+
+
+def test_sqlite_admin_auth_import_preserves_admin_and_mfa(tmp_path, monkeypatch):
+    key = Fernet.generate_key()
+    cipher = Fernet(key)
+    monkeypatch.setenv("AIR_ADMIN_MFA_KEY", key.decode())
+
+    source_path = tmp_path / "air_auth.sqlite3"
+    source = sqlite3.connect(source_path)
+    source.executescript("""
+        CREATE TABLE air_admin_users (
+            admin_id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            password_hash TEXT NOT NULL, mfa_secret BLOB NOT NULL,
+            role TEXT NOT NULL, is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL, last_totp_counter INTEGER NOT NULL DEFAULT -1,
+            must_change_password INTEGER NOT NULL DEFAULT 0, failed_attempts INTEGER NOT NULL DEFAULT 0,
+            locked_until INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE air_admin_sessions (
+            session_id TEXT PRIMARY KEY, admin_id TEXT NOT NULL,
+            active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL
+        );
+        CREATE TABLE air_admin_login_limits (
+            rate_key TEXT PRIMARY KEY, failures INTEGER NOT NULL DEFAULT 0,
+            window_started INTEGER NOT NULL, locked_until INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE air_admin_audit (
+            event_id TEXT PRIMARY KEY, actor_admin_id TEXT, action TEXT NOT NULL,
+            target_admin_id TEXT, details TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL
+        );
+    """)
+    admin_id = "admin-test-0001"
+    source.execute(
+        "INSERT INTO air_admin_users VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+        (admin_id, "legacy-admin@example.test", hash_password("LegacyPass!234"),
+         cipher.encrypt(b"JBSWY3DPEHPK3PXP"), "SUPER_ADMIN", 1,
+         "2026-11-01 10:00:00", -1, 0, 0, 0),
+    )
+    source.execute(
+        "INSERT INTO air_admin_sessions VALUES(?,?,?,?)",
+        ("legacy-session-0001", admin_id, 1, "2026-11-01 10:01:00"),
+    )
+    source.execute(
+        "INSERT INTO air_admin_login_limits VALUES(?,?,?,?)",
+        ("legacy-rate-key", 2, 1793500000, 0),
+    )
+    source.execute(
+        "INSERT INTO air_admin_audit VALUES(?,?,?,?,?,?)",
+        ("legacy-event-0001", admin_id, "LEGACY_BOOTSTRAP", admin_id, "preserve", "2026-11-01 10:00:00"),
+    )
+    source.commit()
+    source.close()
+
+    dry_run = import_sqlite_admin_auth(source_path, dry_run=True)
+    assert dry_run["status"] == "DRY_RUN_VALIDATED"
+    imported = import_sqlite_admin_auth(source_path, dry_run=False)
+    assert imported["status"] == "IMPORTED_AND_RECONCILED"
+    assert import_sqlite_admin_auth(source_path, dry_run=False)["status"] == "ALREADY_IMPORTED"
+
+    store = PostgresAdminAuthStore(database_url=os.getenv("AIR_DATABASE_URL"), redis_url=None)
+    try:
+        admins = store.list_admins()
+        assert len(admins) == 1
+        assert admins[0]["admin_id"] == admin_id
+        assert store.session("legacy-session-0001")["email"] == "legacy-admin@example.test"
+        assert store.audit_events(limit=10)[0]["event_id"] == "legacy-event-0001"
+    finally:
+        store.close()
 
 
 def test_sqlite_domain_store_import_is_field_reconciled(tmp_path, monkeypatch):
