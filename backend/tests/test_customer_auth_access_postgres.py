@@ -10,6 +10,7 @@ from sqlalchemy import create_engine, text
 
 from app.auth_store import AuthStore
 from app.access_control import AccessStore
+from app.customer_auth_postgres import PostgresAuthStore, PostgresAccessStore
 from app.scripts.migrate_customer_auth_sqlite_to_postgres import migrate
 
 
@@ -101,3 +102,31 @@ def test_customer_access_import_conflict_rolls_back(postgres_url, tmp_path):
             assert conn.execute(text("SELECT COUNT(*) FROM air_device_sessions")).scalar_one() == 0
     finally:
         engine.dispose()
+
+
+def test_postgres_store_contract(postgres_url):
+    auth = PostgresAuthStore(postgres_url)
+    access = PostgresAccessStore(postgres_url)
+    customer_id = "pg-test-" + os.urandom(8).hex()
+    mobile = "+1415" + "".join(str(x % 10) for x in os.urandom(7))
+    device = "pg-test-device-" + os.urandom(6).hex()
+    try:
+        auth.create_customer(customer_id, f"{customer_id}@example.test", "argon-hash")
+        row = auth.get_by_email(f"{customer_id}@example.test")
+        assert row["customer_id"] == customer_id
+        assert auth.is_active(customer_id)
+        request = access.request_access(mobile, device)
+        assert request["status"] == "PENDING"
+        assert access.mobile_for_request_id(request["request_id"]) == mobile
+        assert access.review(request["request_id"], "APPROVED")
+        session_id = access.create_session(request["request_id"])
+        assert access.is_session_active(session_id)
+        assert access.review(request["request_id"], "BLOCKED", "integration test")
+        assert not access.is_session_active(session_id)
+    finally:
+        with auth.engine.begin() as conn:
+            conn.execute(text("DELETE FROM customers WHERE customer_id=:id"), {"id": customer_id})
+            conn.execute(text("DELETE FROM air_access_requests WHERE mobile_e164=:mobile AND device_id=:device"),
+                         {"mobile": mobile, "device": device})
+        auth.close()
+        access.close()
