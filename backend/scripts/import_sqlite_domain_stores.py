@@ -92,6 +92,20 @@ def _credential_cipher() -> Fernet | None:
     return Fernet(key) if key else None
 
 
+def _source_path(source_data_dir: Path, table: str, filename: str) -> Path:
+    env_name = {
+        "broker_credentials": "AIR_CREDENTIAL_DB_PATH",
+        "customer_trading_accounts": "AIR_ACCOUNT_DB_PATH",
+        "customer_market_data_access": "AIR_ACCOUNT_DB_PATH",
+        "customer_market_data_selection": "AIR_ACCOUNT_DB_PATH",
+        "execution_policy": "AIR_EXECUTION_POLICY_DB_PATH",
+        "order_ledger": "AIR_ORDER_DB_PATH",
+        "order_ledger_events": "AIR_ORDER_DB_PATH",
+    }[table]
+    configured = os.getenv(env_name, "").strip()
+    return Path(configured) if configured else source_data_dir / filename
+
+
 def run(source_data_dir: Path, dry_run: bool = False) -> dict[str, Any]:
     target_url = _read_secret("AIR_DATABASE_URL")
     driver_url = target_url.replace("postgresql+psycopg://", "postgresql://", 1)
@@ -100,7 +114,7 @@ def run(source_data_dir: Path, dry_run: bool = False) -> dict[str, Any]:
     cipher = _credential_cipher()
 
     for table, (filename, columns) in TABLES.items():
-        rows = _sqlite_rows(source_data_dir / filename, table, columns)
+        rows = _sqlite_rows(_source_path(source_data_dir, table, filename), table, columns)
         source_rows[table] = rows
         report["tables"][table] = {"source_rows": len(rows), "target_rows_before": None, "target_rows_after": None}
         if table == "broker_credentials" and rows:
