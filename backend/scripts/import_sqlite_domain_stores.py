@@ -110,22 +110,15 @@ def run(source_data_dir: Path, dry_run: bool = False) -> dict[str, Any]:
     target_url = _read_secret("AIR_DATABASE_URL")
     driver_url = target_url.replace("postgresql+psycopg://", "postgresql://", 1)
     source_rows: dict[str, list[dict[str, Any]]] = {}
+    source_paths: dict[str, Path] = {}
     report: dict[str, Any] = {"dry_run": dry_run, "tables": {}}
-    with psycopg.connect(driver_url, row_factory=dict_row) as connection:
-        marker = connection.execute(
-            "SELECT source_manifest, imported_at FROM air_domain_store_imports "
-            "WHERE import_name=%s",
-            ("sqlite_domain_stores_v1",),
-        ).fetchone()
-        if marker:
-            report["status"] = "ALREADY_IMPORTED"
-            report["imported_at"] = marker["imported_at"]
-            return report
-
+    any_source_file = False
     cipher = _credential_cipher()
 
     for table, (filename, columns) in TABLES.items():
         source_path = _source_path(source_data_dir, table, filename)
+        source_paths[table] = source_path
+        any_source_file = any_source_file or source_path.is_file()
         rows = _sqlite_rows(source_path, table, columns)
         source_rows[table] = rows
         report["tables"][table] = {
@@ -140,53 +133,33 @@ def run(source_data_dir: Path, dry_run: bool = False) -> dict[str, Any]:
             for row in rows:
                 cipher.decrypt(bytes(row["encrypted_payload"]))
 
+    if not any_source_file:
+        report["status"] = "NO_SOURCE_FILE"
+        return report
+
+    manifest_data = {
+        table: {
+            "source_path": str(source_paths[table]),
+            "source_rows": len(source_rows[table]),
+        }
+        for table in TABLES
+    }
+    manifest = json.dumps(manifest_data, sort_keys=True)
+
     with psycopg.connect(driver_url, row_factory=dict_row) as connection:
         marker = connection.execute(
             "SELECT source_manifest, imported_at FROM air_domain_store_imports "
             "WHERE import_name=%s",
             ("sqlite_domain_stores_v1",),
         ).fetchone()
+
         if marker:
-            report["status"] = "ALREADY_IMPORTED"
-            report["imported_at"] = marker["imported_at"]
-            return report
-
-        for table in TABLES:
-            target_count = connection.execute(f"SELECT count(*) AS count FROM {table}").fetchone()["count"]
-            report["tables"][table]["target_rows_before"] = target_count
-            if target_count:
+            if marker["source_manifest"] != manifest:
                 raise RuntimeError(
-                    f"Refusing to import into non-empty PostgreSQL table {table} ({target_count} rows)"
+                    "SQLite source files changed after the recorded PostgreSQL import. "
+                    "Stop writes and perform a reviewed reconciliation; refusing to continue."
                 )
-
-        if not dry_run:
             for table, (_filename, columns) in TABLES.items():
-                rows = source_rows[table]
-                if not rows:
-                    continue
-                placeholders = ",".join(["%s"] * len(columns))
-                column_sql = ",".join(columns)
-                statement = f"INSERT INTO {table} ({column_sql}) VALUES ({placeholders})"
-                for row in rows:
-                    values = tuple(_normalize_value(column, row[column]) for column in columns)
-                    connection.execute(statement, values)
-
-            event_count = len(source_rows["order_ledger_events"])
-            if event_count:
-                connection.execute(
-                    "SELECT setval(pg_get_serial_sequence('order_ledger_events','event_id'), "
-                    "COALESCE((SELECT MAX(event_id) FROM order_ledger_events), 1), true)"
-                )
-
-        for table in TABLES:
-            target_count = connection.execute(f"SELECT count(*) AS count FROM {table}").fetchone()["count"]
-            report["tables"][table]["target_rows_after"] = target_count if not dry_run else None
-            if not dry_run and target_count != len(source_rows[table]):
-                raise RuntimeError(
-                    f"Row-count reconciliation failed for {table}: source={len(source_rows[table])}, target={target_count}"
-                )
-            if not dry_run:
-                columns = TABLES[table][1]
                 target_rows = connection.execute(
                     f"SELECT {','.join(columns)} FROM {table}"
                 ).fetchall()
@@ -199,25 +172,72 @@ def run(source_data_dir: Path, dry_run: bool = False) -> dict[str, Any]:
                     for row in target_rows
                 )
                 if source_fingerprints != target_fingerprints:
-                    raise RuntimeError(f"Field-level reconciliation failed for {table}")
+                    raise RuntimeError(
+                        f"Post-import reconciliation failed for {table}; refusing to start on divergent data."
+                    )
+                report["tables"][table]["target_rows_before"] = len(target_rows)
+                report["tables"][table]["target_rows_after"] = len(target_rows)
+            if cipher is not None:
+                for row in connection.execute(
+                    "SELECT encrypted_payload FROM broker_credentials"
+                ).fetchall():
+                    cipher.decrypt(bytes(row["encrypted_payload"]))
+            report["status"] = "ALREADY_IMPORTED"
+            report["imported_at"] = marker["imported_at"]
+            return report
 
-        if not dry_run and cipher is not None:
-            for row in connection.execute(
-                "SELECT encrypted_payload FROM broker_credentials"
-            ).fetchall():
-                cipher.decrypt(bytes(row["encrypted_payload"]))
+        for table in TABLES:
+            target_count = connection.execute(
+                f"SELECT count(*) AS count FROM {table}"
+            ).fetchone()["count"]
+            report["tables"][table]["target_rows_before"] = target_count
+            if target_count:
+                raise RuntimeError(
+                    f"Refusing to import into non-empty PostgreSQL table {table} ({target_count} rows)"
+                )
 
         if not dry_run:
-            manifest = json.dumps(
-                {
-                    table: {
-                        "source_path": report["tables"][table]["source_path"],
-                        "source_rows": report["tables"][table]["source_rows"],
-                    }
-                    for table in TABLES
-                },
-                sort_keys=True,
+            for table, (_filename, columns) in TABLES.items():
+                for row in source_rows[table]:
+                    placeholders = ",".join(["%s"] * len(columns))
+                    column_sql = ",".join(columns)
+                    statement = f"INSERT INTO {table} ({column_sql}) VALUES ({placeholders})"
+                    values = tuple(_normalize_value(column, row[column]) for column in columns)
+                    connection.execute(statement, values)
+
+            if source_rows["order_ledger_events"]:
+                connection.execute(
+                    "SELECT setval(pg_get_serial_sequence('order_ledger_events','event_id'), "
+                    "COALESCE((SELECT MAX(event_id) FROM order_ledger_events), 1), true)"
+                )
+
+        for table, (_filename, columns) in TABLES.items():
+            target_rows = connection.execute(
+                f"SELECT {','.join(columns)} FROM {table}"
+            ).fetchall()
+            report["tables"][table]["target_rows_after"] = (
+                len(target_rows) if not dry_run else None
             )
+            if not dry_run:
+                source_fingerprints = Counter(
+                    tuple(_normalize_value(column, row[column]) for column in columns)
+                    for row in source_rows[table]
+                )
+                target_fingerprints = Counter(
+                    tuple(_normalize_value(column, row[column]) for column in columns)
+                    for row in target_rows
+                )
+                if source_fingerprints != target_fingerprints:
+                    raise RuntimeError(
+                        f"Field-level reconciliation failed for {table}; transaction rolled back"
+                    )
+
+        if not dry_run:
+            if cipher is not None:
+                for row in connection.execute(
+                    "SELECT encrypted_payload FROM broker_credentials"
+                ).fetchall():
+                    cipher.decrypt(bytes(row["encrypted_payload"]))
             connection.execute(
                 "INSERT INTO air_domain_store_imports(import_name,source_manifest,imported_at) "
                 "VALUES(%s,%s,CURRENT_TIMESTAMP::text)",
