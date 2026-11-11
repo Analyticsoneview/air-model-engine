@@ -7,6 +7,7 @@ services:
       AIR_JWT_SECRET_FILE: /run/secrets/air_jwt_secret
       AIR_CREDENTIAL_KEY_FILE: /run/secrets/air_credential_key
       AIR_ADMIN_API_KEY_FILE: /run/secrets/air_admin_api_key
+      AIR_ADMIN_MFA_KEY_FILE: /run/secrets/air_admin_mfa_key
       AIR_AUTH_DB_PATH: /var/lib/air/auth.sqlite3
       AIR_ACCOUNT_DB_PATH: /var/lib/air/accounts.sqlite3
       AIR_CREDENTIAL_DB_PATH: /var/lib/air/credentials.sqlite3
@@ -42,6 +43,7 @@ services:
       - air_jwt_secret
       - air_credential_key
       - air_admin_api_key
+      - air_admin_mfa_key
       - air_telegram_bot_token
       - air_smtp_password
     volumes:
@@ -175,6 +177,8 @@ secrets:
   air_credential_key:
     external: true
   air_admin_api_key:
+    external: true
+  air_admin_mfa_key:
     external: true
   air_telegram_bot_token:
     external: true
