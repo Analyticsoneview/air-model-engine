@@ -78,6 +78,11 @@ class PostgresAdminAuthStore:
                                {"key": key}).first()
             return bool(row and row.locked_until > now)
 
+    def _clear_login_limit(self, key: str):
+        """Reset both Redis failure and lock state after a successful login."""
+        if self.redis is not None:
+            self.redis.delete("air:admin:fail:" + key, "air:admin:lock:" + key)
+
     def _record_login_failure(self, key: str, now: int):
         if self.redis is not None:
             counter = self.redis.incr("air:admin:fail:" + key)
@@ -126,6 +131,7 @@ class PostgresAdminAuthStore:
                          {"sid": sid, "id": row["admin_id"]})
             self._audit(conn, row["admin_id"], "LOGIN_SUCCESS", row["admin_id"])
         if self.redis is not None:
+            self._clear_login_limit(key)
             self.redis.setex("air:admin:session:" + sid, 1200, row["admin_id"])
             self.redis.sadd("air:admin:user-sessions:" + row["admin_id"], sid)
             self.redis.expire("air:admin:user-sessions:" + row["admin_id"], 1200)
