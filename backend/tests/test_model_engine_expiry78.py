@@ -34,14 +34,15 @@ def test_stock_option_entry_limit_is_40_percent_of_engulfing_high_and_new_same_d
     trade = result["trades"][0]
     assert trade["entry_limit"] == 8.0
     assert trade["entry_price"] == 8.0
-    assert trade["stop_loss"] == 7.6
+    assert trade["initial_stop_loss"] == 7.6
+    assert trade["stop_loss"] == 8.0
     assert trade["classification"] == "NEW"
     assert trade["entry_day_quantity"] == 100
     assert trade["gross_pnl_rupees"] is None  # position size is deliberately not inferred
 
 
 def test_open_trade_transitions_to_hold_after_entry_session():
-    bars = base_bars() + [bar("2026-11-06", 8.5, 9, 8, 8.7)]
+    bars = base_bars() + [bar("2026-11-06", 8.5, 9, 8.1, 8.7)]
     result = evaluate_expiry78_contract(contract(bars=bars), as_of="2026-11-06")
     assert result["trades"][0]["classification"] == "HOLD"
 
