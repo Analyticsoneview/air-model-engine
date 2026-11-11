@@ -19,7 +19,7 @@ from app.services.order_ledger import DurableOrderLedger
 from app.admin_auth_postgres import PostgresAdminAuthStore
 from app.security import hash_password
 from app.scripts.migrate_customer_auth_sqlite_to_postgres import migrate as import_customer_auth
-from scripts.import_sqlite_admin_auth import run as import_sqlite_admin_auth
+from app.scripts.migrate_admin_sqlite_to_postgres import migrate as import_admin_auth
 from scripts.import_sqlite_domain_stores import run as import_sqlite_domain_stores
 
 
@@ -130,11 +130,10 @@ def test_sqlite_admin_auth_import_preserves_admin_and_mfa(tmp_path, monkeypatch)
     source.commit()
     source.close()
 
-    dry_run = import_sqlite_admin_auth(source_path, dry_run=True)
-    assert dry_run["status"] == "DRY_RUN_VALIDATED"
-    imported = import_sqlite_admin_auth(source_path, dry_run=False)
+    imported = import_admin_auth(str(source_path), os.getenv("AIR_DATABASE_URL"))
     assert imported["status"] == "IMPORTED_AND_RECONCILED"
-    assert import_sqlite_admin_auth(source_path, dry_run=False)["status"] == "ALREADY_IMPORTED"
+    assert imported["air_admin_users"] == 1
+    assert import_admin_auth(str(source_path), os.getenv("AIR_DATABASE_URL"))["status"] == "ALREADY_IMPORTED"
 
     store = PostgresAdminAuthStore(database_url=os.getenv("AIR_DATABASE_URL"), redis_url=None)
     try:
