@@ -45,6 +45,7 @@ from app.nse_bhavcopy import (nse_data_status, nse_data_rows, start_nse_data_job
 from app.security import create_access_token, create_admin_access_token, hash_password, require_customer, require_admin, verify_password
 from app.oauth_state import get_oauth_state_store
 from app.persistence import get_persistence_runtime
+from app.db_compat import read_database_url
 
 app = FastAPI(title="AIR Model Engine API", version="0.3.0",
               description="Self-hosted AIR authentication, broker account and market-data gateway.")
@@ -68,7 +69,9 @@ _market_health_task: asyncio.Task | None = None
 _master_refresh_task: asyncio.Task | None = None
 set_default_market_data_service(market_data_service)
 auth_store = AuthStore()
-account_directory = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3"))
+account_directory = CustomerAccountDirectory(
+    None if read_database_url("AIR_CUSTOMER_ACCOUNTS_DATABASE_URL") else os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3")
+)
 _credential_vault: CredentialVault | None = None
 account_reporting = AccountReporting(os.getenv('AIR_REPORT_DB_PATH', 'data/air_account_reports.sqlite3'))
 _report_scheduler_task: asyncio.Task | None = None
@@ -462,7 +465,9 @@ def get_vault() -> CredentialVault:
     global _credential_vault
     if _credential_vault is None:
         try:
-            _credential_vault = CredentialVault(os.getenv("AIR_CREDENTIAL_DB_PATH", "data/air_credentials.sqlite3"))
+            _credential_vault = CredentialVault(
+                None if read_database_url("AIR_CREDENTIAL_DATABASE_URL") else os.getenv("AIR_CREDENTIAL_DB_PATH", "data/air_credentials.sqlite3")
+            )
         except RuntimeError as exc:
             raise HTTPException(status_code=503, detail="Credential vault is not configured on the server") from exc
     return _credential_vault
