@@ -45,6 +45,7 @@ Run it from the AIR repository directory. It is safe to run repeatedly; Compose 
 ## Safety defaults
 
 - Broker order execution is not enabled by this local launcher. Do not add live-order permissions while validating.
+- Phone ownership OTP is not yet implemented. Do not expose customer signup or broker credentials until the selected SMS gateway, six-digit OTP flow and 15-day PIN policy are implemented and tested.
 - QOC and Telegram schedulers remain disabled until their provider credentials, entitlements and destinations are explicitly configured and tested.
 - NSE historical-data bootstrap is enabled and runs in the background; it can take time and requires network access.
 - Local secrets are generated into `.air-secrets/`; they must never be committed or shared. Back up the credential encryption key securely if you enter real broker credentials.
