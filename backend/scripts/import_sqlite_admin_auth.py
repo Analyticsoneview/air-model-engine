@@ -137,6 +137,8 @@ def run(source_db_path: Path, dry_run: bool = False) -> dict[str, Any]:
                     raise RuntimeError(f"Field-level reconciliation failed for {table}")
 
         if not dry_run:
+            for row in connection.execute("SELECT mfa_secret FROM air_admin_users").fetchall():
+                cipher.decrypt(bytes(row["mfa_secret"]))
             manifest = json.dumps(
                 {table: len(source_rows[table]) for table in TABLES},
                 sort_keys=True,
