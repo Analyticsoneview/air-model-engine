@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlalchemy import create_engine, text
@@ -23,9 +23,14 @@ TIMESTAMP_COLUMNS = {"created_at", "reviewed_at"}
 
 
 def _timestamp(value):
-    if value is None or isinstance(value, datetime):
-        return value
-    return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    if value is None:
+        return None
+    parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    # SQLite CURRENT_TIMESTAMP values are UTC but have no offset. Normalize all
+    # source timestamps to UTC so PostgreSQL session timezone cannot shift them.
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def migrate(source_path: str, database_url: str) -> dict[str, int]:
@@ -57,8 +62,8 @@ def migrate(source_path: str, database_url: str) -> dict[str, int]:
                         if column in BOOL_COLUMNS:
                             expected, actual = bool(expected), bool(actual)
                         elif column in TIMESTAMP_COLUMNS and expected is not None:
-                            expected = expected.replace(tzinfo=None)
-                            actual = actual.replace(tzinfo=None) if actual.tzinfo else actual
+                            expected = expected.astimezone(timezone.utc)
+                            actual = actual.replace(tzinfo=timezone.utc) if actual.tzinfo is None else actual.astimezone(timezone.utc)
                         if expected != actual:
                             raise RuntimeError(f"Data conflict in {table}.{column} for key {row[pk]!r}; transaction rolled back")
                 target_count = target.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar_one()
