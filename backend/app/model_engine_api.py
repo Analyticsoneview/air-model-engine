@@ -162,6 +162,7 @@ async def get_model_engine_master(
     customer_id: str = Depends(require_customer),
 ) -> dict:
     """Canonical MASTER view over verified persisted signals."""
+    _require_strategy_subscription(customer_id)
     customer_service = await _customer_market_data_service(customer_id)
     rows = await customer_service.hydrate_strategy_rows(_strategy_rows_for_customer(customer_id, limit), max_contracts=2000)
     # Valid past-expiry observations from EXPIRYSCAN also belong in EXPIRED.
