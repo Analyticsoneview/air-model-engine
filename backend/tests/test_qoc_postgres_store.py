@@ -38,7 +38,8 @@ def test_qoc_observations_import_to_postgres_and_remain_readable(tmp_path, monke
 
     result = import_qoc_store(tmp_path, dry_run=False)
     assert result["status"] == "IMPORTED_AND_RECONCILED"
-    assert result["tables"]["option_observations"]["source_rows"] == 1
+    assert result["source_rows"] == 1
+    assert result["target_rows_after"] == 1
 
     store = AirQocStore()
     try:
