@@ -16,7 +16,7 @@ if [[ ! -f deploy/init-local-secrets.py ]]; then
   exit 1
 fi
 echo "Creating any missing local AIR secrets (existing secrets are preserved)..."
-docker run --rm --mount "type=bind,source=$ROOT,target=/work" -w /work python:3.12-slim python deploy/init-local-secrets.py .air-secrets
+docker run --rm --user "$(id -u):$(id -g)" --mount "type=bind,source=$ROOT,target=/work" -w /work python:3.12-slim python deploy/init-local-secrets.py .air-secrets
 required_secrets=(jwt_secret credential_key admin_api_key admin_mfa_key postgres_password redis_password database_url redis_url)
 for name in "${required_secrets[@]}"; do
   [[ -s ".air-secrets/$name" ]] || { echo "Required AIR secret is missing or empty: .air-secrets/$name" >&2; exit 1; }
