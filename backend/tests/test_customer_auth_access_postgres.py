@@ -26,6 +26,22 @@ class CustomerAuthAccessSQLiteTests(unittest.TestCase):
             self.assertFalse(store.is_active("missing"))
             store.close()
 
+    def test_sqlite_subscription_contract(self):
+        from datetime import datetime, timedelta, timezone
+        with tempfile.TemporaryDirectory() as temp:
+            store = AccessStore(str(Path(temp) / "auth.sqlite3"))
+            starts = datetime.now(timezone.utc) + timedelta(days=1)
+            expires = starts + timedelta(days=30)
+            store.assign_subscription("cust-sub-1", "MONTHLY", starts.isoformat(), expires.isoformat())
+            self.assertEqual(store.get_subscription("cust-sub-1")["status"], "PENDING")
+            active_start = datetime.now(timezone.utc) - timedelta(hours=1)
+            active_end = datetime.now(timezone.utc) + timedelta(hours=1)
+            store.assign_subscription("cust-sub-1", "MONTHLY", active_start.isoformat(), active_end.isoformat())
+            self.assertEqual(store.get_subscription("cust-sub-1")["status"], "ACTIVE")
+            with self.assertRaises(ValueError):
+                store.assign_subscription("cust-sub-1", "MONTHLY", active_end.isoformat(), active_start.isoformat())
+            store.close()
+
     def test_device_access_contract_and_revocation(self):
         with tempfile.TemporaryDirectory() as temp:
             store = AccessStore(str(Path(temp) / "auth.sqlite3"))
