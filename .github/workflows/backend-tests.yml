@@ -10,21 +10,54 @@ permissions:
   contents: read
 jobs:
   backend-tests:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 30
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "& '{0}'"
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: pip
-          cache-dependency-path: backend/requirements.txt
+      - name: Bootstrap portable Python 3.12
+        run: |
+          Remove-Item Env:PYTHONHOME -ErrorAction SilentlyContinue
+          Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+          $pythonHome = Join-Path $env:RUNNER_TEMP 'AIR-Python312-embed'
+          $python = Join-Path $pythonHome 'python.exe'
+          $zip = Join-Path $env:RUNNER_TEMP 'python-3.12.10-embed-amd64.zip'
+          New-Item -ItemType Directory -Force -Path $pythonHome | Out-Null
+          if (-not (Test-Path -LiteralPath (Join-Path $pythonHome 'python312.zip'))) {
+            if (-not (Test-Path -LiteralPath $zip) -or (Get-Item $zip).Length -lt 10MB) {
+              & curl.exe --fail --location --show-error --retry 4 --retry-all-errors --connect-timeout 30 --max-time 900 --output $zip 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip'
+              if ($LASTEXITCODE -ne 0 -or -not (Test-Path $zip) -or (Get-Item $zip).Length -lt 10MB) { throw 'Python embeddable ZIP download failed.' }
+            }
+            Expand-Archive -LiteralPath $zip -DestinationPath $pythonHome -Force
+          }
+          $pth = Join-Path $pythonHome 'python312._pth'
+          if (-not (Test-Path $pth)) { throw "Python path configuration file missing: $pth" }
+          $pthLines = @('python312.zip','.', 'Lib\site-packages', (Join-Path $env:GITHUB_WORKSPACE 'backend'), 'import site')
+          Set-Content -LiteralPath $pth -Value $pthLines -Encoding ascii
+          New-Item -ItemType Directory -Force -Path (Join-Path $pythonHome 'Lib\site-packages') | Out-Null
+          & $python -c "import encodings,sys; print(sys.version); print(sys.executable); print(encodings.__file__)"
+          if ($LASTEXITCODE -ne 0) { throw 'Portable Python standard-library validation failed.' }
+          $getPip = Join-Path $env:RUNNER_TEMP 'get-pip.py'
+          & curl.exe --fail --location --show-error --retry 4 --retry-all-errors --connect-timeout 30 --max-time 300 --output $getPip 'https://bootstrap.pypa.io/get-pip.py'
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $getPip)) { throw 'Could not download pip bootstrap.' }
+          & $python $getPip --disable-pip-version-check
+          if ($LASTEXITCODE -ne 0) { throw 'pip bootstrap failed for portable Python.' }
+          "AIR_PYTHON=$python" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Install backend dependencies and test runner
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r backend/requirements.txt pytest pytest-asyncio
-          python -m pip check
+          Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+          & $env:AIR_PYTHON -m pip install --disable-pip-version-check --upgrade pip setuptools wheel
+          if ($LASTEXITCODE -ne 0) { throw 'Python packaging toolchain installation failed.' }
+          & $env:AIR_PYTHON -m pip install --disable-pip-version-check -r backend/requirements.txt pytest pytest-asyncio
+          if ($LASTEXITCODE -ne 0) { throw 'Backend dependency installation failed.' }
+          & $env:AIR_PYTHON -m pip check
+          if ($LASTEXITCODE -ne 0) { throw 'Backend dependency consistency check failed.' }
       - name: Run backend test suite
-        env:
-          PYTHONPATH: backend
-        run: python -m pytest -q backend/tests
+        working-directory: backend
+        timeout-minutes: 15
+        run: |
+          Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+          & $env:AIR_PYTHON -m pytest -q tests
+          if ($LASTEXITCODE -ne 0) { throw 'Backend pytest suite failed.' }
