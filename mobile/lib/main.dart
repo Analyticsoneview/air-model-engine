@@ -206,7 +206,6 @@ class AirMoreScreen extends StatelessWidget {
       (icon: Icons.admin_panel_settings_outlined, title: 'AIR Administration', subtitle: 'Operator tools and customer access management', page: const AirAdminScreen()),
       (icon: Icons.workspace_premium_outlined, title: 'AIR Subscription', subtitle: 'Plans, validity and strategy access', page: const AirSubscriptionScreen()),
       (icon: Icons.account_tree_outlined, title: 'Broker Connections', subtitle: 'Assigned accounts and data-source connection status', page: const AirConnectionScreen()),
-      (icon: Icons.dns_outlined, title: 'AIR Server', subtitle: 'Change the Windows PC API address', page: AirServerSetupScreen(onConnected: () => Navigator.of(context).pop())),
     ];
 
     return ListView(
