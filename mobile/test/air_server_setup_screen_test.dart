@@ -30,6 +30,15 @@ void main() {
       find.text('Enter a valid http:// or https:// AIR server address.'),
       findsOneWidget,
     );
+
+    await tester.enterText(find.byType(TextField), 'http://127.0.0.1:8000');
+    await tester.tap(find.text('TEST AND SAVE SERVER'));
+    await tester.pump();
+
+    expect(
+      find.text('Use the Windows PC LAN IP address; localhost points to this phone.'),
+      findsOneWidget,
+    );
   });
 }
 
