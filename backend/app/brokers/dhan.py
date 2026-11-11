@@ -40,6 +40,12 @@ class DhanHQClient:
             transport=transport,
         )
 
+    def set_access_token(self, access_token: str) -> None:
+        token = access_token.strip()
+        if not token:
+            raise ValueError("Dhan access token is required")
+        self._http.headers["access-token"] = token
+
     async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
         response = await self._http.request(method, path, **kwargs)
         if response.is_error:
