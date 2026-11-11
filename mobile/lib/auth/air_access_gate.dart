@@ -38,6 +38,9 @@ class _AirAccessGateState extends State<AirAccessGate> {
       ),
     ));
     if (!mounted) return;
+    // A bearer token belongs to the previous server; never forward it to a newly selected host.
+    AirApiClient.setAccessToken(null);
+    await _storage.delete(key: 'air_access_token');
     _api.dispose();
     _api = AirApiClient();
     setState(() {
