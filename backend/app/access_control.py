@@ -5,13 +5,20 @@ from pathlib import Path
 from uuid import uuid4
 
 
-_E164 = re.compile(r"^\+[1-9][0-9]{7,14}$")
+_E164 = re.compile(r"^\\+[1-9][0-9]{7,14}$")
 
 
 class AccessStore:
     """Admin-approved mobile/device access requests and revocable sessions."""
 
-    def __init__(self, db_path: str = "data/air_auth.sqlite3"):
+    def __new__(cls, db_path: str | None = None):
+        if db_path is None and (os.getenv("AIR_CUSTOMER_DATABASE_URL") or os.getenv("AIR_CUSTOMER_DATABASE_URL_FILE")):
+            from app.customer_auth_postgres import PostgresAccessStore
+            return PostgresAccessStore()
+        return super().__new__(cls)
+
+    def __init__(self, db_path: str | None = None):
+        db_path = db_path or os.getenv("AIR_AUTH_DB_PATH", "data/air_auth.sqlite3")
         if db_path != ":memory:":
             Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(db_path, check_same_thread=False)
@@ -95,12 +102,11 @@ class AccessStore:
                    reviewer_note=? WHERE request_id=?""",
                 (status, note[:500], request_id),
             )
-            if cursor.rowcount:
-                if status != "APPROVED":
-                    self.db.execute(
-                        """UPDATE air_device_sessions SET active=0 WHERE request_id=?""",
-                        (request_id,),
-                    )
+            if cursor.rowcount and status != "APPROVED":
+                self.db.execute(
+                    """UPDATE air_device_sessions SET active=0 WHERE request_id=?""",
+                    (request_id,),
+                )
         return cursor.rowcount > 0
 
     def create_session(self, request_id: str) -> str:
@@ -130,4 +136,4 @@ class AccessStore:
         self.db.close()
 
 
-access_store = AccessStore(os.getenv("AIR_AUTH_DB_PATH", "data/air_auth.sqlite3"))
+access_store = AccessStore()
