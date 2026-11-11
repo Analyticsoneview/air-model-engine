@@ -43,5 +43,24 @@ def test_qoc_observations_import_to_postgres_and_remain_readable(tmp_path, monke
         assert len(rows) == 1
         assert rows[0]["id"] == 7
         assert rows[0]["last_price"] == 125.5
+        saved = store.save_option_chain(
+            account_id="test-account", underlying_scrip=13,
+            underlying_segment="IDX_I", expiry="2026-12-31",
+            underlying_price=24501.0, observed_at="2026-11-11T10:00:00+05:30",
+            provider="dhan",
+            chain={"oc": {"24500": {"ce": {
+                "security_id": "sec-1", "last_price": 126.0,
+                "previous_close_price": 120.0, "volume": 5100,
+                "previous_volume": 4000, "oi": 12100, "previous_oi": 11000,
+                "top_bid_price": 125.5, "top_bid_quantity": 55,
+                "top_ask_price": 126.5, "top_ask_quantity": 65,
+                "implied_volatility": 18.3, "greeks": {},
+            }}}},
+        )
+        assert saved == 1
+        updated = store.latest_observations(account_id="test-account", provider="dhan", limit=5)
+        assert len(updated) == 1
+        assert updated[0]["last_price"] == 126.0
+        assert updated[0]["volume"] == 5100
     finally:
         store.close()
