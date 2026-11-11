@@ -50,3 +50,26 @@ class BrokerRegistry:
 
     def available(self) -> list[str]:
         return sorted({broker for broker, _ in self._adapters})
+
+
+def build_broker_adapter(broker_code: str, *, client=None) -> BrokerAdapter:
+    """Construct a normalized adapter without registering or activating an account.
+
+    Authentication and account registration remain explicit caller operations.
+    """
+    code = broker_code.strip().lower()
+    if code == "dhan":
+        from .dhan_adapter import DhanBrokerAdapter
+        return DhanBrokerAdapter(client=client)
+    if code in {"zerodha", "upstox", "fyers", "angel"}:
+        from .normalized_adapters import (
+            ZerodhaBrokerAdapter, UpstoxBrokerAdapter, FyersBrokerAdapter, AngelBrokerAdapter,
+        )
+        adapters = {
+            "zerodha": ZerodhaBrokerAdapter,
+            "upstox": UpstoxBrokerAdapter,
+            "fyers": FyersBrokerAdapter,
+            "angel": AngelBrokerAdapter,
+        }
+        return adapters[code](client=client)
+    raise ValueError(f"Unsupported broker adapter: {code}")
