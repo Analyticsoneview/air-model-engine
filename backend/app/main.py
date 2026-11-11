@@ -724,8 +724,10 @@ async def current_subscription(customer_id: str = Depends(require_customer)) -> 
 @app.post("/api/v1/admin/subscriptions/assign")
 async def assign_customer_subscription(
     body: SubscriptionAssignment,
-    _: dict = Depends(require_admin),
+    admin: dict = Depends(require_admin),
 ) -> dict:
+    if admin.get("role") not in {"SUPER_ADMIN", "ADMIN"}:
+        raise HTTPException(status_code=403, detail="Administrator management permission is required")
     durations = {"DAILY": 1, "MONTHLY": 30, "SIX_MONTHS": 180, "YEARLY": 365}
     starts = datetime.now(timezone.utc)
     expires = starts + timedelta(days=durations[body.plan_code])
