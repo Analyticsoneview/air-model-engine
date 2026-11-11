@@ -66,7 +66,7 @@ async def capture_dhan_eod_snapshots(*, force: bool = False, account_id_override
     owned = {(a.broker, a.account_id) for a in accounts.list_for_customer(customer_id)}
     if ("dhan", account_id) not in owned:
         raise RuntimeError("Selected Dhan account is not assigned to this customer")
-    vault = CredentialVault(os.getenv("AIR_CREDENTIAL_DB_PATH", "data/air_credentials.sqlite3"))
+    vault = CredentialVault()
     credentials = vault.get(customer_id, "dhan", account_id)
     client_id = credentials.get("client_id", account_id)
     access_token = credentials.get("access_token")
