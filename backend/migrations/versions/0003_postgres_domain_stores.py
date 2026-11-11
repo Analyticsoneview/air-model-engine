@@ -13,12 +13,8 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        "air_domain_store_imports",
-        sa.Column("import_name", sa.String(128), primary_key=True),
-        sa.Column("source_manifest", sa.Text(), nullable=False),
-        sa.Column("imported_at", sa.Text(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP::text")),
-    )
+    # air_domain_store_imports is shared infrastructure created by 0001.
+    # Do not recreate it here; later domain importers use the existing table.
 
     op.create_table(
         "broker_credentials",
@@ -95,7 +91,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_table("air_domain_store_imports")
     op.drop_index("idx_order_events_account", table_name="order_ledger_events")
     op.drop_table("order_ledger_events")
     op.drop_index("idx_order_ledger_status", table_name="order_ledger")
@@ -106,3 +101,4 @@ def downgrade() -> None:
     op.drop_index("idx_customer_accounts_customer", table_name="customer_trading_accounts")
     op.drop_table("customer_trading_accounts")
     op.drop_table("broker_credentials")
+    # Keep air_domain_store_imports: migration 0001 owns its lifecycle.
