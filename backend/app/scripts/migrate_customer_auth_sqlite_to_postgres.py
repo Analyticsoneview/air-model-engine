@@ -110,10 +110,15 @@ def migrate(source_path: str, database_url: str) -> dict[str, Any]:
                                 f"Data conflict in {table}.{column} for key {row[pk]!r}; transaction rolled back"
                             )
 
-                target_count = target.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar_one()
-                if target_count != counts[table]:
+                # Reconcile the imported source keys, not the whole shared target table.
+                # Other legitimate customers may already exist in PostgreSQL.
+                reconciled_count = target.execute(
+                    text(f"SELECT COUNT(*) FROM {table} WHERE {pk} = ANY(:keys)"),
+                    {"keys": [row[pk] for row in source_rows[table]]},
+                ).scalar_one() if source_rows[table] else 0
+                if reconciled_count != counts[table]:
                     raise RuntimeError(
-                        f"Row-count conflict in {table}: SQLite={counts[table]}, PostgreSQL={target_count}; transaction rolled back"
+                        f"Row-count conflict in {table}: SQLite={counts[table]}, reconciled PostgreSQL={reconciled_count}; transaction rolled back"
                     )
 
             manifest = json.dumps({"source": str(path), "rows": counts}, sort_keys=True)
