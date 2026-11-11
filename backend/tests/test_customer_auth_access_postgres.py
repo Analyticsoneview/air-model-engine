@@ -95,6 +95,8 @@ def test_customer_access_import_reconciles_all_rows(postgres_url, tmp_path):
     engine = create_engine(postgres_url)
     try:
         with engine.begin() as conn:
+            conn.execute(text("DELETE FROM air_domain_store_imports WHERE import_name='sqlite_customer_auth_v1'"))
+            conn.execute(text("DELETE FROM air_customer_subscriptions"))
             conn.execute(text("DELETE FROM air_device_sessions"))
             conn.execute(text("DELETE FROM air_access_requests"))
             conn.execute(text("DELETE FROM customers"))
@@ -114,6 +116,8 @@ def test_customer_access_import_conflict_rolls_back(postgres_url, tmp_path):
     engine = create_engine(postgres_url)
     try:
         with engine.begin() as conn:
+            conn.execute(text("DELETE FROM air_domain_store_imports WHERE import_name='sqlite_customer_auth_v1'"))
+            conn.execute(text("DELETE FROM air_customer_subscriptions"))
             conn.execute(text("DELETE FROM air_device_sessions"))
             conn.execute(text("DELETE FROM air_access_requests"))
             conn.execute(text("DELETE FROM customers"))
