@@ -247,6 +247,15 @@ def test_sqlite_domain_store_import_is_field_reconciled(tmp_path, monkeypatch):
     assert imported["tables"]["order_ledger_events"]["target_rows_after"] == 1
     assert import_sqlite_domain_stores(tmp_path, dry_run=False)["status"] == "ALREADY_IMPORTED"
 
+    # The import marker must detect content changes even when table row counts
+    # and source paths remain unchanged.
+    with sqlite3.connect(tmp_path / "customer_accounts.sqlite3") as source:
+        source.execute(
+            "UPDATE customer_trading_accounts SET enabled_for_orders=0 WHERE customer_id='legacy-customer'"
+        )
+    with pytest.raises(RuntimeError, match="source files changed after the recorded PostgreSQL import"):
+        import_sqlite_domain_stores(tmp_path, dry_run=False)
+
     vault = CredentialVault()
     directory = CustomerAccountDirectory()
     policy = ExecutionPolicy()

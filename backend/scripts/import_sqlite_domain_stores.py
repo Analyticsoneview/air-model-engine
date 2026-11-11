@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+import hashlib
 import json
 import os
 import sqlite3
@@ -63,7 +64,10 @@ def _read_secret(name: str) -> str:
 def _sqlite_rows(path: Path, table: str, columns: tuple[str, ...]) -> list[dict[str, Any]]:
     if not path.exists():
         return []
-    connection = sqlite3.connect(path)
+    # Enforce read-only access at the SQLite URI layer; this is stronger
+    # than relying on the importer to issue SELECT statements only.
+    connection = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
+    connection.execute("PRAGMA query_only=ON")
     connection.row_factory = sqlite3.Row
     try:
         exists = connection.execute(
@@ -84,6 +88,27 @@ def _normalize_value(column: str, value: Any) -> Any:
     if column == "encrypted_payload" and value is not None:
         return bytes(value)
     return value
+
+
+def _manifest_value(value: Any) -> Any:
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return {"__bytes_hex__": bytes(value).hex()}
+    return value
+
+
+def _source_digest(rows: list[dict[str, Any]], columns: tuple[str, ...]) -> str:
+    """Hash the imported column values, independent of SQLite row ordering."""
+    canonical_rows = [
+        [_manifest_value(_normalize_value(column, row[column])) for column in columns]
+        for row in rows
+    ]
+    canonical_rows.sort(
+        key=lambda row: json.dumps(row, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    )
+    payload = json.dumps(
+        canonical_rows, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def _credential_cipher() -> Fernet | None:
@@ -141,6 +166,7 @@ def run(source_data_dir: Path, dry_run: bool = False) -> dict[str, Any]:
         table: {
             "source_path": str(source_paths[table]),
             "source_rows": len(source_rows[table]),
+            "source_sha256": _source_digest(source_rows[table], TABLES[table][1]),
         }
         for table in TABLES
     }
