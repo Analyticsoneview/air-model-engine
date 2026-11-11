@@ -4,7 +4,12 @@ on:
 permissions:
   contents: read
 jobs:
+  backend-validation:
+    uses: ./.github/workflows/backend-tests.yml
+
   android-lab:
+    needs: backend-validation
+    if: needs.backend-validation.result == 'success'
     runs-on: self-hosted
     timeout-minutes: 90
     defaults:
