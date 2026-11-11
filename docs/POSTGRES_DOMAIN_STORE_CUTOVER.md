@@ -19,7 +19,13 @@ SQLite remains the default when the repository-specific PostgreSQL selector is a
    ```powershell
    python -m alembic upgrade head
    ```
-4. Run the importer in dry-run mode against the existing data volume:
+4. Before running the importer, set the existing SQLite source-file paths to the exact mounted files used by the current Compose deployment. The current local and Swarm manifests use these paths:
+   - `AIR_CREDENTIAL_DB_PATH=/var/lib/air/credentials.sqlite3`
+   - `AIR_ACCOUNT_DB_PATH=/var/lib/air/accounts.sqlite3`
+   - `AIR_EXECUTION_POLICY_DB_PATH=/var/lib/air/air_execution_policy.sqlite3`
+   - `AIR_ORDER_DB_PATH=/var/lib/air/orders.sqlite3`
+
+   Run the importer from the backend directory with those variables and the existing `AIR_CREDENTIAL_KEY_FILE` available. Then run it in dry-run mode against the mounted data volume:
    ```powershell
    python scripts/import_sqlite_domain_stores.py --source-data-dir data --dry-run
    ```
