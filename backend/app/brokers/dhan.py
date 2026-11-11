@@ -169,6 +169,14 @@ class DhanHQClient:
             raise DhanAPIError(502, "Unexpected order-book response")
         return data
 
+
+    async def holdings(self) -> list[dict[str, Any]]:
+        """Return Dhan delivery holdings for the authenticated account."""
+        data = await self._request("GET", "/holdings")
+        if not isinstance(data, list):
+            raise DhanAPIError(502, "Unexpected holdings response")
+        return data
+
     async def place_order(self, *, security_id: str, exchange_segment: str,
                           transaction_type: str, product_type: str, order_type: str,
                           quantity: int, validity: str = "DAY",
