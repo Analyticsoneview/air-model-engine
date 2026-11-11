@@ -34,6 +34,13 @@ class PostgresConnection:
         # are otherwise PostgreSQL-compatible after the migration-specific branches.
         return self._connection.execute(statement.replace("?", "%s"), parameters)
 
+    def executemany(self, statement: str, parameter_rows):
+        return self._connection.executemany(statement.replace("?", "%s"), parameter_rows)
+
+    def commit(self) -> None:
+        # Connections run in autocommit mode; explicit with-blocks provide transactions.
+        return None
+
     def __enter__(self):
         self._transaction = self._connection.transaction()
         self._transaction.__enter__()
