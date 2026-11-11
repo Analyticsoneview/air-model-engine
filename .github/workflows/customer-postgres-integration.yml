@@ -94,14 +94,20 @@ jobs:
         timeout-minutes: 15
         run: |
           $container = "air-customer-pg-ci-$env:GITHUB_RUN_ID"
-          $port = 55432
-          $existing = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
-          if ($existing) { throw "Port $port is already in use; refusing to connect to an unknown database." }
           docker version
           if ($LASTEXITCODE -ne 0) { throw 'Docker Engine is unavailable on the self-hosted runner; PostgreSQL integration tests cannot be safely skipped.' }
           try {
-            docker run --detach --rm --name $container -e POSTGRES_USER=air_test -e POSTGRES_PASSWORD=air_test -e POSTGRES_DB=air_test -p "127.0.0.1:$port`:5432" postgres:16-alpine
+            # Ask Docker/Windows to allocate an available ephemeral host port.
+            # A fixed port can fall inside Windows excluded TCP port ranges even
+            # when Get-NetTCPConnection reports no listener.
+            docker run --detach --rm --name $container -e POSTGRES_USER=air_test -e POSTGRES_PASSWORD=air_test -e POSTGRES_DB=air_test -p "127.0.0.1::5432" postgres:16-alpine
             if ($LASTEXITCODE -ne 0) { throw 'Could not start disposable PostgreSQL 16 container.' }
+            $binding = docker port $container 5432/tcp
+            if ($LASTEXITCODE -ne 0 -or -not $binding) { throw 'Could not determine the disposable PostgreSQL host port.' }
+            $portText = (($binding | Select-Object -First 1) -split ':')[-1]
+            $port = 0
+            if (-not [int]::TryParse($portText, [ref]$port) -or $port -lt 1) { throw "Docker returned an invalid PostgreSQL host binding: $binding" }
+            Write-Host "Disposable PostgreSQL mapped to 127.0.0.1:$port"
             $ready = $false
             for ($i = 0; $i -lt 60; $i++) {
               docker exec $container pg_isready -U air_test -d air_test
