@@ -5,6 +5,7 @@ after a process restart. A broker timeout is recorded as UNKNOWN, never retried
 automatically; reconcile it against the broker order book before retrying.
 """
 import json
+import os
 import sqlite3
 from pathlib import Path
 
@@ -25,7 +26,7 @@ class DurableOrderLedger:
                 self._db.close()
                 raise RuntimeError("PostgreSQL order ledger schema is missing; run Alembic migrations first") from exc
         else:
-            db_path = db_path or "data/air_orders.sqlite3"
+            db_path = db_path or os.getenv("AIR_ORDER_DB_PATH", "data/air_orders.sqlite3")
             if db_path != ":memory:":
                 Path(db_path).parent.mkdir(parents=True, exist_ok=True)
             self._db = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
