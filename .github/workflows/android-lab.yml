@@ -21,11 +21,19 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Install Flutter SDK
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
+      - name: Install Flutter SDK (Windows-native; no WSL dependency)
+        run: |
+          $flutterRoot = Join-Path $env:RUNNER_TEMP 'flutter'
+          if (-not (Test-Path -LiteralPath (Join-Path $flutterRoot 'bin/flutter.bat'))) {
+            git clone --depth 1 --branch stable https://github.com/flutter/flutter.git $flutterRoot
+            if ($LASTEXITCODE -ne 0) { throw 'Flutter stable SDK checkout failed.' }
+          }
+          $flutterBin = Join-Path $flutterRoot 'bin'
+          if (-not (Test-Path -LiteralPath (Join-Path $flutterBin 'flutter.bat'))) { throw 'Flutter SDK checkout is incomplete.' }
+          $flutterBin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          & (Join-Path $flutterBin 'flutter.bat') --version
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter SDK bootstrap failed.' }
+          "AIR_FLUTTER=$flutterBin\flutter.bat" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Install Android SDK components
         uses: android-actions/setup-android@v3
       - name: Install required Android platform and build tools
