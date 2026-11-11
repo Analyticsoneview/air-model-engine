@@ -73,3 +73,12 @@ def build_broker_adapter(broker_code: str, *, client=None) -> BrokerAdapter:
         }
         return adapters[code](client=client)
     raise ValueError(f"Unsupported broker adapter: {code}")
+
+
+    def unregister(self, broker_code: str, account_id: str) -> BrokerAdapter:
+        key = (broker_code.strip().lower(), account_id.strip())
+        adapter = self._adapters.pop(key, None)
+        self._active.discard(key)
+        if adapter is None:
+            raise ValueError(f"Broker account is not connected: {key[0]}/{key[1]}")
+        return adapter
