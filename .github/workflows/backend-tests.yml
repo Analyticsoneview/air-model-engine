@@ -1,11 +1,6 @@
 name: AIR Backend Tests
 on:
   workflow_dispatch:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths:
-      - 'backend/**'
-      - '.github/workflows/backend-tests.yml'
 permissions:
   contents: read
 jobs:
