@@ -36,6 +36,22 @@ AIRSTART
 
 Run it from the AIR repository directory. It is safe to run repeatedly; Compose reuses the persistent data volume and existing secrets.
 
+## Enable the first AIR operator
+
+The launcher intentionally leaves `AIR_OPERATOR_CUSTOMER_IDS` empty. After the operator signs in to AIR on the phone, add the exact E.164 mobile identity to `.air-local.env`:
+
+```dotenv
+AIR_OPERATOR_CUSTOMER_IDS=+91XXXXXXXXXX
+```
+
+Replace the example with the operator's own verified mobile identity. Keep this file private and do not commit it. Restart the API after editing:
+
+```powershell
+docker compose -f compose.local.yml up -d --force-recreate air-api
+```
+
+This grants AIR operator-only research and broker-administration functions to that identity; it does not enable automatic order placement.
+
 ## Local URLs
 
 - AIR app: http://localhost:8080
