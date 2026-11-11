@@ -7,6 +7,7 @@ with the configured AIR Fernet key before and after the import.
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import json
 import os
 import sqlite3
@@ -143,6 +144,21 @@ def run(source_data_dir: Path, dry_run: bool = False) -> dict[str, Any]:
                 raise RuntimeError(
                     f"Row-count reconciliation failed for {table}: source={len(source_rows[table])}, target={target_count}"
                 )
+            if not dry_run:
+                columns = TABLES[table][1]
+                target_rows = connection.execute(
+                    f"SELECT {','.join(columns)} FROM {table}"
+                ).fetchall()
+                source_fingerprints = Counter(
+                    tuple(_normalize_value(column, row[column]) for column in columns)
+                    for row in source_rows[table]
+                )
+                target_fingerprints = Counter(
+                    tuple(_normalize_value(column, row[column]) for column in columns)
+                    for row in target_rows
+                )
+                if source_fingerprints != target_fingerprints:
+                    raise RuntimeError(f"Field-level reconciliation failed for {table}")
 
         if not dry_run and cipher is not None:
             for row in connection.execute(
