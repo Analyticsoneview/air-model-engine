@@ -20,21 +20,20 @@ jobs:
     name: Redis shared OAuth state (GitHub-hosted Redis 7)
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    services:
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 20
-    defaults:
-      run:
-        working-directory: backend
     steps:
       - uses: actions/checkout@v4
+      - name: Start disposable Redis 7 container
+        run: |
+          set -euo pipefail
+          container="air-oauth-redis-${GITHUB_RUN_ID}"
+          docker rm -f "$container" >/dev/null 2>&1 || true
+          docker run -d --name "$container" -p 6379:6379 redis:7-alpine
+          ready=0
+          for attempt in $(seq 1 45); do
+            if [ "$(docker exec "$container" redis-cli ping 2>/dev/null || true)" = "PONG" ]; then ready=1; break; fi
+            sleep 2
+          done
+          if [ "$ready" -ne 1 ]; then docker logs "$container"; exit 1; fi
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -53,3 +52,7 @@ jobs:
         env:
           AIR_TEST_REDIS_URL: redis://127.0.0.1:6379/15
         run: python -m pytest -q tests/test_oauth_state.py
+
+      - name: Cleanup Redis container
+        if: always()
+        run: docker rm -f "air-oauth-redis-${GITHUB_RUN_ID}" >/dev/null 2>&1 || true
