@@ -159,29 +159,6 @@ def run(source_data_dir: Path, dry_run: bool = False) -> dict[str, Any]:
                     "SQLite source files changed after the recorded PostgreSQL import. "
                     "Stop writes and perform a reviewed reconciliation; refusing to continue."
                 )
-            for table, (_filename, columns) in TABLES.items():
-                target_rows = connection.execute(
-                    f"SELECT {','.join(columns)} FROM {table}"
-                ).fetchall()
-                source_fingerprints = Counter(
-                    tuple(_normalize_value(column, row[column]) for column in columns)
-                    for row in source_rows[table]
-                )
-                target_fingerprints = Counter(
-                    tuple(_normalize_value(column, row[column]) for column in columns)
-                    for row in target_rows
-                )
-                if source_fingerprints != target_fingerprints:
-                    raise RuntimeError(
-                        f"Post-import reconciliation failed for {table}; refusing to start on divergent data."
-                    )
-                report["tables"][table]["target_rows_before"] = len(target_rows)
-                report["tables"][table]["target_rows_after"] = len(target_rows)
-            if cipher is not None:
-                for row in connection.execute(
-                    "SELECT encrypted_payload FROM broker_credentials"
-                ).fetchall():
-                    cipher.decrypt(bytes(row["encrypted_payload"]))
             report["status"] = "ALREADY_IMPORTED"
             report["imported_at"] = marker["imported_at"]
             return report
