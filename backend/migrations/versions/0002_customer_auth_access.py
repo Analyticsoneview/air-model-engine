@@ -14,6 +14,17 @@ depends_on = None
 
 def upgrade() -> None:
     op.create_table(
+        "air_customer_subscriptions",
+        sa.Column("customer_id", sa.Text(), primary_key=True),
+        sa.Column("plan_code", sa.String(16), nullable=False),
+        sa.Column("starts_at", sa.Text(), nullable=False),
+        sa.Column("expires_at", sa.Text(), nullable=False),
+        sa.Column("status", sa.String(16), nullable=False, server_default="ACTIVE"),
+        sa.Column("updated_at", sa.Text(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP::text")),
+        sa.CheckConstraint("plan_code IN ('DAILY','MONTHLY','SIX_MONTHS','YEARLY')", name="ck_air_customer_subscription_plan"),
+        sa.CheckConstraint("status IN ('ACTIVE','CANCELLED','EXPIRED')", name="ck_air_customer_subscription_status"),
+    )
+    op.create_table(
         "customers",
         sa.Column("customer_id", sa.Text(), primary_key=True),
         sa.Column("email", sa.String(254), nullable=False),
@@ -48,6 +59,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.drop_table("air_customer_subscriptions")
     op.drop_index("ix_air_device_sessions_request_active", table_name="air_device_sessions")
     op.drop_table("air_device_sessions")
     op.drop_index("ix_air_access_requests_status_created", table_name="air_access_requests")
