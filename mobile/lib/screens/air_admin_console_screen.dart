@@ -134,11 +134,23 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
       final result = await _request('POST', '/api/v1/admin/users', body: {'email': email, 'role': _newRole});
       final password = result['temporary_password']?.toString() ?? '';
       final uri = result['totp_provisioning_uri']?.toString() ?? '';
-      if (mounted) await showDialog<void>(context: context, builder: (ctx) => AlertDialog(
-        title: const Text('Administrator created'),
-        content: SelectableText('Temporary password (share securely once):\n$password\n\nAuthenticator setup URI:\n$uri'),
-        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('CLOSE'))],
-      ));
+      if (mounted) {
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Administrator created'),
+            content: SelectableText(
+              'Temporary password (share securely once):\n$password\n\nAuthenticator setup URI:\n$uri',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('CLOSE'),
+              ),
+            ],
+          ),
+        );
+      }
       _newEmail.clear();
       await _load();
     } catch (e) { _error = e.toString(); }
@@ -243,7 +255,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     if (_role == 'SUPER_ADMIN') ...[
       TextField(controller: _newEmail, decoration: const InputDecoration(labelText: 'New administrator email')),
       const SizedBox(height: 8),
-      DropdownButtonFormField<String>(value: _newRole, decoration: const InputDecoration(labelText: 'Administrator role'),
+      DropdownButtonFormField<String>(initialValue: _newRole, decoration: const InputDecoration(labelText: 'Administrator role'),
         items: const [DropdownMenuItem(value: 'ADMIN', child: Text('Admin')), DropdownMenuItem(value: 'RESEARCH_ADMIN', child: Text('Research Admin'))],
         onChanged: (value) { if (value != null) setState(() => _newRole = value); }),
       const SizedBox(height: 8), FilledButton(onPressed: _busy ? null : _createAdmin, child: const Text('CREATE ADMIN')),
