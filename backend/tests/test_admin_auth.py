@@ -71,7 +71,7 @@ def test_super_admin_can_provision_and_disable_research_admin(tmp_path, monkeypa
         assert created_row["must_change_password"] == 1
         assert "otpauth://totp/" in uri
         assert store.set_admin_status(actor, created["admin_id"], False)
-        assert store.list_admins()[1]["is_active"] == 0
+        assert next(row for row in store.list_admins() if row["admin_id"] == created["admin_id"])["is_active"] == 0
         assert store.audit_events()
     finally:
         store.close()
