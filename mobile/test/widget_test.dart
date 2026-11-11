@@ -12,6 +12,7 @@ void main() {
     expect(find.text('ANALYTICAL INVESTMENT RESEARCH'), findsOneWidget);
     expect(find.text('Your market intelligence workspace.'), findsOneWidget);
     expect(find.text('International mobile number'), findsOneWidget);
+    expect(find.text('ADMINISTRATOR SIGN IN'), findsOneWidget);
     expect(find.text('NO OTP  •  NO WHATSAPP  •  NO PASSWORD'), findsOneWidget);
   });
 }
