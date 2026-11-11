@@ -6,7 +6,7 @@ from decimal import Decimal
 from uuid import uuid4
 import secrets
 
-from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, Header, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, Header, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -644,8 +644,9 @@ async def health() -> dict:
     dependencies = get_persistence_runtime().health()
     failures = [name for name, item in dependencies.items()
                 if item["configured"] and item["status"] != "ok"]
-    return {"status": "degraded" if failures else "ok",
-            "service": "air-model-engine-api", "dependencies": dependencies}
+    if failures:
+        raise HTTPException(status_code=503, detail={"status": "degraded", "dependencies": dependencies})
+    return {"status": "ok", "service": "air-model-engine-api", "dependencies": dependencies}
 
 @app.get("/api/v1/nse-data/status")
 async def nse_bhavcopy_status(customer_id: str = Depends(require_customer)) -> dict:
