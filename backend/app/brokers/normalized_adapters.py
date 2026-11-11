@@ -250,7 +250,7 @@ class FyersBrokerAdapter(_NormalizedAdapter):
             "side":1 if order.side.upper()=="BUY" else -1,"productType":order.product.upper(),
             "limitPrice":float(order.price or 0),"stopPrice":float(order.trigger_price or 0),
             "validity":order.validity.upper(),"disclosedQty":0,"offlineOrder":False,
-            "stopLoss":0,"takeProfit":0,"clientOrderId":order.idempotency_key[:20]}
+            "stopLoss":0,"takeProfit":0,"orderTag":order.idempotency_key[:20]}
         raw=await self.client.place_order(payload)
         return self._normalize_order(order.account_id,raw if isinstance(raw,dict) else {})
 
@@ -277,8 +277,8 @@ class AngelBrokerAdapter(_NormalizedAdapter):
     async def authenticate(self,credentials:BrokerCredentials)->dict[str,Any]:
         metadata=credentials.metadata or {}
         required=("client_local_ip","client_public_ip","mac_address")
-        if not credentials.account_id.strip() or not credentials.api_key.strip() or not all(metadata.get(k) for k in required):
-            raise ValueError("Angel account, API key and client network metadata are required")
+        if not credentials.account_id.strip() or not credentials.api_key.strip() or not credentials.access_token or not all(metadata.get(k) for k in required):
+            raise ValueError("Angel account, API key, authorized JWT and client network metadata are required")
         if self.client is None:
             self.client=AngelSmartAPI(credentials.api_key,credentials.account_id,
                 client_local_ip=metadata["client_local_ip"],client_public_ip=metadata["client_public_ip"],
