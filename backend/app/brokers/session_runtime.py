@@ -17,10 +17,12 @@ _PROVIDER_ALIASES = {"angelone": "angel", "angel_one": "angel"}
 
 class BrokerSessionRuntime:
     def __init__(self, account_directory: Any, credential_vault: Any,
-                 registry: BrokerRegistry | None = None) -> None:
+                 registry: BrokerRegistry | None = None,
+                 adapter_factory=build_broker_adapter) -> None:
         self.account_directory = account_directory
         self.credential_vault = credential_vault
         self.registry = registry or BrokerRegistry()
+        self.adapter_factory = adapter_factory
         self._owners: dict[tuple[str, str], str] = {}
         self._lock = asyncio.Lock()
 
@@ -58,7 +60,7 @@ class BrokerSessionRuntime:
                 # Older AIR credential records store only API key/PIN; these are
                 # insufficient for a normalized session until the user logs in.
                 token = stored.get("jwt_token") or stored.get("access_token") or ""
-            adapter = build_broker_adapter(provider)
+            adapter = self.adapter_factory(provider)
             credentials = BrokerCredentials(
                 account_id=account, api_key=api_key, access_token=token,
                 metadata=metadata,
