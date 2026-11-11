@@ -5,6 +5,7 @@ from app.brokers.base import BrokerCredentials, Instrument, OrderRequest
 from app.brokers.normalized_adapters import (
     ZerodhaBrokerAdapter, UpstoxBrokerAdapter, FyersBrokerAdapter, AngelBrokerAdapter,
 )
+from app.brokers.registry import build_broker_adapter
 
 
 class FakeClient:
@@ -56,6 +57,14 @@ class NormalizedAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await adapter.cancel_order(account,"O2")).broker_order_id,"O2")
         with self.assertRaises(PermissionError):
             await adapter.get_positions("OTHER")
+
+    async def test_factory_constructs_only_supported_adapters_without_registration(self):
+        for code in ("zerodha", "upstox", "fyers", "angel", "dhan"):
+            adapter = build_broker_adapter(code, client=FakeClient(code))
+            self.assertEqual(adapter.broker_code, code)
+            self.assertIsNone(adapter.account_id)
+        with self.assertRaises(ValueError):
+            build_broker_adapter("unsupported")
 
     async def test_zerodha(self): await self._check("zerodha","KITE1",ZerodhaBrokerAdapter)
     async def test_upstox(self): await self._check("upstox","UP1",UpstoxBrokerAdapter)
