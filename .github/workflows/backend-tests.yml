@@ -33,7 +33,7 @@ jobs:
           }
           $pth = Join-Path $pythonHome 'python312._pth'
           if (-not (Test-Path $pth)) { throw "Python path configuration file missing: $pth" }
-          $pthLines = @('python312.zip','.', 'Lib\\site-packages','import site')
+          $pthLines = @('python312.zip','.', 'Lib\\site-packages', (Join-Path $env:GITHUB_WORKSPACE 'backend'), 'import site')
           Set-Content -LiteralPath $pth -Value $pthLines -Encoding ascii
           New-Item -ItemType Directory -Force -Path (Join-Path $pythonHome 'Lib\\site-packages') | Out-Null
           & $python -c "import encodings,sys; print(sys.version); print(sys.executable); print(encodings.__file__)"
