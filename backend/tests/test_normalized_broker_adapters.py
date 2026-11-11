@@ -107,6 +107,7 @@ class NormalizedAdapterTests(unittest.IsolatedAsyncioTestCase):
     async def test_dhan(self):
         class DhanFake(FakeClient):
             def __init__(self): super().__init__("dhan"); self.client_id="DH1"; self.placed=None
+            def set_access_token(self, token): self.token=token
             async def profile(self): return {"dhanClientId":"DH1"}
             async def market_feed(self, mode, grouped):
                 return {"data":{"NSE_FNO":{"123":{"last_price":101.5,"ohlc":{"open":99,"high":103,"low":98,"close":100},"volume":500,"oi":40}}}}
