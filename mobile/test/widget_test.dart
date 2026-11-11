@@ -3,7 +3,7 @@ import 'package:air_model_engine/main.dart';
 
 void main() {
   testWidgets('AIR phone onboarding gate renders before dashboard access', (tester) async {
-    await tester.pumpWidget(const AirModelEngineApp());
+    await tester.pumpWidget(const AirModelEngineApp(initialServerUrl: 'http://127.0.0.1:8000'));
 
     // Verify stable onboarding content without waiting for the async session restore.
     expect(find.text('ANALYTICAL INVESTMENT RESEARCH'), findsOneWidget);
