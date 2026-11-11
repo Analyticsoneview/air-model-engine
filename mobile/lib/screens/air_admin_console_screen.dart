@@ -165,7 +165,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     if (!{'SUPER_ADMIN', 'ADMIN'}.contains(_role)) return;
     final customerId = _subscriptionCustomer.text.trim();
     if (customerId.isEmpty) {
-      setState(() => _error = 'Enter the customer's E.164 mobile identity.');
+      setState(() => _error = "Enter the customer E.164 mobile identity.");
       return;
     }
     setState(() { _busy = true; _error = null; });
