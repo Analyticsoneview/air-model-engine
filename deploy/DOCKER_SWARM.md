@@ -114,7 +114,7 @@ The GitHub Actions workflow `.github/workflows/ios-pwa.yml` runs Flutter analysi
 
 - Customer signup is disabled by default. Provision the initial operator through the backend's trusted administrative bootstrap procedure; do not enable public signup on an exposed instance.
 - Back up the `air_data` volume and test restore before storing broker credentials.
-- PostgreSQL and Redis containers and connection health checks are now provisioned. Existing customer, Admin, account, credential, QOC and instrument repositories remain SQLite-backed until their individual schema/data migrations and rollback tests are completed. Redis is not yet the authoritative session/rate-limit store. The deployment must remain at one API replica.
+- PostgreSQL and Redis containers and connection health checks are provisioned. Customer identity/access and Admin authentication migrate to PostgreSQL at API startup. Broker credentials, customer broker-account settings, execution policy and order ledger remain SQLite-backed until the explicit domain-store import and cutover are completed. QOC, instrument masters, NSE bhavcopy, model-signal history, reports and Telegram stores also remain SQLite-backed pending separate migrations. Redis is not yet the authoritative session/rate-limit store. The deployment must remain at one API replica.
 - Configure a TLS reverse proxy, strict firewall rules, monitoring, log retention and backup rotation.
 - Broker API plans, market-data entitlements, static IP approvals, instrument masters and exchange data redistribution rights must be verified separately.
 - No live order permission is enabled by this deployment. Live trading must remain disabled until provider-specific preflight, reconciliation and explicit confirmation tests pass.
