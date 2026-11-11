@@ -61,6 +61,11 @@ def migrate(source_path: str, database_url: str) -> dict[str, int]:
                             actual = actual.replace(tzinfo=None) if actual.tzinfo else actual
                         if expected != actual:
                             raise RuntimeError(f"Data conflict in {table}.{column} for key {row[pk]!r}; transaction rolled back")
+                target_count = target.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar_one()
+                if target_count != counts[table]:
+                    raise RuntimeError(
+                        f"Row-count conflict in {table}: SQLite={counts[table]}, PostgreSQL={target_count}; transaction rolled back"
+                    )
         return counts
     finally:
         source.close()
