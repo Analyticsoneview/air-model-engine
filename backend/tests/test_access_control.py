@@ -7,11 +7,14 @@ from app.access_control import AccessStore
 
 
 class AccessStoreTests(unittest.TestCase):
-    def test_new_device_is_registered_and_gets_session_immediately(self):
+    def test_new_device_waits_for_explicit_admin_approval_before_session(self):
         with tempfile.TemporaryDirectory() as temp:
             store = AccessStore(str(Path(temp) / "auth.sqlite3"))
             request = store.request_access("+14155550123", "device-identifier-0001")
-            self.assertEqual(request["status"], "APPROVED")
+            self.assertEqual(request["status"], "PENDING")
+            with self.assertRaises(PermissionError):
+                store.create_session(request["request_id"])
+            self.assertTrue(store.review(request["request_id"], "APPROVED"))
             session_id = store.create_session(request["request_id"])
             self.assertTrue(store.is_session_active(session_id))
             store.close()
