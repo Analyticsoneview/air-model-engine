@@ -15,7 +15,7 @@ class AirServerSetupScreen extends StatefulWidget {
 class _AirServerSetupScreenState extends State<AirServerSetupScreen> {
   static const _serverAddressKey = 'air_api_base_url';
   final _address = TextEditingController(text: AirApiClient.configuredBaseUrl ?? '');
-  final _storage = const FlutterSecureStorage();
+  final _storage = FlutterSecureStorage();
   bool _busy = false;
   String? _error;
 
