@@ -55,6 +55,8 @@ class PostgresAdminAuthStore:
         secret = secret or base64.b32encode(secrets.token_bytes(20)).decode().rstrip("=")
         admin_id = str(uuid4())
         with self.engine.begin() as conn:
+            # Serialize bootstrap and all Super Admin invariant changes.
+            conn.execute(text("SELECT pg_advisory_xact_lock(741902611)"))
             if conn.execute(text("SELECT 1 FROM air_admin_users LIMIT 1")).first():
                 raise ValueError("Administrator bootstrap is already complete")
             conn.execute(text("""INSERT INTO air_admin_users
@@ -178,6 +180,8 @@ class PostgresAdminAuthStore:
         if actor["role"] != "SUPER_ADMIN":
             raise PermissionError("Only SUPER_ADMIN can change administrator status")
         with self.engine.begin() as conn:
+            # Prevent concurrent deactivation of the last active Super Admin.
+            conn.execute(text("SELECT pg_advisory_xact_lock(741902611)"))
             row = conn.execute(text("SELECT role FROM air_admin_users WHERE admin_id=:id FOR UPDATE"),
                                {"id": target_id}).first()
             if not row:
@@ -204,6 +208,8 @@ class PostgresAdminAuthStore:
         if role not in ROLES:
             raise ValueError("Unsupported administrator role")
         with self.engine.begin() as conn:
+            # Use the same transaction lock as status changes and bootstrap.
+            conn.execute(text("SELECT pg_advisory_xact_lock(741902611)"))
             row = conn.execute(text("SELECT role,is_active FROM air_admin_users WHERE admin_id=:id FOR UPDATE"),
                                {"id": target_id}).first()
             if not row:
