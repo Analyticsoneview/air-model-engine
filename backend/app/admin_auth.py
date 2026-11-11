@@ -31,9 +31,10 @@ class AdminAuthStore:
             password_hash TEXT NOT NULL,mfa_secret BLOB NOT NULL,
             role TEXT NOT NULL CHECK(role IN ('SUPER_ADMIN','ADMIN','RESEARCH_ADMIN')),
             is_active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            last_totp_counter INTEGER NOT NULL DEFAULT -1, failed_attempts INTEGER NOT NULL DEFAULT 0,
+            last_totp_counter INTEGER NOT NULL DEFAULT -1, must_change_password INTEGER NOT NULL DEFAULT 0, failed_attempts INTEGER NOT NULL DEFAULT 0,
             locked_until INTEGER NOT NULL DEFAULT 0)""")
         self._ensure_column("air_admin_users", "last_totp_counter", "INTEGER NOT NULL DEFAULT -1")
+        self._ensure_column("air_admin_users", "must_change_password", "INTEGER NOT NULL DEFAULT 0")
         self._ensure_column("air_admin_users", "failed_attempts", "INTEGER NOT NULL DEFAULT 0")
         self._ensure_column("air_admin_users", "locked_until", "INTEGER NOT NULL DEFAULT 0")
         self.db.execute("""CREATE TABLE IF NOT EXISTS air_admin_sessions(
@@ -115,7 +116,7 @@ class AdminAuthStore:
             self.db.execute("DELETE FROM air_admin_login_limits WHERE rate_key=?", (key,))
             self.db.execute("INSERT INTO air_admin_sessions(session_id,admin_id) VALUES(?,?)", (sid, row["admin_id"]))
             self._audit(row["admin_id"], "LOGIN_SUCCESS", row["admin_id"], "")
-        return {"admin_id": row["admin_id"], "email": row["email"], "role": row["role"], "session_id": sid}
+        return {"admin_id": row["admin_id"], "email": row["email"], "role": row["role"], "session_id": sid, "must_change_password": bool(row["must_change_password"])}
 
     def create_admin(self, actor: dict, email: str, role: str) -> tuple[dict, str]:
         email = email.strip().lower()
@@ -129,7 +130,7 @@ class AdminAuthStore:
         admin_id = str(uuid4())
         temporary_password = secrets.token_urlsafe(24)
         with self.db:
-            self.db.execute("INSERT INTO air_admin_users(admin_id,email,password_hash,mfa_secret,role) VALUES(?,?,?,?,?)",
+            self.db.execute("INSERT INTO air_admin_users(admin_id,email,password_hash,mfa_secret,role,must_change_password) VALUES(?,?,?,?,?,1)",
                             (admin_id, email, hash_password(temporary_password), self.cipher.encrypt(secret.encode()), role))
             self._audit(actor["admin_id"], "ADMIN_CREATED", admin_id, f"{email};{role}")
         uri = f"otpauth://totp/{quote('AIR')}:{quote(email)}?secret={secret}&issuer=AIR&algorithm=SHA1&digits=6&period=30"
@@ -143,7 +144,7 @@ class AdminAuthStore:
             raise PermissionError("Current administrator password is incorrect")
         encoded = hash_password(new_password)
         with self.db:
-            self.db.execute("UPDATE air_admin_users SET password_hash=? WHERE admin_id=?",
+            self.db.execute("UPDATE air_admin_users SET password_hash=?,must_change_password=0 WHERE admin_id=?",
                             (encoded, admin["admin_id"]))
             self.db.execute("UPDATE air_admin_sessions SET active=0 WHERE admin_id=? AND session_id<>?",
                             (admin["admin_id"], admin["session_id"]))
@@ -197,7 +198,7 @@ class AdminAuthStore:
         return [dict(r) for r in rows]
 
     def session(self, session_id: str):
-        return self.db.execute("""SELECT u.admin_id,u.email,u.role FROM air_admin_sessions s
+        return self.db.execute("""SELECT u.admin_id,u.email,u.role,u.must_change_password FROM air_admin_sessions s
             JOIN air_admin_users u ON u.admin_id=s.admin_id
             WHERE s.session_id=? AND s.active=1 AND u.is_active=1""", (session_id,)).fetchone()
 
