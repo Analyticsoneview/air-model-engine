@@ -1,4 +1,9 @@
+import os
+import time
 import unittest
+import uuid
+
+import pytest
 
 from redis.exceptions import RedisError
 
@@ -66,6 +71,28 @@ class OAuthStateStoreTests(unittest.TestCase):
         store = OAuthStateStore(redis_url="")
         with self.assertRaises(ValueError):
             store.issue("upstox", "customer-1", "account-1", "state", ttl_seconds=0)
+
+
+def test_real_redis_state_is_shared_atomic_and_expires():
+    redis_url = os.getenv("AIR_TEST_REDIS_URL", "").strip()
+    if not redis_url:
+        pytest.skip("AIR_TEST_REDIS_URL not configured; real Redis integration runs in CI")
+    store_a = OAuthStateStore(redis_url=redis_url)
+    store_b = OAuthStateStore(redis_url=redis_url)
+    customer_id = "redis-test-" + uuid.uuid4().hex
+    account_id = "account-" + uuid.uuid4().hex
+    try:
+        store_a.issue("upstox", customer_id, account_id, "correct-state", ttl_seconds=30)
+        assert not store_b.consume("upstox", customer_id, account_id, "wrong-state")
+        assert store_b.consume("upstox", customer_id, account_id, "correct-state")
+        assert not store_a.consume("upstox", customer_id, account_id, "correct-state")
+
+        store_a.issue("fyers", customer_id, account_id, "expires-state", ttl_seconds=1)
+        time.sleep(1.2)
+        assert not store_b.consume("fyers", customer_id, account_id, "expires-state")
+    finally:
+        store_a.close()
+        store_b.close()
 
 
 if __name__ == "__main__":
