@@ -130,3 +130,22 @@ def test_postgres_store_contract(postgres_url):
                          {"mobile": mobile, "device": device})
         auth.close()
         access.close()
+
+
+
+def test_alembic_customer_migration_chain_generates_postgresql_sql(monkeypatch, capsys):
+    from alembic import command
+    from alembic.config import Config
+
+    monkeypatch.setenv(
+        "AIR_CUSTOMER_DATABASE_URL",
+        "postgresql+psycopg://air_test:air_test@127.0.0.1:5432/air_test",
+    )
+    config = Config("alembic.ini")
+    command.upgrade(config, "head", sql=True)
+    generated = capsys.readouterr().out
+    assert "CREATE TABLE customers" in generated
+    assert "CREATE TABLE air_access_requests" in generated
+    assert "CREATE TABLE air_device_sessions" in generated
+    assert "uq_customers_email_lower" in generated
+    assert "uq_air_access_mobile_device" in generated
