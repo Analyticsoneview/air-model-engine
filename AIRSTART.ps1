@@ -32,17 +32,16 @@ Push-Location $Root
 try {
     $secretDir = Join-Path $Root ".air-secrets"
     New-Item -ItemType Directory -Force -Path $secretDir | Out-Null
-    $secretFiles = @("jwt_secret", "credential_key", "admin_api_key")
-    $missing = $false
-    foreach ($name in $secretFiles) {
-        if (!(Test-Path (Join-Path $secretDir $name))) { $missing = $true }
-    }
-    if ($missing) {
-        Write-Host "Generating local-only AIR secrets..." -ForegroundColor Cyan
-        $generated = docker run --rm python:3.12-slim python -c "import secrets,base64; print(secrets.token_urlsafe(48)); print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode()); print(secrets.token_urlsafe(48))"
-        if ($LASTEXITCODE -ne 0 -or $generated.Count -lt 3) { throw "Could not generate local secrets." }
-        for ($i=0; $i -lt 3; $i++) {
-            [System.IO.File]::WriteAllText((Join-Path $secretDir $secretFiles[$i]), [string]$generated[$i], [System.Text.UTF8Encoding]::new($false))
+    $bootstrap = Join-Path $Root "deploy/init-local-secrets.py"
+    if (!(Test-Path -LiteralPath $bootstrap)) { throw "Required secret bootstrap script is missing: $bootstrap" }
+    Write-Host "Creating any missing local AIR secrets (existing secrets are preserved)..." -ForegroundColor Cyan
+    docker run --rm --mount "type=bind,source=$Root,target=/work" -w /work python:3.12-slim python deploy/init-local-secrets.py .air-secrets
+    if ($LASTEXITCODE -ne 0) { throw "AIR secret bootstrap failed." }
+    $requiredSecrets = @("jwt_secret","credential_key","admin_api_key","admin_mfa_key","postgres_password","redis_password","database_url","redis_url")
+    foreach ($name in $requiredSecrets) {
+        $secretPath = Join-Path $secretDir $name
+        if (!(Test-Path -LiteralPath $secretPath) -or (Get-Item -LiteralPath $secretPath).Length -eq 0) {
+            throw "Required AIR secret is missing or empty: $secretPath"
         }
     }
 
