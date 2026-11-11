@@ -21,7 +21,7 @@ Generate keys on the server. Keep them outside source control and do not paste t
 python3 -c "import secrets; print(secrets.token_urlsafe(48))" | docker secret create air_jwt_secret -
 python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" | docker secret create air_credential_key -
 python3 -c "import secrets; print(secrets.token_urlsafe(48))" | docker secret create air_admin_api_key -
-python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" | docker secret create air_admin_mfa_key -
+python3 -c "import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())" | docker secret create air_admin_mfa_key -
 ```
 
 Back up the Fernet key securely. Losing it makes encrypted broker credentials unrecoverable. The API reads all three secrets from Docker's `*_FILE` paths. Keep the admin key private; it is used to review customer requests and run operator-only backend actions.
