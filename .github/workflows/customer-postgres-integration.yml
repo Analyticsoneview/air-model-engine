@@ -18,7 +18,7 @@ concurrency:
 jobs:
   customer-postgres-integration:
     name: Customer auth PostgreSQL integration (self-hosted disposable PostgreSQL 16)
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 45
     defaults:
       run:
