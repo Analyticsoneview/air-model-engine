@@ -1186,6 +1186,7 @@ async def remove_customer_account(broker: str, account_id: str,
                                   customer_id: str = Depends(require_air_operator)) -> dict:
     vault = get_vault()
     try:
+        await get_broker_session_runtime().deactivate(customer_id, broker, account_id)
         vault.delete(customer_id, broker, account_id)
         account_directory.remove(customer_id, broker, account_id)
         await invalidate_customer_market_data_service(customer_id)
@@ -1276,7 +1277,6 @@ async def operator_remove_broker_account(
 ) -> dict:
     try:
         await get_broker_session_runtime().deactivate(customer_id, broker, account_id)
-        await get_broker_session_runtime().deactivate(customer_id, broker, account_id)
         get_vault().delete(customer_id, broker, account_id)
         account_directory.remove(customer_id, broker, account_id)
         await invalidate_customer_market_data_service(customer_id)
@@ -1320,6 +1320,7 @@ async def angel_login(account_id: str, body: AngelLoginRequest,
         credentials["jwt_token"] = session["jwtToken"]
         credentials["refresh_token"] = session.get("refreshToken", "")
         credentials["feed_token"] = session.get("feedToken", "")
+        await get_broker_session_runtime().deactivate(customer_id, "angelone", account_id)
         get_vault().put(customer_id, "angelone", account_id, credentials)
         await invalidate_customer_market_data_service(customer_id)
         return {"broker": "angelone", "account_id": account_id, "verified": True,
