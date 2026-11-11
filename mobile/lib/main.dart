@@ -9,6 +9,7 @@ import 'auth/air_access_gate.dart';
 
 import 'screens/air_connection_screen.dart';
 import 'screens/air_admin_screen.dart';
+import 'screens/air_admin_console_screen.dart';
 import 'screens/air_qoc_screen.dart';
 import 'screens/model_engine_screen.dart';
 import 'screens/orb_strategy_screen.dart';
@@ -172,6 +173,7 @@ class AirMoreScreen extends StatelessWidget {
       (icon: Icons.candlestick_chart_rounded, title: 'ORB Strategy', subtitle: 'Opening-range research and strategy workspace', page: const OrbStrategyScreen()),
       (icon: Icons.storage_rounded, title: 'NSE Data Center', subtitle: 'Historical market data and import status', page: const NseDataScreen()),
       (icon: Icons.admin_panel_settings_outlined, title: 'AIR Administration', subtitle: 'Operator tools and customer access management', page: const AirAdminScreen()),
+      (icon: Icons.verified_user_outlined, title: 'Administrator Sign In', subtitle: 'Separate email, password and authenticator MFA console', page: const AirAdminConsoleScreen()),
       (icon: Icons.account_tree_outlined, title: 'Broker Connections', subtitle: 'Assigned accounts and data-source connection status', page: const AirConnectionScreen()),
     ];
 
