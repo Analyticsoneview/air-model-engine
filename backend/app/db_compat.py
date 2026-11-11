@@ -26,7 +26,8 @@ class PostgresConnection:
         from psycopg.rows import dict_row
 
         driver_url = url.replace('postgresql+psycopg://', 'postgresql://', 1)
-        self._connection = psycopg.connect(driver_url, row_factory=dict_row)
+        self._connection = psycopg.connect(driver_url, row_factory=dict_row, autocommit=True)
+        self._transaction = None
 
     def execute(self, statement: str, parameters: Any = ()):
         # These repositories use SQLite's qmark placeholders. Their SQL statements
@@ -34,11 +35,14 @@ class PostgresConnection:
         return self._connection.execute(statement.replace("?", "%s"), parameters)
 
     def __enter__(self):
-        self._connection.__enter__()
+        self._transaction = self._connection.transaction()
+        self._transaction.__enter__()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        return self._connection.__exit__(exc_type, exc_value, traceback)
+        transaction = self._transaction
+        self._transaction = None
+        return transaction.__exit__(exc_type, exc_value, traceback)
 
     def close(self) -> None:
         self._connection.close()
