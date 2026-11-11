@@ -101,7 +101,7 @@ def test_customer_access_import_reconciles_all_rows(postgres_url, tmp_path):
             conn.execute(text("DELETE FROM air_access_requests"))
             conn.execute(text("DELETE FROM customers"))
         counts = migrate(str(source), postgres_url)
-        assert counts == {"customers": 1, "air_access_requests": 1, "air_device_sessions": 1, "air_customer_subscriptions": 1}
+        assert counts == {"status": "IMPORTED_AND_RECONCILED", "customers": 1, "air_access_requests": 1, "air_device_sessions": 1, "air_customer_subscriptions": 1}
         with engine.connect() as conn:
             assert conn.execute(text("SELECT COUNT(*) FROM customers")).scalar_one() == 1
             assert conn.execute(text("SELECT COUNT(*) FROM air_device_sessions")).scalar_one() == 1
