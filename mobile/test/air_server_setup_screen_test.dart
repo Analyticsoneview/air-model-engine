@@ -7,6 +7,13 @@ import 'package:air_model_engine/services/air_api_client.dart';
 void main() {
   setUp(() => AirApiClient.clearRuntimeBaseUrl());
 
+  test('existing API clients use the updated LAN server address', () {
+    final api = AirApiClient();
+    AirApiClient.configureBaseUrl('http://192.168.1.20:8000/');
+    expect(api.baseUrl, 'http://192.168.1.20:8000');
+    api.dispose();
+  });
+
   testWidgets('server setup explains LAN address and rejects invalid URL', (tester) async {
     await tester.pumpWidget(const MaterialApp(
       home: AirServerSetupScreen(onConnected: _noop),
