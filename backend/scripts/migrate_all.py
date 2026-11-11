@@ -5,9 +5,10 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
-from app.db_compat import read_database_url
+from app.db_compat import PostgresConnection, read_database_url
 from app.scripts.migrate_admin_sqlite_to_postgres import migrate as migrate_admin
 from app.scripts.migrate_customer_auth_sqlite_to_postgres import migrate as migrate_customer_auth
 from scripts.import_sqlite_domain_stores import run as migrate_domain_stores
@@ -22,6 +23,18 @@ def main() -> None:
         os.environ["AIR_CUSTOMER_DATABASE_URL"] = database_url
     if not os.getenv("AIR_ADMIN_DATABASE_URL", "").strip():
         os.environ["AIR_ADMIN_DATABASE_URL"] = database_url
+
+    last_error = None
+    for attempt in range(60):
+        try:
+            connection = PostgresConnection(database_url)
+            connection.close()
+            break
+        except Exception as exc:
+            last_error = exc
+            time.sleep(2)
+    else:
+        raise RuntimeError("PostgreSQL did not become reachable within 120 seconds") from last_error
 
     subprocess.run(
         [sys.executable, "-m", "alembic", "upgrade", "head"],
