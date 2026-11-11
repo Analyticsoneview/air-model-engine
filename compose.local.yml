@@ -1,3 +1,5 @@
+name: air-local
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -125,5 +127,12 @@ secrets:
 
 volumes:
   air_data:
+    name: air-local-data
   postgres_data:
+    name: air-postgres-data
   redis_data:
+    name: air-redis-data
+
+networks:
+  default:
+    name: air-backend
