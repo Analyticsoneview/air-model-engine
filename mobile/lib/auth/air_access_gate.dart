@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../services/air_api_client.dart';
+import '../screens/air_server_setup_screen.dart';
 
 class AirAccessGate extends StatefulWidget {
   const AirAccessGate({super.key, required this.builder});
@@ -15,7 +16,7 @@ class AirAccessGate extends StatefulWidget {
 
 class _AirAccessGateState extends State<AirAccessGate> {
   static const _storage = FlutterSecureStorage();
-  final _api = AirApiClient();
+  late AirApiClient _api;
   final _mobile = TextEditingController();
   String? _deviceId;
   String _status = 'NEW';
@@ -26,7 +27,25 @@ class _AirAccessGateState extends State<AirAccessGate> {
   @override
   void initState() {
     super.initState();
+    _api = AirApiClient();
     _restoreSession();
+  }
+
+  Future<void> _changeServer() async {
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (setupContext) => AirServerSetupScreen(
+        onConnected: () => Navigator.of(setupContext).pop(),
+      ),
+    ));
+    if (!mounted) return;
+    _api.dispose();
+    _api = AirApiClient();
+    setState(() {
+      _busy = true;
+      _approved = false;
+      _status = 'NEW';
+    });
+    await _restoreSession();
   }
 
   Future<void> _restoreSession() async {
@@ -221,7 +240,13 @@ class _AirAccessGateState extends State<AirAccessGate> {
                           Expanded(child: Text(_message, style: const TextStyle(color: Colors.white, height: 1.45, fontSize: 12))),
                         ]),
                       ),
-                    const SizedBox(height: 28),
+                    const SizedBox(height: 18),
+                    TextButton.icon(
+                      onPressed: _busy ? null : _changeServer,
+                      icon: const Icon(Icons.dns_outlined, color: Color(0xFFE5B85C)),
+                      label: const Text('CHANGE AIR SERVER', style: TextStyle(color: Color(0xFFE5B85C), fontWeight: FontWeight.w800)),
+                    ),
+                    const SizedBox(height: 10),
                     const Text('DASHBOARD ACCESS  •  SUBSCRIPTION-BASED STRATEGIES', textAlign: TextAlign.center, style: TextStyle(color: Color(0xFF7E8CA0), fontSize: 9, letterSpacing: 1, fontWeight: FontWeight.w700)),
                     const SizedBox(height: 8),
                     const Text('Phone number identifies your customer profile. Verify ownership before enabling payments, broker credentials or trading permissions.', textAlign: TextAlign.center, style: TextStyle(color: Color(0xFF7E8CA0), fontSize: 10)),
