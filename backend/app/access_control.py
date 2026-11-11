@@ -11,7 +11,14 @@ _E164 = re.compile(r"^\+[1-9][0-9]{7,14}$")
 class AccessStore:
     """Phone-number onboarding, revocable device sessions and subscription entitlements."""
 
-    def __init__(self, db_path: str = "data/air_auth.sqlite3"):
+    def __new__(cls, db_path: str | None = None):
+        if db_path is None and (os.getenv("AIR_CUSTOMER_DATABASE_URL") or os.getenv("AIR_CUSTOMER_DATABASE_URL_FILE")):
+            from app.customer_auth_postgres import PostgresAccessStore
+            return PostgresAccessStore()
+        return super().__new__(cls)
+
+    def __init__(self, db_path: str | None = None):
+        db_path = db_path or os.getenv("AIR_AUTH_DB_PATH", "data/air_auth.sqlite3")
         if db_path != ":memory:":
             Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(db_path, check_same_thread=False)
@@ -198,4 +205,4 @@ class AccessStore:
         self.db.close()
 
 
-access_store = AccessStore(os.getenv("AIR_AUTH_DB_PATH", "data/air_auth.sqlite3"))
+access_store = AccessStore()
