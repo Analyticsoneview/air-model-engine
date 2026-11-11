@@ -11,15 +11,14 @@ docker compose version >/dev/null
 docker info >/dev/null 2>&1 || { echo "Docker daemon is not running. Start Docker Desktop/Engine and retry." >&2; exit 1; }
 
 mkdir -p .air-secrets
-if [[ ! -s .air-secrets/jwt_secret || ! -s .air-secrets/credential_key || ! -s .air-secrets/admin_api_key ]]; then
-  echo "Generating local-only AIR secrets..."
-  { read -r jwt_secret; read -r credential_key; read -r admin_api_key; } < <(docker run --rm python:3.12-slim python -c 'import secrets,base64; print(secrets.token_urlsafe(48)); print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode()); print(secrets.token_urlsafe(48))')
-  [[ -n "${jwt_secret:-}" && -n "${credential_key:-}" && -n "${admin_api_key:-}" ]] || { echo "Secret generation failed." >&2; exit 1; }
-  printf '%s' "$jwt_secret" > .air-secrets/jwt_secret
-  printf '%s' "$credential_key" > .air-secrets/credential_key
-  printf '%s' "$admin_api_key" > .air-secrets/admin_api_key
-  chmod 600 .air-secrets/*
-fi
+[[ -f deploy/init-local-secrets.py ]] || { echo "Required secret bootstrap script is missing." >&2; exit 1; }
+echo "Checking and creating all required local AIR secrets..."
+docker run --rm -v "$ROOT:/workspace" -w /workspace python:3.12-slim python deploy/init-local-secrets.py .air-secrets
+for name in jwt_secret credential_key admin_api_key admin_mfa_key postgres_password redis_password database_url redis_url; do
+  [[ -s ".air-secrets/$name" ]] || { echo "Required AIR secret is missing or empty: $name" >&2; exit 1; }
+done
+chmod 600 .air-secrets/*
+
 
 if [[ ! -f .air-local.env ]]; then
   cat > .air-local.env <<'EOF'
