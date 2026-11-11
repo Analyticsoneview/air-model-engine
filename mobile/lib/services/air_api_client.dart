@@ -13,11 +13,15 @@ class AirApiClient {
   static const _configuredBaseUrl = String.fromEnvironment('AIR_API_BASE_URL');
   static String? _runtimeBaseUrl;
 
-  static bool get hasConfiguredBaseUrl =>
-      (_runtimeBaseUrl?.isNotEmpty ?? false) || _configuredBaseUrl.trim().isNotEmpty;
+  static String? get configuredBaseUrl {
+    final candidate = _runtimeBaseUrl ?? _configuredBaseUrl.trim();
+    if (candidate.isEmpty) return null;
+    final host = Uri.tryParse(candidate)?.host.toLowerCase();
+    if (host == 'localhost' || host == '127.0.0.1' || host == '::1') return null;
+    return _normalizeBaseUrl(candidate);
+  }
 
-  static String? get configuredBaseUrl =>
-      _runtimeBaseUrl ?? (_configuredBaseUrl.trim().isEmpty ? null : _normalizeBaseUrl(_configuredBaseUrl));
+  static bool get hasConfiguredBaseUrl => configuredBaseUrl != null;
 
   static void configureBaseUrl(String value) {
     _runtimeBaseUrl = _normalizeBaseUrl(value.trim());
