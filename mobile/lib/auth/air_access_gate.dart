@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../services/air_api_client.dart';
+import '../screens/air_admin_console_screen.dart';
 
 class AirAccessGate extends StatefulWidget {
   const AirAccessGate({super.key, required this.builder});
@@ -221,7 +222,15 @@ class _AirAccessGateState extends State<AirAccessGate> {
                           Expanded(child: Text(_message, style: const TextStyle(color: Colors.white, height: 1.45, fontSize: 12))),
                         ]),
                       ),
-                    const SizedBox(height: 28),
+                    const SizedBox(height: 14),
+                    TextButton.icon(
+                      onPressed: _busy ? null : () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(builder: (_) => const AirAdminConsoleScreen()),
+                      ),
+                      icon: const Icon(Icons.admin_panel_settings_outlined, color: Color(0xFFE5B85C)),
+                      label: const Text('ADMINISTRATOR SIGN IN', style: TextStyle(color: Color(0xFFE5B85C), fontWeight: FontWeight.w800)),
+                    ),
+                    const SizedBox(height: 14),
                     const Text('NO OTP  •  NO WHATSAPP  •  NO PASSWORD', textAlign: TextAlign.center, style: TextStyle(color: Color(0xFF7E8CA0), fontSize: 9, letterSpacing: 1, fontWeight: FontWeight.w700)),
                     const SizedBox(height: 8),
                     const Text('One-time device approval. Access can be revoked by AIR administration.', textAlign: TextAlign.center, style: TextStyle(color: Color(0xFF7E8CA0), fontSize: 10)),
