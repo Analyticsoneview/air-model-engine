@@ -114,9 +114,15 @@ def run(source_data_dir: Path, dry_run: bool = False) -> dict[str, Any]:
     cipher = _credential_cipher()
 
     for table, (filename, columns) in TABLES.items():
-        rows = _sqlite_rows(_source_path(source_data_dir, table, filename), table, columns)
+        source_path = _source_path(source_data_dir, table, filename)
+        rows = _sqlite_rows(source_path, table, columns)
         source_rows[table] = rows
-        report["tables"][table] = {"source_rows": len(rows), "target_rows_before": None, "target_rows_after": None}
+        report["tables"][table] = {
+            "source_path": str(source_path),
+            "source_rows": len(rows),
+            "target_rows_before": None,
+            "target_rows_after": None,
+        }
         if table == "broker_credentials" and rows:
             if cipher is None:
                 raise RuntimeError("AIR_CREDENTIAL_KEY or AIR_CREDENTIAL_KEY_FILE is required to verify stored credentials")
@@ -124,6 +130,16 @@ def run(source_data_dir: Path, dry_run: bool = False) -> dict[str, Any]:
                 cipher.decrypt(bytes(row["encrypted_payload"]))
 
     with psycopg.connect(driver_url, row_factory=dict_row) as connection:
+        marker = connection.execute(
+            "SELECT source_manifest, imported_at FROM air_domain_store_imports "
+            "WHERE import_name=%s",
+            ("sqlite_domain_stores_v1",),
+        ).fetchone()
+        if marker:
+            report["status"] = "ALREADY_IMPORTED"
+            report["imported_at"] = marker["imported_at"]
+            return report
+
         for table in TABLES:
             target_count = connection.execute(f"SELECT count(*) AS count FROM {table}").fetchone()["count"]
             report["tables"][table]["target_rows_before"] = target_count
@@ -179,6 +195,23 @@ def run(source_data_dir: Path, dry_run: bool = False) -> dict[str, Any]:
                 "SELECT encrypted_payload FROM broker_credentials"
             ).fetchall():
                 cipher.decrypt(bytes(row["encrypted_payload"]))
+
+        if not dry_run:
+            manifest = json.dumps(
+                {
+                    table: {
+                        "source_path": report["tables"][table]["source_path"],
+                        "source_rows": report["tables"][table]["source_rows"],
+                    }
+                    for table in TABLES
+                },
+                sort_keys=True,
+            )
+            connection.execute(
+                "INSERT INTO air_domain_store_imports(import_name,source_manifest,imported_at) "
+                "VALUES(%s,%s,CURRENT_TIMESTAMP::text)",
+                ("sqlite_domain_stores_v1", manifest),
+            )
 
     report["status"] = "DRY_RUN_VALIDATED" if dry_run else "IMPORTED_AND_RECONCILED"
     return report
