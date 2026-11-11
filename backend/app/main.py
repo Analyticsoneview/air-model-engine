@@ -43,6 +43,7 @@ from app.account_reporting import AccountReporting
 from app import telegram_destinations
 from app.nse_bhavcopy import (nse_data_status, nse_data_rows, start_nse_data_jobs, stop_nse_data_jobs, trigger_nse_bootstrap)
 from app.security import create_access_token, create_admin_access_token, hash_password, require_customer, require_admin, verify_password
+from app.persistence import get_persistence_runtime
 
 app = FastAPI(title="AIR Model Engine API", version="0.3.0",
               description="Self-hosted AIR authentication, broker account and market-data gateway.")
@@ -640,7 +641,11 @@ async def broker_catalog(customer_id: str = Depends(require_customer)) -> dict:
 
 @app.get("/health")
 async def health() -> dict:
-    return {"status": "ok", "service": "air-model-engine-api"}
+    dependencies = get_persistence_runtime().health()
+    failures = [name for name, item in dependencies.items()
+                if item["configured"] and item["status"] != "ok"]
+    return {"status": "degraded" if failures else "ok",
+            "service": "air-model-engine-api", "dependencies": dependencies}
 
 @app.get("/api/v1/nse-data/status")
 async def nse_bhavcopy_status(customer_id: str = Depends(require_customer)) -> dict:
