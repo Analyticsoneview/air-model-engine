@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from app.market_data.customer_runtime import get_customer_market_data_service, get_customer_market_data_status
 from app.market_data.contracts import MarketInstrument
 from app.orb_strategy import OrbSignalEngine
-from app.security import require_customer
+from app.subscription_access import require_strategy_access
 
 router = APIRouter(prefix="/api/v1/orb", tags=["AIR ORB"])
 _engines: dict[str, OrbSignalEngine] = {}
@@ -32,7 +32,7 @@ async def _engine_for(customer_id: str) -> tuple[OrbSignalEngine, object]:
 
 
 @router.get("/status")
-async def orb_status(customer_id: str = Depends(require_customer)) -> dict:
+async def orb_status(customer_id: str = Depends(require_strategy_access)) -> dict:
     engine, _service = await _engine_for(customer_id)
     try:
         source = await get_customer_market_data_status(customer_id)
