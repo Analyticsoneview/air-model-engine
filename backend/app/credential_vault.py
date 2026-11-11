@@ -30,7 +30,7 @@ class CredentialVault:
                 self._db.close()
                 raise RuntimeError("PostgreSQL broker_credentials schema is missing; run Alembic migrations first") from exc
         else:
-            db_path = db_path or "data/air_credentials.sqlite3"
+            db_path = db_path or os.getenv("AIR_CREDENTIAL_DB_PATH", "data/air_credentials.sqlite3")
             if db_path != ":memory:":
                 Path(db_path).parent.mkdir(parents=True, exist_ok=True)
             self._db = sqlite3.connect(db_path, check_same_thread=False)
