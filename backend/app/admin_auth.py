@@ -136,6 +136,19 @@ class AdminAuthStore:
         return {"admin_id": admin_id, "email": email, "role": role, "active": True,
                 "temporary_password": temporary_password}, uri
 
+    def change_password(self, admin: dict, current_password: str, new_password: str) -> None:
+        row = self.db.execute("SELECT password_hash FROM air_admin_users WHERE admin_id=? AND is_active=1",
+                              (admin["admin_id"],)).fetchone()
+        if not row or not verify_password(current_password, row["password_hash"]):
+            raise PermissionError("Current administrator password is incorrect")
+        encoded = hash_password(new_password)
+        with self.db:
+            self.db.execute("UPDATE air_admin_users SET password_hash=? WHERE admin_id=?",
+                            (encoded, admin["admin_id"]))
+            self.db.execute("UPDATE air_admin_sessions SET active=0 WHERE admin_id=? AND session_id<>?",
+                            (admin["admin_id"], admin["session_id"]))
+            self._audit(admin["admin_id"], "PASSWORD_CHANGED", admin["admin_id"], "")
+
     def list_admins(self) -> list[dict]:
         rows = self.db.execute("SELECT admin_id,email,role,is_active,created_at FROM air_admin_users ORDER BY created_at,email").fetchall()
         return [dict(r) for r in rows]
