@@ -26,7 +26,7 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 bash ./AIRSTART.sh
 ```
 
-The launcher checks Docker and Compose, creates local secrets if missing, creates the local environment file, builds the API and Flutter PWA, starts both services, waits for the API health endpoint, and opens the app.
+The launcher checks Docker and Compose, invokes `deploy/init-local-secrets.py` inside a temporary Python container to create and validate all eight required secret files (without replacing existing values), creates the local environment file, builds the API and Flutter PWA, starts both services, waits for the API health endpoint, and opens the app.
 
 After the first launch, the launcher installs the `AIRSTART` command in the PowerShell profile on Windows or the shell profile on macOS/Linux. Open a new terminal and run:
 
@@ -47,7 +47,7 @@ Run it from the AIR repository directory. It is safe to run repeatedly; Compose 
 - Broker order execution is not enabled by this local launcher. Do not add live-order permissions while validating.
 - QOC and Telegram schedulers remain disabled until their provider credentials, entitlements and destinations are explicitly configured and tested.
 - NSE historical-data bootstrap is enabled and runs in the background; it can take time and requires network access.
-- Local secrets are generated into `.air-secrets/`; they must never be committed or shared. Back up the credential encryption key securely if you enter real broker credentials.
+- All eight local Compose secrets are generated into `.air-secrets/` by the shared bootstrap script; existing non-empty values are preserved. They must never be committed or shared. Back up the credential encryption key securely if you enter real broker credentials.
 - Local SQLite data is persisted in the Docker volume `air_data`.
 - This local stack does not create public DNS/TLS, deploy to Swarm, configure production secrets, or validate live broker trading.
 
@@ -70,3 +70,28 @@ Do not use `down -v` unless you intentionally want to delete the local AIR datab
 4. If API health fails, inspect the backend logs before opening the app.
 5. If NSE bootstrap reports partial coverage, use the in-app retry action after checking connectivity and available disk space.
 6. For real broker data, configure each account in AIR Admin and verify both historical and live channels. A connected account is not proof of tick delivery.
+
+
+## Android phone connection on a trusted LAN
+
+The native Android app asks for the AIR API server address on first launch. On the Windows PC, find its private IPv4 address with:
+
+```powershell
+ipconfig
+```
+
+Enter `http://<WINDOWS-PC-LAN-IP>:8000` in the app (for example, `http://192.168.1.10:8000`). Do not enter `localhost` or `127.0.0.1` on the phone; those addresses refer to the phone itself. Keep both devices on the same trusted private Wi-Fi/LAN.
+
+If Windows Firewall blocks the connection, create a private-network-only inbound rule from an elevated PowerShell window:
+
+```powershell
+New-NetFirewallRule -DisplayName "AIR API - Private LAN" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8000 -Profile Private
+```
+
+Remove that rule when it is no longer needed:
+
+```powershell
+Remove-NetFirewallRule -DisplayName "AIR API - Private LAN"
+```
+
+This HTTP endpoint is for trusted-LAN lab testing only. Do not expose port 8000 to the public internet. Use HTTPS, authentication, firewall restrictions and a reviewed reverse-proxy configuration before any remote access.
