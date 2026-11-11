@@ -15,6 +15,11 @@ from app.model_engine_strategies import ORIGINAL366_BASELINE
 from app.expiry_case_study_27oct2026 import historical_expired_contracts
 from app.air_qoc_store import AirQocStore
 from app.access_control import access_store
+from app.subscription_access import (
+    active_subscription as _active_subscription,
+    is_operator_customer as _is_operator_customer,
+    require_strategy_subscription as _require_strategy_subscription,
+)
 from app.brokers.customer_accounts import CustomerAccountDirectory
 from app.security import require_customer
 from app.telegram_notifications import notify_candidates, send_telegram_message
@@ -68,24 +73,6 @@ async def _customer_market_data_service(customer_id: str):
         ) from exc
 
 
-def _is_operator_customer(customer_id: str) -> bool:
-    allowed = {x.strip() for x in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",") if x.strip()}
-    if customer_id in allowed:
-        return True
-    return (access_store.mobile_for_request_id(customer_id) or "") in allowed
-
-
-
-def _active_subscription(customer_id: str) -> dict | None:
-    if _is_operator_customer(customer_id):
-        return {"status": "ACTIVE", "plan_code": "OPERATOR", "expires_at": None}
-    return access_store.get_subscription(customer_id)
-
-def _require_strategy_subscription(customer_id: str) -> dict:
-    subscription = _active_subscription(customer_id)
-    if not subscription or subscription.get("status") != "ACTIVE":
-        raise HTTPException(status_code=403, detail="An active AIR subscription is required to access this strategy.")
-    return subscription
 
 def _operator(customer_id: str = Depends(require_customer)) -> str:
     if not _is_operator_customer(customer_id):
