@@ -25,7 +25,8 @@ class PostgresConnection:
         import psycopg
         from psycopg.rows import dict_row
 
-        self._connection = psycopg.connect(url, row_factory=dict_row)
+        driver_url = url.replace('postgresql+psycopg://', 'postgresql://', 1)
+        self._connection = psycopg.connect(driver_url, row_factory=dict_row)
 
     def execute(self, statement: str, parameters: Any = ()):
         # These repositories use SQLite's qmark placeholders. Their SQL statements
