@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from app.access_control import AccessStore
@@ -45,6 +46,29 @@ class AccessStoreTests(unittest.TestCase):
             subscription = store.get_subscription("+919876543210")
             self.assertEqual(subscription["plan_code"], "MONTHLY")
             self.assertEqual(subscription["status"], "EXPIRED")
+            store.close()
+
+    def test_subscription_is_pending_before_its_start_date(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = AccessStore(str(Path(temp) / "auth.sqlite3"))
+            starts = datetime.now(timezone.utc) + timedelta(days=1)
+            expires = starts + timedelta(days=30)
+            store.assign_subscription(
+                "+919876543210", "MONTHLY", starts.isoformat(), expires.isoformat()
+            )
+            subscription = store.get_subscription("+919876543210")
+            self.assertEqual(subscription["status"], "PENDING")
+            store.close()
+
+    def test_subscription_window_must_have_expiry_after_start(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = AccessStore(str(Path(temp) / "auth.sqlite3"))
+            starts = datetime.now(timezone.utc)
+            with self.assertRaises(ValueError):
+                store.assign_subscription(
+                    "+919876543210", "MONTHLY",
+                    starts.isoformat(), (starts - timedelta(seconds=1)).isoformat(),
+                )
             store.close()
 
     def test_invalid_subscription_plan_is_rejected(self):
