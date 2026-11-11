@@ -18,7 +18,7 @@ concurrency:
 jobs:
   redis-state-integration:
     name: Redis shared OAuth state (self-hosted disposable Redis 7)
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 35
     defaults:
       run:
