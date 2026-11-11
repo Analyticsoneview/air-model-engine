@@ -77,8 +77,16 @@ def test_transfer_preserves_admin_rows_and_encrypted_mfa(postgres_url, tmp_path,
     engine = create_engine(postgres_url)
     try:
         counts = migrate(str(source), postgres_url)
-        assert counts == {"air_admin_users":1,"air_admin_sessions":1,
-                          "air_admin_login_limits":1,"air_admin_audit":1}
+        assert counts["status"] == "IMPORTED_AND_RECONCILED"
+        assert {table: counts[table] for table in (
+            "air_admin_users", "air_admin_sessions",
+            "air_admin_login_limits", "air_admin_audit",
+        )} == {
+            "air_admin_users": 1,
+            "air_admin_sessions": 1,
+            "air_admin_login_limits": 1,
+            "air_admin_audit": 1,
+        }
         with engine.connect() as conn:
             row = conn.execute(text("SELECT password_hash,mfa_secret FROM air_admin_users WHERE admin_id='admin-1'")).one()
             assert row.password_hash == "argon-hash"
