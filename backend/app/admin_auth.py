@@ -160,12 +160,12 @@ class AdminAuthStore:
         row = self.db.execute("SELECT role FROM air_admin_users WHERE admin_id=?", (target_id,)).fetchone()
         if not row:
             return False
-        if target_id == actor["admin_id"] and not active:
-            raise ValueError("You cannot deactivate your own active Super Admin account")
         if row["role"] == "SUPER_ADMIN" and active is False:
             count = self.db.execute("SELECT COUNT(*) FROM air_admin_users WHERE role='SUPER_ADMIN' AND is_active=1").fetchone()[0]
             if count <= 1:
                 raise ValueError("At least one active Super Admin must remain")
+        if target_id == actor["admin_id"] and not active:
+            raise ValueError("You cannot deactivate your own active Super Admin account")
         with self.db:
             self.db.execute("UPDATE air_admin_users SET is_active=? WHERE admin_id=?", (int(active), target_id))
             if not active:
