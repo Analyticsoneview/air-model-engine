@@ -45,6 +45,19 @@ jobs:
         shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "& '{0}'"
     steps:
       - uses: actions/checkout@v4
+      - name: Validate Windows launcher PowerShell syntax
+        run: |
+          $files = @('AIRSTART.ps1', 'LOCAL-APP-STARTUP/AIRSTART.ps1')
+          foreach ($file in $files) {
+            if (-not (Test-Path -LiteralPath $file)) { continue }
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $env:GITHUB_WORKSPACE $file), [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error $_.Message }
+              throw "PowerShell syntax validation failed: $file"
+            }
+          }
       - name: Bootstrap portable Python 3.12 (no installer or admin rights)
         run: |
           Remove-Item Env:PYTHONHOME -ErrorAction SilentlyContinue
