@@ -272,3 +272,22 @@ def test_recovered_expiry_settlement_moves_to_expired_not_open():
     assert view["counts"]["EXPIRED"] == 1
     assert view["counts"]["OPEN"] == 0
     assert view["groups"]["EXPIRED"][0]["exit_reason"] == "EXPIRY_INTRINSIC_NO_TARGET_OR_STOP"
+
+def test_strategy_views_sort_signal_date_desc_then_entry_price_ascending():
+    from app.model_engine_strategies import build_strategy_views
+
+    cheaper = row("recovery-cheaper", "RE-ENTRY", dte=20, entry_price=2.0)
+    expensive = row("recovery-expensive", "RE-ENTRY", dte=20, entry_price=5.0)
+    for candidate in (cheaper, expensive):
+        candidate["lot_size"] = 100
+        candidate["evidence"] = {
+            "strategy_memberships": ["RECOVERY"],
+            "recovery_verified": True,
+            "original_entry_premium": 0.8,
+        }
+
+    result = build_strategy_views([expensive, cheaper])
+    ordered = result["RECOVERY"]["groups"]["REENTRY"]
+    assert [item["signal_id"] for item in ordered] == [
+        "recovery-cheaper", "recovery-expensive",
+    ]
