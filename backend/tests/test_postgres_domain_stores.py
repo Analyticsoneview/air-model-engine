@@ -34,6 +34,12 @@ pytestmark = pytest.mark.skipif(
     reason="Core PostgreSQL repository selectors are not configured",
 )
 
+def test_domain_store_import_rejects_missing_source_database(tmp_path, monkeypatch):
+    monkeypatch.setenv("AIR_DATABASE_URL", "postgresql+psycopg://air_test:air_test@127.0.0.1:1/air_test")
+    with pytest.raises(FileNotFoundError, match="refusing a partial domain-store import"):
+        import_sqlite_domain_stores(tmp_path, dry_run=True)
+
+
 
 def test_sqlite_customer_auth_import_is_field_reconciled(tmp_path):
     source_path = tmp_path / "air_auth.sqlite3"

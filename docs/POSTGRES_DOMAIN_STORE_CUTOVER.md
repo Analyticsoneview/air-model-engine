@@ -62,6 +62,7 @@ SQLite remains the default for these four repositories when their dedicated Post
 
 ## Importer safety
 
+- All four expected SQLite source databases must exist; a missing file stops the import instead of silently treating that repository as empty.
 - SQLite source files are opened with SQLite read-only URI mode and query-only enforcement; they are never modified, deleted or renamed.
 - The importer refuses to write if any target table is non-empty.
 - Credential ciphertext is copied byte-for-byte; the Fernet key is not rotated.

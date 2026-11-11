@@ -137,13 +137,11 @@ def run(source_data_dir: Path, dry_run: bool = False) -> dict[str, Any]:
     source_rows: dict[str, list[dict[str, Any]]] = {}
     source_paths: dict[str, Path] = {}
     report: dict[str, Any] = {"dry_run": dry_run, "tables": {}}
-    any_source_file = False
     cipher = _credential_cipher()
 
     for table, (filename, columns) in TABLES.items():
         source_path = _source_path(source_data_dir, table, filename)
         source_paths[table] = source_path
-        any_source_file = any_source_file or source_path.is_file()
         rows = _sqlite_rows(source_path, table, columns)
         source_rows[table] = rows
         report["tables"][table] = {
@@ -158,9 +156,12 @@ def run(source_data_dir: Path, dry_run: bool = False) -> dict[str, Any]:
             for row in rows:
                 cipher.decrypt(bytes(row["encrypted_payload"]))
 
-    if not any_source_file:
-        report["status"] = "NO_SOURCE_FILE"
-        return report
+    missing_source_files = sorted({str(path) for path in source_paths.values() if not path.is_file()})
+    if missing_source_files:
+        raise FileNotFoundError(
+            "Required SQLite source database(s) missing; refusing a partial domain-store import: "
+            + ", ".join(missing_source_files)
+        )
 
     manifest_data = {
         table: {
