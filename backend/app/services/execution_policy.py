@@ -42,6 +42,10 @@ class ExecutionPolicy:
                 name: bool(row["master_auto_enabled"]) and bool(flags.get(name, False))
                 for name in STRATEGIES
             },
+            # Manual mode is available for operator review/selection. Actual
+            # broker submission remains separately disabled until execution
+            # adapters and risk controls have passed release validation.
+            "manual_orders_enabled": True,
             "manual_review_enabled": True,
             "manual_order_submission_enabled": False,
             "default_mode": "MANUAL",
