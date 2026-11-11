@@ -18,8 +18,10 @@ def main() -> None:
     if not database_url:
         raise RuntimeError("AIR_DATABASE_URL or AIR_DATABASE_URL_FILE is required before API startup")
 
-    os.environ.setdefault("AIR_CUSTOMER_DATABASE_URL", database_url)
-    os.environ.setdefault("AIR_ADMIN_DATABASE_URL", database_url)
+    if not os.getenv("AIR_CUSTOMER_DATABASE_URL", "").strip():
+        os.environ["AIR_CUSTOMER_DATABASE_URL"] = database_url
+    if not os.getenv("AIR_ADMIN_DATABASE_URL", "").strip():
+        os.environ["AIR_ADMIN_DATABASE_URL"] = database_url
 
     subprocess.run(
         [sys.executable, "-m", "alembic", "upgrade", "head"],
