@@ -151,7 +151,7 @@ class AdminAuthStore:
             self._audit(admin["admin_id"], "PASSWORD_CHANGED", admin["admin_id"], "")
 
     def list_admins(self) -> list[dict]:
-        rows = self.db.execute("SELECT admin_id,email,role,is_active,created_at FROM air_admin_users ORDER BY created_at,email").fetchall()
+        rows = self.db.execute("SELECT admin_id,email,role,is_active,must_change_password,created_at FROM air_admin_users ORDER BY created_at,email").fetchall()
         return [dict(r) for r in rows]
 
     def set_admin_status(self, actor: dict, target_id: str, active: bool) -> bool:
