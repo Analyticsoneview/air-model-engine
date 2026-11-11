@@ -15,6 +15,9 @@ class FakeDhanClient:
             "volume": 5000, "oi": 1200, "last_trade_time": "2026-11-12T09:20:00"
         }}}}
 
+    def set_access_token(self, token):
+        self.token = token
+
     async def profile(self):
         return {"dhanClientId": "1000000001"}
 
