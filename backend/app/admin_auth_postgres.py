@@ -98,6 +98,11 @@ class PostgresAdminAuthStore:
                 conn.execute(text("UPDATE air_admin_login_limits SET failures=:n,locked_until=:lock WHERE rate_key=:key"),
                              {"n": failures, "lock": now + 900 if failures >= 5 else 0, "key": key})
 
+    def _clear_login_limit(self, key: str) -> None:
+        """Reset Redis throttling after a successful password + TOTP login."""
+        if self.redis is not None:
+            self.redis.delete("air:admin:fail:" + key, "air:admin:lock:" + key)
+
     def authenticate(self, email: str, password: str, code: str, rate_key: str = "unknown", now: int | None = None):
         current = int(time.time() if now is None else now)
         key = self._limit_key(rate_key)
@@ -125,6 +130,7 @@ class PostgresAdminAuthStore:
             conn.execute(text("INSERT INTO air_admin_sessions(session_id,admin_id) VALUES(:sid,:id)"),
                          {"sid": sid, "id": row["admin_id"]})
             self._audit(conn, row["admin_id"], "LOGIN_SUCCESS", row["admin_id"])
+        self._clear_login_limit(key)
         if self.redis is not None:
             self.redis.setex("air:admin:session:" + sid, 1200, row["admin_id"])
             self.redis.sadd("air:admin:user-sessions:" + row["admin_id"], sid)
