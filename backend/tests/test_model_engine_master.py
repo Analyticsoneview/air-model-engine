@@ -108,7 +108,8 @@ def test_strategy_views_are_isolated_and_stock_entry_filter_is_model_scoped():
 
     assert {r["signal_id"] for r in result["EXPIRY78"]["groups"]["NEW"]} == {"expiry-stock"}
     # Out-of-band new stock candidates are rejected; index options are exempt.
-    assert {r["signal_id"] for r in result["ORIGINAL366"]["groups"]["NEW"]} == {"original-index"}
+    assert {r["signal_id"] for r in result["ORIGINAL366"]["groups"]["WAIT"]} == {"original-index"}
+    assert result["ORIGINAL366"]["audit"]["stock_candidates_rejected_outside_1_to_10"] == 1
     assert result["ORIGINAL366"]["audit"]["stock_candidates_rejected_outside_1_to_10"] == 1
     assert {r["signal_id"] for r in result["RECOVERY"]["groups"]["REENTRY"]} == {"recovery-stock"}
     assert result["ORIGINAL366"]["baseline"]["full_expiry_coverage_cohort"] == 366
