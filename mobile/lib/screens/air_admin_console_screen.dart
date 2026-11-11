@@ -25,6 +25,8 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
   String _role = '';
   String _tab = 'overview';
   bool _busy = false;
+  bool _mustChangePassword = false;
+  String _newRole = 'ADMIN';
   List<Map<String, dynamic>> _admins = [];
   List<Map<String, dynamic>> _audit = [];
   List<Map<String, dynamic>> _requests = [];
@@ -66,7 +68,8 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     try {
       final me = await _request('GET', '/api/v1/admin/auth/me');
       _role = me['role']?.toString() ?? '';
-      await _load();
+      _mustChangePassword = me['must_change_password'] == true;
+      if (!_mustChangePassword) await _load();
       if (mounted) setState(() {});
     } catch (_) {
       await _storage.delete(key: 'air_admin_access_token');
@@ -89,7 +92,14 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
       await _storage.write(key: 'air_admin_access_token', value: _token);
       final me = await _request('GET', '/api/v1/admin/auth/me');
       _role = me['role']?.toString() ?? '';
-      await _load();
+      _mustChangePassword = me['must_change_password'] == true;
+      if (!_mustChangePassword) {
+        await _load();
+      } else if (mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _changePassword();
+        });
+      }
     } catch (e) {
       _error = e.toString();
     } finally {
@@ -121,7 +131,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     if (email.isEmpty) return;
     setState(() { _busy = true; _error = null; });
     try {
-      final result = await _request('POST', '/api/v1/admin/users', body: {'email': email, 'role': 'ADMIN'});
+      final result = await _request('POST', '/api/v1/admin/users', body: {'email': email, 'role': _newRole});
       final password = result['temporary_password']?.toString() ?? '';
       final uri = result['totp_provisioning_uri']?.toString() ?? '';
       if (mounted) await showDialog<void>(context: context, builder: (ctx) => AlertDialog(
@@ -159,6 +169,8 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     if (accepted != true) { current.dispose(); next.dispose(); return; }
     try {
       await _request('PUT', '/api/v1/admin/auth/password', body: {'current_password': current.text, 'new_password': next.text});
+      _mustChangePassword = false;
+      await _load();
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password changed. Other sessions were revoked.')));
     } catch (e) { if (mounted) setState(() => _error = e.toString()); }
     current.dispose(); next.dispose();
@@ -211,6 +223,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
   Widget _dashboard() => Column(children: [
     ListTile(title: const Text('ADMINISTRATOR SESSION', style: TextStyle(fontWeight: FontWeight.w900)),
       subtitle: Text('Role: $_role · 20-minute API session'), trailing: const Icon(Icons.verified_user_outlined)),
+    if (_mustChangePassword) Card(color: Theme.of(context).colorScheme.errorContainer, child: ListTile(leading: const Icon(Icons.lock_reset), title: const Text('Password rotation required'), subtitle: const Text('Change the temporary password before using administrator functions.'), trailing: TextButton(onPressed: _changePassword, child: const Text('CHANGE')))),
     if (_error != null) Padding(padding: const EdgeInsets.all(12), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
     SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: [
       for (final item in ['overview','admins','requests','audit'])
