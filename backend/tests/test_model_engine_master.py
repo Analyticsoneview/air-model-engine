@@ -101,6 +101,7 @@ def test_strategy_views_are_isolated_and_stock_entry_filter_is_model_scoped():
     index_row["strike"] = 25000
     index_row["evidence"] = {"strategy_memberships": ["ORIGINAL366"]}
     recovery_row = row("recovery-stock", "RE-ENTRY", dte=20, entry_price=4)
+    recovery_row["lot_size"] = 1000
     recovery_row["evidence"] = {
         "strategy_memberships": ["RECOVERY"],
         "recovery_verified": True,
