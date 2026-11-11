@@ -14,6 +14,12 @@ depends_on = None
 
 def upgrade() -> None:
     op.create_table(
+        "air_domain_store_imports",
+        sa.Column("import_name", sa.String(100), primary_key=True),
+        sa.Column("source_manifest", sa.Text(), nullable=False),
+        sa.Column("imported_at", sa.Text(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP::text")),
+    )
+    op.create_table(
         "air_admin_users",
         sa.Column("admin_id", sa.String(36), primary_key=True),
         sa.Column("email", sa.String(254), nullable=False),
@@ -57,6 +63,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.drop_table("air_domain_store_imports")
     op.drop_index("ix_air_admin_audit_created_at", table_name="air_admin_audit")
     op.drop_table("air_admin_audit")
     op.drop_table("air_admin_login_limits")
