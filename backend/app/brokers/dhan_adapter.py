@@ -47,6 +47,10 @@ class DhanBrokerAdapter(BrokerAdapter):
             raise ValueError("Dhan account_id must match the Dhan client ID")
         if self.client is None:
             self.client = DhanHQClient(client_id, credentials.access_token)
+        else:
+            if getattr(self.client, "client_id", client_id) != client_id:
+                raise PermissionError("Injected Dhan client belongs to another account")
+            self.client.set_access_token(credentials.access_token)
         profile = await self.client.profile()
         if str(profile.get("dhanClientId", "")) != account_id:
             raise PermissionError("Authenticated Dhan profile does not match the selected account")
