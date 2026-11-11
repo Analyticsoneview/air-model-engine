@@ -36,6 +36,9 @@ class _AirServerSetupScreenState extends State<AirServerSetupScreen> {
         uri.hasFragment) {
       return 'Enter a valid http:// or https:// AIR server address.';
     }
+    if ({'localhost', '127.0.0.1', '::1'}.contains(uri.host.toLowerCase())) {
+      return 'Use the Windows PC LAN IP address; localhost points to this phone.';
+    }
     return null;
   }
 
