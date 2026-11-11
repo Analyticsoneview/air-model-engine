@@ -15,30 +15,12 @@ concurrency:
 
 jobs:
   backend:
-    # Use the proven self-hosted Windows runner and portable Python toolchain.
-    if: github.event.action != 'closed' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    name: Backend tests (Python 3.12)
-    runs-on: self-hosted
-    timeout-minutes: 30
-    defaults:
-      run:
-        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "& '{0}'"
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            backend:
               - 'backend/**'
               - '.github/workflows/air-pr-validation-automerge.yml'
             android:
               - 'mobile/**'
 
   backend:
-    needs: changes
     if: github.event.action != 'closed' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     name: Backend tests (Python 3.12)
     runs-on: self-hosted
