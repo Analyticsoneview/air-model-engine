@@ -719,6 +719,11 @@ class AdminLoginRequest(BaseModel):
     totp_code: str = Field(pattern=r"^\d{6}$")
 
 
+class AdminPasswordChangeRequest(BaseModel):
+    current_password: str = Field(min_length=12, max_length=256)
+    new_password: str = Field(min_length=12, max_length=256)
+
+
 class AdminCreateRequest(BaseModel):
     email: str = Field(min_length=5, max_length=254)
     role: str = Field(pattern="^(ADMIN|RESEARCH_ADMIN)$")
@@ -746,6 +751,21 @@ async def admin_login(body: AdminLoginRequest, request: Request) -> dict:
     token = create_admin_access_token(admin["admin_id"], admin["role"], admin["session_id"], expires_minutes=20)
     return {"access_token": token, "token_type": "bearer", "expires_in": 1200,
             "admin": {"admin_id": admin["admin_id"], "email": admin["email"], "role": admin["role"]}}
+
+
+
+@app.put("/api/v1/admin/auth/password")
+async def admin_change_password(body: AdminPasswordChangeRequest,
+                                admin: dict = Depends(require_admin)) -> dict:
+    try:
+        get_admin_auth_store().change_password(
+            admin, body.current_password, body.new_password
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"status": "password_changed", "other_sessions_revoked": True}
 
 
 @app.get("/api/v1/admin/auth/me")
