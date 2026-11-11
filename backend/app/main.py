@@ -750,7 +750,7 @@ async def admin_login(body: AdminLoginRequest, request: Request) -> dict:
         raise HTTPException(status_code=429, detail="Administrator login failed or temporarily locked. Try again later.")
     token = create_admin_access_token(admin["admin_id"], admin["role"], admin["session_id"], expires_minutes=20)
     return {"access_token": token, "token_type": "bearer", "expires_in": 1200,
-            "admin": {"admin_id": admin["admin_id"], "email": admin["email"], "role": admin["role"]}}
+            "admin": {"admin_id": admin["admin_id"], "email": admin["email"], "role": admin["role"], "must_change_password": admin["must_change_password"]}}
 
 
 
