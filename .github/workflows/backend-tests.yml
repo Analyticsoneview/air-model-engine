@@ -33,9 +33,9 @@ jobs:
           }
           $pth = Join-Path $pythonHome 'python312._pth'
           if (-not (Test-Path $pth)) { throw "Python path configuration file missing: $pth" }
-          $pthLines = @('python312.zip','.', 'Lib\site-packages','import site')
+          $pthLines = @('python312.zip','.', 'Lib\\site-packages','import site')
           Set-Content -LiteralPath $pth -Value $pthLines -Encoding ascii
-          New-Item -ItemType Directory -Force -Path (Join-Path $pythonHome 'Lib\site-packages') | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $pythonHome 'Lib\\site-packages') | Out-Null
           & $python -c "import encodings,sys; print(sys.version); print(sys.executable); print(encodings.__file__)"
           if ($LASTEXITCODE -ne 0) { throw 'Portable Python standard-library validation failed.' }
           $getPip = Join-Path $env:RUNNER_TEMP 'get-pip.py'
@@ -46,15 +46,15 @@ jobs:
           & $python -m pip --version
           if ($LASTEXITCODE -ne 0) { throw 'Portable Python pip validation failed.' }
           "AIR_PYTHON=$python" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-      - name: Install backend dependencies
+      - name: Install backend dependencies and test runner
         working-directory: .
         run: |
           Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
-          & $env:AIR_PYTHON -m pip install --disable-pip-version-check -r backend/requirements.txt
+          & $env:AIR_PYTHON -m pip install --disable-pip-version-check -r backend/requirements.txt pytest
           if ($LASTEXITCODE -ne 0) { throw 'Backend dependency installation failed.' }
-      - name: Run backend unit tests
+      - name: Run backend test suite
         working-directory: .
         run: |
-          Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
-          & $env:AIR_PYTHON -m unittest discover -s backend/tests -v
-          if ($LASTEXITCODE -ne 0) { throw 'Backend unit tests failed.' }
+          $env:PYTHONPATH = Join-Path $env:GITHUB_WORKSPACE 'backend'
+          & $env:AIR_PYTHON -m pytest -q backend/tests
+          if ($LASTEXITCODE -ne 0) { throw 'Backend pytest suite failed.' }
