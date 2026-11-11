@@ -37,10 +37,15 @@ class FakeAdapter:
     async def close(self): self.closed=True
 
 
+class FakeAuthFailureAdapter(FakeAdapter):
+    async def authenticate(self, credentials):
+        raise PermissionError("provider account mismatch")
+
+
 class AdapterFactory:
-    def __init__(self): self.created=[]
+    def __init__(self, adapter_class=FakeAdapter): self.created=[]; self.adapter_class=adapter_class
     def __call__(self, code):
-        adapter=FakeAdapter(code); self.created.append(adapter); return adapter
+        adapter=self.adapter_class(code); self.created.append(adapter); return adapter
 
 
 class BrokerSessionRuntimeTests(unittest.IsolatedAsyncioTestCase):
@@ -81,6 +86,15 @@ class BrokerSessionRuntimeTests(unittest.IsolatedAsyncioTestCase):
         await self.runtime.activate("C1","zerodha","K1")
         with self.assertRaises(PermissionError):
             await self.runtime.deactivate("C2","zerodha","K1")
+
+    async def test_failed_authentication_closes_client_and_never_registers(self):
+        factory=AdapterFactory(FakeAuthFailureAdapter)
+        runtime=BrokerSessionRuntime(FakeDirectory(),FakeVault(),adapter_factory=factory)
+        with self.assertRaises(PermissionError):
+            await runtime.activate("C1","zerodha","K1")
+        self.assertTrue(factory.created[0].closed)
+        self.assertEqual(runtime.registry.accounts(),[])
+        await runtime.close()
 
     async def test_deactivate_customer_closes_all_sessions(self):
         await self.runtime.activate("C1","zerodha","K1")
