@@ -111,6 +111,17 @@ def run(source_data_dir: Path, dry_run: bool = False) -> dict[str, Any]:
     driver_url = target_url.replace("postgresql+psycopg://", "postgresql://", 1)
     source_rows: dict[str, list[dict[str, Any]]] = {}
     report: dict[str, Any] = {"dry_run": dry_run, "tables": {}}
+    with psycopg.connect(driver_url, row_factory=dict_row) as connection:
+        marker = connection.execute(
+            "SELECT source_manifest, imported_at FROM air_domain_store_imports "
+            "WHERE import_name=%s",
+            ("sqlite_domain_stores_v1",),
+        ).fetchone()
+        if marker:
+            report["status"] = "ALREADY_IMPORTED"
+            report["imported_at"] = marker["imported_at"]
+            return report
+
     cipher = _credential_cipher()
 
     for table, (filename, columns) in TABLES.items():
