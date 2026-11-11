@@ -71,7 +71,11 @@ class BrokerSessionRuntime:
                 if not verified.get("authenticated") or verified.get("account_id") != account:
                     raise PermissionError("Broker profile verification did not confirm the selected account")
                 self.registry.register(account, adapter, active=False)
-                self.registry.set_active(provider, account, True)
+                try:
+                    self.registry.set_active(provider, account, True)
+                except Exception:
+                    self.registry.unregister(provider, account)
+                    raise
                 self._owners[key] = customer
                 return {"broker": provider, "account_id": account, "active": True}
             except Exception:
@@ -103,10 +107,23 @@ class BrokerSessionRuntime:
 
     async def close(self) -> None:
         async with self._lock:
-            adapters = [self.registry.unregister(b, a) for b, a in list(self._owners)]
+            keys = list(self._owners)
+            adapters = []
+            for broker, account in keys:
+                try:
+                    adapters.append(self.registry.unregister(broker, account))
+                except ValueError:
+                    # Keep cleanup progressing if the registry was externally reset.
+                    continue
             self._owners.clear()
+            errors = []
             for adapter in adapters:
-                await self._close_adapter(adapter)
+                try:
+                    await self._close_adapter(adapter)
+                except Exception as exc:
+                    errors.append(exc)
+            if errors:
+                raise RuntimeError(f"Failed to close {len(errors)} broker client resource(s)") from errors[0]
 
     async def _close_adapter(self, adapter: Any) -> None:
         client = getattr(adapter, "client", None)
