@@ -125,6 +125,8 @@ class PostgresAdminAuthStore:
             self._audit(conn, row["admin_id"], "LOGIN_SUCCESS", row["admin_id"])
         if self.redis is not None:
             self.redis.setex("air:admin:session:" + sid, 1200, row["admin_id"])
+            self.redis.sadd("air:admin:user-sessions:" + row["admin_id"], sid)
+            self.redis.expire("air:admin:user-sessions:" + row["admin_id"], 1200)
         return {"admin_id": row["admin_id"], "email": row["email"], "role": row["role"],
                 "session_id": sid, "must_change_password": bool(row["must_change_password"])}
 
@@ -225,8 +227,10 @@ class PostgresAdminAuthStore:
         return [dict(r) for r in rows]
 
     def session(self, session_id: str):
-        if self.redis is not None and not self.redis.get("air:admin:session:" + session_id):
-            return None
+        if self.redis is not None:
+            cached_admin_id = self.redis.get("air:admin:session:" + session_id)
+            if not cached_admin_id:
+                return None
         with self.engine.connect() as conn:
             row = conn.execute(text("""SELECT u.admin_id,u.email,u.role,u.must_change_password
                 FROM air_admin_sessions s JOIN air_admin_users u ON u.admin_id=s.admin_id
