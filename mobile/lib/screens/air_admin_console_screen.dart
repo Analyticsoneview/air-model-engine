@@ -242,6 +242,10 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
   Widget _adminUsers() => ListView(padding: const EdgeInsets.all(16), children: [
     if (_role == 'SUPER_ADMIN') ...[
       TextField(controller: _newEmail, decoration: const InputDecoration(labelText: 'New administrator email')),
+      const SizedBox(height: 8),
+      DropdownButtonFormField<String>(value: _newRole, decoration: const InputDecoration(labelText: 'Administrator role'),
+        items: const [DropdownMenuItem(value: 'ADMIN', child: Text('Admin')), DropdownMenuItem(value: 'RESEARCH_ADMIN', child: Text('Research Admin'))],
+        onChanged: (value) { if (value != null) setState(() => _newRole = value); }),
       const SizedBox(height: 8), FilledButton(onPressed: _busy ? null : _createAdmin, child: const Text('CREATE ADMIN')),
     ],
     const SizedBox(height: 12),
