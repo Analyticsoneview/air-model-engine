@@ -31,8 +31,8 @@ jobs:
       - name: Start disposable Redis 7 container
         run: |
           $container = "air-oauth-redis-$env:GITHUB_RUN_ID"
-          docker rm -f $container 2>$null | Out-Null
-          docker run -d --name $container -p "127.0.0.1::6379" redis:7-alpine
+          docker rm -fv $container 2>$null | Out-Null
+          docker run -d --name $container --mount "type=tmpfs,destination=/data,tmpfs-size=134217728" --network bridge -p "127.0.0.1::6379" redis:7-alpine
           if ($LASTEXITCODE -ne 0) { throw 'Could not start disposable Redis 7 container.' }
           $mapping = docker port $container '6379/tcp' | Select-Object -First 1
           if ($mapping -notmatch ':(\d+)$') { docker logs $container; throw "Could not resolve Redis host port: $mapping" }
@@ -93,6 +93,6 @@ jobs:
         if: always()
         run: |
           if (Get-Command docker -ErrorAction SilentlyContinue) {
-            try { docker rm -f "air-oauth-redis-$env:GITHUB_RUN_ID" 2>$null | Out-Null } catch {}
+            try { docker rm -fv "air-oauth-redis-$env:GITHUB_RUN_ID" 2>$null | Out-Null } catch {}
           }
           exit 0
