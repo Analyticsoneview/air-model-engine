@@ -17,49 +17,90 @@ concurrency:
 
 jobs:
   customer-postgres-integration:
-    name: Customer auth PostgreSQL integration (disposable PostgreSQL 16)
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      AIR_CUSTOMER_DATABASE_URL: postgresql+psycopg://air_test:air_test@127.0.0.1:5432/air_test
-      AIR_TEST_CUSTOMER_DATABASE_URL: postgresql+psycopg://air_test:air_test@127.0.0.1:5432/air_test
+    name: Customer auth PostgreSQL integration (self-hosted disposable PostgreSQL 16)
+    runs-on: self-hosted
+    timeout-minutes: 45
     defaults:
       run:
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "& '{0}'"
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
+
+      - name: Verify Docker engine
+        run: |
+          docker version
+          if ($LASTEXITCODE -ne 0) { throw 'Docker engine is unavailable to the self-hosted runner. Start Docker Desktop in Linux-container mode.' }
+
       - name: Start disposable PostgreSQL 16 container
         run: |
-          set -euo pipefail
-          container="air-customer-pg-${GITHUB_RUN_ID}"
-          docker rm -f "$container" >/dev/null 2>&1 || true
-          docker run -d --name "$container" -e POSTGRES_USER=air_test -e POSTGRES_PASSWORD=air_test -e POSTGRES_DB=air_test -p 5432:5432 postgres:16-alpine
-          ready=0
-          for attempt in $(seq 1 45); do
-            if docker exec "$container" pg_isready -U air_test -d air_test; then ready=1; break; fi
-            sleep 2
-          done
-          if [ "$ready" -ne 1 ]; then docker logs "$container"; exit 1; fi
+          $container = "air-customer-pg-$env:GITHUB_RUN_ID"
+          docker rm -f $container 2>$null | Out-Null
+          docker run -d --name $container -e POSTGRES_USER=air_test -e POSTGRES_PASSWORD=air_test -e POSTGRES_DB=air_test -p "127.0.0.1::5432" postgres:16-alpine
+          if ($LASTEXITCODE -ne 0) { throw 'Could not start disposable PostgreSQL 16 container.' }
+          $mapping = docker port $container '5432/tcp' | Select-Object -First 1
+          if ($mapping -notmatch ':(\d+)$') { docker logs $container; throw "Could not resolve PostgreSQL host port: $mapping" }
+          $port = $Matches[1]
+          $ready = $false
+          for ($attempt = 0; $attempt -lt 45; $attempt++) {
+            docker exec $container pg_isready -U air_test -d air_test | Out-Null
+            if ($LASTEXITCODE -eq 0) { $ready = $true; break }
+            Start-Sleep -Seconds 2
+          }
+          if (-not $ready) { docker logs $container; throw 'PostgreSQL did not become ready within 90 seconds.' }
+          $url = "postgresql+psycopg://air_test:air_test@127.0.0.1:$port/air_test"
+          "AIR_CUSTOMER_DATABASE_URL=$url" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "AIR_TEST_CUSTOMER_DATABASE_URL=$url" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: pip
-          cache-dependency-path: backend/requirements.txt
+      - name: Bootstrap isolated portable Python 3.12
+        run: |
+          Remove-Item Env:PYTHONHOME -ErrorAction SilentlyContinue
+          Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+          $pythonHome = Join-Path $env:RUNNER_TEMP 'AIR-Python312-embed'
+          $python = Join-Path $pythonHome 'python.exe'
+          $zip = Join-Path $env:RUNNER_TEMP 'python-3.12.10-embed-amd64.zip'
+          New-Item -ItemType Directory -Force -Path $pythonHome | Out-Null
+          if (-not (Test-Path -LiteralPath (Join-Path $pythonHome 'python312.zip'))) {
+            if (-not (Test-Path -LiteralPath $zip) -or (Get-Item $zip).Length -lt 10MB) {
+              & curl.exe --fail --location --show-error --retry 4 --retry-all-errors --connect-timeout 30 --max-time 900 --output $zip 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip'
+              if ($LASTEXITCODE -ne 0 -or -not (Test-Path $zip) -or (Get-Item $zip).Length -lt 10MB) { throw 'Python embeddable ZIP download failed.' }
+            }
+            Expand-Archive -LiteralPath $zip -DestinationPath $pythonHome -Force
+          }
+          $pth = Join-Path $pythonHome 'python312._pth'
+          if (-not (Test-Path $pth)) { throw "Python path configuration file missing: $pth" }
+          Set-Content -LiteralPath $pth -Value @('python312.zip','.', 'Lib\site-packages', (Join-Path $env:GITHUB_WORKSPACE 'backend'), 'import site') -Encoding ascii
+          New-Item -ItemType Directory -Force -Path (Join-Path $pythonHome 'Lib\site-packages') | Out-Null
+          & $python -c "import encodings,sys; print(sys.version); print(encodings.__file__)"
+          if ($LASTEXITCODE -ne 0) { throw 'Portable Python standard-library validation failed.' }
+          $getPip = Join-Path $env:RUNNER_TEMP 'get-pip.py'
+          & curl.exe --fail --location --show-error --retry 4 --retry-all-errors --connect-timeout 30 --max-time 300 --output $getPip 'https://bootstrap.pypa.io/get-pip.py'
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $getPip)) { throw 'Could not download pip bootstrap.' }
+          & $python $getPip --disable-pip-version-check
+          if ($LASTEXITCODE -ne 0) { throw 'pip bootstrap failed.' }
+          "AIR_PYTHON=$python" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Install backend dependencies
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt pytest pytest-asyncio
-          python -m pip check
+          Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+          & $env:AIR_PYTHON -m pip install --disable-pip-version-check --upgrade pip setuptools wheel
+          if ($LASTEXITCODE -ne 0) { throw 'Python packaging toolchain installation failed.' }
+          & $env:AIR_PYTHON -m pip install --disable-pip-version-check -r requirements.txt pytest pytest-asyncio
+          if ($LASTEXITCODE -ne 0) { throw 'Backend dependency installation failed.' }
+          & $env:AIR_PYTHON -m pip check
+          if ($LASTEXITCODE -ne 0) { throw 'Backend dependency consistency check failed.' }
 
-      - name: Run real PostgreSQL migration
-        run: python -m alembic upgrade head
+      - name: Run real PostgreSQL migrations
+        run: |
+          & $env:AIR_PYTHON -m alembic upgrade head
+          if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL Alembic migration failed.' }
 
       - name: Run customer auth PostgreSQL integration tests
-        run: python -m pytest -q tests/test_customer_auth_access_postgres.py
+        run: |
+          & $env:AIR_PYTHON -m pytest -q tests/test_customer_auth_access_postgres.py
+          if ($LASTEXITCODE -ne 0) { throw 'Customer auth PostgreSQL integration tests failed.' }
 
       - name: Cleanup PostgreSQL container
         if: always()
-        run: docker rm -f "air-customer-pg-${GITHUB_RUN_ID}" >/dev/null 2>&1 || true
+        run: |
+          docker rm -f "air-customer-pg-$env:GITHUB_RUN_ID" 2>$null | Out-Null
