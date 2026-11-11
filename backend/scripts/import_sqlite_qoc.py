@@ -34,11 +34,17 @@ def run(source_data_dir: Path, dry_run: bool = False) -> dict[str, Any]:
         exists = source.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='option_observations'"
         ).fetchone()
-        rows = [] if exists is None else [
-            dict(row) for row in source.execute(
-                f"SELECT {','.join(COLUMNS)} FROM option_observations ORDER BY id"
-            ).fetchall()
-        ]
+        if exists is None:
+            rows = []
+        else:
+            available = {row["name"] for row in source.execute("PRAGMA table_info(option_observations)")}
+            selected = [column for column in COLUMNS if column in available]
+            rows = []
+            for raw in source.execute(
+                f"SELECT {','.join(selected)} FROM option_observations ORDER BY id"
+            ).fetchall():
+                item = dict(raw)
+                rows.append({column: item.get(column) for column in COLUMNS})
     finally:
         source.close()
 
