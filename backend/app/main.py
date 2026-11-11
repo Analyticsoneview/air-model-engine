@@ -43,6 +43,7 @@ from app.account_reporting import AccountReporting
 from app import telegram_destinations
 from app.nse_bhavcopy import (nse_data_status, nse_data_rows, start_nse_data_jobs, stop_nse_data_jobs, trigger_nse_bootstrap)
 from app.security import create_access_token, create_admin_access_token, hash_password, require_customer, require_admin, verify_password
+from app.oauth_state import get_oauth_state_store
 from app.persistence import get_persistence_runtime
 
 app = FastAPI(title="AIR Model Engine API", version="0.3.0",
@@ -69,8 +70,6 @@ set_default_market_data_service(market_data_service)
 auth_store = AuthStore()
 account_directory = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3"))
 _credential_vault: CredentialVault | None = None
-_upstox_oauth_states: dict[tuple[str, str], str] = {}
-_fyers_oauth_states: dict[tuple[str, str], str] = {}
 account_reporting = AccountReporting(os.getenv('AIR_REPORT_DB_PATH', 'data/air_account_reports.sqlite3'))
 _report_scheduler_task: asyncio.Task | None = None
 
@@ -1244,18 +1243,24 @@ async def fyers_login(account_id: str, customer_id: str = Depends(require_custom
     if not app_id or not credentials.get("app_secret") or not redirect_uri:
         raise HTTPException(status_code=422, detail="FYERS app credentials are incomplete")
     state = secrets.token_urlsafe(24)
-    _fyers_oauth_states[(customer_id, account_id)] = state
+    try:
+        get_oauth_state_store().issue("fyers", customer_id, account_id, state)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Shared broker authorization state is temporarily unavailable") from exc
     return {"login_url": fyers_login_url(app_id, redirect_uri, state), "state": state,
-            "note": "Complete FYERS login and submit auth_code with the returned state. State is one-time and process-local."}
+            "expires_in_seconds": 600, "single_use": True}
 
 
 @app.post("/api/v1/customer/accounts/fyers/{account_id}/exchange")
 async def fyers_exchange(account_id: str, body: FyersTokenExchangeRequest,
                          customer_id: str = Depends(require_customer)) -> dict:
     get_owned_account(customer_id, "fyers", account_id)
-    expected_state = _fyers_oauth_states.pop((customer_id, account_id), None)
-    if not expected_state or not secrets.compare_digest(expected_state, body.state):
-        raise HTTPException(status_code=400, detail="Invalid or expired FYERS OAuth state")
+    try:
+        valid_state = get_oauth_state_store().consume("fyers", customer_id, account_id, body.state)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Shared broker authorization state is temporarily unavailable") from exc
+    if not valid_state:
+        raise HTTPException(status_code=400, detail="Invalid, expired or already-used FYERS OAuth state")
     try:
         credentials = get_vault().get(customer_id, "fyers", account_id)
     except KeyError as exc:
@@ -1349,18 +1354,24 @@ async def upstox_login(account_id: str, customer_id: str = Depends(require_custo
     if not client_id or not credentials.get("client_secret") or not redirect_uri:
         raise HTTPException(status_code=422, detail="Upstox OAuth app credentials are incomplete")
     state = secrets.token_urlsafe(24)
-    _upstox_oauth_states[(customer_id, account_id)] = state
+    try:
+        get_oauth_state_store().issue("upstox", customer_id, account_id, state)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Shared broker authorization state is temporarily unavailable") from exc
     return {"login_url": upstox_login_url(client_id, redirect_uri, state), "state": state,
-            "note": "Complete login at Upstox and submit the returned single-use code and state. State expires when replaced or the server restarts."}
+            "expires_in_seconds": 600, "single_use": True}
 
 
 @app.post("/api/v1/customer/accounts/upstox/{account_id}/exchange")
 async def upstox_exchange(account_id: str, body: UpstoxTokenExchangeRequest,
                           customer_id: str = Depends(require_customer)) -> dict:
     get_owned_account(customer_id, "upstox", account_id)
-    expected_state = _upstox_oauth_states.pop((customer_id, account_id), None)
-    if not expected_state or not secrets.compare_digest(expected_state, body.state):
-        raise HTTPException(status_code=400, detail="Invalid or expired Upstox OAuth state")
+    try:
+        valid_state = get_oauth_state_store().consume("upstox", customer_id, account_id, body.state)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Shared broker authorization state is temporarily unavailable") from exc
+    if not valid_state:
+        raise HTTPException(status_code=400, detail="Invalid, expired or already-used Upstox OAuth state")
     try:
         credentials = get_vault().get(customer_id, "upstox", account_id)
     except KeyError as exc:
