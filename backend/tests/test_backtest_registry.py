@@ -10,7 +10,7 @@ def test_backtest_registry_uses_existing_strategies_only():
     assert strategies["EXPIRYSCAN"]["available_for_forward_report"] is True
     assert strategies["EXPIRYSCAN"]["forward_report_horizon_days"] == 30
     assert strategies["EXPIRYSCAN"]["forward_report_endpoint"].endswith("/{account_id}")
-    assert "archived option-chain snapshots" in strategies["EXPIRYSCAN"]["unavailable_reason"]
+    assert "point-in-time option-chain snapshots" in strategies["EXPIRYSCAN"]["unavailable_reason"]
     assert strategies["ORIGINAL366"]["source"].endswith("evaluate_original366_rows")
     assert strategies["RECOVERY"]["source"].startswith("app.model_engine_strategies")
     assert strategies["ORB_MORNING"]["available_for_daily_backtest"] is False
