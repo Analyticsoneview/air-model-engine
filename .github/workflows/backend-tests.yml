@@ -26,6 +26,11 @@ jobs:
               throw "PowerShell syntax validation failed: $file"
             }
           }
+          $bash = Join-Path $env:ProgramFiles 'Git\bin\bash.exe'
+          if (Test-Path -LiteralPath $bash) {
+            & $bash -n AIRSTART.sh
+            if ($LASTEXITCODE -ne 0) { throw 'AIRSTART.sh syntax validation failed.' }
+          }
       - name: Bootstrap portable Python 3.12
         run: |
           Remove-Item Env:PYTHONHOME -ErrorAction SilentlyContinue
