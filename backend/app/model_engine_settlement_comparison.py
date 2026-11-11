@@ -14,7 +14,7 @@ from app.market_data.customer_runtime import (
     get_customer_market_data_status,
 )
 from app.nse_bhavcopy import nse_data_rows, nse_data_status
-from app.security import require_customer
+from app.subscription_access import require_strategy_access
 
 router = APIRouter(prefix="/api/v1/model-engine", tags=["AIR Settlement Comparison"])
 IST = ZoneInfo("Asia/Kolkata")
@@ -190,7 +190,7 @@ def _build_rows(market: str, current_rows: list[dict], history_rows: list[dict],
 @router.get("/settlement-comparison")
 async def get_settlement_comparison(
     limit: int = Query(default=500, ge=1, le=5000),
-    customer_id: str = Depends(require_customer),
+    customer_id: str = Depends(require_strategy_access),
 ) -> dict:
     """Compare official NSE settlement values with selected broker daily closes."""
     status = nse_data_status()

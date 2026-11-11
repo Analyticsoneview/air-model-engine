@@ -2,16 +2,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:air_model_engine/main.dart';
 
 void main() {
-  testWidgets('AIR mobile approval gate renders before dashboard access', (tester) async {
-    await tester.pumpWidget(const AirModelEngineApp());
+  testWidgets('AIR phone onboarding gate renders before dashboard access', (tester) async {
+    await tester.pumpWidget(const AirModelEngineApp(initialServerUrl: 'http://127.0.0.1:8000'));
 
-    // The gate starts an asynchronous secure-storage session restore and shows
-    // an indeterminate progress indicator while it runs. pumpAndSettle() can
-    // never settle while that indicator is active, so verify the stable gate
-    // content on the first frame instead.
+    // Verify stable onboarding content without waiting for the async session restore.
     expect(find.text('ANALYTICAL INVESTMENT RESEARCH'), findsOneWidget);
     expect(find.text('Your market intelligence workspace.'), findsOneWidget);
     expect(find.text('International mobile number'), findsOneWidget);
-    expect(find.text('NO OTP  •  NO WHATSAPP  •  NO PASSWORD'), findsOneWidget);
+    expect(find.text('DASHBOARD ACCESS  •  SUBSCRIPTION-BASED STRATEGIES'), findsOneWidget);
+    expect(find.textContaining('Verify ownership before enabling payments'), findsOneWidget);
   });
 }

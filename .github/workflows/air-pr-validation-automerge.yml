@@ -7,7 +7,7 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
+  pull-requests: read
 
 concurrency:
   group: air-pr-validation-${{ github.event.pull_request.number || github.ref }}
@@ -81,7 +81,7 @@ jobs:
           Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
           & $env:AIR_PYTHON -m pip install --disable-pip-version-check --upgrade pip setuptools wheel
           if ($LASTEXITCODE -ne 0) { throw 'Python packaging toolchain installation failed.' }
-          & $env:AIR_PYTHON -m pip install --disable-pip-version-check -r backend/requirements.txt
+          & $env:AIR_PYTHON -m pip install --disable-pip-version-check -r backend/requirements.txt pytest pytest-asyncio
           if ($LASTEXITCODE -ne 0) { throw 'AIR core dependency installation failed.' }
           & $env:AIR_PYTHON -m pip check
           if ($LASTEXITCODE -ne 0) { throw 'AIR core dependency consistency check failed.' }
@@ -161,6 +161,17 @@ jobs:
             & $env:AIR_FLUTTER create . --platforms=android --org com.analyticalstocks
             if ($LASTEXITCODE -ne 0) { throw 'Flutter Android platform generation failed.' }
           }
+      - name: Enable HTTP only for trusted-LAN lab backend
+        working-directory: mobile
+        run: |
+          $manifest = Join-Path $PWD 'android/app/src/main/AndroidManifest.xml'
+          if (-not (Test-Path -LiteralPath $manifest)) { throw "Android manifest missing: $manifest" }
+          $xml = Get-Content -LiteralPath $manifest -Raw
+          if ($xml -notmatch 'usesCleartextTraffic') {
+            $xml = [regex]::Replace($xml, '<application(?=\s|>)', '<application android:usesCleartextTraffic="true"', 1)
+          }
+          Set-Content -LiteralPath $manifest -Value $xml -Encoding utf8
+          if ((Get-Content -LiteralPath $manifest -Raw) -notmatch 'android:usesCleartextTraffic="true"') { throw 'Lab HTTP traffic setting was not applied.' }
       - name: Resolve packages
         working-directory: mobile
         run: |
@@ -190,32 +201,3 @@ jobs:
           path: mobile/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
           retention-days: 30
-
-  merge-after-validation:
-    needs: [changes, backend, android]
-    if: always() && github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.number == 7 && github.event.pull_request.draft == false && needs.backend.result == 'success' && (needs.android.result == 'success' || (needs.android.result == 'skipped' && needs.changes.outputs.android != 'true'))
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-    steps:
-      - name: Squash merge PR 7 after both validations pass
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: gh pr merge "$PR_NUMBER" --squash --delete-branch
-
-  retarget-stacked-ui-pr:
-    if: github.event.action == 'closed' && github.event.pull_request.merged == true && github.event.pull_request.number == 7
-    runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
-    steps:
-      - name: Move stacked PRs 8 and 9 onto main
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          gh pr edit 8 --base main
-          gh pr edit 9 --base main
