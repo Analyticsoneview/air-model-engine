@@ -28,6 +28,7 @@ class FakeClient:
     async def holdings(self): return [{"quantity":2}]
     async def orders(self): return [{"order_id":"O1","status":"OPEN"}]
     async def order_book(self): return [{"order_id":"O1","status":"OPEN"}]
+    async def market_data(self, mode, grouped): return {"fetched":[{"symbolToken":"123","ltp":101.5,"open":99,"high":103,"low":98,"close":100,"tradeVolume":500,"opnInterest":40}]}
     async def place_order(self, *args, **kwargs): return {"order_id":"O2","orderid":"O2","id":"O2","status":"PENDING"}
     async def modify_order(self, *args, **kwargs): return {"order_id":"O2","orderid":"O2","id":"O2","status":"PENDING"}
     async def cancel_order(self, *args, **kwargs): return {"order_id":"O2","orderid":"O2","id":"O2","status":"CANCELLED"}
