@@ -67,6 +67,8 @@ def test_super_admin_can_provision_and_disable_research_admin(tmp_path, monkeypa
         actor = {"admin_id": root_id, "role": "SUPER_ADMIN"}
         created, uri = store.create_admin(actor, "research@example.com", "RESEARCH_ADMIN")
         assert created["role"] == "RESEARCH_ADMIN"
+        created_row = next(row for row in store.list_admins() if row["admin_id"] == created["admin_id"])
+        assert created_row["must_change_password"] == 1
         assert "otpauth://totp/" in uri
         assert store.set_admin_status(actor, created["admin_id"], False)
         assert store.list_admins()[1]["is_active"] == 0
@@ -99,7 +101,7 @@ def test_password_rotation_revokes_other_sessions(tmp_path, monkeypatch):
                                    _totp(secret, now + 30), rate_key="root|local", now=now + 30)
         assert other
         store.change_password(login, "Long-Strong-Password-123!", "New-Strong-Password-456!")
-        assert store.session(login["session_id"])
+        assert store.session(login["session_id"])["must_change_password"] == 0
         assert store.session(other["session_id"]) is None
         assert store.authenticate("root@example.com", "New-Strong-Password-456!",
                                   _totp(secret, now + 60), rate_key="root|local", now=now + 60)
@@ -114,6 +116,7 @@ def test_bootstrap_is_one_time_and_creates_super_admin(tmp_path, monkeypatch):
         rows = store.list_admins()
         assert len(rows) == 1
         assert rows[0]["role"] == "SUPER_ADMIN"
+        assert rows[0]["must_change_password"] == 0
         with pytest.raises(ValueError, match="bootstrap is already complete"):
             store.bootstrap("second@example.com", "Another-Strong-Password-456!")
     finally:
