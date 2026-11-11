@@ -246,11 +246,12 @@ class FyersBrokerAdapter(_NormalizedAdapter):
 
     async def place_order(self,order:OrderRequest)->BrokerOrder:
         self._validate_order(order)
+        if len(order.idempotency_key) > 20: raise ValueError("FYERS orderTag/idempotency key must be at most 20 characters")
         payload={"symbol":order.symbol,"qty":order.quantity,"type":{"LIMIT":1,"MARKET":2,"SL":3,"STOPLOSS_LIMIT":3,"STOPLOSS_MARKET":4}.get(order.order_type.upper(),0),
             "side":1 if order.side.upper()=="BUY" else -1,"productType":order.product.upper(),
             "limitPrice":float(order.price or 0),"stopPrice":float(order.trigger_price or 0),
             "validity":order.validity.upper(),"disclosedQty":0,"offlineOrder":False,
-            "stopLoss":0,"takeProfit":0,"orderTag":order.idempotency_key[:20]}
+            "stopLoss":0,"takeProfit":0,"orderTag":order.idempotency_key}
         raw=await self.client.place_order(payload)
         return self._normalize_order(order.account_id,raw if isinstance(raw,dict) else {})
 
