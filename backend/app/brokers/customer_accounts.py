@@ -19,7 +19,7 @@ class CustomerTradingAccount:
 
 
 class CustomerAccountDirectory:
-    """SQLite-backed ownership registry; safe to reopen across server restarts."""
+    """SQLite/PostgreSQL ownership registry; PostgreSQL is opt-in after data import."""
 
     def __init__(self, db_path: str | None = None):
         database_url = read_database_url("AIR_CUSTOMER_ACCOUNTS_DATABASE_URL") if db_path is None else None
