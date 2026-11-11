@@ -14,6 +14,13 @@ depends_on = None
 
 def upgrade() -> None:
     op.create_table(
+        "air_domain_store_imports",
+        sa.Column("import_name", sa.String(128), primary_key=True),
+        sa.Column("source_manifest", sa.Text(), nullable=False),
+        sa.Column("imported_at", sa.Text(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP::text")),
+    )
+
+    op.create_table(
         "broker_credentials",
         sa.Column("customer_id", sa.Text(), nullable=False),
         sa.Column("broker", sa.String(32), nullable=False),
@@ -88,6 +95,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.drop_table("air_domain_store_imports")
     op.drop_index("idx_order_events_account", table_name="order_ledger_events")
     op.drop_table("order_ledger_events")
     op.drop_index("idx_order_ledger_status", table_name="order_ledger")
