@@ -6,6 +6,7 @@ verification succeeds. No credentials are returned from this module.
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Any
 
 from app.brokers.base import BrokerCredentials
@@ -52,9 +53,9 @@ class BrokerSessionRuntime:
             api_key = stored.get("api_key") or stored.get("client_id") or stored.get("app_id") or ""
             token = stored.get("access_token") or stored.get("jwt_token") or ""
             metadata = {
-                "client_local_ip": stored.get("client_local_ip"),
-                "client_public_ip": stored.get("client_public_ip"),
-                "mac_address": stored.get("mac_address"),
+                "client_local_ip": stored.get("client_local_ip") or os.getenv("AIR_CLIENT_LOCAL_IP"),
+                "client_public_ip": stored.get("client_public_ip") or os.getenv("AIR_CLIENT_PUBLIC_IP"),
+                "mac_address": stored.get("mac_address") or os.getenv("AIR_CLIENT_MAC_ADDRESS"),
             }
             if provider == "angel":
                 # Older AIR credential records store only API key/PIN; these are
