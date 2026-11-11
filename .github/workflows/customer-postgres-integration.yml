@@ -47,6 +47,7 @@ jobs:
           $url = "postgresql+psycopg://air_test:air_test@127.0.0.1:$port/air_test"
           "AIR_DATABASE_URL=$url" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "AIR_CUSTOMER_DATABASE_URL=$url" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "AIR_TEST_ADMIN_DATABASE_URL=$url" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "AIR_TEST_CUSTOMER_DATABASE_URL=$url" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "AIR_CREDENTIAL_DATABASE_URL=$url" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "AIR_CUSTOMER_ACCOUNTS_DATABASE_URL=$url" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
@@ -94,15 +95,19 @@ jobs:
           & $env:AIR_PYTHON -m pip check
           if ($LASTEXITCODE -ne 0) { throw 'Backend dependency consistency check failed.' }
 
-      - name: Run real PostgreSQL migrations
+      - name: Run real PostgreSQL migrations and rollback/re-upgrade
         run: |
           & $env:AIR_PYTHON -m alembic upgrade head
-          if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL Alembic migration failed.' }
+          if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL Alembic upgrade to head failed.' }
+          & $env:AIR_PYTHON -m alembic downgrade base
+          if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL Alembic downgrade to base failed.' }
+          & $env:AIR_PYTHON -m alembic upgrade head
+          if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL Alembic re-upgrade to head failed.' }
 
-      - name: Run customer auth PostgreSQL integration tests
+      - name: Run full PostgreSQL migration and import integration tests
         run: |
-          & $env:AIR_PYTHON -m pytest -q tests/test_customer_auth_access_postgres.py tests/test_postgres_domain_stores.py tests/test_qoc_postgres_store.py tests/test_market_instrument_postgres.py tests/test_market_data_source_postgres.py
-          if ($LASTEXITCODE -ne 0) { throw 'Customer auth PostgreSQL integration tests failed.' }
+          & $env:AIR_PYTHON -m pytest -q tests/test_customer_auth_access_postgres.py tests/test_admin_postgres_migration.py tests/test_postgres_domain_stores.py tests/test_qoc_postgres_store.py tests/test_market_instrument_postgres.py tests/test_market_data_source_postgres.py
+          if ($LASTEXITCODE -ne 0) { throw 'Full PostgreSQL migration/import integration tests failed.' }
 
       - name: Cleanup PostgreSQL container
         if: always()
