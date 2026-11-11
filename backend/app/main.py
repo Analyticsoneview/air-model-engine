@@ -66,7 +66,7 @@ app.add_middleware(
 _market_health_task: asyncio.Task | None = None
 _master_refresh_task: asyncio.Task | None = None
 set_default_market_data_service(market_data_service)
-auth_store = AuthStore(os.getenv("AIR_AUTH_DB_PATH", "data/air_auth.sqlite3"))
+auth_store = AuthStore()
 account_directory = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3"))
 _credential_vault: CredentialVault | None = None
 _upstox_oauth_states: dict[tuple[str, str], str] = {}
