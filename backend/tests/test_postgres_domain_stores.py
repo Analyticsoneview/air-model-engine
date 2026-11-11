@@ -130,6 +130,7 @@ def test_sqlite_domain_store_import_is_field_reconciled(tmp_path, monkeypatch):
     assert imported["status"] == "IMPORTED_AND_RECONCILED"
     assert imported["tables"]["broker_credentials"]["source_rows"] == 1
     assert imported["tables"]["order_ledger_events"]["target_rows_after"] == 1
+    assert import_sqlite_domain_stores(tmp_path, dry_run=False)["status"] == "ALREADY_IMPORTED"
 
     vault = CredentialVault()
     directory = CustomerAccountDirectory()
