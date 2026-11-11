@@ -142,10 +142,24 @@ class AccessStore:
         ).fetchone()
         return bool(row and row["active"] and row["status"] == "APPROVED")
 
+    @staticmethod
+    def _subscription_datetime(value: str):
+        from datetime import datetime, timezone
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("Subscription timestamps must be non-empty ISO-8601 strings")
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
     def assign_subscription(self, customer_id: str, plan_code: str, starts_at: str, expires_at: str):
         plan = plan_code.upper()
         if plan not in {"DAILY", "MONTHLY", "SIX_MONTHS", "YEARLY"}:
             raise ValueError("Unsupported AIR subscription plan")
+        starts = self._subscription_datetime(starts_at)
+        expires = self._subscription_datetime(expires_at)
+        if expires <= starts:
+            raise ValueError("Subscription expiry must be later than its start date")
         with self.db:
             self.db.execute(
                 """INSERT INTO air_customer_subscriptions
@@ -154,7 +168,7 @@ class AccessStore:
                    ON CONFLICT(customer_id) DO UPDATE SET
                    plan_code=excluded.plan_code, starts_at=excluded.starts_at,
                    expires_at=excluded.expires_at, status='ACTIVE', updated_at=CURRENT_TIMESTAMP""",
-                (customer_id, plan, starts_at, expires_at),
+                (customer_id, plan, starts.isoformat(), expires.isoformat()),
             )
 
     def get_subscription(self, customer_id: str):
@@ -166,15 +180,18 @@ class AccessStore:
         if row is None:
             return None
         result = dict(row)
-        from datetime import datetime, timezone
-        try:
-            expiry = datetime.fromisoformat(result["expires_at"].replace("Z", "+00:00"))
-            if expiry.tzinfo is None:
-                expiry = expiry.replace(tzinfo=timezone.utc)
-            if expiry <= datetime.now(timezone.utc):
+        if result["status"] == "ACTIVE":
+            from datetime import datetime, timezone
+            try:
+                starts = self._subscription_datetime(result["starts_at"])
+                expires = self._subscription_datetime(result["expires_at"])
+                now = datetime.now(timezone.utc)
+                if starts > now:
+                    result["status"] = "PENDING"
+                elif expires <= now:
+                    result["status"] = "EXPIRED"
+            except (TypeError, ValueError):
                 result["status"] = "EXPIRED"
-        except ValueError:
-            result["status"] = "EXPIRED"
         return result
 
     def close(self):
