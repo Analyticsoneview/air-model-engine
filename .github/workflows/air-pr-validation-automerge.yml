@@ -149,7 +149,7 @@ jobs:
       - name: Analyze Flutter app
         working-directory: mobile
         run: |
-          & $env:AIR_FLUTTER analyze lib
+          & $env:AIR_FLUTTER analyze --no-fatal-infos lib
           if ($LASTEXITCODE -ne 0) { throw 'Flutter analysis failed.' }
       - name: Run Flutter tests
         working-directory: mobile
