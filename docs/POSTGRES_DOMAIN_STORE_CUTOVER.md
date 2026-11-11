@@ -34,7 +34,7 @@ SQLite remains the default when the repository-specific PostgreSQL selector is a
    python scripts/import_sqlite_domain_stores.py --source-data-dir data
    ```
 6. Confirm the importer reports IMPORTED_AND_RECONCILED. It verifies row counts and every imported field, and decrypts the copied credential ciphertext with the existing Fernet key.
-7. Only after successful import, configure these selectors for the API service. They may all point to the same PostgreSQL secret:
+7. After successful import, configure these selectors for the API service. They may all point to the same PostgreSQL secret:
    ```text
    AIR_CREDENTIAL_DATABASE_URL_FILE=/run/secrets/air_database_url
    AIR_CUSTOMER_ACCOUNTS_DATABASE_URL_FILE=/run/secrets/air_database_url
@@ -42,6 +42,8 @@ SQLite remains the default when the repository-specific PostgreSQL selector is a
    AIR_ORDER_LEDGER_DATABASE_URL_FILE=/run/secrets/air_database_url
    ```
 8. Restart the API service and verify customer accounts, broker credential reads, execution policy and order-ledger reads before allowing writes.
+
+   **Alternative one-time startup cutover:** after taking backups and reviewing the dry-run, set `AIR_DOMAIN_STORES_IMPORT_ON_STARTUP=true` in the deployment environment and restart once. The startup script runs the importer before starting FastAPI and, only if it succeeds, exports all four repository selectors to `AIR_DATABASE_URL_FILE` for that API process. Leave this switch `false` for normal restarts after cutover; the selectors are then supplied by the launcher. The default remains `false`.
 
 ## Importer safety
 
