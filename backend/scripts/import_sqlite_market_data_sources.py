@@ -31,8 +31,12 @@ def _rows(path: Path, table: str, columns: tuple[str, ...]) -> list[dict[str, An
             return []
         available = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}
         selected = [column for column in columns if column in available]
+        defaults = {
+            "enabled": False, "failover_enabled": False,
+            "candidates_json": "[]",
+        }
         return [
-            {column: dict(row).get(column) for column in columns}
+            {column: dict(row).get(column, defaults.get(column)) for column in columns}
             for row in db.execute(f"SELECT {','.join(selected)} FROM {table}").fetchall()
         ]
     finally:
