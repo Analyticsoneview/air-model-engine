@@ -18,6 +18,7 @@ from app.services.execution_policy import ExecutionPolicy
 from app.services.order_ledger import DurableOrderLedger
 from app.admin_auth_postgres import PostgresAdminAuthStore
 from app.security import hash_password
+from app.scripts.migrate_customer_auth_sqlite_to_postgres import migrate as import_customer_auth
 from scripts.import_sqlite_admin_auth import run as import_sqlite_admin_auth
 from scripts.import_sqlite_domain_stores import run as import_sqlite_domain_stores
 
@@ -32,6 +33,50 @@ pytestmark = pytest.mark.skipif(
     not all(os.getenv(name) for name in _REQUIRED_DATABASES),
     reason="Core PostgreSQL repository selectors are not configured",
 )
+
+
+def test_sqlite_customer_auth_import_is_field_reconciled(tmp_path):
+    source_path = tmp_path / "air_auth.sqlite3"
+    source = sqlite3.connect(source_path)
+    source.executescript("""
+        CREATE TABLE customers (
+            customer_id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL, is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE air_access_requests (
+            request_id TEXT PRIMARY KEY, mobile_e164 TEXT NOT NULL,
+            device_id TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL,
+            reviewed_at TEXT, reviewer_note TEXT NOT NULL DEFAULT ''
+        );
+        CREATE TABLE air_device_sessions (
+            session_id TEXT PRIMARY KEY, request_id TEXT NOT NULL,
+            active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL
+        );
+    """)
+    source.execute(
+        "INSERT INTO customers VALUES(?,?,?,?,?)",
+        ("legacy-customer-auth-1", "legacy-customer@example.test", "password-hash", 1, "2026-11-01 10:00:00"),
+    )
+    source.execute(
+        "INSERT INTO air_access_requests VALUES(?,?,?,?,?,?,?)",
+        ("legacy-request-1", "+14155550123", "legacy-device-1", "APPROVED",
+         "2026-11-01 10:01:00", "2026-11-01 10:02:00", "migrated"),
+    )
+    source.execute(
+        "INSERT INTO air_device_sessions VALUES(?,?,?,?)",
+        ("legacy-session-1", "legacy-request-1", 1, "2026-11-01 10:03:00"),
+    )
+    source.commit()
+    source.close()
+
+    imported = import_customer_auth(str(source_path), os.getenv("AIR_CUSTOMER_DATABASE_URL"))
+    assert imported["status"] == "IMPORTED_AND_RECONCILED"
+    assert imported["customers"] == 1
+    assert imported["air_access_requests"] == 1
+    assert imported["air_device_sessions"] == 1
+    repeated = import_customer_auth(str(source_path), os.getenv("AIR_CUSTOMER_DATABASE_URL"))
+    assert repeated["status"] == "ALREADY_IMPORTED"
 
 
 def test_sqlite_admin_auth_import_preserves_admin_and_mfa(tmp_path, monkeypatch):
