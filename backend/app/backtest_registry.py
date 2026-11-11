@@ -40,7 +40,7 @@ def registered_backtest_strategies() -> list[dict[str, Any]]:
             "forward_report_endpoint": "/api/v1/backtest/expiryscan/forward/{account_id}",
             "forward_report_horizon_days": 30,
             "forward_qualification": "Existing positive volume, positive OI, two-sided bid/ask and spread-at-most-10-percent checks; this is a liquidity-screen pass, not a QOC trade signal.",
-            "unavailable_reason": "Historical point-in-time replay requires archived option-chain snapshots; daily Bhavcopy bars must not be substituted.",
+            "unavailable_reason": "Historical snapshot replay requires archived point-in-time option-chain snapshots; daily Bhavcopy bars must not be substituted.",
         },
         {
             "id": "ORIGINAL366",
