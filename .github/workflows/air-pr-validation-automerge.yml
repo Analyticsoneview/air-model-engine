@@ -81,7 +81,7 @@ jobs:
           Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
           & $env:AIR_PYTHON -m pip install --disable-pip-version-check --upgrade pip setuptools wheel
           if ($LASTEXITCODE -ne 0) { throw 'Python packaging toolchain installation failed.' }
-          & $env:AIR_PYTHON -m pip install --disable-pip-version-check -r backend/requirements.txt
+          & $env:AIR_PYTHON -m pip install --disable-pip-version-check -r backend/requirements.txt pytest pytest-asyncio
           if ($LASTEXITCODE -ne 0) { throw 'AIR core dependency installation failed.' }
           & $env:AIR_PYTHON -m pip check
           if ($LASTEXITCODE -ne 0) { throw 'AIR core dependency consistency check failed.' }
