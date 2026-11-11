@@ -1374,6 +1374,7 @@ async def fyers_exchange(account_id: str, body: FyersTokenExchangeRequest,
         session = await client.exchange_auth_code(body.auth_code, app_secret)
         profile = await client.profile()
         credentials["access_token"] = session["access_token"]
+        await get_broker_session_runtime().deactivate(customer_id, "fyers", account_id)
         get_vault().put(customer_id, "fyers", account_id, credentials)
         await invalidate_customer_market_data_service(customer_id)
         return {"broker": "fyers", "account_id": account_id, "verified": True,
@@ -1419,6 +1420,7 @@ async def zerodha_exchange_token(account_id: str, body: ZerodhaTokenExchangeRequ
         if broker_user_id and broker_user_id != account_id:
             raise HTTPException(status_code=409, detail="Authenticated Zerodha user does not match registered account ID")
         credentials["access_token"] = session["access_token"]
+        await get_broker_session_runtime().deactivate(customer_id, "zerodha", account_id)
         get_vault().put(customer_id, "zerodha", account_id, credentials)
         await invalidate_customer_market_data_service(customer_id)
         return {"broker": "zerodha", "account_id": account_id, "verified": True,
@@ -1488,6 +1490,7 @@ async def upstox_exchange(account_id: str, body: UpstoxTokenExchangeRequest,
         profile_data = await client.profile()
         profile = profile_data.get("user_id") or profile_data.get("user_name")
         credentials["access_token"] = session["access_token"]
+        await get_broker_session_runtime().deactivate(customer_id, "upstox", account_id)
         get_vault().put(customer_id, "upstox", account_id, credentials)
         await invalidate_customer_market_data_service(customer_id)
         return {"broker": "upstox", "account_id": account_id, "verified": True,
