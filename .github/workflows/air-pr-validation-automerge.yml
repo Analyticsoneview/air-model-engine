@@ -70,7 +70,7 @@ jobs:
       - name: Install Android SDK command-line tools (Windows-native)
         run: |
           $ErrorActionPreference = 'Stop'
-          $sdkRoot = 'C:\\Android\\Sdk'
+          $sdkRoot = 'C:\Android\Sdk'
           $toolsRoot = Join-Path $sdkRoot 'cmdline-tools'
           $latest = Join-Path $toolsRoot 'latest'
           $archive = Join-Path $env:RUNNER_TEMP 'android-commandline-tools.zip'
@@ -85,13 +85,13 @@ jobs:
           if (Test-Path -LiteralPath $extract) { Remove-Item -LiteralPath $extract -Recurse -Force }
           Expand-Archive -LiteralPath $archive -DestinationPath $extract -Force
           Move-Item -LiteralPath (Join-Path $extract 'cmdline-tools') -Destination $latest
-          $sdkManager = Join-Path $latest 'bin\\sdkmanager.bat'
+          $sdkManager = Join-Path $latest 'bin\sdkmanager.bat'
           if (-not (Test-Path -LiteralPath $sdkManager)) { throw 'Android SDK manager was not installed.' }
           "ANDROID_HOME=$sdkRoot" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "ANDROID_SDK_ROOT=$sdkRoot" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           (Join-Path $latest 'bin') | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
           (Join-Path $sdkRoot 'platform-tools') | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
-          & $sdkManager "--sdk_root=$sdkRoot" --licenses 1>$null
+          1..50 | ForEach-Object { 'y' } | & $sdkManager "--sdk_root=$sdkRoot" --licenses | Out-Null
           if ($LASTEXITCODE -ne 0) { throw 'Android SDK license acceptance failed.' }
       - name: Install required Android platform and build tools
         run: |
