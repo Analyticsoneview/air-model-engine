@@ -1,11 +1,7 @@
 name: AIR Redis State Integration
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths:
-      - 'backend/**'
-      - '.github/workflows/redis-state-integration.yml'
+  workflow_call:
   workflow_dispatch:
 
 permissions:
