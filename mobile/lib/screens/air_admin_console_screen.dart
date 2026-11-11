@@ -234,7 +234,26 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     const SizedBox(height: 12),
     for (final a in _admins) Card(child: ListTile(
       title: Text(a['email']?.toString() ?? ''), subtitle: Text('${a['role']} · ${a['is_active'] == 1 ? 'ACTIVE' : 'INACTIVE'}'),
-      trailing: Text(a['admin_id']?.toString().substring(0,8) ?? ''),
+      trailing: _role == 'SUPER_ADMIN' ? PopupMenuButton<String>(
+        onSelected: (action) async {
+          setState(() { _busy = true; _error = null; });
+          try {
+            final id = a['admin_id'].toString();
+            if (action == 'toggle') {
+              await _request('PUT', '/api/v1/admin/users/$id/status', body: {'active': a['is_active'] != 1});
+            } else {
+              await _request('PUT', '/api/v1/admin/users/$id/role', body: {'role': action});
+            }
+            await _load();
+          } catch (e) { _error = e.toString(); }
+          if (mounted) setState(() => _busy = false);
+        },
+        itemBuilder: (_) => [
+          PopupMenuItem(value: 'toggle', child: Text(a['is_active'] == 1 ? 'Deactivate' : 'Activate')),
+          const PopupMenuItem(value: 'ADMIN', child: Text('Set Admin role')),
+          const PopupMenuItem(value: 'RESEARCH_ADMIN', child: Text('Set Research Admin role')),
+        ],
+      ) : Text(a['admin_id']?.toString().substring(0,8) ?? ''),
     )),
   ]);
 
@@ -244,7 +263,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
       title: Text(r['mobile_e164']?.toString() ?? 'Unknown customer'),
       subtitle: Text('Device: ${r['device_id'] ?? '—'}'),
       isThreeLine: true,
-      trailing: Wrap(children: [
+      trailing: _role == 'RESEARCH_ADMIN' ? const Text('READ ONLY') : Wrap(children: [
         IconButton(tooltip: 'Approve', onPressed: _busy ? null : () => _review(r,'APPROVED'), icon: const Icon(Icons.check_circle_outline)),
         IconButton(tooltip: 'Reject', onPressed: _busy ? null : () => _review(r,'REJECTED'), icon: const Icon(Icons.block_outlined)),
       ]),
