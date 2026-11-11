@@ -35,7 +35,9 @@ class PostgresConnection:
         return self._connection.execute(statement.replace("?", "%s"), parameters)
 
     def executemany(self, statement: str, parameter_rows):
-        return self._connection.executemany(statement.replace("?", "%s"), parameter_rows)
+        cursor = self._connection.cursor()
+        cursor.executemany(statement.replace("?", "%s"), parameter_rows)
+        return cursor
 
     def commit(self) -> None:
         # Connections run in autocommit mode; explicit with-blocks provide transactions.
