@@ -48,6 +48,13 @@ TABLES: dict[str, tuple[str, tuple[str, ...]]] = {
         "air_orders.sqlite3",
         ("event_id", "broker", "account_id", "idempotency_key", "status", "broker_order_id", "raw_json", "event_at"),
     ),
+    "option_observations": (
+        "air_qoc.sqlite3",
+        ("id", "provider", "account_id", "underlying_scrip", "underlying_segment", "expiry",
+         "underlying_price", "strike", "option_type", "security_id", "last_price", "previous_close",
+         "volume", "previous_volume", "open_interest", "previous_oi", "bid_price", "bid_quantity",
+         "ask_price", "ask_quantity", "implied_volatility", "observed_at"),
+    ),
 }
 BOOLEAN_COLUMNS = {"enabled_for_orders", "broker_data_enabled", "master_auto_enabled"}
 
@@ -101,6 +108,7 @@ def _source_path(source_data_dir: Path, table: str, filename: str) -> Path:
         "execution_policy": "AIR_EXECUTION_POLICY_DB_PATH",
         "order_ledger": "AIR_ORDER_DB_PATH",
         "order_ledger_events": "AIR_ORDER_DB_PATH",
+        "option_observations": "AIR_QOC_DB_PATH",
     }[table]
     configured = os.getenv(env_name, "").strip()
     return Path(configured) if configured else source_data_dir / filename
@@ -186,6 +194,11 @@ def run(source_data_dir: Path, dry_run: bool = False) -> dict[str, Any]:
                 connection.execute(
                     "SELECT setval(pg_get_serial_sequence('order_ledger_events','event_id'), "
                     "COALESCE((SELECT MAX(event_id) FROM order_ledger_events), 1), true)"
+                )
+            if source_rows["option_observations"]:
+                connection.execute(
+                    "SELECT setval(pg_get_serial_sequence('option_observations','id'), "
+                    "COALESCE((SELECT MAX(id) FROM option_observations), 1), true)"
                 )
 
         for table, (_filename, columns) in TABLES.items():
