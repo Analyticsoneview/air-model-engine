@@ -45,6 +45,7 @@ SQLite remains the default when the repository-specific PostgreSQL selector is a
 - Credential ciphertext is decrypted before and after import to prove the existing key still works.
 - It checks source and target row counts and field-by-field equality.
 - If any check fails, the PostgreSQL transaction rolls back and the source SQLite files remain intact.
+- A successful import writes a one-time migration marker in PostgreSQL; subsequent startup runs return ALREADY_IMPORTED without re-reading legacy credentials or importing again.
 
 ## Important cutover warning
 
