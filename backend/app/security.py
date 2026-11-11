@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import jwt
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pwdlib import PasswordHash
 
@@ -82,7 +82,7 @@ def create_admin_access_token(admin_id: str, role: str, session_id: str, expires
     return jwt.encode(payload, _secret("AIR_JWT_SECRET"), algorithm="HS256")
 
 
-async def require_admin(credentials: HTTPAuthorizationCredentials | None = Depends(_bearer)) -> dict:
+async def require_admin(request: Request, credentials: HTTPAuthorizationCredentials | None = Depends(_bearer)) -> dict:
     if credentials is None:
         raise HTTPException(status_code=401, detail="Administrator bearer token required")
     try:
@@ -93,7 +93,12 @@ async def require_admin(credentials: HTTPAuthorizationCredentials | None = Depen
         session = get_admin_auth_store().session(payload["jti"])
         if not session or session["admin_id"] != payload["sub"] or session["role"] != payload["role"]:
             raise ValueError("Administrator session revoked")
+        must_change = bool(session["must_change_password"])
+        if must_change and request.url.path != "/api/v1/admin/auth/password":
+            raise HTTPException(status_code=403, detail="Password rotation is required before using the administrator console")
         return {"admin_id": session["admin_id"], "email": session["email"], "role": session["role"],
-                "session_id": payload["jti"]}
+                "session_id": payload["jti"], "must_change_password": must_change}
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=401, detail="Invalid, expired or revoked administrator session") from exc
