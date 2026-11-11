@@ -1,6 +1,6 @@
 # Self-hosted Docker Swarm deployment (single-node lab)
 
-This stack serves the Flutter PWA and API on a private overlay network. It is a **single-replica lab deployment**, not a highly available production cluster. Authentication, account, credential and order stores currently use SQLite; OAuth state is process-local. Do not scale the API above one replica until shared database and OAuth-state services are implemented.
+This stack serves the Flutter PWA and API on a private overlay network. It is a **single-replica lab deployment**, not a highly available production cluster. PostgreSQL 16 and Redis 7 are provisioned with persistent volumes and Docker secrets, and the API reports their connection health. Existing domain repositories still use SQLite in this migration phase; do not assume application records have moved to PostgreSQL or that Redis-backed sessions/OAuth are active. Do not scale the API above one replica until repository migration and shared-state tests are complete.
 
 ## 1. Build images
 
@@ -13,7 +13,7 @@ docker build --build-arg AIR_API_BASE_URL=https://api.example.com -f deploy/pwa.
 
 The PWA build embeds the API base URL at compile time. Use the public HTTPS API URL, not localhost. For multi-node Swarm, push both images to a private registry and set `AIR_BACKEND_IMAGE` and `AIR_PWA_IMAGE` to immutable image references.
 
-## 2. Create Docker secrets
+## 2. Create Docker secrets\n\nThe installer provisions persistent PostgreSQL/Redis passwords and connection-URL secrets automatically. If deploying manually, create the additional secrets below (use the same password values in the URL secrets):\n\n```bash\nopenssl rand -hex 32 | docker secret create air_postgres_password -\nopenssl rand -hex 32 | docker secret create air_redis_password -\n# Create air_database_url containing postgresql+psycopg://air:<password>@postgres:5432/air\n# Create air_redis_url containing redis://:<password>@redis:6379/0\n```
 
 Generate keys on the server. Keep them outside source control and do not paste them into chat.
 
@@ -114,7 +114,7 @@ The GitHub Actions workflow `.github/workflows/ios-pwa.yml` runs Flutter analysi
 
 - Customer signup is disabled by default. Provision the initial operator through the backend's trusted administrative bootstrap procedure; do not enable public signup on an exposed instance.
 - Back up the `air_data` volume and test restore before storing broker credentials.
-- SQLite and in-memory OAuth state require one API replica. PostgreSQL, Redis-backed OAuth state, migrations, shared audit storage and HA deployment are not implemented yet.
+- PostgreSQL and Redis containers and connection health checks are now provisioned. Existing customer, Admin, account, credential, QOC and instrument repositories remain SQLite-backed until their individual schema/data migrations and rollback tests are completed. Redis is not yet the authoritative session/rate-limit store. The deployment must remain at one API replica.
 - Configure a TLS reverse proxy, strict firewall rules, monitoring, log retention and backup rotation.
 - Broker API plans, market-data entitlements, static IP approvals, instrument masters and exchange data redistribution rights must be verified separately.
 - No live order permission is enabled by this deployment. Live trading must remain disabled until provider-specific preflight, reconciliation and explicit confirmation tests pass.
