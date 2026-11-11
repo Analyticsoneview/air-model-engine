@@ -2,7 +2,7 @@ name: AIR PR Validation (Backend + Android)
 
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 permissions:
