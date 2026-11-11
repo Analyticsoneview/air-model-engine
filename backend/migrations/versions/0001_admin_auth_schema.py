@@ -27,8 +27,8 @@ def upgrade() -> None:
         sa.Column("failed_attempts", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("locked_until", sa.BigInteger(), nullable=False, server_default="0"),
         sa.CheckConstraint("role IN ('SUPER_ADMIN','ADMIN','RESEARCH_ADMIN')", name="ck_air_admin_users_role"),
-        sa.UniqueConstraint(sa.text("lower(email)"), name="uq_air_admin_users_email_lower"),
     )
+    op.create_index("uq_air_admin_users_email_lower", "air_admin_users", [sa.text("lower(email)")], unique=True)
     op.create_table(
         "air_admin_sessions",
         sa.Column("session_id", sa.String(36), primary_key=True),
@@ -62,4 +62,5 @@ def downgrade() -> None:
     op.drop_table("air_admin_login_limits")
     op.drop_index("ix_air_admin_sessions_admin_active", table_name="air_admin_sessions")
     op.drop_table("air_admin_sessions")
+    op.drop_index("uq_air_admin_users_email_lower", table_name="air_admin_users")
     op.drop_table("air_admin_users")
