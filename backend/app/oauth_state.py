@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
+import time
 from pathlib import Path
 
 from redis import Redis
@@ -37,7 +38,7 @@ class OAuthStateStore:
                            socket_timeout=3, health_check_interval=30)
             if configured_url else None
         )
-        self._local: dict[str, str] = {}
+        self._local: dict[str, tuple[str, float]] = {}
 
     @staticmethod
     def _key(provider: str, customer_id: str, account_id: str) -> str:
@@ -51,7 +52,7 @@ class OAuthStateStore:
             raise ValueError("OAuth state TTL must be between 1 and 900 seconds")
         key = self._key(provider, customer_id, account_id)
         if self.redis is None:
-            self._local[key] = state
+            self._local[key] = (state, time.monotonic() + ttl_seconds)
             return
         try:
             self.redis.set(key, state, ex=ttl_seconds)
@@ -61,8 +62,14 @@ class OAuthStateStore:
     def consume(self, provider: str, customer_id: str, account_id: str, supplied_state: str) -> bool:
         key = self._key(provider, customer_id, account_id)
         if self.redis is None:
-            expected = self._local.get(key)
-            if expected is None or not hmac.compare_digest(expected, supplied_state):
+            entry = self._local.get(key)
+            if entry is None:
+                return False
+            expected, expires_at = entry
+            if time.monotonic() >= expires_at:
+                self._local.pop(key, None)
+                return False
+            if not hmac.compare_digest(expected, supplied_state):
                 return False
             del self._local[key]
             return True
