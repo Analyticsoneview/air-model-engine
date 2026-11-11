@@ -59,11 +59,6 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.Text(), nullable=False),
         sa.CheckConstraint("id = 1", name="ck_execution_policy_singleton"),
     )
-    op.execute(
-        "INSERT INTO execution_policy(id, master_auto_enabled, strategy_json, updated_at) "
-        "VALUES (1, FALSE, '{}', CURRENT_TIMESTAMP::text) ON CONFLICT (id) DO NOTHING"
-    )
-
     op.create_table(
         "order_ledger",
         sa.Column("broker", sa.String(32), nullable=False),
