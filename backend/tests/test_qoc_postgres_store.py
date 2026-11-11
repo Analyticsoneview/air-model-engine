@@ -1,9 +1,12 @@
+import os
+import pytest
 import sqlite3
 
 from app.air_qoc_store import AirQocStore
 from scripts.import_sqlite_qoc import run as import_qoc_store
 
 
+@pytest.mark.skipif(not os.getenv("AIR_DATABASE_URL"), reason="requires the disposable PostgreSQL integration workflow")
 def test_qoc_observations_import_to_postgres_and_remain_readable(tmp_path, monkeypatch):
     source = tmp_path / "air_qoc.sqlite3"
     monkeypatch.setenv("AIR_QOC_DB_PATH", str(source))
