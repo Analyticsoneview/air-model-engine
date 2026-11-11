@@ -30,13 +30,12 @@ jobs:
           filters: |
             backend:
               - 'backend/**'
-              - '.github/workflows/air-pr-validation-automerge.yml'
             android:
               - 'mobile/**'
 
   backend:
     needs: changes
-    if: github.event.action != 'closed' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event.action != 'closed' && (needs.changes.outputs.backend == 'true' || needs.changes.outputs.android == 'true' || github.event_name == 'workflow_dispatch') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     name: Backend tests (Python 3.12)
     runs-on: self-hosted
     timeout-minutes: 30
