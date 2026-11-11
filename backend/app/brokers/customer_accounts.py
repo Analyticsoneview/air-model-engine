@@ -7,6 +7,8 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.db_compat import PostgresConnection, read_database_url
+
 
 @dataclass(frozen=True)
 class CustomerTradingAccount:
@@ -19,46 +21,60 @@ class CustomerTradingAccount:
 class CustomerAccountDirectory:
     """SQLite-backed ownership registry; safe to reopen across server restarts."""
 
-    def __init__(self, db_path: str = "data/customer_accounts.sqlite3"):
-        self.db_path = db_path
-        if db_path != ":memory:":
-            Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-        self._connection = sqlite3.connect(db_path, check_same_thread=False)
-        self._connection.row_factory = sqlite3.Row
-        self._connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS customer_trading_accounts (
-                customer_id TEXT NOT NULL,
-                broker TEXT NOT NULL,
-                account_id TEXT NOT NULL,
-                enabled_for_orders INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (broker, account_id)
+    def __init__(self, db_path: str | None = None):
+        database_url = read_database_url("AIR_CUSTOMER_ACCOUNTS_DATABASE_URL") if db_path is None else None
+        self._is_postgres = database_url is not None
+        if self._is_postgres:
+            self.db_path = None
+            self._connection = PostgresConnection(database_url)
+            try:
+                self._connection.execute("SELECT 1 FROM customer_trading_accounts LIMIT 0")
+                self._connection.execute("SELECT 1 FROM customer_market_data_access LIMIT 0")
+                self._connection.execute("SELECT 1 FROM customer_market_data_selection LIMIT 0")
+            except Exception as exc:
+                self._connection.close()
+                raise RuntimeError("PostgreSQL customer account schema is missing; run Alembic migrations first") from exc
+        else:
+            db_path = db_path or "data/customer_accounts.sqlite3"
+            self.db_path = db_path
+            if db_path != ":memory:":
+                Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+            self._connection = sqlite3.connect(db_path, check_same_thread=False)
+            self._connection.row_factory = sqlite3.Row
+            self._connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS customer_trading_accounts (
+                    customer_id TEXT NOT NULL,
+                    broker TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    enabled_for_orders INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (broker, account_id)
+                )
+                """
             )
-            """
-        )
-        self._connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_customer_accounts_customer "
-            "ON customer_trading_accounts(customer_id)"
-        )
-        self._connection.execute("""
-            CREATE TABLE IF NOT EXISTS customer_market_data_access (
-                customer_id TEXT PRIMARY KEY,
-                tier TEXT NOT NULL DEFAULT 'STANDARD'
-                    CHECK(tier IN ('STANDARD','PAID')),
-                broker_data_enabled INTEGER NOT NULL DEFAULT 0,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            self._connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_customer_accounts_customer "
+                "ON customer_trading_accounts(customer_id)"
             )
-        """)
-        self._connection.execute("""
-            CREATE TABLE IF NOT EXISTS customer_market_data_selection (
-                customer_id TEXT PRIMARY KEY,
-                provider TEXT NOT NULL,
-                account_id TEXT NOT NULL,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        self._connection.commit()
+            self._connection.execute("""
+                CREATE TABLE IF NOT EXISTS customer_market_data_access (
+                    customer_id TEXT PRIMARY KEY,
+                    tier TEXT NOT NULL DEFAULT 'STANDARD'
+                        CHECK(tier IN ('STANDARD','PAID')),
+                    broker_data_enabled INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            self._connection.execute("""
+                CREATE TABLE IF NOT EXISTS customer_market_data_selection (
+                    customer_id TEXT PRIMARY KEY,
+                    provider TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            self._connection.commit()
 
     def add(self, account: CustomerTradingAccount) -> None:
         customer = account.customer_id.strip()
@@ -71,10 +87,12 @@ class CustomerAccountDirectory:
                 self._connection.execute(
                     "INSERT INTO customer_trading_accounts "
                     "(customer_id, broker, account_id, enabled_for_orders) VALUES (?, ?, ?, ?)",
-                    (customer, broker, account_id, int(account.enabled_for_orders)),
+                    (customer, broker, account_id, bool(account.enabled_for_orders)),
                 )
-        except sqlite3.IntegrityError as exc:
-            raise ValueError("Broker account is already registered to a customer") from exc
+        except Exception as exc:
+            if isinstance(exc, sqlite3.IntegrityError) or getattr(exc, "sqlstate", None) == "23505":
+                raise ValueError("Broker account is already registered to a customer") from exc
+            raise
 
     def list_all(self) -> list[CustomerTradingAccount]:
         rows = self._connection.execute(
@@ -104,7 +122,7 @@ class CustomerAccountDirectory:
             cursor = self._connection.execute(
                 "UPDATE customer_trading_accounts SET enabled_for_orders = ? "
                 "WHERE customer_id = ? AND broker = ? AND account_id = ?",
-                (int(enabled), customer_id.strip(), broker.strip().lower(), account_id.strip()),
+                (bool(enabled), customer_id.strip(), broker.strip().lower(), account_id.strip()),
             )
         if cursor.rowcount != 1:
             raise PermissionError("Customer does not own this broker account")
@@ -167,7 +185,7 @@ class CustomerAccountDirectory:
                 ON CONFLICT(customer_id) DO UPDATE SET
                     tier=excluded.tier,broker_data_enabled=excluded.broker_data_enabled,
                     updated_at=CURRENT_TIMESTAMP
-            """, (customer, tier, int(bool(broker_data_enabled))))
+            """, (customer, tier, bool(broker_data_enabled)))
         return self.get_market_data_access(customer)
 
     def get_market_data_selection(self, customer_id: str) -> dict | None:
