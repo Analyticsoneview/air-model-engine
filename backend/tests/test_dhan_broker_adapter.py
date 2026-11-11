@@ -105,6 +105,17 @@ class DhanBrokerAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(cancelled.status, "CANCELLED")
         self.assertEqual(self.client.cancelled, "D-2")
 
+    async def test_limit_order_without_price_is_rejected_before_provider_call(self):
+        order = OrderRequest(
+            account_id="1000000001", exchange="NSE_FNO", symbol="NIFTY",
+            token="12345", side="BUY", order_type="LIMIT", product="INTRADAY",
+            quantity=25, price=None, trigger_price=None,
+            validity="DAY", tag="AIR", idempotency_key="air-test-123"
+        )
+        with self.assertRaisesRegex(ValueError, "positive limit price"):
+            await self.adapter.place_order(order)
+        self.assertIsNone(self.client.placed)
+
     async def test_long_idempotency_key_is_rejected_without_truncation(self):
         order = OrderRequest(
             account_id="1000000001", exchange="NSE_FNO", symbol="NIFTY",
