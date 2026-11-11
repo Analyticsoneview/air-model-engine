@@ -9,7 +9,7 @@ This phase adds PostgreSQL storage for four existing SQLite repositories:
 - AIR execution policy (master switch and EXPIRY78 / EXPIRYSCAN / RECOVERED switches)
 - Durable order intents, broker results and order events
 
-SQLite remains the default when the repository-specific PostgreSQL selector is absent. The migration does not silently switch existing deployments to an empty PostgreSQL database.
+SQLite remains the default for these four repositories when their dedicated PostgreSQL selectors are absent. Customer identity/access and Admin authentication are separate migrations in the startup sequence: the API launcher switches those two stores to PostgreSQL only after their import scripts complete successfully.
 
 ## Required order
 
