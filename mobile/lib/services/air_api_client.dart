@@ -35,15 +35,16 @@ class AirApiClient {
 
   AirApiClient({http.Client? client, String? baseUrl})
       : _client = client ?? http.Client(),
-        baseUrl = _normalizeBaseUrl(
-          baseUrl ??
-              (_runtimeBaseUrl ?? (_configuredBaseUrl.isEmpty
-                  ? 'http://127.0.0.1:8000'
-                  : _configuredBaseUrl)),
-        );
+        _baseUrlOverride = baseUrl == null ? null : _normalizeBaseUrl(baseUrl);
 
   final http.Client _client;
-  final String baseUrl;
+  final String? _baseUrlOverride;
+  String get baseUrl => _normalizeBaseUrl(
+        _baseUrlOverride ??
+            (_runtimeBaseUrl ?? (_configuredBaseUrl.isEmpty
+                ? 'http://127.0.0.1:8000'
+                : _configuredBaseUrl)),
+      );
   static String? _sharedAccessToken;
   String? get _accessToken => _sharedAccessToken;
 
@@ -59,7 +60,7 @@ class AirApiClient {
       };
 
   Future<Map<String, dynamic>> health() async {
-    return _decode(await _client.get(Uri.parse('$baseUrl/health'), headers: _headers));
+    return _decode(await _client.get(Uri.parse('$baseUrl/health'), headers: _headers).timeout(const Duration(seconds: 8)));
   }
 
   Future<Map<String, dynamic>> login(String email, String password) async {
