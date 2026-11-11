@@ -105,3 +105,32 @@ def test_password_rotation_revokes_other_sessions(tmp_path, monkeypatch):
                                   _totp(secret, now + 60), rate_key="root|local", now=now + 60)
     finally:
         store.close()
+
+def test_bootstrap_is_one_time_and_creates_super_admin(tmp_path, monkeypatch):
+    store = _store(tmp_path, monkeypatch)
+    try:
+        admin_id, secret = store.bootstrap("owner@example.com", "Long-Strong-Password-123!")
+        assert admin_id and secret
+        rows = store.list_admins()
+        assert len(rows) == 1
+        assert rows[0]["role"] == "SUPER_ADMIN"
+        with pytest.raises(ValueError, match="bootstrap is already complete"):
+            store.bootstrap("second@example.com", "Another-Strong-Password-456!")
+    finally:
+        store.close()
+
+
+def test_admin_role_change_revokes_existing_sessions(tmp_path, monkeypatch):
+    store = _store(tmp_path, monkeypatch)
+    try:
+        root_id, _ = store.bootstrap("root@example.com", "Long-Strong-Password-123!")
+        actor = {"admin_id": root_id, "role": "SUPER_ADMIN"}
+        created, _ = store.create_admin(actor, "analyst@example.com", "RESEARCH_ADMIN")
+        sid = "test-session"
+        with store.db:
+            store.db.execute("INSERT INTO air_admin_sessions(session_id,admin_id) VALUES(?,?)",
+                             (sid, created["admin_id"]))
+        assert store.set_admin_role(actor, created["admin_id"], "ADMIN")
+        assert store.session(sid) is None
+    finally:
+        store.close()
