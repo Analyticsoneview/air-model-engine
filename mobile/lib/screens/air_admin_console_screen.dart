@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
+import '../services/air_api_client.dart';
+
 class AirAdminConsoleScreen extends StatefulWidget {
   const AirAdminConsoleScreen({super.key});
 
@@ -13,7 +15,7 @@ class AirAdminConsoleScreen extends StatefulWidget {
 
 class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
   static const _storage = FlutterSecureStorage();
-  static const _apiBase = String.fromEnvironment('AIR_API_BASE_URL', defaultValue: 'http://127.0.0.1:8000');
+  late final String _apiBase = AirApiClient.configuredBaseUrl ?? 'http://127.0.0.1:8000';
   final _client = http.Client();
   final _email = TextEditingController();
   final _password = TextEditingController();
