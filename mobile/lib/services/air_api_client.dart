@@ -11,6 +11,19 @@ class AirApiException implements Exception {
 
 class AirApiClient {
   static const _configuredBaseUrl = String.fromEnvironment('AIR_API_BASE_URL');
+  static String? _runtimeBaseUrl;
+
+  static bool get hasConfiguredBaseUrl =>
+      (_runtimeBaseUrl?.isNotEmpty ?? false) || _configuredBaseUrl.trim().isNotEmpty;
+
+  static String? get configuredBaseUrl =>
+      _runtimeBaseUrl ?? (_configuredBaseUrl.trim().isEmpty ? null : _normalizeBaseUrl(_configuredBaseUrl));
+
+  static void configureBaseUrl(String value) {
+    _runtimeBaseUrl = _normalizeBaseUrl(value.trim());
+  }
+
+  static void clearRuntimeBaseUrl() => _runtimeBaseUrl = null;
 
   static String _normalizeBaseUrl(String value) {
     var normalized = value;
@@ -24,9 +37,9 @@ class AirApiClient {
       : _client = client ?? http.Client(),
         baseUrl = _normalizeBaseUrl(
           baseUrl ??
-              (_configuredBaseUrl.isEmpty
+              (_runtimeBaseUrl ?? (_configuredBaseUrl.isEmpty
                   ? 'http://127.0.0.1:8000'
-                  : _configuredBaseUrl),
+                  : _configuredBaseUrl)),
         );
 
   final http.Client _client;
@@ -44,6 +57,10 @@ class AirApiClient {
         'Content-Type': 'application/json',
         if (_accessToken != null) 'Authorization': 'Bearer $_accessToken',
       };
+
+  Future<Map<String, dynamic>> health() async {
+    return _decode(await _client.get(Uri.parse('$baseUrl/health'), headers: _headers));
+  }
 
   Future<Map<String, dynamic>> login(String email, String password) async {
     final response = await _client.post(
