@@ -50,7 +50,7 @@ jobs:
         working-directory: .
         run: |
           Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
-          & $env:AIR_PYTHON -m pip install --disable-pip-version-check -r backend/requirements.txt pytest
+          & $env:AIR_PYTHON -m pip install --disable-pip-version-check -r backend/requirements.txt pytest pytest-asyncio
           if ($LASTEXITCODE -ne 0) { throw 'Backend dependency installation failed.' }
       - name: Run backend test suite
         working-directory: .
