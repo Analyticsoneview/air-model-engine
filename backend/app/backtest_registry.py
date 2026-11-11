@@ -70,7 +70,7 @@ def registered_backtest_strategies() -> list[dict[str, Any]]:
             "source": "app.orb_strategy.OrbSignalEngine",
             "data_requirements": ["timestamped intraday ticks or candles covering 09:18–09:23 and subsequent 3-minute candles"],
             "available_for_daily_backtest": False,
-            "unavailable_reason": "NSE daily OHLC candles cannot reproduce the opening range, retest, confirmation or executable tick exits.",
+            "unavailable_reason": "NSE daily candles (OHLC) cannot reproduce the opening range, retest, confirmation or executable tick exits.",
         },
         {
             "id": "ORB_AFTERNOON",
