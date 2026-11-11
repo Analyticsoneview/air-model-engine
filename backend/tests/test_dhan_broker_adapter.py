@@ -10,16 +10,17 @@ class FakeDhanClient:
         self.placed = None
         self.modified = None
         self.cancelled = None
+        self.quote_payload = {"data": {"NSE_FNO": {"12345": {
+            "last_price": 101.25, "ohlc": {"open": 99, "high": 103, "low": 98, "close": 100},
+            "volume": 5000, "oi": 1200, "last_trade_time": "2026-11-12T09:20:00"
+        }}}}
 
     async def profile(self):
         return {"dhanClientId": "1000000001"}
 
     async def market_feed(self, mode, instruments):
         assert mode == "quote"
-        return {"data": {"NSE_FNO": {"12345": {
-            "last_price": 101.25, "ohlc": {"open": 99, "high": 103, "low": 98, "close": 100},
-            "volume": 5000, "oi": 1200, "last_trade_time": "2026-11-12T09:20:00"
-        }}}}
+        return self.quote_payload
 
     async def positions(self):
         return [{"securityId": "12345", "netQty": 25}]
@@ -67,6 +68,14 @@ class DhanBrokerAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(quotes[0].volume, 5000)
         self.assertEqual(quotes[0].open_interest, 1200)
 
+    async def test_missing_or_invalid_ltp_is_not_fabricated_as_zero(self):
+        self.client.quote_payload = {"data": {"NSE_FNO": {"12345": {"last_price": None}}}}
+        instrument = Instrument(
+            broker="dhan", exchange="NSE", trading_symbol="NIFTY",
+            token="12345", segment="NSE_FNO", lot_size=25, tick_size=Decimal("0.05")
+        )
+        self.assertEqual(await self.adapter.get_quotes([instrument]), [])
+
     async def test_positions_holdings_and_order_book(self):
         self.assertEqual((await self.adapter.get_positions("1000000001"))[0]["netQty"], 25)
         self.assertEqual((await self.adapter.get_holdings("1000000001"))[0]["quantity"], 10)
@@ -92,6 +101,17 @@ class DhanBrokerAdapterTests(unittest.IsolatedAsyncioTestCase):
         cancelled = await self.adapter.cancel_order("1000000001", "D-2")
         self.assertEqual(cancelled.status, "CANCELLED")
         self.assertEqual(self.client.cancelled, "D-2")
+
+    async def test_long_idempotency_key_is_rejected_without_truncation(self):
+        order = OrderRequest(
+            account_id="1000000001", exchange="NSE_FNO", symbol="NIFTY",
+            token="12345", side="BUY", order_type="LIMIT", product="INTRADAY",
+            quantity=25, price=Decimal("101.25"), trigger_price=None,
+            validity="DAY", tag="AIR", idempotency_key="this-key-is-longer-than-thirty-chars"
+        )
+        with self.assertRaisesRegex(ValueError, "1 to 30"):
+            await self.adapter.place_order(order)
+        self.assertIsNone(self.client.placed)
 
     async def test_account_mismatch_rejected_before_authentication(self):
         adapter = DhanBrokerAdapter(client=self.client)
