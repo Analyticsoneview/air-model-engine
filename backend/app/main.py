@@ -698,9 +698,9 @@ async def mobile_login(body: MobileAccessRequest) -> dict:
     session_id = access_store.create_session(request["request_id"])
     # Use the approved E.164 identity as the stable customer/operator subject.
     # Each device still has its own revocable session (jti) in AccessStore.
-    token = create_access_token(body.mobile_e164, expires_minutes=525600, session_id=session_id)
+    token = create_access_token(body.mobile_e164, expires_minutes=720, session_id=session_id)
     return {"status": "APPROVED", "access_token": token, "token_type": "bearer",
-            "expires_in": 31536000, "customer_id": body.mobile_e164}
+            "expires_in": 43200, "customer_id": body.mobile_e164}
 
 
 @app.get("/api/v1/auth/mobile-status")
