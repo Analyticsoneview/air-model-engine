@@ -22,6 +22,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
   final _totp = TextEditingController();
   final _newEmail = TextEditingController();
   final _newPassword = TextEditingController();
+  final _subscriptionCustomer = TextEditingController();
   String? _token;
   String? _error;
   String _role = '';
@@ -29,6 +30,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
   bool _busy = false;
   bool _mustChangePassword = false;
   String _newRole = 'ADMIN';
+  String _subscriptionPlan = 'MONTHLY';
   List<Map<String, dynamic>> _admins = [];
   List<Map<String, dynamic>> _audit = [];
   List<Map<String, dynamic>> _requests = [];
@@ -159,6 +161,33 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     if (mounted) setState(() => _busy = false);
   }
 
+  Future<void> _assignSubscription() async {
+    if (!{'SUPER_ADMIN', 'ADMIN'}.contains(_role)) return;
+    final customerId = _subscriptionCustomer.text.trim();
+    if (customerId.isEmpty) {
+      setState(() => _error = 'Enter the customer's E.164 mobile identity.');
+      return;
+    }
+    setState(() { _busy = true; _error = null; });
+    try {
+      final result = await _request(
+        'POST',
+        '/api/v1/admin/subscriptions/assign',
+        body: {'customer_id': customerId, 'plan_code': _subscriptionPlan},
+      );
+      _subscriptionCustomer.clear();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Activated ${result['plan_code']} for ${result['customer_id']}.'),
+        ));
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _review(Map<String,dynamic> row, String status) async {
     setState(() { _busy = true; _error = null; });
     try {
@@ -199,7 +228,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
   @override
   void dispose() {
     _client.close(); _email.dispose(); _password.dispose(); _totp.dispose();
-    _newEmail.dispose(); _newPassword.dispose();
+    _newEmail.dispose(); _newPassword.dispose(); _subscriptionCustomer.dispose();
     super.dispose();
   }
 
@@ -240,10 +269,10 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     if (_mustChangePassword) Card(color: Theme.of(context).colorScheme.errorContainer, child: ListTile(leading: const Icon(Icons.lock_reset), title: const Text('Password rotation required'), subtitle: const Text('Change the temporary password before using administrator functions.'), trailing: TextButton(onPressed: _changePassword, child: const Text('CHANGE')))),
     if (_error != null) Padding(padding: const EdgeInsets.all(12), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
     SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: [
-      for (final item in ['overview','admins','requests','audit'])
+      for (final item in ['overview','admins','requests','audit', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'subscriptions'])
         Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: ChoiceChip(label: Text(item.toUpperCase()), selected: _tab == item, onSelected: (_) => setState(() => _tab = item))),
     ])),
-    Expanded(child: _tab == 'overview' ? _overview() : _tab == 'admins' ? _adminUsers() : _tab == 'requests' ? _accessRequests() : _auditView()),
+    Expanded(child: _tab == 'overview' ? _overview() : _tab == 'admins' ? _adminUsers() : _tab == 'requests' ? _accessRequests() : _tab == 'subscriptions' ? _subscriptions() : _auditView()),
   ]);
 
   Widget _overview() => ListView(padding: const EdgeInsets.all(16), children: [
@@ -286,6 +315,40 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
         ],
       ) : Text(a['admin_id']?.toString().substring(0,8) ?? ''),
     )),
+  ]);
+
+  Widget _subscriptions() => ListView(padding: const EdgeInsets.all(16), children: [
+    const Text('CUSTOMER SUBSCRIPTION ACTIVATION', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: .5)),
+    const SizedBox(height: 8),
+    const Text('Activate a plan for an approved customer. The customer identity must match the E.164 mobile number used to sign in. Online payments and automatic renewals are not enabled.'),
+    const SizedBox(height: 16),
+    TextField(
+      controller: _subscriptionCustomer,
+      keyboardType: TextInputType.phone,
+      decoration: const InputDecoration(
+        labelText: 'Customer mobile / identity (E.164)',
+        hintText: '+91XXXXXXXXXX',
+        border: OutlineInputBorder(),
+      ),
+    ),
+    const SizedBox(height: 12),
+    DropdownButtonFormField<String>(
+      initialValue: _subscriptionPlan,
+      decoration: const InputDecoration(labelText: 'Subscription plan', border: OutlineInputBorder()),
+      items: const [
+        DropdownMenuItem(value: 'DAILY', child: Text('Daily · 1 day')),
+        DropdownMenuItem(value: 'MONTHLY', child: Text('Monthly · 30 days')),
+        DropdownMenuItem(value: 'SIX_MONTHS', child: Text('6 months · 180 days')),
+        DropdownMenuItem(value: 'YEARLY', child: Text('Yearly · 365 days')),
+      ],
+      onChanged: _busy ? null : (value) { if (value != null) setState(() => _subscriptionPlan = value); },
+    ),
+    const SizedBox(height: 12),
+    FilledButton.icon(
+      onPressed: _busy ? null : _assignSubscription,
+      icon: const Icon(Icons.workspace_premium_outlined),
+      label: const Text('ACTIVATE SUBSCRIPTION'),
+    ),
   ]);
 
   Widget _accessRequests() => ListView(padding: const EdgeInsets.all(16), children: [
