@@ -30,7 +30,7 @@ jobs:
       - name: Verify Docker engine
         run: |
           docker version
-          if ($LASTEXITCODE -ne 0) { throw 'Docker engine is unavailable to the self-hosted runner. Start Docker Desktop in Linux-container mode.' }
+          if ($LASTEXITCODE -ne 0) { throw 'The self-hosted runner service account cannot access the Docker engine named pipe. Use a dedicated runner account with Docker Desktop access or an in-house Linux runner with Docker Engine.' }
 
       - name: Start disposable PostgreSQL 16 container
         run: |
@@ -103,4 +103,7 @@ jobs:
       - name: Cleanup PostgreSQL container
         if: always()
         run: |
-          docker rm -f "air-customer-pg-$env:GITHUB_RUN_ID" 2>$null | Out-Null
+          if (Get-Command docker -ErrorAction SilentlyContinue) {
+            try { docker rm -f "air-customer-pg-$env:GITHUB_RUN_ID" 2>$null | Out-Null } catch {}
+          }
+          exit 0
