@@ -141,6 +141,12 @@ class DhanBrokerAdapter(BrokerAdapter):
             raise ValueError("Order quantity must be positive")
         if order.side.upper() not in {"BUY", "SELL"}:
             raise ValueError("Order side must be BUY or SELL")
+        if not all(value.strip() for value in (order.exchange, order.symbol, order.token, order.order_type, order.product, order.validity)):
+            raise ValueError("Exchange, symbol, token, order type, product and validity are required")
+        if order.order_type.upper() in {"LIMIT", "STOPLOSS_LIMIT", "SL"} and (order.price is None or order.price <= 0):
+            raise ValueError("A positive limit price is required for this order type")
+        if order.order_type.upper() in {"SL", "STOPLOSS_LIMIT", "STOPLOSS_MARKET"} and (order.trigger_price is None or order.trigger_price <= 0):
+            raise ValueError("A positive trigger price is required for stop orders")
         response = await client.place_order(
             security_id=order.token, exchange_segment=order.exchange,
             transaction_type=order.side.upper(), product_type=order.product.upper(),
