@@ -1171,6 +1171,7 @@ async def save_customer_broker_credentials(broker: str, account_id: str, body: B
         owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(customer_id)}
         if (broker.lower(), account_id) not in owned:
             raise PermissionError("Customer does not own this broker account")
+        await get_broker_session_runtime().deactivate(customer_id, broker, account_id)
         get_vault().put(customer_id, broker, account_id, body.credentials)
         await invalidate_customer_market_data_service(customer_id)
     except PermissionError as exc:
@@ -1259,6 +1260,7 @@ async def operator_save_broker_credentials(
     if (broker.lower(), account_id) not in owned:
         raise HTTPException(status_code=404, detail="Assigned broker account not found")
     try:
+        await get_broker_session_runtime().deactivate(customer_id, broker, account_id)
         get_vault().put(customer_id, broker, account_id, body.credentials)
         await invalidate_customer_market_data_service(customer_id)
     except ValueError as exc:
@@ -1273,6 +1275,8 @@ async def operator_remove_broker_account(
     operator_id: str = Depends(require_air_operator),
 ) -> dict:
     try:
+        await get_broker_session_runtime().deactivate(customer_id, broker, account_id)
+        await get_broker_session_runtime().deactivate(customer_id, broker, account_id)
         get_vault().delete(customer_id, broker, account_id)
         account_directory.remove(customer_id, broker, account_id)
         await invalidate_customer_market_data_service(customer_id)
