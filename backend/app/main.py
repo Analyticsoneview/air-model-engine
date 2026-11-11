@@ -1,6 +1,6 @@
 import os
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from decimal import Decimal
 from uuid import uuid4
@@ -484,6 +484,11 @@ class MobileAccessRequest(BaseModel):
     device_id: str = Field(min_length=8, max_length=128)
 
 
+class SubscriptionAssignment(BaseModel):
+    customer_id: str = Field(min_length=9, max_length=100)
+    plan_code: str = Field(pattern="^(DAILY|MONTHLY|SIX_MONTHS|YEARLY)$")
+
+
 class AccessReview(BaseModel):
     status: str = Field(pattern="^(APPROVED|REJECTED|BLOCKED)$")
     note: str = Field(default="", max_length=500)
@@ -697,6 +702,38 @@ async def mobile_login(body: MobileAccessRequest) -> dict:
     token = create_access_token(body.mobile_e164, expires_minutes=525600, session_id=session_id)
     return {"status": "APPROVED", "access_token": token, "token_type": "bearer",
             "expires_in": 31536000, "customer_id": body.mobile_e164}
+
+
+@app.get("/api/v1/subscription/plans")
+async def subscription_plans() -> dict:
+    return {"plans": [
+        {"code": "DAILY", "name": "Daily", "validity_days": 1},
+        {"code": "MONTHLY", "name": "Monthly", "validity_days": 30},
+        {"code": "SIX_MONTHS", "name": "6 Months", "validity_days": 180},
+        {"code": "YEARLY", "name": "1 Year", "validity_days": 365},
+    ], "activation": "Administrator activation during the initial rollout; online payment is not enabled."}
+
+
+@app.get("/api/v1/subscription/me")
+async def current_subscription(customer_id: str = Depends(require_customer)) -> dict:
+    subscription = access_store.get_subscription(customer_id)
+    return {"customer_id": customer_id, "subscription": subscription,
+            "strategy_access": bool(subscription and subscription["status"] == "ACTIVE")}
+
+
+@app.post("/api/v1/admin/subscriptions/assign")
+async def assign_customer_subscription(
+    body: SubscriptionAssignment,
+    _: dict = Depends(require_admin),
+) -> dict:
+    durations = {"DAILY": 1, "MONTHLY": 30, "SIX_MONTHS": 180, "YEARLY": 365}
+    starts = datetime.now(timezone.utc)
+    expires = starts + timedelta(days=durations[body.plan_code])
+    access_store.assign_subscription(
+        body.customer_id, body.plan_code, starts.isoformat(), expires.isoformat()
+    )
+    return {"customer_id": body.customer_id, "plan_code": body.plan_code,
+            "starts_at": starts.isoformat(), "expires_at": expires.isoformat(), "status": "ACTIVE"}
 
 
 @app.get("/api/v1/auth/mobile-status")
