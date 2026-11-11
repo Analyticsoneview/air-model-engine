@@ -1,7 +1,7 @@
 import sqlite3
 
 from app.air_qoc_store import AirQocStore
-from scripts.import_sqlite_domain_stores import run as import_domain_stores
+from scripts.import_sqlite_qoc import run as import_qoc_store
 
 
 def test_qoc_observations_import_to_postgres_and_remain_readable(tmp_path, monkeypatch):
@@ -33,7 +33,7 @@ def test_qoc_observations_import_to_postgres_and_remain_readable(tmp_path, monke
     db.commit()
     db.close()
 
-    result = import_domain_stores(tmp_path, dry_run=False)
+    result = import_qoc_store(tmp_path, dry_run=False)
     assert result["status"] == "IMPORTED_AND_RECONCILED"
     assert result["tables"]["option_observations"]["source_rows"] == 1
 
