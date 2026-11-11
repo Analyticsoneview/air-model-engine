@@ -8,7 +8,6 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -22,7 +21,7 @@ TABLES = {
         "admin_id", "email", "password_hash", "mfa_secret", "role", "is_active",
         "created_at", "last_totp_counter", "must_change_password", "failed_attempts", "locked_until",
     )),
-    "air_admin_sessions": ("session_id", "admin_id", ("session_id", "admin_id", "active", "created_at")),
+    "air_admin_sessions": ("session_id", ("session_id", "admin_id", "active", "created_at")),
     "air_admin_login_limits": ("rate_key", ("rate_key", "failures", "window_started", "locked_until")),
     "air_admin_audit": ("event_id", (
         "event_id", "actor_admin_id", "action", "target_admin_id", "details", "created_at",
