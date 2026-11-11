@@ -56,6 +56,7 @@ services:
       AIR_ADMIN_API_KEY_FILE: /run/secrets/air_admin_api_key
       AIR_ADMIN_MFA_KEY_FILE: /run/secrets/air_admin_mfa_key
       AIR_DATABASE_URL_FILE: /run/secrets/air_database_url
+      AIR_DOMAIN_STORES_IMPORT_ON_STARTUP: ${AIR_DOMAIN_STORES_IMPORT_ON_STARTUP:-false}
       AIR_CUSTOMER_DATABASE_URL_FILE: ${AIR_CUSTOMER_DATABASE_URL_FILE:-}
       AIR_ADMIN_DATABASE_URL_FILE: ${AIR_ADMIN_DATABASE_URL_FILE:-}
       AIR_CUSTOMER_SQLITE_PATH: /var/lib/air/auth.sqlite3
