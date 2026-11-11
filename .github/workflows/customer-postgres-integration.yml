@@ -56,6 +56,7 @@ jobs:
           "AIR_CUSTOMER_ACCOUNTS_DATABASE_URL=$url" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "AIR_EXECUTION_POLICY_DATABASE_URL=$url" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "AIR_ORDER_LEDGER_DATABASE_URL=$url" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "AIR_QOC_DATABASE_URL=$url" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Bootstrap isolated portable Python 3.12
         run: |
