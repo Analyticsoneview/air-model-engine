@@ -11,6 +11,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from app.db_compat import PostgresConnection, read_database_url
+
 
 PROVIDER_CATALOG: tuple[dict[str, Any], ...] = (
     {
@@ -83,43 +85,52 @@ CHANNELS = ("historical", "live")
 
 class MarketDataSourceRegistry:
     def __init__(self, db_path: str | None = None) -> None:
-        self.db_path = db_path or os.getenv(
-            "AIR_MARKET_SOURCE_DB_PATH", "data/air_market_sources.sqlite3"
-        )
-        if self.db_path != ":memory:":
-            Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30)
-        self.db.row_factory = sqlite3.Row
-        self.db.execute("PRAGMA busy_timeout=30000")
-        self.db.execute("""
-            CREATE TABLE IF NOT EXISTS market_data_sources (
-                channel TEXT PRIMARY KEY,
-                provider TEXT NOT NULL,
-                account_id TEXT,
-                enabled INTEGER NOT NULL DEFAULT 0,
-                fallback_provider TEXT,
-                fallback_account_id TEXT,
-                failover_enabled INTEGER NOT NULL DEFAULT 0,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        database_url = read_database_url("AIR_MARKET_SOURCE_DATABASE_URL") if db_path is None else None
+        self._is_postgres = database_url is not None
+        if self._is_postgres:
+            self.db_path = None
+            self.db = PostgresConnection(database_url)
+            try:
+                self.db.execute("SELECT 1 FROM market_data_sources LIMIT 0")
+                self.db.execute("SELECT 1 FROM market_data_failover LIMIT 0")
+            except Exception as exc:
+                self.db.close()
+                raise RuntimeError("PostgreSQL market-data source schema is missing; run Alembic migrations first") from exc
+        else:
+            self.db_path = db_path or os.getenv(
+                "AIR_MARKET_SOURCE_DB_PATH", "data/air_market_sources.sqlite3"
             )
-        """)
-        columns = {row["name"] for row in self.db.execute("PRAGMA table_info(market_data_sources)")}
-        for name, declaration in (
-            ("fallback_provider", "TEXT"),
-            ("fallback_account_id", "TEXT"),
-            ("failover_enabled", "INTEGER NOT NULL DEFAULT 0"),
-        ):
-            if name not in columns:
-                self.db.execute(f"ALTER TABLE market_data_sources ADD COLUMN {name} {declaration}")
-        self.db.execute("""
-            CREATE TABLE IF NOT EXISTS market_data_failover (
-                channel TEXT PRIMARY KEY,
-                enabled INTEGER NOT NULL DEFAULT 0,
-                candidates_json TEXT NOT NULL DEFAULT '[]',
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        self.db.commit()
+            if self.db_path != ":memory:":
+                Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+            self.db = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30)
+            self.db.row_factory = sqlite3.Row
+            self.db.execute("PRAGMA busy_timeout=30000")
+        if not self._is_postgres:
+            self.db.execute("""
+                CREATE TABLE IF NOT EXISTS market_data_sources (
+                    channel TEXT PRIMARY KEY, provider TEXT NOT NULL, account_id TEXT,
+                    enabled INTEGER NOT NULL DEFAULT 0, fallback_provider TEXT,
+                    fallback_account_id TEXT, failover_enabled INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            columns = {row["name"] for row in self.db.execute("PRAGMA table_info(market_data_sources)")}
+            for name, declaration in (
+                ("fallback_provider", "TEXT"),
+                ("fallback_account_id", "TEXT"),
+                ("failover_enabled", "INTEGER NOT NULL DEFAULT 0"),
+            ):
+                if name not in columns:
+                    self.db.execute(f"ALTER TABLE market_data_sources ADD COLUMN {name} {declaration}")
+            self.db.execute("""
+                CREATE TABLE IF NOT EXISTS market_data_failover (
+                    channel TEXT PRIMARY KEY,
+                    enabled INTEGER NOT NULL DEFAULT 0,
+                    candidates_json TEXT NOT NULL DEFAULT '[]',
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            self.db.commit()
 
     @staticmethod
     def catalog() -> list[dict[str, Any]]:
