@@ -15,6 +15,7 @@ from app.access_control import access_store
 from app.admin_auth import get_admin_auth_store
 from app.brokers.customer_accounts import CustomerAccountDirectory, CustomerTradingAccount
 from app.brokers.catalog import get_broker_catalog, is_supported_broker
+from app.brokers.session_runtime import BrokerSessionRuntime
 from app.brokers.dhan import DhanHQClient, DhanAPIError
 from app.brokers.zerodha import KiteConnectClient, KiteAPIError, kite_login_url
 from app.brokers.upstox import UpstoxClient, UpstoxAPIError, upstox_login_url
@@ -73,6 +74,7 @@ account_directory = CustomerAccountDirectory(
     None if read_database_url("AIR_CUSTOMER_ACCOUNTS_DATABASE_URL") else os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3")
 )
 _credential_vault: CredentialVault | None = None
+_broker_session_runtime: BrokerSessionRuntime | None = None
 account_reporting = AccountReporting(os.getenv('AIR_REPORT_DB_PATH', 'data/air_account_reports.sqlite3'))
 _report_scheduler_task: asyncio.Task | None = None
 
@@ -428,6 +430,8 @@ async def stop_air_qoc_jobs() -> None:
             pass
         _report_scheduler_task = None
     await close_customer_market_data_runtimes()
+    if _broker_session_runtime is not None:
+        await _broker_session_runtime.close()
     if _master_refresh_task is not None:
         _master_refresh_task.cancel()
         try:
@@ -471,6 +475,54 @@ def get_vault() -> CredentialVault:
         except RuntimeError as exc:
             raise HTTPException(status_code=503, detail="Credential vault is not configured on the server") from exc
     return _credential_vault
+
+
+def get_broker_session_runtime() -> BrokerSessionRuntime:
+    global _broker_session_runtime
+    if _broker_session_runtime is None:
+        _broker_session_runtime = BrokerSessionRuntime(account_directory, get_vault())
+    return _broker_session_runtime
+
+
+class BrokerSessionRequest(BaseModel):
+    broker: str = Field(min_length=2, max_length=40)
+    account_id: str = Field(min_length=2, max_length=100)
+
+
+@app.post("/api/v1/customer/broker-sessions/activate")
+async def activate_customer_broker_session(
+    body: BrokerSessionRequest,
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    try:
+        return await get_broker_session_runtime().activate(customer_id, body.broker, body.account_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=409, detail="Broker credentials have not been saved") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Broker authentication failed: {type(exc).__name__}") from exc
+
+
+@app.post("/api/v1/customer/broker-sessions/deactivate")
+async def deactivate_customer_broker_session(
+    body: BrokerSessionRequest,
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    try:
+        return await get_broker_session_runtime().deactivate(customer_id, body.broker, body.account_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/customer/broker-sessions")
+async def list_customer_broker_sessions(
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    runtime = get_broker_session_runtime()
+    return {"sessions": runtime.status_for_customer(customer_id)}
 
 
 class CustomerRegistration(BaseModel):
