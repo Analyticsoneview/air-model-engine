@@ -31,8 +31,8 @@ jobs:
       - name: Start disposable PostgreSQL 16 container
         run: |
           $container = "air-customer-pg-$env:GITHUB_RUN_ID"
-          docker rm -f $container 2>$null | Out-Null
-          docker run -d --name $container -e POSTGRES_USER=air_test -e POSTGRES_PASSWORD=air_test -e POSTGRES_DB=air_test -p "127.0.0.1::5432" postgres:16-alpine
+          docker rm -fv $container 2>$null | Out-Null
+          docker run -d --name $container --mount "type=tmpfs,destination=/var/lib/postgresql/data,tmpfs-size=536870912" --network bridge -e POSTGRES_USER=air_test -e POSTGRES_PASSWORD=air_test -e POSTGRES_DB=air_test -p "127.0.0.1::5432" postgres:16-alpine
           if ($LASTEXITCODE -ne 0) { throw 'Could not start disposable PostgreSQL 16 container.' }
           $mapping = docker port $container '5432/tcp' | Select-Object -First 1
           if ($mapping -notmatch ':(\d+)$') { docker logs $container; throw "Could not resolve PostgreSQL host port: $mapping" }
@@ -113,6 +113,6 @@ jobs:
         if: always()
         run: |
           if (Get-Command docker -ErrorAction SilentlyContinue) {
-            try { docker rm -f "air-customer-pg-$env:GITHUB_RUN_ID" 2>$null | Out-Null } catch {}
+            try { docker rm -fv "air-customer-pg-$env:GITHUB_RUN_ID" 2>$null | Out-Null } catch {}
           }
           exit 0
