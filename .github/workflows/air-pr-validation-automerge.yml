@@ -54,11 +54,24 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Install Flutter SDK (cached stable channel)
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
+      - name: Install Flutter SDK (Windows-native persistent cache)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $flutterRoot = 'C:\AIR\flutter-stable'
+          $flutterBat = Join-Path $flutterRoot 'bin\flutter.bat'
+          if (-not (Test-Path -LiteralPath $flutterBat)) {
+            if (Test-Path -LiteralPath $flutterRoot) { throw "Flutter cache exists but is incomplete: $flutterRoot" }
+            New-Item -ItemType Directory -Force -Path (Split-Path $flutterRoot -Parent) | Out-Null
+            git clone --depth 1 --branch stable https://github.com/flutter/flutter.git $flutterRoot
+            if ($LASTEXITCODE -ne 0) { throw 'Flutter stable SDK checkout failed.' }
+          } else {
+            Write-Host 'Reusing persistent Flutter stable SDK cache.'
+          }
+          $flutterBin = Join-Path $flutterRoot 'bin'
+          $flutterBin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          & $flutterBat --version
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter SDK bootstrap failed.' }
+          "AIR_FLUTTER=$flutterBat" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Set Flutter launcher
         run: |
           "AIR_FLUTTER=flutter" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
