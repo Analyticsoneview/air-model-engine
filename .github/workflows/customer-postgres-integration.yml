@@ -1,11 +1,7 @@
 name: AIR Customer PostgreSQL Integration
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths:
-      - 'backend/**'
-      - '.github/workflows/customer-postgres-integration.yml'
+  workflow_call:
   workflow_dispatch:
 
 permissions:
