@@ -134,12 +134,33 @@ fi
 ADMIN_KEY="$(cat "$ADMIN_KEY_FILE")"
 ADMIN_MFA_KEY="$(python3 -c 'import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())')"
 
+# Keep generated passwords root-only so installer reruns retain immutable Swarm credentials.
+for secret_file in postgres-password redis-password; do
+  secret_name="air_${secret_file//-/_}"
+  if docker secret inspect "$secret_name" >/dev/null 2>&1 && [[ ! -s "${ENV_DIR}/${secret_file}" ]]; then
+    echo "Docker secret ${secret_name} exists but matching ${ENV_DIR}/${secret_file} is missing; restore it before rerunning." >&2
+    exit 1
+  fi
+  if [[ ! -s "${ENV_DIR}/${secret_file}" ]]; then
+    openssl rand -hex 32 > "${ENV_DIR}/${secret_file}"
+    chmod 600 "${ENV_DIR}/${secret_file}"
+  fi
+done
+PG_PASSWORD="$(cat "${ENV_DIR}/postgres-password")"
+REDIS_PASSWORD="$(cat "${ENV_DIR}/redis-password")"
+DATABASE_URL="postgresql+psycopg://air:${PG_PASSWORD}@postgres:5432/air"
+REDIS_URL="redis://:${REDIS_PASSWORD}@redis:6379/0"
+
 create_secret_if_missing air_jwt_secret "$JWT_SECRET"
 create_secret_if_missing air_credential_key "$CREDENTIAL_KEY"
 create_secret_if_missing air_admin_api_key "$ADMIN_KEY"
 create_secret_if_missing air_admin_mfa_key "$ADMIN_MFA_KEY"
+create_secret_if_missing air_postgres_password "$PG_PASSWORD"
+create_secret_if_missing air_redis_password "$REDIS_PASSWORD"
+create_secret_if_missing air_database_url "$DATABASE_URL"
+create_secret_if_missing air_redis_url "$REDIS_URL"
 create_secret_if_missing air_telegram_bot_token "$TELEGRAM_TOKEN"
-unset JWT_SECRET CREDENTIAL_KEY ADMIN_KEY ADMIN_MFA_KEY TELEGRAM_TOKEN
+unset JWT_SECRET CREDENTIAL_KEY ADMIN_KEY ADMIN_MFA_KEY TELEGRAM_TOKEN PG_PASSWORD REDIS_PASSWORD DATABASE_URL REDIS_URL
 
 cat > "$ENV_FILE" <<ENV_EOF
 AIR_BACKEND_IMAGE=air-model-engine-api:lab
