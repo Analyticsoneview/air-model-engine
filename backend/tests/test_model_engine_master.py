@@ -97,6 +97,7 @@ def test_strategy_views_are_isolated_and_stock_entry_filter_is_model_scoped():
     original_stock["evidence"] = {"strategy_memberships": ["ORIGINAL366"]}
     index_row = row("original-index", "NEW", dte=20, entry_price=150)
     index_row["instrument_type"] = "INDEX"
+    index_row["remaining_trading_sessions"] = 10
     index_row["evidence"] = {"strategy_memberships": ["ORIGINAL366"]}
     recovery_row = row("recovery-stock", "RE-ENTRY", dte=20, entry_price=4)
     recovery_row["evidence"] = {
