@@ -1,4 +1,4 @@
-"""Private SQLite store for normalized AIR QOC option-chain observations.
+"""SQLite/PostgreSQL store for normalized AIR QOC option-chain observations.
 
 Raw provider payloads are deliberately not stored. Records are scoped by
 provider/account/underlying/expiry and carry their market observation timestamp.
@@ -31,42 +31,42 @@ class AirQocStore:
                 Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
             self.db = sqlite3.connect(self.db_path, check_same_thread=False)
             self.db.row_factory = sqlite3.Row
-        self.db.execute("""
-            CREATE TABLE IF NOT EXISTS option_observations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                provider TEXT NOT NULL,
-                account_id TEXT NOT NULL,
-                underlying_scrip INTEGER NOT NULL,
-                underlying_segment TEXT NOT NULL,
-                expiry TEXT NOT NULL,
-                underlying_price REAL,
-                strike TEXT NOT NULL,
-                option_type TEXT NOT NULL CHECK(option_type IN ('CE','PE')),
-                security_id TEXT,
-                last_price REAL,
-                previous_close REAL,
-                volume INTEGER,
-                previous_volume INTEGER,
-                open_interest INTEGER,
-                previous_oi INTEGER,
-                bid_price REAL,
-                bid_quantity INTEGER,
-                ask_price REAL,
-                ask_quantity INTEGER,
-                implied_volatility REAL,
-                observed_at TEXT NOT NULL,
-                UNIQUE(provider, account_id, underlying_scrip, expiry, strike, option_type, observed_at)
-            )
-        """)
         if not self._is_postgres:
+            self.db.execute("""
+                CREATE TABLE IF NOT EXISTS option_observations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    provider TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    underlying_scrip INTEGER NOT NULL,
+                    underlying_segment TEXT NOT NULL,
+                    expiry TEXT NOT NULL,
+                    underlying_price REAL,
+                    strike TEXT NOT NULL,
+                    option_type TEXT NOT NULL CHECK(option_type IN ('CE','PE')),
+                    security_id TEXT,
+                    last_price REAL,
+                    previous_close REAL,
+                    volume INTEGER,
+                    previous_volume INTEGER,
+                    open_interest INTEGER,
+                    previous_oi INTEGER,
+                    bid_price REAL,
+                    bid_quantity INTEGER,
+                    ask_price REAL,
+                    ask_quantity INTEGER,
+                    implied_volatility REAL,
+                    observed_at TEXT NOT NULL,
+                    UNIQUE(provider, account_id, underlying_scrip, expiry, strike, option_type, observed_at)
+                )
+            """)
             columns = {row["name"] for row in self.db.execute("PRAGMA table_info(option_observations)").fetchall()}
             if "underlying_price" not in columns:
                 self.db.execute("ALTER TABLE option_observations ADD COLUMN underlying_price REAL")
-        self.db.execute("""
-            CREATE INDEX IF NOT EXISTS idx_qoc_latest
-            ON option_observations(provider, account_id, underlying_scrip, expiry, observed_at DESC)
-        """)
-        self.db.commit()
+            self.db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_qoc_latest
+                ON option_observations(provider, account_id, underlying_scrip, expiry, observed_at DESC)
+            """)
+            self.db.commit()
 
     def save_option_chain(self, *, account_id: str, underlying_scrip: int,
                           underlying_segment: str, expiry: str,
