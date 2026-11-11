@@ -87,6 +87,10 @@ class _NormalizedAdapter(BrokerAdapter):
         self._account(order.account_id)
         if order.quantity <= 0 or order.side.upper() not in {"BUY", "SELL"}:
             raise ValueError("Order quantity must be positive and side must be BUY or SELL")
+        if not all(value.strip() for value in (order.exchange, order.symbol, order.token, order.order_type, order.product, order.validity)):
+            raise ValueError("Exchange, symbol, token, order type, product and validity are required")
+        if order.order_type.upper() not in {"MARKET", "LIMIT", "SL", "STOPLOSS_LIMIT", "STOPLOSS_MARKET"}:
+            raise ValueError("Unsupported order type")
         if not order.idempotency_key.strip():
             raise ValueError("An idempotency key is required")
         if order.order_type.upper() in {"LIMIT", "STOPLOSS_LIMIT", "SL"} and (order.price is None or order.price <= 0):
