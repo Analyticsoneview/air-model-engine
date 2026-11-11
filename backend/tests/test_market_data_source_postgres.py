@@ -1,9 +1,12 @@
+import os
+import pytest
 import sqlite3
 
 from app.market_data.provider_registry import MarketDataSourceRegistry
 from scripts.import_sqlite_market_data_sources import run as import_sources
 
 
+@pytest.mark.skipif(not os.getenv("AIR_DATABASE_URL"), reason="requires the disposable PostgreSQL integration workflow")
 def test_market_data_source_and_failover_import_postgres(tmp_path, monkeypatch):
     source = tmp_path / "air_market_sources.sqlite3"
     monkeypatch.setenv("AIR_MARKET_SOURCE_DB_PATH", str(source))
