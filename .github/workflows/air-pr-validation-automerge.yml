@@ -14,13 +14,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  backend:
+  changes:
+    if: github.event.action != 'closed'
+    runs-on: self-hosted
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      android: ${{ steps.filter.outputs.android }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
               - 'backend/**'
               - '.github/workflows/air-pr-validation-automerge.yml'
             android:
               - 'mobile/**'
 
   backend:
+    needs: changes
     if: github.event.action != 'closed' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     name: Backend tests (Python 3.12)
     runs-on: self-hosted
@@ -102,7 +117,7 @@ jobs:
           Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
           & $env:AIR_PYTHON -m unittest discover -s tests -v
           if ($LASTEXITCODE -ne 0) { throw 'Backend tests failed.' }
-      - name: Run backend test suite
+      - name: Run backend pytest suite
         working-directory: backend
         timeout-minutes: 10
         run: |
@@ -111,8 +126,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Backend pytest suite failed.' }
 
   android:
-    needs: backend
-    if: github.event.action != 'closed' && needs.backend.result == 'success'
+    needs: [changes, backend]
+    if: always() && github.event.action != 'closed' && needs.backend.result == 'success' && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.android == 'true')
     name: Android ARM64 APK build
     runs-on: self-hosted
     timeout-minutes: 90
@@ -184,8 +199,8 @@ jobs:
           retention-days: 30
 
   merge-after-validation:
-    needs: [backend, android]
-    if: always() && github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.number == 7 && github.event.pull_request.draft == false && needs.backend.result == 'success' && needs.android.result == 'success'
+    needs: [changes, backend, android]
+    if: always() && github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.number == 7 && github.event.pull_request.draft == false && needs.backend.result == 'success' && (needs.android.result == 'success' || (needs.android.result == 'skipped' && needs.changes.outputs.android != 'true'))
     runs-on: ubuntu-latest
     permissions:
       contents: write
