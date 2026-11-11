@@ -37,111 +37,7 @@ jobs:
   backend:
     needs: changes
     if: github.event.action != 'closed' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    name: Backend tests (Python 3.12)
-    runs-on: self-hosted
-    timeout-minutes: 30
-    defaults:
-      run:
-        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "& '{0}'"
-    steps:
-      - uses: actions/checkout@v4
-      - name: Validate Windows launcher PowerShell syntax
-        run: |
-          $files = @('AIRSTART.ps1', 'LOCAL-APP-STARTUP/AIRSTART.ps1')
-          foreach ($file in $files) {
-            if (-not (Test-Path -LiteralPath $file)) { continue }
-            $tokens = $null
-            $errors = $null
-            [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $env:GITHUB_WORKSPACE $file), [ref]$tokens, [ref]$errors) | Out-Null
-            if ($errors.Count -gt 0) {
-              $errors | ForEach-Object { Write-Error $_.Message }
-              throw "PowerShell syntax validation failed: $file"
-            }
-          }
-          $bash = Join-Path $env:ProgramFiles 'Git\bin\bash.exe'
-          if (Test-Path -LiteralPath $bash) {
-            & $bash -n AIRSTART.sh
-            if ($LASTEXITCODE -ne 0) { throw 'AIRSTART.sh syntax validation failed.' }
-          }
-      - name: Bootstrap portable Python 3.12 (no installer or admin rights)
-        run: |
-          Remove-Item Env:PYTHONHOME -ErrorAction SilentlyContinue
-          Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
-          $pythonHome = Join-Path $env:RUNNER_TEMP 'AIR-Python312-embed'
-          $python = Join-Path $pythonHome 'python.exe'
-          $zip = Join-Path $env:RUNNER_TEMP 'python-3.12.10-embed-amd64.zip'
-          New-Item -ItemType Directory -Force -Path $pythonHome | Out-Null
-          if (-not (Test-Path -LiteralPath (Join-Path $pythonHome 'python312.zip'))) {
-            if (-not (Test-Path -LiteralPath $zip) -or (Get-Item $zip).Length -lt 10MB) {
-              & curl.exe --fail --location --show-error --retry 4 --retry-all-errors --connect-timeout 30 --max-time 900 --output $zip 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip'
-              if ($LASTEXITCODE -ne 0 -or -not (Test-Path $zip) -or (Get-Item $zip).Length -lt 10MB) { throw 'Python embeddable ZIP download failed.' }
-            }
-            Expand-Archive -LiteralPath $zip -DestinationPath $pythonHome -Force
-          }
-          $pth = Join-Path $pythonHome 'python312._pth'
-          if (-not (Test-Path $pth)) { throw "Python path configuration file missing: $pth" }
-          $pthLines = @('python312.zip','.', 'Lib\site-packages', (Join-Path $env:GITHUB_WORKSPACE 'backend'), 'import site')
-          Set-Content -LiteralPath $pth -Value $pthLines -Encoding ascii
-          New-Item -ItemType Directory -Force -Path (Join-Path $pythonHome 'Lib\site-packages') | Out-Null
-          & $python -c "import encodings,sys; print(sys.version); print(sys.executable); print(encodings.__file__)"
-          if ($LASTEXITCODE -ne 0) { throw 'Portable Python standard-library validation failed.' }
-          $getPip = Join-Path $env:RUNNER_TEMP 'get-pip.py'
-          & curl.exe --fail --location --show-error --retry 4 --retry-all-errors --connect-timeout 30 --max-time 300 --output $getPip 'https://bootstrap.pypa.io/get-pip.py'
-          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $getPip)) { throw 'Could not download pip bootstrap.' }
-          & $python $getPip --disable-pip-version-check
-          if ($LASTEXITCODE -ne 0) { throw 'pip bootstrap failed for portable Python.' }
-          & $python -m pip --version
-          if ($LASTEXITCODE -ne 0) { throw 'Portable Python pip validation failed.' }
-          "AIR_PYTHON=$python" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-      - name: Install backend dependencies and test runner
-        working-directory: .
-        run: |
-          Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
-          & $env:AIR_PYTHON -m pip install --disable-pip-version-check --upgrade pip setuptools wheel
-          if ($LASTEXITCODE -ne 0) { throw 'Python packaging toolchain installation failed.' }
-          & $env:AIR_PYTHON -m pip install --disable-pip-version-check -r backend/requirements.txt pytest pytest-asyncio
-          if ($LASTEXITCODE -ne 0) { throw 'AIR backend dependency installation failed.' }
-          & $env:AIR_PYTHON -m pip check
-          if ($LASTEXITCODE -ne 0) { throw 'AIR backend dependency consistency check failed.' }
-      - name: Validate broker SDKs in isolated dependency targets
-        working-directory: .
-        run: |
-          $brokers = @(
-            @{ Name='Zerodha'; File='backend/dependencies/brokers/zerodha.txt'; Module='kiteconnect' },
-            @{ Name='Upstox'; File='backend/dependencies/brokers/upstox.txt'; Module='upstox_client' },
-            @{ Name='FYERS'; File='backend/dependencies/brokers/fyers.txt'; Module='fyers_apiv3' },
-            @{ Name='Angel One'; File='backend/dependencies/brokers/angel-one.txt'; Module='SmartApi' }
-          )
-          foreach ($broker in $brokers) {
-            $target = Join-Path $env:RUNNER_TEMP ('AIR-broker-' + ($broker.Name -replace '[^A-Za-z0-9]',''))
-            if (Test-Path $target) { Remove-Item $target -Recurse -Force }
-            New-Item -ItemType Directory -Force -Path $target | Out-Null
-            & $env:AIR_PYTHON -m pip install --disable-pip-version-check --upgrade --target $target -r backend/dependencies/base.txt -r $broker.File
-            if ($LASTEXITCODE -ne 0) { throw "$($broker.Name) SDK dependency resolution failed." }
-            if ($broker.Name -eq 'Upstox') {
-              $env:AIR_BROKER_TARGET = $target
-              & $env:AIR_PYTHON -c "import os,pathlib,shutil; p=pathlib.Path(os.environ['AIR_BROKER_TARGET']); (p/'uuid.py').unlink(missing_ok=True); [shutil.rmtree(x, ignore_errors=True) for x in p.glob('uuid-*.dist-info')]"
-              if ($LASTEXITCODE -ne 0) { throw 'Could not remove obsolete Upstox uuid shadow package.' }
-            }
-            $env:AIR_BROKER_TARGET = $target
-            & $env:AIR_PYTHON -c "import os,sys,importlib; sys.path.insert(0, os.environ['AIR_BROKER_TARGET']); import uuid; print('uuid module:', uuid.__file__); importlib.import_module('$($broker.Module)'); print('$($broker.Name) SDK import passed')"
-            if ($LASTEXITCODE -ne 0) { throw "$($broker.Name) SDK import validation failed." }
-            Remove-Item Env:AIR_BROKER_TARGET -ErrorAction SilentlyContinue
-          }
-      - name: Run backend tests
-        working-directory: backend
-        timeout-minutes: 10
-        run: |
-          Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
-          & $env:AIR_PYTHON -m unittest discover -s tests -v
-          if ($LASTEXITCODE -ne 0) { throw 'Backend tests failed.' }
-      - name: Run backend pytest suite
-        working-directory: backend
-        timeout-minutes: 10
-        run: |
-          Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
-          & $env:AIR_PYTHON -m pytest -q tests
-          if ($LASTEXITCODE -ne 0) { throw 'Backend pytest suite failed.' }
+    uses: ./.github/workflows/backend-tests.yml
 
   android:
     needs: [changes, backend]
@@ -158,27 +54,18 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Verify preinstalled AIR Flutter and Android SDK
+      - name: Install Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install Android SDK components
+        uses: android-actions/setup-android@v3
+      - name: Install required Android platform and build tools
         run: |
-          $flutter = 'C:\AIR\tools\flutter\bin\flutter.bat'
-          $dart = 'C:\AIR\tools\flutter\bin\cache\dart-sdk\bin\dart.exe'
-          $sdk = 'C:\Android\Sdk'
-          if (-not (Test-Path -LiteralPath $flutter)) { throw "AIR Flutter SDK not found at $flutter." }
-          if (-not (Test-Path -LiteralPath $dart)) { throw "Dart SDK not found at $dart." }
-          if (-not (Test-Path -LiteralPath (Join-Path $sdk 'platforms\android-35\android.jar'))) { throw 'Android 35 platform is missing.' }
-          if (-not (Test-Path -LiteralPath (Join-Path $sdk 'build-tools\35.0.0\aapt2.exe'))) { throw 'Android Build Tools 35.0.0 are missing.' }
-          $env:ANDROID_HOME = $sdk
-          $env:ANDROID_SDK_ROOT = $sdk
-          $env:PATH = "C:\AIR\tools\flutter\bin;$sdk\platform-tools;$sdk\cmdline-tools\latest\bin;$env:PATH"
-          & $flutter --version
-          if ($LASTEXITCODE -ne 0) { throw 'Flutter version check failed.' }
-          & $dart --version
-          if ($LASTEXITCODE -ne 0) { throw 'Dart version check failed.' }
-          java -version
-          "AIR_FLUTTER=$flutter" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "ANDROID_HOME=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "ANDROID_SDK_ROOT=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "PATH=C:\AIR\tools\flutter\bin;$sdk\platform-tools;$sdk\cmdline-tools\latest\bin;$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          if ($LASTEXITCODE -ne 0) { throw 'Android SDK component installation failed.' }
+          "AIR_FLUTTER=flutter" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Generate Android platform when missing
         working-directory: mobile
         run: |
