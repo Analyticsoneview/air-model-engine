@@ -79,14 +79,14 @@ def test_stock_premium_filter_and_index_exemption():
     stock = sample_contract(entry_price=12, bars=bars)
     index = sample_contract(instrument="INDEX", entry_price=120, bars=bars)
     assert evaluate_original366_contract(stock, as_of="2026-11-03")["status"] == "REJECTED"
-    assert evaluate_original366_contract(index, as_of="2026-11-03")["status"] == "HOLD"
+    assert evaluate_original366_contract(index, as_of="2026-11-03")["status"] == "NEW"
 
 
 def test_minimum_ten_verified_trading_sessions_is_required():
     enough = sample_contract(sessions=10, bars=[bar("2026-11-03", 8, 8.5, 7.8, 8.2)])
     too_few = sample_contract(sessions=9, bars=[bar("2026-11-03", 8, 8.5, 7.8, 8.2)])
     missing = sample_contract(sessions=None, bars=[bar("2026-11-03", 8, 8.5, 7.8, 8.2)])
-    assert evaluate_original366_contract(enough, as_of="2026-11-03")["status"] == "HOLD"
+    assert evaluate_original366_contract(enough, as_of="2026-11-03")["status"] == "NEW"
     assert evaluate_original366_contract(too_few, as_of="2026-11-03")["status"] == "REJECTED"
     assert evaluate_original366_contract(missing, as_of="2026-11-03")["status"] == "REJECTED"
 
