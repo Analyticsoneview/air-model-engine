@@ -171,7 +171,7 @@ class MarketDataSourceRegistry:
             ON CONFLICT(channel) DO UPDATE SET
                 provider=excluded.provider, account_id=excluded.account_id,
                 enabled=excluded.enabled, updated_at=CURRENT_TIMESTAMP
-        """, (channel, provider, account_id, int(enabled)))
+        """, (channel, provider, account_id, bool(enabled)))
         self.db.commit()
         return self.selections()[channel] or {}
 
@@ -190,7 +190,7 @@ class MarketDataSourceRegistry:
             VALUES(?,?,?,CURRENT_TIMESTAMP)
             ON CONFLICT(channel) DO UPDATE SET enabled=excluded.enabled,
                 candidates_json=excluded.candidates_json,updated_at=CURRENT_TIMESTAMP
-        """, (channel, int(enabled), json.dumps(normalized)))
+        """, (channel, bool(enabled), json.dumps(normalized)))
         self.db.commit()
         return self.failover()[channel]
 
