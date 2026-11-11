@@ -84,3 +84,24 @@ def test_last_super_admin_cannot_be_deactivated(tmp_path, monkeypatch):
             store.set_admin_status(actor, root_id, False)
     finally:
         store.close()
+
+
+
+def test_password_rotation_revokes_other_sessions(tmp_path, monkeypatch):
+    store = _store(tmp_path, monkeypatch)
+    try:
+        root_id, secret = store.bootstrap("root@example.com", "Long-Strong-Password-123!")
+        now = 1_800_000_000
+        login = store.authenticate("root@example.com", "Long-Strong-Password-123!",
+                                   _totp(secret, now), rate_key="root|local", now=now)
+        assert login
+        other = store.authenticate("root@example.com", "Long-Strong-Password-123!",
+                                   _totp(secret, now + 30), rate_key="root|local", now=now + 30)
+        assert other
+        store.change_password(login, "Long-Strong-Password-123!", "New-Strong-Password-456!")
+        assert store.session(login["session_id"])
+        assert store.session(other["session_id"]) is None
+        assert store.authenticate("root@example.com", "New-Strong-Password-456!",
+                                  _totp(secret, now + 60), rate_key="root|local", now=now + 60)
+    finally:
+        store.close()
