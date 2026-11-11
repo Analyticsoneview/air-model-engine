@@ -49,10 +49,16 @@ def _source_db(path: Path):
     CREATE TABLE customers(customer_id TEXT PRIMARY KEY,email TEXT,password_hash TEXT,is_active INTEGER,created_at TEXT);
     CREATE TABLE air_access_requests(request_id TEXT PRIMARY KEY,mobile_e164 TEXT,device_id TEXT,status TEXT,created_at TEXT,reviewed_at TEXT,reviewer_note TEXT);
     CREATE TABLE air_device_sessions(session_id TEXT PRIMARY KEY,request_id TEXT,active INTEGER,created_at TEXT);
+    CREATE TABLE air_customer_subscriptions(
+        customer_id TEXT PRIMARY KEY,plan_code TEXT,starts_at TEXT,expires_at TEXT,
+        status TEXT,updated_at TEXT
+    );
     """)
     db.execute("INSERT INTO customers VALUES(?,?,?,?,?)", ("cust-1", "user@example.com", "hash", 1, "2026-01-01T05:30:00+05:30"))
     db.execute("INSERT INTO air_access_requests VALUES(?,?,?,?,?,?,?)", ("req-1", "+14155550123", "device-0001", "APPROVED", "2026-01-01T05:30:00+05:30", "2026-01-01T05:31:00+05:30", "approved"))
     db.execute("INSERT INTO air_device_sessions VALUES(?,?,?,?)", ("sid-1", "req-1", 1, "2026-01-01T05:32:00+05:30"))
+    db.execute("INSERT INTO air_customer_subscriptions VALUES(?,?,?,?,?,?)",
+               ("cust-1", "MONTHLY", "2026-01-01T00:00:00+00:00", "2026-02-01T00:00:00+00:00", "ACTIVE", "2026-01-01T00:00:00+00:00"))
     db.commit()
     db.close()
 
@@ -77,10 +83,11 @@ def test_customer_access_import_reconciles_all_rows(postgres_url, tmp_path):
             conn.execute(text("DELETE FROM air_access_requests"))
             conn.execute(text("DELETE FROM customers"))
         counts = migrate(str(source), postgres_url)
-        assert counts == {"customers": 1, "air_access_requests": 1, "air_device_sessions": 1}
+        assert counts == {"customers": 1, "air_access_requests": 1, "air_device_sessions": 1, "air_customer_subscriptions": 1}
         with engine.connect() as conn:
             assert conn.execute(text("SELECT COUNT(*) FROM customers")).scalar_one() == 1
             assert conn.execute(text("SELECT COUNT(*) FROM air_device_sessions")).scalar_one() == 1
+            assert conn.execute(text("SELECT COUNT(*) FROM air_customer_subscriptions")).scalar_one() == 1
     finally:
         engine.dispose()
 
