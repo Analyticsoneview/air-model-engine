@@ -17,9 +17,12 @@ concurrency:
 
 jobs:
   redis-state-integration:
-    name: Redis shared OAuth state (GitHub-hosted Redis 7)
+    name: Redis shared OAuth state (disposable Redis 7)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
     steps:
       - uses: actions/checkout@v4
       - name: Start disposable Redis 7 container
