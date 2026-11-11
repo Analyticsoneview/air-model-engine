@@ -49,6 +49,10 @@ class MemoryRedis:
             self.values.pop(key, None)
             self.sets.pop(key, None)
 
+    def close(self):
+        # In-memory fake owns no sockets or external resources.
+        pass
+
 
 def _totp(secret: str, timestamp: int) -> str:
     key = base64.b32decode(secret + "=" * ((8 - len(secret) % 8) % 8))
@@ -132,8 +136,17 @@ def test_postgres_admin_password_rotation_revokes_other_sessions(admin_store):
 
 def test_postgres_admin_cannot_remove_last_super_admin(admin_store):
     admin_id, _ = admin_store.bootstrap("root@example.com", "Long-Strong-Password-123!")
-    actor = {"admin_id": admin_id, "role": "SUPER_ADMIN"}
+    # Use a distinct authenticated actor identity to reach the invariant checks;
+    # self-deactivation is intentionally rejected earlier by the store.
+    actor = {"admin_id": "different-super-admin-actor", "role": "SUPER_ADMIN"}
     with pytest.raises(ValueError, match="At least one active Super Admin"):
         admin_store.set_admin_status(actor, admin_id, False)
     with pytest.raises(ValueError, match="At least one active Super Admin"):
         admin_store.set_admin_role(actor, admin_id, "ADMIN")
+
+
+def test_postgres_admin_cannot_deactivate_own_super_admin_account(admin_store):
+    admin_id, _ = admin_store.bootstrap("root@example.com", "Long-Strong-Password-123!")
+    actor = {"admin_id": admin_id, "role": "SUPER_ADMIN"}
+    with pytest.raises(ValueError, match="cannot deactivate your own"):
+        admin_store.set_admin_status(actor, admin_id, False)
