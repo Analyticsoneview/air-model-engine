@@ -5,6 +5,7 @@ SQLite remains the default until AIR_CUSTOMER_DATABASE_URL is explicitly set.
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 import re
 from uuid import uuid4
@@ -120,6 +121,63 @@ class PostgresAccessStore(_PostgresStore):
             conn.execute(text("INSERT INTO air_device_sessions(session_id,request_id) VALUES(:sid,:rid)"),
                          {"sid": session_id, "rid": request_id})
         return session_id
+
+    @staticmethod
+    def _subscription_datetime(value: str) -> datetime:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("Subscription timestamps must be non-empty ISO-8601 strings")
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    def assign_subscription(self, customer_id: str, plan_code: str, starts_at: str, expires_at: str) -> None:
+        plan = plan_code.upper()
+        if plan not in {"DAILY", "MONTHLY", "SIX_MONTHS", "YEARLY"}:
+            raise ValueError("Unsupported AIR subscription plan")
+        starts = self._subscription_datetime(starts_at)
+        expires = self._subscription_datetime(expires_at)
+        if expires <= starts:
+            raise ValueError("Subscription expiry must be later than its start date")
+        with self.engine.begin() as conn:
+            conn.execute(text("""
+                INSERT INTO air_customer_subscriptions
+                    (customer_id,plan_code,starts_at,expires_at,status,updated_at)
+                VALUES(:customer_id,:plan_code,:starts_at,:expires_at,'ACTIVE',CURRENT_TIMESTAMP::text)
+                ON CONFLICT(customer_id) DO UPDATE SET
+                    plan_code=excluded.plan_code,
+                    starts_at=excluded.starts_at,
+                    expires_at=excluded.expires_at,
+                    status='ACTIVE',
+                    updated_at=CURRENT_TIMESTAMP::text
+            """), {
+                "customer_id": customer_id,
+                "plan_code": plan,
+                "starts_at": starts.isoformat(),
+                "expires_at": expires.isoformat(),
+            })
+
+    def get_subscription(self, customer_id: str):
+        with self.engine.connect() as conn:
+            row = conn.execute(text("""
+                SELECT customer_id,plan_code,starts_at,expires_at,status
+                FROM air_customer_subscriptions WHERE customer_id=:customer_id
+            """), {"customer_id": customer_id}).mappings().first()
+        if row is None:
+            return None
+        result = dict(row)
+        if result["status"] == "ACTIVE":
+            try:
+                starts = self._subscription_datetime(result["starts_at"])
+                expires = self._subscription_datetime(result["expires_at"])
+                now = datetime.now(timezone.utc)
+                if starts > now:
+                    result["status"] = "PENDING"
+                elif expires <= now:
+                    result["status"] = "EXPIRED"
+            except (TypeError, ValueError):
+                result["status"] = "EXPIRED"
+        return result
 
     def is_session_active(self, session_id: str) -> bool:
         with self.engine.connect() as conn:
