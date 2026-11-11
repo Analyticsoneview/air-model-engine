@@ -6,7 +6,7 @@ from decimal import Decimal
 from uuid import uuid4
 import secrets
 
-from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, Header
+from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -719,12 +719,30 @@ class AdminLoginRequest(BaseModel):
     totp_code: str = Field(pattern=r"^\d{6}$")
 
 
+class AdminCreateRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=254)
+    role: str = Field(pattern="^(ADMIN|RESEARCH_ADMIN)$")
+
+
+class AdminStatusRequest(BaseModel):
+    active: bool
+
+
+class AdminRoleRequest(BaseModel):
+    role: str = Field(pattern="^(SUPER_ADMIN|ADMIN|RESEARCH_ADMIN)$")
+
+
 @app.post("/api/v1/admin/auth/login")
-async def admin_login(body: AdminLoginRequest) -> dict:
-    store = get_admin_auth_store()
-    admin = store.authenticate(body.email, body.password, body.totp_code)
+async def admin_login(body: AdminLoginRequest, request: Request) -> dict:
+    try:
+        store = get_admin_auth_store()
+        client_host = request.client.host if request.client else "unknown"
+        admin = store.authenticate(body.email, body.password, body.totp_code,
+                                   rate_key=f"{body.email.strip().lower()}|{client_host}")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Administrator authentication is not configured") from exc
     if not admin:
-        raise HTTPException(status_code=401, detail="Invalid administrator credentials or MFA code")
+        raise HTTPException(status_code=429, detail="Administrator login failed or temporarily locked. Try again later.")
     token = create_admin_access_token(admin["admin_id"], admin["role"], admin["session_id"], expires_minutes=20)
     return {"access_token": token, "token_type": "bearer", "expires_in": 1200,
             "admin": {"admin_id": admin["admin_id"], "email": admin["email"], "role": admin["role"]}}
@@ -745,6 +763,68 @@ def require_admin_management(admin: dict = Depends(require_admin)) -> dict:
     if admin["role"] not in {"SUPER_ADMIN", "ADMIN"}:
         raise HTTPException(status_code=403, detail="Administrator management permission is required")
     return admin
+
+
+
+@app.get("/api/v1/admin/users")
+async def admin_list_users(admin: dict = Depends(require_admin)) -> dict:
+    if admin["role"] != "SUPER_ADMIN":
+        raise HTTPException(status_code=403, detail="Only Super Admin can manage administrator accounts")
+    return {"admins": get_admin_auth_store().list_admins()}
+
+
+@app.post("/api/v1/admin/users", status_code=201)
+async def admin_create_user(body: AdminCreateRequest, admin: dict = Depends(require_admin)) -> dict:
+    try:
+        created, provisioning_uri = get_admin_auth_store().create_admin(admin, body.email, body.role)
+        return {"admin": {k: v for k, v in created.items() if k != "temporary_password"},
+                "temporary_password": created["temporary_password"],
+                "totp_provisioning_uri": provisioning_uri,
+                "note": "Share these one-time setup values securely. The authenticator secret is not retrievable later."}
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        if "UNIQUE constraint failed" in str(exc):
+            raise HTTPException(status_code=409, detail="Administrator email already exists") from exc
+        raise
+
+
+@app.put("/api/v1/admin/users/{target_admin_id}/status")
+async def admin_update_user_status(target_admin_id: str, body: AdminStatusRequest,
+                                   admin: dict = Depends(require_admin)) -> dict:
+    try:
+        updated = get_admin_auth_store().set_admin_status(admin, target_admin_id, body.active)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not updated:
+        raise HTTPException(status_code=404, detail="Administrator not found")
+    return {"admin_id": target_admin_id, "active": body.active, "updated": True}
+
+
+@app.put("/api/v1/admin/users/{target_admin_id}/role")
+async def admin_update_user_role(target_admin_id: str, body: AdminRoleRequest,
+                                 admin: dict = Depends(require_admin)) -> dict:
+    try:
+        updated = get_admin_auth_store().set_admin_role(admin, target_admin_id, body.role)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not updated:
+        raise HTTPException(status_code=404, detail="Administrator not found")
+    return {"admin_id": target_admin_id, "role": body.role, "updated": True, "sessions_revoked": True}
+
+
+@app.get("/api/v1/admin/audit")
+async def admin_audit(limit: int = Query(default=100, ge=1, le=500),
+                      admin: dict = Depends(require_admin)) -> dict:
+    if admin["role"] != "SUPER_ADMIN":
+        raise HTTPException(status_code=403, detail="Only Super Admin can view administrator audit events")
+    return {"events": get_admin_auth_store().audit_events(limit)}
 
 
 @app.get("/api/v1/admin/access-requests")
