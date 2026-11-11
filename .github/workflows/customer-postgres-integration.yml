@@ -49,6 +49,7 @@ jobs:
           }
           if (-not $ready) { docker logs $container; throw 'PostgreSQL did not become ready within 90 seconds.' }
           $url = "postgresql+psycopg://air_test:air_test@127.0.0.1:$port/air_test"
+          "AIR_DATABASE_URL=$url" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "AIR_CUSTOMER_DATABASE_URL=$url" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "AIR_TEST_CUSTOMER_DATABASE_URL=$url" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "AIR_CREDENTIAL_DATABASE_URL=$url" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
