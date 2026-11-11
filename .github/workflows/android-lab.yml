@@ -47,7 +47,7 @@ jobs:
           if (-not (Test-Path -LiteralPath $manifest)) { throw "Android manifest missing: $manifest" }
           $xml = Get-Content -LiteralPath $manifest -Raw
           if ($xml -notmatch 'usesCleartextTraffic') {
-            $xml = [regex]::Replace($xml, '<application(?=\\s|>)', '<application android:usesCleartextTraffic="true"', 1)
+            $xml = [regex]::Replace($xml, '<application(?=\s|>)', '<application android:usesCleartextTraffic="true"', 1)
           }
           Set-Content -LiteralPath $manifest -Value $xml -Encoding utf8
           if ((Get-Content -LiteralPath $manifest -Raw) -notmatch 'android:usesCleartextTraffic="true"') { throw 'Lab HTTP traffic setting was not applied.' }
