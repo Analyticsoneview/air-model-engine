@@ -17,6 +17,9 @@ TABLES = {
     "customers": ("customer_id", ("customer_id", "email", "password_hash", "is_active", "created_at")),
     "air_access_requests": ("request_id", ("request_id", "mobile_e164", "device_id", "status", "created_at", "reviewed_at", "reviewer_note")),
     "air_device_sessions": ("session_id", ("session_id", "request_id", "active", "created_at")),
+    "air_customer_subscriptions": ("customer_id", (
+        "customer_id", "plan_code", "starts_at", "expires_at", "status", "updated_at",
+    )),
 }
 BOOL_COLUMNS = {"is_active", "active"}
 TIMESTAMP_COLUMNS = {"created_at", "reviewed_at"}
