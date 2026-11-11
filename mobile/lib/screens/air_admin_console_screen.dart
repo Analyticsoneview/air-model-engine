@@ -99,14 +99,14 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
 
   Future<void> _load() async {
     if (_token == null) return;
-    final results = await Future.wait([
-      _request('GET', '/api/v1/admin/users'),
-      _request('GET', '/api/v1/admin/audit?limit=100'),
+    final requestResults = await Future.wait([
       _request('GET', '/api/v1/admin/access-requests?status=PENDING'),
+      if (_role == 'SUPER_ADMIN') _request('GET', '/api/v1/admin/users') else Future.value(<String,dynamic>{'admins': []}),
+      if (_role == 'SUPER_ADMIN') _request('GET', '/api/v1/admin/audit?limit=100') else Future.value(<String,dynamic>{'events': []}),
     ]);
-    _admins = (results[0]['admins'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
-    _audit = (results[1]['events'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
-    _requests = (results[2]['requests'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
+    _requests = (requestResults[0]['requests'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
+    _admins = (requestResults[1]['admins'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
+    _audit = (requestResults[2]['events'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
   }
 
   Future<void> _refresh() async {
