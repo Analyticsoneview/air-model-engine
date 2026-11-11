@@ -26,7 +26,7 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 bash ./AIRSTART.sh
 ```
 
-The launcher checks Docker and Compose, creates local secrets if missing, creates the local environment file, builds the API and Flutter PWA, starts both services, waits for the API health endpoint, and opens the app.
+The launcher checks Docker and Compose, runs `deploy/init-local-secrets.py` to create all eight required secrets without replacing existing values, creates the local environment file, builds the API and Flutter PWA, starts both services, waits for the API health endpoint, and opens the app.
 
 After the first launch, the launcher installs the `AIRSTART` command in the PowerShell profile on Windows or the shell profile on macOS/Linux. Open a new terminal and run:
 
@@ -48,7 +48,7 @@ Run it from the AIR repository directory. It is safe to run repeatedly; Compose 
 - QOC and Telegram schedulers remain disabled until their provider credentials, entitlements and destinations are explicitly configured and tested.
 - NSE historical-data bootstrap is enabled and runs in the background; it can take time and requires network access.
 - Local secrets are generated into `.air-secrets/`; they must never be committed or shared. Back up the credential encryption key securely if you enter real broker credentials.
-- Local SQLite data is persisted in the Docker volume `air_data`.
+- PostgreSQL persists in `postgres_data`; remaining SQLite domain stores persist in `air_data`. Customer and Admin authentication are migrated to PostgreSQL during API startup. Broker credentials, customer broker-account settings, execution policy and order ledger remain SQLite until the explicit domain-store cutover is run.
 - This local stack does not create public DNS/TLS, deploy to Swarm, configure production secrets, or validate live broker trading.
 
 ## Operations
