@@ -32,6 +32,11 @@ python -m pip install pytest
 python -m pytest -q
 ```
 
+
+## Separate administrator authentication
+
+The app includes a dedicated **More → Administrator Sign In** console. It is independent of customer mobile approval and uses administrator email, password and TOTP MFA with a separate 20-minute, server-revocable JWT session. Super Admin manages administrator accounts and audit events; Admin reviews customer access; Research Admin is read-only. The first Super Admin is created once with `cd backend && python -m scripts.bootstrap_admin` (or from the deployed API container). Configure `AIR_ADMIN_MFA_KEY_FILE` with a persistent Fernet key and `AIR_JWT_SECRET` before bootstrap. The Swarm stack provisions the MFA key as the `air_admin_mfa_key` Docker secret. Never store bootstrap passwords, TOTP provisioning URIs or key material in source control.
+
 ## Self-hosted deployment
 
 Follow [Docker Swarm deployment](deploy/DOCKER_SWARM.md). It covers Docker secrets, first-operator provisioning, PWA/API routing and the current single-replica limits.
