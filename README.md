@@ -54,7 +54,7 @@ For the end-to-end Ubuntu installer, Caddy HTTPS setup, self-hosted GitHub runne
 
 ## Important limitations
 
-- SQLite and process-local OAuth state mean one API replica only. PostgreSQL, Redis-backed OAuth state, migrations and HA are not implemented.
+- PostgreSQL 16 and Redis 7 infrastructure, persistent volumes, Docker secrets and API connectivity health checks are provisioned. Existing domain repositories (including Admin/customer auth, accounts, credentials, QOC and instrument masters) are still SQLite-backed during staged migration. Redis is not yet authoritative for sessions, rate limits or OAuth state. Keep one API replica until those migrations and concurrency tests pass.
 - Live broker credentials, market-data permissions, provider streaming and execution have not been validated against the user's broker accounts.
 - Full AIR QOC scoring/qualification, multi-session underlying/option confirmation, validated backtests and intraday live monitoring are not yet complete. EXPIRYSCAN's EOD liquidity screen is automated after each successful capture, but it does not generate trade entries, SLs, targets or QOC scores. Optional Dhan token renewal is limited to active tokens originally generated from Dhan Web and remains disabled unless explicitly configured. Dhan option-chain snapshots alone are not a qualified signal.
 - Configure TLS, firewalling, backups, monitoring and restore testing before any internet-facing deployment.
