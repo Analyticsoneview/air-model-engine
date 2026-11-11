@@ -236,8 +236,14 @@ def verify_totp(secret: str, code: str, now: int | None = None) -> bool:
 
 _admin_store = None
 
-def get_admin_auth_store() -> AdminAuthStore:
+def get_admin_auth_store():
+    """Select PostgreSQL only when its dedicated Admin URL is explicitly configured."""
     global _admin_store
     if _admin_store is None:
-        _admin_store = AdminAuthStore()
+        admin_database_url = os.getenv("AIR_ADMIN_DATABASE_URL") or os.getenv("AIR_ADMIN_DATABASE_URL_FILE")
+        if admin_database_url:
+            from app.admin_auth_postgres import PostgresAdminAuthStore
+            _admin_store = PostgresAdminAuthStore()
+        else:
+            _admin_store = AdminAuthStore()
     return _admin_store
