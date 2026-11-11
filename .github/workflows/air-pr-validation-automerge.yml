@@ -67,13 +67,37 @@ jobs:
           & (Join-Path $flutterBin 'flutter.bat') --version
           if ($LASTEXITCODE -ne 0) { throw 'Flutter SDK bootstrap failed.' }
           "AIR_FLUTTER=$flutterBin\flutter.bat" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-      - name: Install Android SDK components
-        uses: android-actions/setup-android@v3
+      - name: Install Android SDK command-line tools (Windows-native)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sdkRoot = 'C:\\Android\\Sdk'
+          $toolsRoot = Join-Path $sdkRoot 'cmdline-tools'
+          $latest = Join-Path $toolsRoot 'latest'
+          $archive = Join-Path $env:RUNNER_TEMP 'android-commandline-tools.zip'
+          New-Item -ItemType Directory -Force -Path $toolsRoot | Out-Null
+          Invoke-WebRequest -Uri 'https://dl.google.com/android/repository/commandlinetools-win-12266719_latest.zip' -OutFile $archive -UseBasicParsing
+          if (-not (Test-Path -LiteralPath $archive) -or (Get-Item -LiteralPath $archive).Length -lt 10000000) { throw 'Android command-line tools download is missing or unexpectedly small.' }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::OpenRead($archive)
+          try { if (-not ($zip.Entries | Where-Object { $_.FullName -eq 'cmdline-tools/bin/sdkmanager.bat' })) { throw 'Downloaded Android SDK archive does not contain sdkmanager.bat.' } } finally { $zip.Dispose() }
+          if (Test-Path -LiteralPath $latest) { Remove-Item -LiteralPath $latest -Recurse -Force }
+          $extract = Join-Path $env:RUNNER_TEMP 'android-commandline-tools-extract'
+          if (Test-Path -LiteralPath $extract) { Remove-Item -LiteralPath $extract -Recurse -Force }
+          Expand-Archive -LiteralPath $archive -DestinationPath $extract -Force
+          Move-Item -LiteralPath (Join-Path $extract 'cmdline-tools') -Destination $latest
+          $sdkManager = Join-Path $latest 'bin\\sdkmanager.bat'
+          if (-not (Test-Path -LiteralPath $sdkManager)) { throw 'Android SDK manager was not installed.' }
+          "ANDROID_HOME=$sdkRoot" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "ANDROID_SDK_ROOT=$sdkRoot" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          (Join-Path $latest 'bin') | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          (Join-Path $sdkRoot 'platform-tools') | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          & $sdkManager "--sdk_root=$sdkRoot" --licenses 1>$null
+          if ($LASTEXITCODE -ne 0) { throw 'Android SDK license acceptance failed.' }
       - name: Install required Android platform and build tools
         run: |
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          $sdkManager = Join-Path $env:ANDROID_HOME 'cmdline-tools/latest/bin/sdkmanager.bat'
+          & $sdkManager "--sdk_root=$env:ANDROID_HOME" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
           if ($LASTEXITCODE -ne 0) { throw 'Android SDK component installation failed.' }
-          "AIR_FLUTTER=flutter" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Generate Android platform when missing
         working-directory: mobile
         run: |
