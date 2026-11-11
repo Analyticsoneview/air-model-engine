@@ -28,7 +28,7 @@ class AccessStore:
                 request_id TEXT PRIMARY KEY,
                 mobile_e164 TEXT NOT NULL,
                 device_id TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'APPROVED'
+                status TEXT NOT NULL DEFAULT 'PENDING'
                     CHECK(status IN ('PENDING','APPROVED','REJECTED','BLOCKED')),
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 reviewed_at TEXT,
@@ -71,14 +71,8 @@ class AccessStore:
         with self.db:
             self.db.execute(
                 """INSERT OR IGNORE INTO air_access_requests
-                   (request_id,mobile_e164,device_id,status) VALUES(?,?,?,'APPROVED')""",
+                   (request_id,mobile_e164,device_id,status) VALUES(?,?,?,'PENDING')""",
                 (str(uuid4()), mobile, device),
-            )
-            # Migrate previously pending beta requests into the direct dashboard flow.
-            # Explicitly rejected or blocked devices are not silently re-enabled.
-            self.db.execute(
-                "UPDATE air_access_requests SET status='APPROVED' WHERE mobile_e164=? AND device_id=? AND status='PENDING'",
-                (mobile, device),
             )
         return self.get_request(mobile, device)
 
