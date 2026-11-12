@@ -417,7 +417,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
       ]),
       const SizedBox(height: 12),
       DropdownButtonFormField<String>(
-        value: _customerSegment,
+        initialValue: _customerSegment,
         decoration: const InputDecoration(labelText: 'Customer segment', border: OutlineInputBorder()),
         items: [for (final s in segments) DropdownMenuItem(value: s.$1, child: Text(s.$2))],
         onChanged: _busy ? null : (value) async {
@@ -470,7 +470,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
       TextField(controller: _offerCode, textCapitalization: TextCapitalization.characters, decoration: const InputDecoration(labelText: 'Offer code', border: OutlineInputBorder())),
       const SizedBox(height: 8),
       DropdownButtonFormField<String>(
-        value: _offerPlan, decoration: const InputDecoration(labelText: 'Applicable plan', border: OutlineInputBorder()),
+        initialValue: _offerPlan, decoration: const InputDecoration(labelText: 'Applicable plan', border: OutlineInputBorder()),
         items: const [
           DropdownMenuItem(value: 'DAILY', child: Text('Daily')),
           DropdownMenuItem(value: 'MONTHLY', child: Text('Monthly')),
@@ -598,7 +598,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
       const SizedBox(height: 14),
       Wrap(spacing: 10, runSpacing: 10, crossAxisAlignment: WrapCrossAlignment.center, children: [
         SizedBox(width: 220, child: DropdownButtonFormField<String>(
-          value: _requestFilter,
+          initialValue: _requestFilter,
           decoration: const InputDecoration(labelText: 'Request status', border: OutlineInputBorder(), isDense: true),
           items: const [
             DropdownMenuItem(value: 'PENDING', child: Text('Pending')),
