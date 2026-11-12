@@ -294,6 +294,18 @@ class AccessStore:
                 break
         return result
 
+    def get_marketing_consent(self, customer_id: str):
+        row = self.db.execute(
+            "SELECT promotional_consent,consent_updated_at FROM air_customer_marketing_preferences WHERE customer_id=?",
+            (customer_id,),
+        ).fetchone()
+        return {
+            "customer_id": customer_id,
+            "promotional_consent": bool(row and row["promotional_consent"]),
+            "marketing_status": "OPTED_IN" if row and row["promotional_consent"] else ("OPTED_OUT" if row else "NOT_GRANTED"),
+            "consent_updated_at": row["consent_updated_at"] if row else None,
+        }
+
     def set_marketing_consent(self, customer_id: str, enabled: bool):
         """Customer-controlled opt-in/out. Admin UI cannot grant consent on a customer's behalf."""
         if not customer_id:
