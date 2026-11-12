@@ -1,3 +1,4 @@
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -18,15 +19,27 @@ def _client(monkeypatch, subscription):
     return TestClient(app)
 
 
-def test_backtest_strategy_catalog_requires_active_subscription(monkeypatch):
-    client = _client(monkeypatch, None)
+@pytest.mark.parametrize("subscription", [
+    None,
+    {"status": "PENDING", "plan_code": "MONTHLY"},
+    {"status": "EXPIRED", "plan_code": "MONTHLY"},
+    {"status": "CANCELLED", "plan_code": "MONTHLY"},
+])
+def test_backtest_strategy_catalog_rejects_non_active_subscription(monkeypatch, subscription):
+    client = _client(monkeypatch, subscription)
     response = client.get("/api/v1/backtest/strategies")
     assert response.status_code == 403
     assert "active AIR subscription" in response.json()["detail"]
 
 
-def test_expiryscan_report_requires_active_subscription(monkeypatch):
-    client = _client(monkeypatch, None)
+@pytest.mark.parametrize("subscription", [
+    None,
+    {"status": "PENDING", "plan_code": "MONTHLY"},
+    {"status": "EXPIRED", "plan_code": "MONTHLY"},
+    {"status": "CANCELLED", "plan_code": "MONTHLY"},
+])
+def test_expiryscan_report_rejects_non_active_subscription(monkeypatch, subscription):
+    client = _client(monkeypatch, subscription)
     response = client.get(
         "/api/v1/backtest/expiryscan",
         params={"start_date": "2026-11-01", "end_date": "2026-11-02"},
