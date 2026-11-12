@@ -30,6 +30,11 @@ jobs:
           filters: |
             backend:
               - 'backend/**'
+              - 'deploy/**'
+              - 'compose.local.yml'
+              - 'AIRSTART.ps1'
+              - 'AIRSTART.sh'
+              - 'scripts/**'
               - '.github/workflows/**'
             android:
               - 'mobile/**'

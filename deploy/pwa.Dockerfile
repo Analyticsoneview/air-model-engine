@@ -3,7 +3,10 @@ FROM ghcr.io/cirruslabs/flutter:stable AS build
 ARG AIR_API_BASE_URL=https://api.example.invalid
 WORKDIR /src
 COPY mobile/ ./
-RUN flutter pub get \
+# The mobile source is shared with native builds and does not commit generated
+# web platform files. Generate only the web runner in this isolated image layer.
+RUN flutter create --platforms=web . \
+ && flutter pub get \
  && flutter build web --release --tree-shake-icons --no-source-maps --base-href "/" \
     --dart-define=APP_ENV=production \
     --dart-define=AIR_API_BASE_URL=${AIR_API_BASE_URL}

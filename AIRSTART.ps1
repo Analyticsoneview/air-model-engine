@@ -32,19 +32,9 @@ Push-Location $Root
 try {
     $secretDir = Join-Path $Root ".air-secrets"
     New-Item -ItemType Directory -Force -Path $secretDir | Out-Null
-    $secretFiles = @("jwt_secret", "credential_key", "admin_api_key")
-    $missing = $false
-    foreach ($name in $secretFiles) {
-        if (!(Test-Path (Join-Path $secretDir $name))) { $missing = $true }
-    }
-    if ($missing) {
-        Write-Host "Generating local-only AIR secrets..." -ForegroundColor Cyan
-        $generated = docker run --rm python:3.12-slim python -c "import secrets,base64; print(secrets.token_urlsafe(48)); print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode()); print(secrets.token_urlsafe(48))"
-        if ($LASTEXITCODE -ne 0 -or $generated.Count -lt 3) { throw "Could not generate local secrets." }
-        for ($i=0; $i -lt 3; $i++) {
-            [System.IO.File]::WriteAllText((Join-Path $secretDir $secretFiles[$i]), [string]$generated[$i], [System.Text.UTF8Encoding]::new($false))
-        }
-    }
+    Write-Host "Checking and generating all required local-only AIR secrets..." -ForegroundColor Cyan
+    docker run --rm --mount "type=bind,source=$secretDir,target=/secrets" --mount "type=bind,source=$Root/scripts,target=/scripts,readonly" python:3.12-slim python /scripts/generate_local_secrets.py
+    if ($LASTEXITCODE -ne 0) { throw "AIR local secret generation failed." }
 
     $envFile = Join-Path $Root ".air-local.env"
     if (!(Test-Path $envFile)) {
@@ -59,21 +49,33 @@ AIR_SMTP_PORT=587
     docker compose -f compose.local.yml up -d --build
     if ($LASTEXITCODE -ne 0) { docker compose -f compose.local.yml logs --tail 100; throw "AIR startup failed. Review the logs above." }
 
+    $services = @("postgres", "redis", "air-api", "air-pwa")
     $ready = $false
     for ($i=0; $i -lt 36; $i++) {
-        try {
-            $response = Invoke-WebRequest -Uri "http://localhost:8000/health" -TimeoutSec 3
-            if ($response.StatusCode -eq 200) { $ready = $true; break }
-        } catch { Start-Sleep -Seconds 5 }
+        $allHealthy = $true
+        foreach ($service in $services) {
+            $containerId = docker compose -f compose.local.yml ps -q $service
+            if ($LASTEXITCODE -ne 0 -or !$containerId) { $allHealthy = $false; break }
+            $health = docker inspect -f "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}" $containerId
+            if ($LASTEXITCODE -ne 0 -or $health.Trim() -ne "healthy") { $allHealthy = $false; break }
+        }
+        if ($allHealthy) {
+            try {
+                $api = Invoke-WebRequest -Uri "http://localhost:8000/health" -TimeoutSec 3
+                $pwa = Invoke-WebRequest -Uri "http://localhost:8080/health" -TimeoutSec 3
+                if ($api.StatusCode -eq 200 -and $pwa.StatusCode -eq 200) { $ready = $true; break }
+            } catch { }
+        }
+        Start-Sleep -Seconds 5
     }
     if (!$ready) {
         docker compose -f compose.local.yml ps
         docker compose -f compose.local.yml logs --tail 100
-        throw "AIR API did not become healthy. Do not use the app until the reported issue is fixed."
+        throw "PostgreSQL, Redis, AIR API and PWA did not all become healthy. Do not use the app until the reported issue is fixed."
     }
-    Write-Host "AIR API is healthy. Opening the local app..." -ForegroundColor Green
-    Start-Process "http://localhost:8080"
+    Write-Host "PostgreSQL, Redis, FastAPI and PWA are healthy." -ForegroundColor Green
     docker compose -f compose.local.yml ps
+    Start-Process "http://localhost:8080"
 
     if (!$env:AIR_START_PROFILE_INSTALLED) { Install-AirCommand }
     Write-Host "Next time, open PowerShell in this repository and type: AIRSTART" -ForegroundColor Green

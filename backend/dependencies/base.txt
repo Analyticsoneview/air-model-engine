@@ -14,3 +14,6 @@ SQLAlchemy>=2.0,<3.0
 alembic>=1.13,<2.0
 psycopg[binary]>=3.2,<4.0
 redis>=5.0,<7.0
+
+# Local SVG QR generation for administrator TOTP enrollment.
+qrcode>=8.0,<9.0
