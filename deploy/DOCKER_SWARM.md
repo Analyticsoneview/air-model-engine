@@ -1,6 +1,6 @@
 # Self-hosted Docker Swarm deployment (single-node lab)
 
-This stack serves the Flutter PWA and API on a private overlay network. It is a **single-replica lab deployment**, not a highly available production cluster. PostgreSQL 16 and Redis 7 are provisioned with persistent volumes and Docker secrets, and the API reports their connection health. Existing domain repositories still use SQLite in this migration phase; do not assume application records have moved to PostgreSQL or that Redis-backed sessions/OAuth are active. Do not scale the API above one replica until repository migration and shared-state tests are complete.
+This stack serves the Flutter PWA and API on a private overlay network. It is a **single-replica lab deployment**, not a highly available production cluster. PostgreSQL 16 and Redis 7 are provisioned with persistent volumes and Docker secrets, and the API reports their connection health. The stack supplies `AIR_REDIS_URL_FILE`, so Fyers/Upstox OAuth callback state uses Redis with a 10-minute TTL and atomic one-time consumption; a configured Redis outage fails closed. Admin and customer-auth PostgreSQL stores are opt-in through their dedicated `AIR_ADMIN_DATABASE_URL_FILE` and `AIR_CUSTOMER_DATABASE_URL_FILE` selectors, which are not enabled by this stack yet. Accounts, credentials, QOC, instrument masters, execution policy and other domain repositories remain SQLite-backed. Do not scale the API above one replica until every remaining repository migration and shared-state concurrency test is complete.
 
 ## 1. Build images
 
@@ -38,7 +38,7 @@ python -m scripts.bootstrap_admin
 
 The container must include the bootstrap script and receive `AIR_ADMIN_MFA_KEY_FILE=/run/secrets/air_admin_mfa_key`. Enter a unique email and a strong password (12+ characters), then scan the one-time TOTP provisioning URI with an authenticator app. Keep the URI private; it is displayed only during bootstrap. The bootstrap refuses to create a second initial Super Admin. Do not put passwords, TOTP URIs, or key material in chat, shell history, or source control.
 
-Open AIR → More → Administrator Sign In. Enter the administrator email, password and current six-digit authenticator code. The separate Admin session is stored in platform secure storage and expires after 20 minutes. Use the key icon to rotate the password and the sign-out action to revoke the server-side session. Super Admin can create/deactivate administrators, change roles, review audit events and manage pending customer access requests. Research Admin is read-only for customer access review and cannot manage administrator accounts.
+Open AIR → More → Administrator Sign In. Enter the administrator email, password and current six-digit authenticator code. The separate Admin session is stored in platform secure storage and expires after 20 minutes. Use the key icon to rotate the password and the sign-out action to revoke the server-side session. Super Admin can create/deactivate administrators, change roles, review audit events and manage pending customer access requests. Admin and Super Admin can activate Daily, Monthly, 6-month or Yearly customer subscriptions from the Subscriptions tab; Research Admin cannot assign plans. Research Admin is read-only for customer access review and cannot manage administrator accounts.
 
 ## 3. Bootstrap the first operator
 
@@ -114,7 +114,7 @@ The GitHub Actions workflow `.github/workflows/ios-pwa.yml` runs Flutter analysi
 
 - Customer signup is disabled by default. Provision the initial operator through the backend's trusted administrative bootstrap procedure; do not enable public signup on an exposed instance.
 - Back up the `air_data` volume and test restore before storing broker credentials.
-- PostgreSQL and Redis containers and connection health checks are now provisioned. Existing customer, Admin, account, credential, QOC and instrument repositories remain SQLite-backed until their individual schema/data migrations and rollback tests are completed. Redis is not yet the authoritative session/rate-limit store. The deployment must remain at one API replica.
+- PostgreSQL and Redis containers and connection health checks are provisioned. OAuth state is Redis-backed when the stack's Redis URL secret is available. Admin/customer auth PostgreSQL implementations are opt-in and require dedicated URL-file selectors plus their import/reconciliation runbooks; the stack does not activate those selectors by default. Accounts, credentials, QOC, instrument masters and execution policy remain SQLite-backed. The deployment must remain at one API replica.
 - Configure a TLS reverse proxy, strict firewall rules, monitoring, log retention and backup rotation.
 - Broker API plans, market-data entitlements, static IP approvals, instrument masters and exchange data redistribution rights must be verified separately.
 - No live order permission is enabled by this deployment. Live trading must remain disabled until provider-specific preflight, reconciliation and explicit confirmation tests pass.
