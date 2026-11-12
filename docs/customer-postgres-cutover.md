@@ -36,8 +36,7 @@ approval/revocation, persistence after reconnect, and idempotent SQLite import.
 5. Only after successful migration and verification, configure
    `AIR_CUSTOMER_DATABASE_URL_FILE=/run/secrets/air_database_url` for the API
    service environment (for example, in the existing `.air-local.env`).
-6. Start `AIR_CUSTOMER_DATABASE_URL_FILE=/run/secrets/air_database_url` to the
-   the API with `docker compose -f compose.local.yml up -d air-api` and verify
+6. Start the API with `docker compose -f compose.local.yml up -d air-api` and verify
    customer login, Admin access review, session revocation, subscription reads,
    consent and offer management. Retain the SQLite backup through the agreed
    rollback window. Rollback means
