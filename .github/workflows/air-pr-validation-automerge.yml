@@ -40,17 +40,22 @@ jobs:
     if: github.event.action != 'closed' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     uses: ./.github/workflows/backend-tests.yml
 
+  admin-postgres-integration:
+    needs: [changes, backend]
+    if: github.event.action != 'closed' && needs.backend.result == 'success' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    uses: ./.github/workflows/admin-postgres-integration.yml
+
   postgres-integration:
     needs: [changes, backend, admin-postgres-integration]
     uses: ./.github/workflows/customer-postgres-integration.yml
 
   redis-integration:
-    needs: changes
+    needs: [changes, backend, postgres-integration]
     uses: ./.github/workflows/redis-state-integration.yml
 
   android:
-    needs: [changes, backend, postgres-integration, redis-integration]
-    if: always() && github.event.action != 'closed' && needs.backend.result == 'success' && needs.postgres-integration.result == 'success' && needs.redis-integration.result == 'success' && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.android == 'true')
+    needs: [changes, backend, admin-postgres-integration, postgres-integration, redis-integration]
+    if: always() && github.event.action != 'closed' && needs.backend.result == 'success' && needs.admin-postgres-integration.result == 'success' && needs.postgres-integration.result == 'success' && needs.redis-integration.result == 'success' && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.android == 'true')
     name: Android ARM64 APK build
     runs-on: self-hosted
     timeout-minutes: 90
