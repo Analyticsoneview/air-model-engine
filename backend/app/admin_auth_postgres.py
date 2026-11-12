@@ -158,6 +158,33 @@ class PostgresAdminAuthStore:
         return {"admin_id": admin_id, "email": email, "role": role, "active": True,
                 "temporary_password": temporary_password}, uri
 
+    def rotate_mfa_secret(self, email: str, password: str, secret: str) -> None:
+        """Rotate an administrator TOTP secret after password and new-code verification."""
+        try:
+            decoded = base64.b32decode(secret + "=" * ((8 - len(secret) % 8) % 8), casefold=False)
+        except Exception as exc:
+            raise ValueError("A valid Base32 TOTP secret is required") from exc
+        if len(decoded) != 20 or len(secret) != 32:
+            raise ValueError("TOTP secret must encode exactly 160 bits (32 Base32 characters)")
+        normalized_email = email.strip().lower()
+        with self.engine.begin() as conn:
+            row = conn.execute(text("""SELECT admin_id,password_hash FROM air_admin_users
+                WHERE lower(email)=:email AND is_active=true FOR UPDATE"""),
+                {"email": normalized_email}).mappings().first()
+            if not row or not verify_password(password, row["password_hash"]):
+                raise PermissionError("Administrator email or password is incorrect")
+            conn.execute(text("""UPDATE air_admin_users SET mfa_secret=:secret,last_totp_counter=-1,
+                failed_attempts=0,locked_until=0 WHERE admin_id=:id"""),
+                {"secret": self.cipher.encrypt(secret.encode()), "id": row["admin_id"]})
+            conn.execute(text("UPDATE air_admin_sessions SET active=false WHERE admin_id=:id"),
+                         {"id": row["admin_id"]})
+            self._audit(conn, row["admin_id"], "ADMIN_MFA_ROTATED", row["admin_id"], normalized_email)
+        if self.redis is not None:
+            session_key = "air:admin:user-sessions:" + row["admin_id"]
+            for sid in self.redis.smembers(session_key):
+                self.redis.delete("air:admin:session:" + sid)
+            self.redis.delete(session_key)
+
     def change_password(self, admin: dict, current_password: str, new_password: str):
         with self.engine.begin() as conn:
             row = conn.execute(text("SELECT password_hash FROM air_admin_users WHERE admin_id=:id AND is_active=true FOR UPDATE"),

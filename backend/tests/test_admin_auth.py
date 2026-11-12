@@ -137,3 +137,25 @@ def test_admin_role_change_revokes_existing_sessions(tmp_path, monkeypatch):
         assert store.session(sid) is None
     finally:
         store.close()
+
+
+def test_mfa_rotation_requires_password_and_revokes_existing_sessions(tmp_path, monkeypatch):
+    store = _store(tmp_path, monkeypatch)
+    try:
+        admin_id, old_secret = store.bootstrap("root@example.com", "Long-Strong-Password-123!")
+        now = 1_800_000_000
+        login = store.authenticate("root@example.com", "Long-Strong-Password-123!",
+                                   _totp(old_secret, now), rate_key="root|local", now=now)
+        assert login
+        new_secret = base64.b32encode(b"0123456789abcdef0123").decode().rstrip("=")
+        with pytest.raises(PermissionError):
+            store.rotate_mfa_secret("root@example.com", "incorrect-password", new_secret)
+        store.rotate_mfa_secret("root@example.com", "Long-Strong-Password-123!", new_secret)
+        assert store.session(login["session_id"]) is None
+        assert store.authenticate("root@example.com", "Long-Strong-Password-123!",
+                                  _totp(old_secret, now + 30), rate_key="root|new", now=now + 30) is None
+        new_login = store.authenticate("root@example.com", "Long-Strong-Password-123!",
+                                       _totp(new_secret, now + 30), rate_key="root|new", now=now + 30)
+        assert new_login and new_login["admin_id"] == admin_id
+    finally:
+        store.close()
