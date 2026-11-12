@@ -22,8 +22,10 @@ approval/revocation, persistence after reconnect, and idempotent SQLite import.
 
 ## Local cutover — do not enable the customer PostgreSQL selector before migration
 
-1. Stop the API to prevent concurrent writes and make a separate backup copy of
-   `/var/lib/air/auth.sqlite3`. Keep the original file and backup.
+1. Stop the API to prevent concurrent writes:
+   `docker compose -f compose.local.yml stop air-api`
+   Then make a separate, timestamped backup copy of `/var/lib/air/auth.sqlite3`
+   from the persistent `air_data` volume. Keep both the original and backup.
 2. Apply Alembic migrations using the existing database URL secret:
    `docker compose -f compose.local.yml run --rm --no-deps --entrypoint python air-api -m alembic upgrade head`
 3. Copy the SQLite customer data. The command uses the mounted data volume and
@@ -35,9 +37,13 @@ approval/revocation, persistence after reconnect, and idempotent SQLite import.
    `AIR_CUSTOMER_DATABASE_URL_FILE=/run/secrets/air_database_url` for the API
    service and restart it. Confirm customer login, Admin access review, session
    revocation, subscription reads, consent and offer management.
-6. Retain the SQLite backup through the agreed rollback window. Rollback means
+6. Add `AIR_CUSTOMER_DATABASE_URL_FILE=/run/secrets/air_database_url` to the
+   API service environment (for example, in the existing `.air-local.env`), then
+   start the API with `docker compose -f compose.local.yml up -d air-api` and
+   verify the workflows listed above. Retain the SQLite backup through the agreed
+   rollback window. Rollback means
    restoring the previous application configuration to SQLite; do not attempt to
    write PostgreSQL data back into the old SQLite file.
 
-For local operations, stop/start the API explicitly around the maintenance window.
+
 The migration itself does not delete, rename, or modify the source SQLite database.
