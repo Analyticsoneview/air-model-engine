@@ -401,7 +401,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
       const SizedBox(height: 14),
       Wrap(spacing: 10, runSpacing: 10, crossAxisAlignment: WrapCrossAlignment.center, children: [
         SizedBox(width: 220, child: DropdownButtonFormField<String>(
-          value: _requestFilter,
+          initialValue: _requestFilter,
           decoration: const InputDecoration(labelText: 'Request status', border: OutlineInputBorder(), isDense: true),
           items: const [
             DropdownMenuItem(value: 'PENDING', child: Text('Pending')),
