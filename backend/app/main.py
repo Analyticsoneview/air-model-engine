@@ -489,6 +489,20 @@ class SubscriptionAssignment(BaseModel):
     plan_code: str = Field(pattern="^(DAILY|MONTHLY|SIX_MONTHS|YEARLY)$")
 
 
+class MarketingConsentUpdate(BaseModel):
+    promotional_consent: bool
+
+
+class MarketingOfferCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    offer_code: str = Field(min_length=4, max_length=32, pattern="^[A-Za-z0-9_-]+$")
+    plan_code: str = Field(pattern="^(DAILY|MONTHLY|SIX_MONTHS|YEARLY)$")
+    discount_percent: float = Field(gt=0, le=90)
+    starts_at: str = Field(min_length=10, max_length=40)
+    expires_at: str = Field(min_length=10, max_length=40)
+    terms: str = Field(default="", max_length=1000)
+
+
 class AccessReview(BaseModel):
     status: str = Field(pattern="^(APPROVED|REJECTED|BLOCKED)$")
     note: str = Field(default="", max_length=500)
@@ -736,6 +750,101 @@ async def assign_customer_subscription(
     )
     return {"customer_id": body.customer_id, "plan_code": body.plan_code,
             "starts_at": starts.isoformat(), "expires_at": expires.isoformat(), "status": "ACTIVE"}
+
+
+@app.get("/api/v1/admin/marketing/customers")
+async def admin_marketing_customers(
+    segment: str = Query(default="ALL", pattern="^(ALL|NEVER_SUBSCRIBED|EXPIRED|ACTIVE|PENDING_ACCESS|OPTED_OUT)$"),
+    search: str = Query(default="", max_length=80),
+    limit: int = Query(default=200, ge=1, le=500),
+    admin: dict = Depends(require_admin),
+) -> dict:
+    if admin.get("role") not in {"SUPER_ADMIN", "ADMIN"}:
+        raise HTTPException(status_code=403, detail="Administrator customer-management permission is required")
+    try:
+        return {
+            "customers": [dict(row) for row in access_store.list_marketing_customers(segment, search, limit)],
+            "segment_counts": access_store.marketing_segment_counts(),
+            "segment": segment,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/admin/marketing/offers")
+async def admin_marketing_offers(
+    status: str | None = Query(default=None, pattern="^(DRAFT|APPROVED|REVOKED)$"),
+    admin: dict = Depends(require_admin),
+) -> dict:
+    if admin.get("role") not in {"SUPER_ADMIN", "ADMIN"}:
+        raise HTTPException(status_code=403, detail="Administrator offer-management permission is required")
+    return {"offers": access_store.list_marketing_offers(status)}
+
+
+@app.post("/api/v1/admin/marketing/offers")
+async def create_marketing_offer(
+    body: MarketingOfferCreate,
+    admin: dict = Depends(require_admin),
+) -> dict:
+    if admin.get("role") not in {"SUPER_ADMIN", "ADMIN"}:
+        raise HTTPException(status_code=403, detail="Administrator offer-management permission is required")
+    try:
+        offer = access_store.create_marketing_offer(
+            body.name, body.offer_code, body.plan_code, body.discount_percent,
+            body.starts_at, body.expires_at, body.terms,
+            str(admin.get("admin_id") or admin.get("email") or "admin"),
+        )
+        return {"offer": offer, "message": "Offer saved as DRAFT. Super Admin approval is required before it can be used."}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        if "UNIQUE" in str(exc).upper():
+            raise HTTPException(status_code=409, detail="Offer code already exists") from exc
+        raise
+
+
+@app.post("/api/v1/admin/marketing/offers/{offer_id}/approve")
+async def approve_marketing_offer(
+    offer_id: str,
+    admin: dict = Depends(require_admin),
+) -> dict:
+    if admin.get("role") != "SUPER_ADMIN":
+        raise HTTPException(status_code=403, detail="Only Super Admin can approve promotional offers")
+    try:
+        return {"offer": access_store.approve_marketing_offer(
+            offer_id, str(admin.get("admin_id") or admin.get("email") or "super-admin")
+        )}
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/admin/marketing/offers/{offer_id}/revoke")
+async def revoke_marketing_offer(
+    offer_id: str,
+    admin: dict = Depends(require_admin),
+) -> dict:
+    if admin.get("role") != "SUPER_ADMIN":
+        raise HTTPException(status_code=403, detail="Only Super Admin can revoke promotional offers")
+    if not access_store.revoke_marketing_offer(
+        offer_id, str(admin.get("admin_id") or admin.get("email") or "super-admin")
+    ):
+        raise HTTPException(status_code=404, detail="Approved offer not found")
+    return {"offer_id": offer_id, "status": "REVOKED"}
+
+
+@app.get("/api/v1/customer/marketing/preferences")
+async def get_customer_marketing_preferences(
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    return access_store.get_marketing_consent(customer_id)
+
+
+@app.put("/api/v1/customer/marketing/preferences")
+async def update_customer_marketing_preferences(
+    body: MarketingConsentUpdate,
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    return access_store.set_marketing_consent(customer_id, body.promotional_consent)
 
 
 @app.get("/api/v1/auth/mobile-status")
