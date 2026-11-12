@@ -754,7 +754,7 @@ async def assign_customer_subscription(
 
 @app.get("/api/v1/admin/marketing/customers")
 async def admin_marketing_customers(
-    segment: str = Query(default="ALL", pattern="^(ALL|NEVER_SUBSCRIBED|EXPIRED|ACTIVE|PENDING_ACCESS|OPTED_OUT)$"),
+    segment: str = Query(default="ALL", pattern="^(ALL|NEVER_SUBSCRIBED|EXPIRED|ACTIVE|CANCELLED|INACTIVE|PENDING_ACCESS|OPTED_OUT)$"),
     search: str = Query(default="", max_length=80),
     limit: int = Query(default=200, ge=1, le=500),
     admin: dict = Depends(require_admin),
