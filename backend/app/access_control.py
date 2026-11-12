@@ -274,7 +274,7 @@ class AccessStore:
                 "plan_code": subscription["plan_code"] if subscription else None,
                 "subscription_expires_at": subscription["expires_at"] if subscription else None,
                 "promotional_consent": consent,
-                "marketing_status": "OPTED_IN" if consent else "NOT_GRANTED",
+                "marketing_status": "OPTED_IN" if consent else ("OPTED_OUT" if pref else "NOT_GRANTED"),
                 "consent_updated_at": pref["consent_updated_at"] if pref else None,
             }
             if needle and needle not in customer_id.lower():
@@ -287,7 +287,7 @@ class AccessStore:
                 continue
             if segment == "PENDING_ACCESS" and item["access_status"] != "PENDING":
                 continue
-            if segment == "OPTED_OUT" and consent:
+            if segment == "OPTED_OUT" and item["marketing_status"] != "OPTED_OUT":
                 continue
             result.append(item)
             if len(result) >= limit:
@@ -324,6 +324,7 @@ class AccessStore:
             "ACTIVE": 0,
             "PENDING_ACCESS": 0,
             "OPTED_OUT": 0,
+            "NOT_GRANTED": 0,
             "ELIGIBLE_FOR_PROMOTIONS": 0,
         }
         for customer in customers:
@@ -332,8 +333,10 @@ class AccessStore:
                 counts[status] += 1
             if customer["access_status"] == "APPROVED" and status != "ACTIVE" and customer["promotional_consent"]:
                 counts["ELIGIBLE_FOR_PROMOTIONS"] += 1
-            if not customer["promotional_consent"]:
+            if customer["marketing_status"] == "OPTED_OUT":
                 counts["OPTED_OUT"] += 1
+            elif customer["marketing_status"] == "NOT_GRANTED":
+                counts["NOT_GRANTED"] += 1
         return counts
 
     def create_marketing_offer(self, name: str, offer_code: str, plan_code: str,
