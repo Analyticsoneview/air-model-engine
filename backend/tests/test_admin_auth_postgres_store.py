@@ -377,3 +377,17 @@ def test_admin_role_change_revokes_sessions_and_updates_next_login_role(admin_st
     second = admin_store.authenticate(credentials["email"], credentials["temporary_password"], _totp(secret, now + 30),
                                        rate_key="research|second", now=now + 30)
     assert second and second["role"] == "RESEARCH_ADMIN"
+
+
+def test_postgres_admin_logout_revokes_session(admin_store):
+    admin_id, secret = admin_store.bootstrap("root@example.com", "Long-Strong-Password-123!")
+    now = 1_800_000_000
+    login = admin_store.authenticate(
+        "root@example.com", "Long-Strong-Password-123!", _totp(secret, now),
+        rate_key="root|logout", now=now,
+    )
+    assert login and admin_store.session(login["session_id"]) is not None
+
+    admin_store.revoke(login["session_id"])
+
+    assert admin_store.session(login["session_id"]) is None
