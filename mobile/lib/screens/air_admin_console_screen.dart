@@ -399,6 +399,8 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
       ('ALL', 'All customers'),
       ('NEVER_SUBSCRIBED', 'Never subscribed'),
       ('EXPIRED', 'Expired'),
+      ('CANCELLED', 'Cancelled'),
+      ('INACTIVE', 'Previously subscribed · inactive'),
       ('ACTIVE', 'Active subscribers'),
       ('PENDING_ACCESS', 'Pending access'),
       ('OPTED_OUT', 'Opted out'),
@@ -409,7 +411,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
       const Text('One row per mobile identity. Customers with multiple devices are deduplicated. Promotional consent is customer-controlled; no consent is assumed.'),
       const SizedBox(height: 12),
       Wrap(spacing: 8, runSpacing: 8, children: [
-        for (final key in ['ALL','NEVER_SUBSCRIBED','EXPIRED','ACTIVE','ELIGIBLE_FOR_PROMOTIONS','NOT_GRANTED','OPTED_OUT'])
+        for (final key in ['ALL','NEVER_SUBSCRIBED','EXPIRED','CANCELLED','INACTIVE','ACTIVE','PENDING_ACCESS','ELIGIBLE_FOR_PROMOTIONS','NOT_GRANTED','OPTED_OUT'])
           Chip(label: Text('${key.replaceAll('_',' ')} · ${_segmentCounts[key] ?? 0}')),
       ]),
       const SizedBox(height: 12),
