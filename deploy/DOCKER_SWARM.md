@@ -51,7 +51,7 @@ sudo python3 backend/scripts/bootstrap_operator.py
 
 The helper records the operator's E.164 mobile number in AIR_OPERATOR_CUSTOMER_IDS. The operator must submit an access request from the AIR app. Approve the first device with the root-only admin key using deploy/air-admin-cli.sh. After the operator device is approved, use the in-app Admin tab to manage later customer requests.
 
-Mobile numbers are identifiers only. This no-OTP design does not prove phone ownership; approval must be based on a separate trusted process. Do not enable public signup.
+Mobile numbers are identifiers only. Phone ownership OTP is not yet implemented. Admin approval alone does not prove phone ownership. Keep public signup and customer strategy/broker access disabled until the six-digit phone OTP and 15-day PIN/verification policy is implemented, rate-limited, tested and connected to a selected SMS provider.
 
 ## 4. Set deployment variables
 

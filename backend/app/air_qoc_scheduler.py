@@ -62,11 +62,11 @@ async def capture_dhan_eod_snapshots(*, force: bool = False, account_id_override
     customer_id = (customer_id_override or (customer_ids[0] if customer_ids else "")).strip()
     if not customer_id or not account_id:
         raise RuntimeError("A customer ID and selected Dhan account are required")
-    accounts = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3"))
+    accounts = CustomerAccountDirectory()
     owned = {(a.broker, a.account_id) for a in accounts.list_for_customer(customer_id)}
     if ("dhan", account_id) not in owned:
         raise RuntimeError("Selected Dhan account is not assigned to this customer")
-    vault = CredentialVault(os.getenv("AIR_CREDENTIAL_DB_PATH", "data/air_credentials.sqlite3"))
+    vault = CredentialVault()
     credentials = vault.get(customer_id, "dhan", account_id)
     client_id = credentials.get("client_id", account_id)
     access_token = credentials.get("access_token")
@@ -172,7 +172,7 @@ async def capture_selected_provider_option_chains(*, force: bool = False) -> dic
     """Capture isolated option-chain snapshots for every entitled selected broker account."""
     if not force and os.getenv("AIR_QOC_SCHEDULER_ENABLED", "false").lower() != "true":
         return {"status": "disabled"}
-    accounts = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3"))
+    accounts = CustomerAccountDirectory()
     operator_ids = {x.strip() for x in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",") if x.strip()}
     customer_ids = sorted({account.customer_id for account in accounts.list_all()} | operator_ids)
     results = []
