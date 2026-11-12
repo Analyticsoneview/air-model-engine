@@ -411,6 +411,12 @@ class AccessStore:
         return [dict(row) for row in rows]
 
     def approve_marketing_offer(self, offer_id: str, approved_by: str):
+        from datetime import datetime, timezone
+        offer = self.get_marketing_offer(offer_id)
+        if not offer or offer["status"] != "DRAFT":
+            raise ValueError("Draft offer not found or already reviewed")
+        if self._subscription_datetime(offer["expires_at"]) <= datetime.now(timezone.utc):
+            raise ValueError("Expired offers cannot be approved")
         with self.db:
             cursor = self.db.execute("""
                 UPDATE air_marketing_offers SET status='APPROVED',approved_by=?,
@@ -424,14 +430,7 @@ class AccessStore:
                 """, (str(uuid4()), approved_by, "MARKETING_OFFER_APPROVED", offer_id, "Super Admin approval"))
         if not cursor.rowcount:
             raise ValueError("Draft offer not found or already reviewed")
-        offer = self.get_marketing_offer(offer_id)
-        if self._subscription_datetime(offer["expires_at"]) <= self._subscription_datetime(
-            __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
-        ):
-            with self.db:
-                self.db.execute("UPDATE air_marketing_offers SET status='DRAFT',approved_by=NULL,approved_at=NULL WHERE offer_id=?", (offer_id,))
-            raise ValueError("Expired offers cannot be approved")
-        return offer
+        return self.get_marketing_offer(offer_id)
 
     def revoke_marketing_offer(self, offer_id: str, actor: str):
         with self.db:
