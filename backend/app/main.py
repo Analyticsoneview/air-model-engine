@@ -15,6 +15,7 @@ from app.access_control import access_store
 from app.admin_auth import get_admin_auth_store
 from app.brokers.customer_accounts import CustomerAccountDirectory, CustomerTradingAccount
 from app.brokers.catalog import get_broker_catalog, is_supported_broker
+from app.brokers.session_runtime import BrokerSessionRuntime
 from app.brokers.dhan import DhanHQClient, DhanAPIError
 from app.brokers.zerodha import KiteConnectClient, KiteAPIError, kite_login_url
 from app.brokers.upstox import UpstoxClient, UpstoxAPIError, upstox_login_url
@@ -45,6 +46,7 @@ from app.nse_bhavcopy import (nse_data_status, nse_data_rows, start_nse_data_job
 from app.security import create_access_token, create_admin_access_token, hash_password, require_customer, require_admin, verify_password
 from app.oauth_state import get_oauth_state_store
 from app.persistence import get_persistence_runtime
+from app.db_compat import read_database_url
 
 app = FastAPI(title="AIR Model Engine API", version="0.3.0",
               description="Self-hosted AIR authentication, broker account and market-data gateway.")
@@ -68,8 +70,11 @@ _market_health_task: asyncio.Task | None = None
 _master_refresh_task: asyncio.Task | None = None
 set_default_market_data_service(market_data_service)
 auth_store = AuthStore()
-account_directory = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3"))
+account_directory = CustomerAccountDirectory(
+    None if read_database_url("AIR_CUSTOMER_ACCOUNTS_DATABASE_URL") else os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3")
+)
 _credential_vault: CredentialVault | None = None
+_broker_session_runtime: BrokerSessionRuntime | None = None
 account_reporting = AccountReporting(os.getenv('AIR_REPORT_DB_PATH', 'data/air_account_reports.sqlite3'))
 _report_scheduler_task: asyncio.Task | None = None
 
@@ -425,6 +430,8 @@ async def stop_air_qoc_jobs() -> None:
             pass
         _report_scheduler_task = None
     await close_customer_market_data_runtimes()
+    if _broker_session_runtime is not None:
+        await _broker_session_runtime.close()
     if _master_refresh_task is not None:
         _master_refresh_task.cancel()
         try:
@@ -462,10 +469,60 @@ def get_vault() -> CredentialVault:
     global _credential_vault
     if _credential_vault is None:
         try:
-            _credential_vault = CredentialVault(os.getenv("AIR_CREDENTIAL_DB_PATH", "data/air_credentials.sqlite3"))
+            _credential_vault = CredentialVault(
+                None if read_database_url("AIR_CREDENTIAL_DATABASE_URL") else os.getenv("AIR_CREDENTIAL_DB_PATH", "data/air_credentials.sqlite3")
+            )
         except RuntimeError as exc:
             raise HTTPException(status_code=503, detail="Credential vault is not configured on the server") from exc
     return _credential_vault
+
+
+def get_broker_session_runtime() -> BrokerSessionRuntime:
+    global _broker_session_runtime
+    if _broker_session_runtime is None:
+        _broker_session_runtime = BrokerSessionRuntime(account_directory, get_vault())
+    return _broker_session_runtime
+
+
+class BrokerSessionRequest(BaseModel):
+    broker: str = Field(min_length=2, max_length=40)
+    account_id: str = Field(min_length=2, max_length=100)
+
+
+@app.post("/api/v1/customer/broker-sessions/activate")
+async def activate_customer_broker_session(
+    body: BrokerSessionRequest,
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    try:
+        return await get_broker_session_runtime().activate(customer_id, body.broker, body.account_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=409, detail="Broker credentials have not been saved") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Broker authentication failed: {type(exc).__name__}") from exc
+
+
+@app.post("/api/v1/customer/broker-sessions/deactivate")
+async def deactivate_customer_broker_session(
+    body: BrokerSessionRequest,
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    try:
+        return await get_broker_session_runtime().deactivate(customer_id, body.broker, body.account_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/customer/broker-sessions")
+async def list_customer_broker_sessions(
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    runtime = get_broker_session_runtime()
+    return {"sessions": runtime.status_for_customer(customer_id)}
 
 
 class CustomerRegistration(BaseModel):
@@ -1114,6 +1171,7 @@ async def save_customer_broker_credentials(broker: str, account_id: str, body: B
         owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(customer_id)}
         if (broker.lower(), account_id) not in owned:
             raise PermissionError("Customer does not own this broker account")
+        await get_broker_session_runtime().deactivate(customer_id, broker, account_id)
         get_vault().put(customer_id, broker, account_id, body.credentials)
         await invalidate_customer_market_data_service(customer_id)
     except PermissionError as exc:
@@ -1128,6 +1186,7 @@ async def remove_customer_account(broker: str, account_id: str,
                                   customer_id: str = Depends(require_air_operator)) -> dict:
     vault = get_vault()
     try:
+        await get_broker_session_runtime().deactivate(customer_id, broker, account_id)
         vault.delete(customer_id, broker, account_id)
         account_directory.remove(customer_id, broker, account_id)
         await invalidate_customer_market_data_service(customer_id)
@@ -1202,6 +1261,7 @@ async def operator_save_broker_credentials(
     if (broker.lower(), account_id) not in owned:
         raise HTTPException(status_code=404, detail="Assigned broker account not found")
     try:
+        await get_broker_session_runtime().deactivate(customer_id, broker, account_id)
         get_vault().put(customer_id, broker, account_id, body.credentials)
         await invalidate_customer_market_data_service(customer_id)
     except ValueError as exc:
@@ -1216,6 +1276,7 @@ async def operator_remove_broker_account(
     operator_id: str = Depends(require_air_operator),
 ) -> dict:
     try:
+        await get_broker_session_runtime().deactivate(customer_id, broker, account_id)
         get_vault().delete(customer_id, broker, account_id)
         account_directory.remove(customer_id, broker, account_id)
         await invalidate_customer_market_data_service(customer_id)
@@ -1259,6 +1320,7 @@ async def angel_login(account_id: str, body: AngelLoginRequest,
         credentials["jwt_token"] = session["jwtToken"]
         credentials["refresh_token"] = session.get("refreshToken", "")
         credentials["feed_token"] = session.get("feedToken", "")
+        await get_broker_session_runtime().deactivate(customer_id, "angelone", account_id)
         get_vault().put(customer_id, "angelone", account_id, credentials)
         await invalidate_customer_market_data_service(customer_id)
         return {"broker": "angelone", "account_id": account_id, "verified": True,
@@ -1312,6 +1374,7 @@ async def fyers_exchange(account_id: str, body: FyersTokenExchangeRequest,
         session = await client.exchange_auth_code(body.auth_code, app_secret)
         profile = await client.profile()
         credentials["access_token"] = session["access_token"]
+        await get_broker_session_runtime().deactivate(customer_id, "fyers", account_id)
         get_vault().put(customer_id, "fyers", account_id, credentials)
         await invalidate_customer_market_data_service(customer_id)
         return {"broker": "fyers", "account_id": account_id, "verified": True,
@@ -1357,6 +1420,7 @@ async def zerodha_exchange_token(account_id: str, body: ZerodhaTokenExchangeRequ
         if broker_user_id and broker_user_id != account_id:
             raise HTTPException(status_code=409, detail="Authenticated Zerodha user does not match registered account ID")
         credentials["access_token"] = session["access_token"]
+        await get_broker_session_runtime().deactivate(customer_id, "zerodha", account_id)
         get_vault().put(customer_id, "zerodha", account_id, credentials)
         await invalidate_customer_market_data_service(customer_id)
         return {"broker": "zerodha", "account_id": account_id, "verified": True,
@@ -1426,6 +1490,7 @@ async def upstox_exchange(account_id: str, body: UpstoxTokenExchangeRequest,
         profile_data = await client.profile()
         profile = profile_data.get("user_id") or profile_data.get("user_name")
         credentials["access_token"] = session["access_token"]
+        await get_broker_session_runtime().deactivate(customer_id, "upstox", account_id)
         get_vault().put(customer_id, "upstox", account_id, credentials)
         await invalidate_customer_market_data_service(customer_id)
         return {"broker": "upstox", "account_id": account_id, "verified": True,

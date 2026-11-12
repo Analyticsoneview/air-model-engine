@@ -40,6 +40,12 @@ class DhanHQClient:
             transport=transport,
         )
 
+    def set_access_token(self, access_token: str) -> None:
+        token = access_token.strip()
+        if not token:
+            raise ValueError("Dhan access token is required")
+        self._http.headers["access-token"] = token
+
     async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
         response = await self._http.request(method, path, **kwargs)
         if response.is_error:
@@ -167,6 +173,14 @@ class DhanHQClient:
         data = await self._request("GET", "/orders")
         if not isinstance(data, list):
             raise DhanAPIError(502, "Unexpected order-book response")
+        return data
+
+
+    async def holdings(self) -> list[dict[str, Any]]:
+        """Return Dhan delivery holdings for the authenticated account."""
+        data = await self._request("GET", "/holdings")
+        if not isinstance(data, list):
+            raise DhanAPIError(502, "Unexpected holdings response")
         return data
 
     async def place_order(self, *, security_id: str, exchange_segment: str,

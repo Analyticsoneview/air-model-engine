@@ -1,3 +1,5 @@
+name: air-local
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -43,9 +45,18 @@ services:
       AIR_ADMIN_API_KEY_FILE: /run/secrets/air_admin_api_key
       AIR_ADMIN_MFA_KEY_FILE: /run/secrets/air_admin_mfa_key
       AIR_DATABASE_URL_FILE: /run/secrets/air_database_url
+      AIR_DOMAIN_STORES_IMPORT_ON_STARTUP: ${AIR_DOMAIN_STORES_IMPORT_ON_STARTUP:-false}
+      AIR_CUSTOMER_DATABASE_URL_FILE: ${AIR_CUSTOMER_DATABASE_URL_FILE:-}
+      AIR_ADMIN_DATABASE_URL_FILE: ${AIR_ADMIN_DATABASE_URL_FILE:-}
+      AIR_CUSTOMER_SQLITE_PATH: /var/lib/air/auth.sqlite3
+      AIR_CREDENTIAL_DATABASE_URL_FILE: ${AIR_CREDENTIAL_DATABASE_URL_FILE:-}
+      AIR_CUSTOMER_ACCOUNTS_DATABASE_URL_FILE: ${AIR_CUSTOMER_ACCOUNTS_DATABASE_URL_FILE:-}
+      AIR_EXECUTION_POLICY_DATABASE_URL_FILE: ${AIR_EXECUTION_POLICY_DATABASE_URL_FILE:-}
+      AIR_ORDER_LEDGER_DATABASE_URL_FILE: ${AIR_ORDER_LEDGER_DATABASE_URL_FILE:-}
       AIR_REDIS_URL_FILE: /run/secrets/air_redis_url
       AIR_AUTH_DB_PATH: /var/lib/air/auth.sqlite3
       AIR_ACCOUNT_DB_PATH: /var/lib/air/accounts.sqlite3
+      AIR_EXECUTION_POLICY_DB_PATH: /var/lib/air/air_execution_policy.sqlite3
       AIR_CREDENTIAL_DB_PATH: /var/lib/air/credentials.sqlite3
       AIR_ORDER_DB_PATH: /var/lib/air/orders.sqlite3
       AIR_QOC_DB_PATH: /var/lib/air/qoc.sqlite3
@@ -116,5 +127,12 @@ secrets:
 
 volumes:
   air_data:
+    name: air-local-data
   postgres_data:
+    name: air-postgres-data
   redis_data:
+    name: air-redis-data
+
+networks:
+  default:
+    name: air-backend

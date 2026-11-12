@@ -5,54 +5,68 @@ after a process restart. A broker timeout is recorded as UNKNOWN, never retried
 automatically; reconcile it against the broker order book before retrying.
 """
 import json
+import os
 import sqlite3
 from pathlib import Path
 
 from app.brokers.base import BrokerOrder
+from app.db_compat import PostgresConnection, read_database_url
 
 
 class DurableOrderLedger:
-    def __init__(self, db_path: str = "data/air_orders.sqlite3") -> None:
-        if db_path != ":memory:":
-            Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-        self._db = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
-        self._db.row_factory = sqlite3.Row
-        self._db.execute("PRAGMA journal_mode=WAL")
-        self._db.execute("PRAGMA busy_timeout=30000")
-        self._db.execute("""
-            CREATE TABLE IF NOT EXISTS order_ledger (
-                broker TEXT NOT NULL,
-                account_id TEXT NOT NULL,
-                idempotency_key TEXT NOT NULL,
-                broker_order_id TEXT NOT NULL,
-                status TEXT NOT NULL,
-                raw_json TEXT NOT NULL,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (broker, account_id, idempotency_key)
-            )
-        """)
-        self._db.execute("""
-            CREATE INDEX IF NOT EXISTS idx_order_ledger_status
-            ON order_ledger(status, updated_at)
-        """)
-        self._db.execute("""
-            CREATE TABLE IF NOT EXISTS order_ledger_events (
-                event_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                broker TEXT NOT NULL,
-                account_id TEXT NOT NULL,
-                idempotency_key TEXT NOT NULL,
-                status TEXT NOT NULL,
-                broker_order_id TEXT NOT NULL,
-                raw_json TEXT NOT NULL,
-                event_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        self._db.execute("""
-            CREATE INDEX IF NOT EXISTS idx_order_events_account
-            ON order_ledger_events(broker, account_id, event_id)
-        """)
-        self._db.commit()
+    def __init__(self, db_path: str | None = None) -> None:
+        database_url = read_database_url("AIR_ORDER_LEDGER_DATABASE_URL") if db_path is None else None
+        self._is_postgres = database_url is not None
+        if self._is_postgres:
+            self._db = PostgresConnection(database_url)
+            try:
+                self._db.execute("SELECT 1 FROM order_ledger LIMIT 0")
+                self._db.execute("SELECT 1 FROM order_ledger_events LIMIT 0")
+            except Exception as exc:
+                self._db.close()
+                raise RuntimeError("PostgreSQL order ledger schema is missing; run Alembic migrations first") from exc
+        else:
+            db_path = db_path or os.getenv("AIR_ORDER_DB_PATH", "data/air_orders.sqlite3")
+            if db_path != ":memory:":
+                Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+            self._db = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
+            self._db.row_factory = sqlite3.Row
+            self._db.execute("PRAGMA journal_mode=WAL")
+            self._db.execute("PRAGMA busy_timeout=30000")
+            self._db.execute("""
+                CREATE TABLE IF NOT EXISTS order_ledger (
+                    broker TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    idempotency_key TEXT NOT NULL,
+                    broker_order_id TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    raw_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (broker, account_id, idempotency_key)
+                )
+            """)
+            self._db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_order_ledger_status
+                ON order_ledger(status, updated_at)
+            """)
+            self._db.execute("""
+                CREATE TABLE IF NOT EXISTS order_ledger_events (
+                    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    broker TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    idempotency_key TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    broker_order_id TEXT NOT NULL,
+                    raw_json TEXT NOT NULL,
+                    event_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            self._db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_order_events_account
+                ON order_ledger_events(broker, account_id, event_id)
+            """)
+            self._db.commit()
 
     def get(self, broker: str, account_id: str, idempotency_key: str) -> BrokerOrder | None:
         row = self._db.execute("""
@@ -75,25 +89,23 @@ class DurableOrderLedger:
         if not broker.strip() or not account_id.strip() or not idempotency_key.strip():
             raise ValueError("Broker, account and idempotency key are required")
         raw = json.dumps({"intent": intent or {}}, default=str)
-        self._db.execute("BEGIN IMMEDIATE")
-        try:
+        with self._db:
             cursor = self._db.execute("""
-                INSERT OR IGNORE INTO order_ledger
+                INSERT INTO order_ledger
                     (broker, account_id, idempotency_key, broker_order_id, status, raw_json)
                 VALUES (?, ?, ?, '', 'PENDING', ?)
+                ON CONFLICT(broker, account_id, idempotency_key) DO NOTHING
+                RETURNING 1
             """, (broker.lower(), account_id, idempotency_key, raw))
-            created = cursor.rowcount == 1
+            created = cursor.fetchone() is not None
             if created:
                 self._db.execute("""
                     INSERT INTO order_ledger_events
                         (broker, account_id, idempotency_key, broker_order_id, status, raw_json)
                     VALUES (?, ?, ?, '', 'PENDING', ?)
                 """, (broker.lower(), account_id, idempotency_key, raw))
-            self._db.commit()
             return created
-        except Exception:
-            self._db.rollback()
-            raise
+
 
     def record(self, order: BrokerOrder, idempotency_key: str) -> None:
         with self._db:
