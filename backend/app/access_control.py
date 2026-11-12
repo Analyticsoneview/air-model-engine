@@ -341,14 +341,16 @@ class AccessStore:
         }
         for customer in customers:
             status = customer["subscription_status"]
-            if status in counts:
+            if status in {"NEVER_SUBSCRIBED", "EXPIRED", "ACTIVE"}:
                 counts[status] += 1
-            if customer["access_status"] == "APPROVED" and status != "ACTIVE" and customer["promotional_consent"]:
-                counts["ELIGIBLE_FOR_PROMOTIONS"] += 1
+            if customer["access_status"] == "PENDING":
+                counts["PENDING_ACCESS"] += 1
             if customer["marketing_status"] == "OPTED_OUT":
                 counts["OPTED_OUT"] += 1
             elif customer["marketing_status"] == "NOT_GRANTED":
                 counts["NOT_GRANTED"] += 1
+            if customer["access_status"] == "APPROVED" and status != "ACTIVE" and customer["promotional_consent"]:
+                counts["ELIGIBLE_FOR_PROMOTIONS"] += 1
         return counts
 
     def create_marketing_offer(self, name: str, offer_code: str, plan_code: str,
