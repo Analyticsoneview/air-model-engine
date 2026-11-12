@@ -13,6 +13,9 @@ class _AirSubscriptionScreenState extends State<AirSubscriptionScreen> {
   List<Map<String, dynamic>> _plans = [];
   Map<String, dynamic>? _subscription;
   bool _loading = true;
+  bool _marketingConsent = false;
+  bool _savingConsent = false;
+  String? _consentUpdatedAt;
   String? _error;
 
   @override
@@ -21,16 +24,35 @@ class _AirSubscriptionScreenState extends State<AirSubscriptionScreen> {
   Future<void> _load() async {
     setState(() { _loading = true; _error = null; });
     try {
-      final values = await Future.wait([_api.subscriptionPlans(), _api.mySubscription()]);
+      final values = await Future.wait([_api.subscriptionPlans(), _api.mySubscription(), _api.marketingPreferences()]);
       if (!mounted) return;
       final status = values[1] as Map<String, dynamic>;
       setState(() {
         _plans = values[0] as List<Map<String, dynamic>>;
         _subscription = status['subscription'] as Map<String, dynamic>?;
+        final preferences = values[2] as Map<String, dynamic>;
+        _marketingConsent = preferences['promotional_consent'] == true;
+        _consentUpdatedAt = preferences['consent_updated_at']?.toString();
       });
     } catch (error) {
       if (mounted) setState(() => _error = error.toString());
     } finally { if (mounted) setState(() => _loading = false); }
+  }
+
+  Future<void> _saveMarketingConsent(bool enabled) async {
+    setState(() { _savingConsent = true; _error = null; });
+    try {
+      final result = await _api.updateMarketingPreferences(enabled);
+      if (!mounted) return;
+      setState(() {
+        _marketingConsent = result['promotional_consent'] == true;
+        _consentUpdatedAt = DateTime.now().toUtc().toIso8601String();
+      });
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _savingConsent = false);
+    }
   }
 
   @override
@@ -59,6 +81,23 @@ class _AirSubscriptionScreenState extends State<AirSubscriptionScreen> {
                 ? 'Valid until ${_subscription?['expires_at'] ?? '—'}'
                 : 'Your AIR dashboard remains available. Activate a plan to unlock strategy workspaces.',
                 style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant)),
+            ],
+          ))),
+          const SizedBox(height: 18),
+          Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('PROMOTIONAL COMMUNICATION PREFERENCES', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: .5)),
+              const SizedBox(height: 6),
+              const Text('Choose whether AIR may send you promotional offers and subscription updates. This is optional, can be withdrawn at any time, and does not affect your account access.', style: TextStyle(fontSize: 12, height: 1.4)),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                value: _marketingConsent,
+                onChanged: _savingConsent ? null : _saveMarketingConsent,
+                title: const Text('I agree to receive AIR promotional messages'),
+                subtitle: Text(_marketingConsent ? 'Promotional consent enabled' : 'No promotional consent recorded'),
+              ),
+              if (_consentUpdatedAt != null) Text('Preference updated: $_consentUpdatedAt', style: TextStyle(fontSize: 10, color: theme.colorScheme.onSurfaceVariant)),
+              if (_savingConsent) const LinearProgressIndicator(),
             ],
           ))),
           const SizedBox(height: 18),
