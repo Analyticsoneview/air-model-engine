@@ -61,10 +61,11 @@ This grants AIR operator-only research and broker-administration functions to th
 ## Safety defaults
 
 - Broker order execution is not enabled by this local launcher. Do not add live-order permissions while validating.
+- Phone ownership OTP is not yet implemented. Do not expose customer signup or broker credentials until the selected SMS gateway, six-digit OTP flow and 15-day PIN policy are implemented and tested.
 - QOC and Telegram schedulers remain disabled until their provider credentials, entitlements and destinations are explicitly configured and tested.
 - NSE historical-data bootstrap is enabled and runs in the background; it can take time and requires network access.
 - All eight local Compose secrets are generated into `.air-secrets/` by the shared bootstrap script; existing non-empty values are preserved. They must never be committed or shared. Back up the credential encryption key securely if you enter real broker credentials.
-- Local SQLite data is persisted in the Docker volume `air_data`.
+- PostgreSQL persists in `postgres_data`; remaining SQLite domain stores persist in `air_data`. Customer and Admin authentication are migrated to PostgreSQL during API startup. Broker credentials, customer broker-account settings, execution policy and order ledger remain SQLite until the explicit domain-store cutover is run.
 - This local stack does not create public DNS/TLS, deploy to Swarm, configure production secrets, or validate live broker trading.
 
 ## Operations

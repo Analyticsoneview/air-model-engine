@@ -5,11 +5,13 @@ from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
 
+from app.db_compat import PostgresConnection, read_database_url
+
 
 class CredentialVault:
     """Encrypt broker credential payloads at rest; never return plaintext in list APIs."""
 
-    def __init__(self, db_path: str = "data/air_credentials.sqlite3"):
+    def __init__(self, db_path: str | None = None):
         key_file = os.getenv("AIR_CREDENTIAL_KEY_FILE")
         key = Path(key_file).read_bytes().strip() if key_file else os.getenv("AIR_CREDENTIAL_KEY", "").encode()
         if not key:
@@ -18,21 +20,32 @@ class CredentialVault:
             self._cipher = Fernet(key)
         except Exception as exc:
             raise RuntimeError("AIR credential encryption key must be a valid Fernet key") from exc
-        if db_path != ":memory:":
-            Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-        self._db = sqlite3.connect(db_path, check_same_thread=False)
-        self._db.row_factory = sqlite3.Row
-        self._db.execute("""
-            CREATE TABLE IF NOT EXISTS broker_credentials (
-                customer_id TEXT NOT NULL,
-                broker TEXT NOT NULL,
-                account_id TEXT NOT NULL,
-                encrypted_payload BLOB NOT NULL,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY(customer_id, broker, account_id)
-            )
-        """)
-        self._db.commit()
+        database_url = read_database_url("AIR_CREDENTIAL_DATABASE_URL") if db_path is None else None
+        self._is_postgres = database_url is not None
+        if self._is_postgres:
+            self._db = PostgresConnection(database_url)
+            try:
+                self._db.execute("SELECT 1 FROM broker_credentials LIMIT 0")
+            except Exception as exc:
+                self._db.close()
+                raise RuntimeError("PostgreSQL broker_credentials schema is missing; run Alembic migrations first") from exc
+        else:
+            db_path = db_path or os.getenv("AIR_CREDENTIAL_DB_PATH", "data/air_credentials.sqlite3")
+            if db_path != ":memory:":
+                Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+            self._db = sqlite3.connect(db_path, check_same_thread=False)
+            self._db.row_factory = sqlite3.Row
+            self._db.execute("""
+                CREATE TABLE IF NOT EXISTS broker_credentials (
+                    customer_id TEXT NOT NULL,
+                    broker TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    encrypted_payload BLOB NOT NULL,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY(customer_id, broker, account_id)
+                )
+            """)
+            self._db.commit()
 
     def put(self, customer_id: str, broker: str, account_id: str, credentials: dict) -> None:
         if not credentials or any(not isinstance(k, str) or not isinstance(v, str) or not v for k,v in credentials.items()):
