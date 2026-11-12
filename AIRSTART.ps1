@@ -32,19 +32,9 @@ Push-Location $Root
 try {
     $secretDir = Join-Path $Root ".air-secrets"
     New-Item -ItemType Directory -Force -Path $secretDir | Out-Null
-    $secretFiles = @("jwt_secret", "credential_key", "admin_api_key")
-    $missing = $false
-    foreach ($name in $secretFiles) {
-        if (!(Test-Path (Join-Path $secretDir $name))) { $missing = $true }
-    }
-    if ($missing) {
-        Write-Host "Generating local-only AIR secrets..." -ForegroundColor Cyan
-        $generated = docker run --rm python:3.12-slim python -c "import secrets,base64; print(secrets.token_urlsafe(48)); print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode()); print(secrets.token_urlsafe(48))"
-        if ($LASTEXITCODE -ne 0 -or $generated.Count -lt 3) { throw "Could not generate local secrets." }
-        for ($i=0; $i -lt 3; $i++) {
-            [System.IO.File]::WriteAllText((Join-Path $secretDir $secretFiles[$i]), [string]$generated[$i], [System.Text.UTF8Encoding]::new($false))
-        }
-    }
+    Write-Host "Checking and generating all required local-only AIR secrets..." -ForegroundColor Cyan
+    docker run --rm --mount "type=bind,source=$secretDir,target=/secrets" --mount "type=bind,source=$Root/scripts,target=/scripts,readonly" python:3.12-slim python /scripts/generate_local_secrets.py
+    if ($LASTEXITCODE -ne 0) { throw "AIR local secret generation failed." }
 
     $envFile = Join-Path $Root ".air-local.env"
     if (!(Test-Path $envFile)) {
@@ -71,9 +61,9 @@ AIR_SMTP_PORT=587
         docker compose -f compose.local.yml logs --tail 100
         throw "AIR API did not become healthy. Do not use the app until the reported issue is fixed."
     }
-    Write-Host "AIR API is healthy. Opening the local app..." -ForegroundColor Green
-    Start-Process "http://localhost:8080"
+    Write-Host "AIR API health check passed. Confirming all Compose services..." -ForegroundColor Green
     docker compose -f compose.local.yml ps
+    Start-Process "http://localhost:8080"
 
     if (!$env:AIR_START_PROFILE_INSTALLED) { Install-AirCommand }
     Write-Host "Next time, open PowerShell in this repository and type: AIRSTART" -ForegroundColor Green
