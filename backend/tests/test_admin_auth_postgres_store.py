@@ -285,6 +285,12 @@ def test_session_expiry_is_enforced_by_postgres_with_redis_enabled(admin_store):
             WHERE session_id=:sid"""), {"sid": login["session_id"]})
 
     assert admin_store.session(login["session_id"]) is None
+    assert admin_store.redis.get("air:admin:session:" + login["session_id"]) is None
+    with admin_store.engine.connect() as conn:
+        active = conn.execute(text(
+            "SELECT active FROM air_admin_sessions WHERE session_id=:sid"
+        ), {"sid": login["session_id"]}).scalar_one()
+    assert active is False
 
 
 def test_session_expiry_is_enforced_in_postgres_only_mode(admin_store_without_redis):
@@ -301,6 +307,11 @@ def test_session_expiry_is_enforced_in_postgres_only_mode(admin_store_without_re
             WHERE session_id=:sid"""), {"sid": login["session_id"]})
 
     assert store.session(login["session_id"]) is None
+    with store.engine.connect() as conn:
+        active = conn.execute(text(
+            "SELECT active FROM air_admin_sessions WHERE session_id=:sid"
+        ), {"sid": login["session_id"]}).scalar_one()
+    assert active is False
 
 
 def test_explicit_session_revocation_clears_redis_and_database(admin_store):
