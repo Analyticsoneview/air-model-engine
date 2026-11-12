@@ -121,6 +121,21 @@ class AirApiClient {
     ));
   }
 
+  Future<Map<String, dynamic>> marketingPreferences() async {
+    return _decode(await _client.get(
+      Uri.parse('$baseUrl/api/v1/customer/marketing/preferences'),
+      headers: _headers,
+    ));
+  }
+
+  Future<Map<String, dynamic>> updateMarketingPreferences(bool enabled) async {
+    return _decode(await _client.put(
+      Uri.parse('$baseUrl/api/v1/customer/marketing/preferences'),
+      headers: _headers,
+      body: jsonEncode({'promotional_consent': enabled}),
+    ));
+  }
+
   Future<Map<String, dynamic>> me() async {
     return _decode(await _client.get(
       Uri.parse('$baseUrl/api/v1/auth/me'),
