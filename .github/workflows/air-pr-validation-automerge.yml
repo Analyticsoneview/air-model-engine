@@ -160,7 +160,7 @@ jobs:
 
   android:
     needs: [changes, backend, admin-postgres-integration, postgres-integration, redis-integration]
-    if: always() && github.event.action != 'closed' && needs.backend.result == 'success' && needs.postgres-integration.result == 'success' && needs.redis-integration.result == 'success' && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.android == 'true')
+    if: always() && github.event.action != 'closed' && needs.backend.result == 'success' && needs.admin-postgres-integration.result == 'success' && needs.postgres-integration.result == 'success' && needs.redis-integration.result == 'success' && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.android == 'true')
     name: Android ARM64 APK build
     runs-on: self-hosted
     timeout-minutes: 90
