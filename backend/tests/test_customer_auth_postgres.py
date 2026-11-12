@@ -58,7 +58,8 @@ def customer_store():
 def test_access_approval_session_and_block_revocation(customer_store):
     request = customer_store.request_access("+919876543210", "android-device-0001")
     assert request["status"] == "PENDING"
-    assert customer_store.create_session if True else False
+    with pytest.raises(PermissionError):
+        customer_store.create_session(request["request_id"])
     assert customer_store.review(request["request_id"], "APPROVED", "Verified by Admin")
     session_id = customer_store.create_session(request["request_id"])
     assert customer_store.is_session_active(session_id)
