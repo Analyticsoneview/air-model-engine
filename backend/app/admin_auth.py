@@ -137,6 +137,26 @@ class AdminAuthStore:
         return {"admin_id": admin_id, "email": email, "role": role, "active": True,
                 "temporary_password": temporary_password}, uri
 
+    def rotate_mfa_secret(self, email: str, password: str, secret: str) -> None:
+        """Rotate an administrator TOTP secret after password and new-code verification."""
+        try:
+            decoded = base64.b32decode(secret + "=" * ((8 - len(secret) % 8) % 8), casefold=False)
+        except Exception as exc:
+            raise ValueError("A valid Base32 TOTP secret is required") from exc
+        if len(decoded) != 20 or len(secret) != 32:
+            raise ValueError("TOTP secret must encode exactly 160 bits (32 Base32 characters)")
+        normalized_email = email.strip().lower()
+        row = self.db.execute("SELECT admin_id,password_hash FROM air_admin_users WHERE email=? AND is_active=1",
+                              (normalized_email,)).fetchone()
+        if not row or not verify_password(password, row["password_hash"]):
+            raise PermissionError("Administrator email or password is incorrect")
+        with self.db:
+            self.db.execute("""UPDATE air_admin_users
+                SET mfa_secret=?,last_totp_counter=-1,failed_attempts=0,locked_until=0
+                WHERE admin_id=?""", (self.cipher.encrypt(secret.encode()), row["admin_id"]))
+            self.db.execute("UPDATE air_admin_sessions SET active=0 WHERE admin_id=?", (row["admin_id"],))
+            self._audit(row["admin_id"], "ADMIN_MFA_ROTATED", row["admin_id"], normalized_email)
+
     def change_password(self, admin: dict, current_password: str, new_password: str) -> None:
         row = self.db.execute("SELECT password_hash FROM air_admin_users WHERE admin_id=? AND is_active=1",
                               (admin["admin_id"],)).fetchone()
