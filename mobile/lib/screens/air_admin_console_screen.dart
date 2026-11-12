@@ -23,6 +23,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
   final _newEmail = TextEditingController();
   final _newPassword = TextEditingController();
   final _subscriptionCustomer = TextEditingController();
+  final _requestSearch = TextEditingController();
   String? _token;
   String? _error;
   String _role = '';
@@ -31,6 +32,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
   bool _mustChangePassword = false;
   String _newRole = 'ADMIN';
   String _subscriptionPlan = 'MONTHLY';
+  String _requestFilter = 'PENDING';
   List<Map<String, dynamic>> _admins = [];
   List<Map<String, dynamic>> _audit = [];
   List<Map<String, dynamic>> _requests = [];
@@ -113,8 +115,11 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
 
   Future<void> _load() async {
     if (_token == null) return;
+    final requestPath = _requestFilter == 'ALL'
+        ? '/api/v1/admin/access-requests'
+        : '/api/v1/admin/access-requests?status=$_requestFilter';
     final requestResults = await Future.wait([
-      _request('GET', '/api/v1/admin/access-requests?status=PENDING'),
+      _request('GET', requestPath),
       if (_role == 'SUPER_ADMIN') _request('GET', '/api/v1/admin/users') else Future.value(<String,dynamic>{'admins': []}),
       if (_role == 'SUPER_ADMIN') _request('GET', '/api/v1/admin/audit?limit=100') else Future.value(<String,dynamic>{'events': []}),
     ]);
@@ -189,12 +194,43 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
   }
 
   Future<void> _review(Map<String,dynamic> row, String status) async {
+    final noteController = TextEditingController();
+    final mobile = row['mobile_e164']?.toString() ?? 'this customer';
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('$status access request?'),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('$status access for $mobile on device ${row['device_id'] ?? '—'}?'),
+          if (status == 'BLOCKED') ...[
+            const SizedBox(height: 8),
+            const Text('Blocking revokes active sessions for this device. The customer will lose access immediately.'),
+          ],
+          const SizedBox(height: 12),
+          TextField(controller: noteController, maxLength: 500, maxLines: 2,
+            decoration: const InputDecoration(labelText: 'Administrator note (optional)', border: OutlineInputBorder())),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('CANCEL')),
+          FilledButton(
+            style: status == 'BLOCKED' ? FilledButton.styleFrom(backgroundColor: Theme.of(ctx).colorScheme.error) : null,
+            onPressed: () => Navigator.pop(ctx, true), child: Text('CONFIRM $status')),
+        ],
+      ),
+    );
+    final note = noteController.text.trim();
+    noteController.dispose();
+    if (accepted != true || !mounted) return;
     setState(() { _busy = true; _error = null; });
     try {
-      await _request('PUT', '/api/v1/admin/access-requests/${row['request_id']}', body: {'status': status, 'note': 'Reviewed in AIR Admin'});
+      await _request('PUT', '/api/v1/admin/access-requests/${row['request_id']}', body: {'status': status, 'note': note});
       await _load();
-    } catch (e) { _error = e.toString(); }
-    if (mounted) setState(() => _busy = false);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$mobile access status updated to $status.')));
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _changePassword() async {
@@ -229,6 +265,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
   void dispose() {
     _client.close(); _email.dispose(); _password.dispose(); _totp.dispose();
     _newEmail.dispose(); _newPassword.dispose(); _subscriptionCustomer.dispose();
+    _requestSearch.dispose();
     super.dispose();
   }
 
@@ -351,18 +388,81 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     ),
   ]);
 
-  Widget _accessRequests() => ListView(padding: const EdgeInsets.all(16), children: [
-    if (_requests.isEmpty) const Text('No pending customer access requests.'),
-    for (final r in _requests) Card(child: ListTile(
-      title: Text(r['mobile_e164']?.toString() ?? 'Unknown customer'),
-      subtitle: Text('Device: ${r['device_id'] ?? '—'}'),
-      isThreeLine: true,
-      trailing: _role == 'RESEARCH_ADMIN' ? const Text('READ ONLY') : Wrap(children: [
-        IconButton(tooltip: 'Approve', onPressed: _busy ? null : () => _review(r,'APPROVED'), icon: const Icon(Icons.check_circle_outline)),
-        IconButton(tooltip: 'Reject', onPressed: _busy ? null : () => _review(r,'REJECTED'), icon: const Icon(Icons.block_outlined)),
+  Widget _accessRequests() {
+    final query = _requestSearch.text.trim().toLowerCase();
+    final rows = _requests.where((r) {
+      final haystack = '${r['mobile_e164'] ?? ''} ${r['device_id'] ?? ''} ${r['request_id'] ?? ''}'.toLowerCase();
+      return query.isEmpty || haystack.contains(query);
+    }).toList();
+    return ListView(padding: const EdgeInsets.all(16), children: [
+      const Text('CUSTOMER DEVICE ACCESS', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: .6)),
+      const SizedBox(height: 5),
+      const Text('Review customer requests, inspect device identity and manage access. Blocking revokes active sessions for the selected device.'),
+      const SizedBox(height: 14),
+      Wrap(spacing: 10, runSpacing: 10, crossAxisAlignment: WrapCrossAlignment.center, children: [
+        SizedBox(width: 220, child: DropdownButtonFormField<String>(
+          initialValue: _requestFilter,
+          decoration: const InputDecoration(labelText: 'Request status', border: OutlineInputBorder(), isDense: true),
+          items: const [
+            DropdownMenuItem(value: 'PENDING', child: Text('Pending')),
+            DropdownMenuItem(value: 'APPROVED', child: Text('Approved')),
+            DropdownMenuItem(value: 'REJECTED', child: Text('Rejected')),
+            DropdownMenuItem(value: 'BLOCKED', child: Text('Blocked')),
+            DropdownMenuItem(value: 'ALL', child: Text('All requests')),
+          ],
+          onChanged: _busy ? null : (value) async {
+            if (value == null) return;
+            setState(() { _requestFilter = value; _busy = true; _error = null; });
+            try { await _load(); } catch (e) { _error = e.toString(); }
+            if (mounted) setState(() => _busy = false);
+          },
+        )),
+        SizedBox(width: 300, child: TextField(
+          controller: _requestSearch, onChanged: (_) => setState(() {}),
+          decoration: InputDecoration(labelText: 'Search mobile, device or request ID', prefixIcon: const Icon(Icons.search),
+            suffixIcon: IconButton(tooltip: 'Clear search', onPressed: () { _requestSearch.clear(); setState(() {}); }, icon: const Icon(Icons.close)),
+            border: const OutlineInputBorder(), isDense: true),
+        )),
+        OutlinedButton.icon(onPressed: _busy ? null : _refresh, icon: const Icon(Icons.refresh), label: const Text('REFRESH')),
       ]),
-    )),
-  ]);
+      const SizedBox(height: 12),
+      Text('${rows.length} request(s) shown', style: Theme.of(context).textTheme.labelMedium),
+      if (rows.isEmpty) const Card(child: Padding(padding: EdgeInsets.all(24), child: Center(child: Text('No matching customer access requests.')))),
+      for (final r in rows) ...[
+        const SizedBox(height: 8),
+        Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Expanded(child: SelectableText(r['mobile_e164']?.toString() ?? 'Unknown customer', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16))),
+            _requestStatusBadge(r['status']?.toString() ?? 'UNKNOWN'),
+          ]),
+          const SizedBox(height: 8),
+          SelectableText('Device ID: ${r['device_id'] ?? '—'}'),
+          if (r['created_at'] != null) Text('Submitted: ${r['created_at']}'),
+          if ((r['reviewer_note']?.toString() ?? '').isNotEmpty) Text('Admin note: ${r['reviewer_note']}'),
+          if (_role != 'RESEARCH_ADMIN' && (r['status'] == 'PENDING' || r['status'] == 'APPROVED')) ...[
+            const SizedBox(height: 12),
+            Wrap(spacing: 8, runSpacing: 6, children: [
+              if (r['status'] == 'PENDING') FilledButton.tonalIcon(onPressed: _busy ? null : () => _review(r, 'APPROVED'), icon: const Icon(Icons.check_circle_outline), label: const Text('APPROVE')),
+              OutlinedButton.icon(onPressed: _busy ? null : () => _review(r, 'REJECTED'), icon: const Icon(Icons.cancel_outlined), label: const Text('REJECT')),
+              OutlinedButton.icon(style: OutlinedButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
+                onPressed: _busy ? null : () => _review(r, 'BLOCKED'), icon: const Icon(Icons.block), label: const Text('BLOCK DEVICE')),
+            ]),
+          ],
+        ]))),
+      ],
+    ]);
+  }
+
+  Widget _requestStatusBadge(String status) {
+    final color = switch (status) {
+      'APPROVED' => Colors.green,
+      'REJECTED' || 'BLOCKED' => Theme.of(context).colorScheme.error,
+      _ => Colors.orange,
+    };
+    return Container(padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(color: color.withValues(alpha: .12), borderRadius: BorderRadius.circular(20)),
+      child: Text(status, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w900)));
+  }
 
   Widget _auditView() => ListView(padding: const EdgeInsets.all(16), children: [
     for (final e in _audit) Card(child: ListTile(title: Text(e['action']?.toString() ?? ''), subtitle: Text('${e['created_at']} · target ${e['target_admin_id'] ?? '—'}'))),
