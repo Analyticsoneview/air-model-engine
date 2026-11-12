@@ -1,0 +1,98 @@
+name: AIR Redis State Integration
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: air-redis-state-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  redis-state-integration:
+    name: Redis shared OAuth state (self-hosted disposable Redis 7)
+    runs-on: self-hosted
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "& '{0}'"
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify Docker engine
+        run: |
+          docker version
+          if ($LASTEXITCODE -ne 0) { throw 'The self-hosted runner service account cannot access the Docker engine named pipe. Use a dedicated runner account with Docker Desktop access or an in-house Linux runner with Docker Engine.' }
+
+      - name: Start disposable Redis 7 container
+        run: |
+          $container = "air-oauth-redis-$env:GITHUB_RUN_ID"
+          docker rm -fv $container 2>$null | Out-Null
+          docker run -d --name $container --mount "type=tmpfs,destination=/data,tmpfs-size=134217728" --network bridge -p "127.0.0.1::6379" redis:7-alpine
+          if ($LASTEXITCODE -ne 0) { throw 'Could not start disposable Redis 7 container.' }
+          $mapping = docker port $container '6379/tcp' | Select-Object -First 1
+          if ($mapping -notmatch ':(\d+)$') { docker logs $container; throw "Could not resolve Redis host port: $mapping" }
+          $port = $Matches[1]
+          $ready = $false
+          for ($attempt = 0; $attempt -lt 45; $attempt++) {
+            $pong = docker exec $container redis-cli ping 2>$null
+            if ($LASTEXITCODE -eq 0 -and "$pong".Trim() -eq 'PONG') { $ready = $true; break }
+            Start-Sleep -Seconds 2
+          }
+          if (-not $ready) { docker logs $container; throw 'Redis did not become ready within 90 seconds.' }
+          "AIR_TEST_REDIS_URL=redis://127.0.0.1:$port/15" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Bootstrap isolated portable Python 3.12
+        run: |
+          Remove-Item Env:PYTHONHOME -ErrorAction SilentlyContinue
+          Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+          $pythonHome = Join-Path $env:RUNNER_TEMP 'AIR-Python312-embed'
+          $python = Join-Path $pythonHome 'python.exe'
+          $zip = Join-Path $env:RUNNER_TEMP 'python-3.12.10-embed-amd64.zip'
+          New-Item -ItemType Directory -Force -Path $pythonHome | Out-Null
+          if (-not (Test-Path -LiteralPath (Join-Path $pythonHome 'python312.zip'))) {
+            if (-not (Test-Path -LiteralPath $zip) -or (Get-Item $zip).Length -lt 10MB) {
+              & curl.exe --fail --location --show-error --retry 4 --retry-all-errors --connect-timeout 30 --max-time 900 --output $zip 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip'
+              if ($LASTEXITCODE -ne 0 -or -not (Test-Path $zip) -or (Get-Item $zip).Length -lt 10MB) { throw 'Python embeddable ZIP download failed.' }
+            }
+            Expand-Archive -LiteralPath $zip -DestinationPath $pythonHome -Force
+          }
+          $pth = Join-Path $pythonHome 'python312._pth'
+          if (-not (Test-Path $pth)) { throw "Python path configuration file missing: $pth" }
+          Set-Content -LiteralPath $pth -Value @('python312.zip','.', 'Lib\site-packages', (Join-Path $env:GITHUB_WORKSPACE 'backend'), 'import site') -Encoding ascii
+          New-Item -ItemType Directory -Force -Path (Join-Path $pythonHome 'Lib\site-packages') | Out-Null
+          & $python -c "import encodings,sys; print(sys.version); print(encodings.__file__)"
+          if ($LASTEXITCODE -ne 0) { throw 'Portable Python standard-library validation failed.' }
+          $getPip = Join-Path $env:RUNNER_TEMP 'get-pip.py'
+          & curl.exe --fail --location --show-error --retry 4 --retry-all-errors --connect-timeout 30 --max-time 300 --output $getPip 'https://bootstrap.pypa.io/get-pip.py'
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $getPip)) { throw 'Could not download pip bootstrap.' }
+          & $python $getPip --disable-pip-version-check
+          if ($LASTEXITCODE -ne 0) { throw 'pip bootstrap failed.' }
+          "AIR_PYTHON=$python" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Install backend dependencies
+        run: |
+          Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+          & $env:AIR_PYTHON -m pip install --disable-pip-version-check --upgrade pip setuptools wheel
+          if ($LASTEXITCODE -ne 0) { throw 'Python packaging toolchain installation failed.' }
+          & $env:AIR_PYTHON -m pip install --disable-pip-version-check -r requirements.txt pytest
+          if ($LASTEXITCODE -ne 0) { throw 'Backend dependency installation failed.' }
+          & $env:AIR_PYTHON -m pip check
+          if ($LASTEXITCODE -ne 0) { throw 'Backend dependency consistency check failed.' }
+
+      - name: Run OAuth state tests against disposable Redis 7
+        run: |
+          & $env:AIR_PYTHON -m pytest -q tests/test_oauth_state.py
+          if ($LASTEXITCODE -ne 0) { throw 'Redis OAuth state integration tests failed.' }
+
+      - name: Cleanup Redis container
+        if: always()
+        run: |
+          if (Get-Command docker -ErrorAction SilentlyContinue) {
+            try { docker rm -fv "air-oauth-redis-$env:GITHUB_RUN_ID" 2>$null | Out-Null } catch {}
+          }
+          exit 0

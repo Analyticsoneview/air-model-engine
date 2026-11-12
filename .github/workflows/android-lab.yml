@@ -4,7 +4,12 @@ on:
 permissions:
   contents: read
 jobs:
+  backend-validation:
+    uses: ./.github/workflows/backend-tests.yml
+
   android-lab:
+    needs: backend-validation
+    if: needs.backend-validation.result == 'success'
     runs-on: self-hosted
     timeout-minutes: 90
     defaults:
@@ -16,27 +21,18 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Verify preinstalled AIR Flutter and Android SDK
+      - name: Install Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install Android SDK components
+        uses: android-actions/setup-android@v3
+      - name: Install required Android platform and build tools
         run: |
-          $flutter = 'C:\AIR\tools\flutter\bin\flutter.bat'
-          $dart = 'C:\AIR\tools\flutter\bin\cache\dart-sdk\bin\dart.exe'
-          $sdk = 'C:\Android\Sdk'
-          if (-not (Test-Path -LiteralPath $flutter)) { throw "AIR Flutter SDK not found at $flutter. Run AIR Master ZIP repair." }
-          if (-not (Test-Path -LiteralPath $dart)) { throw "Dart SDK not found at $dart." }
-          if (-not (Test-Path -LiteralPath (Join-Path $sdk 'platforms\android-35\android.jar'))) { throw 'Android 35 platform is missing.' }
-          if (-not (Test-Path -LiteralPath (Join-Path $sdk 'build-tools\35.0.0\aapt2.exe'))) { throw 'Android Build Tools 35.0.0 are missing.' }
-          $env:ANDROID_HOME = $sdk
-          $env:ANDROID_SDK_ROOT = $sdk
-          $env:PATH = "C:\AIR\tools\flutter\bin;$sdk\platform-tools;$sdk\cmdline-tools\latest\bin;$env:PATH"
-          & $flutter --version
-          if ($LASTEXITCODE -ne 0) { throw 'Flutter version check failed.' }
-          & $dart --version
-          if ($LASTEXITCODE -ne 0) { throw 'Dart version check failed.' }
-          java -version
-          "AIR_FLUTTER=$flutter" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "ANDROID_HOME=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "ANDROID_SDK_ROOT=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "PATH=C:\AIR\tools\flutter\bin;$sdk\platform-tools;$sdk\cmdline-tools\latest\bin;$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          if ($LASTEXITCODE -ne 0) { throw 'Android SDK component installation failed.' }
+          "AIR_FLUTTER=flutter" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Generate Android platform when missing
         working-directory: mobile
         run: |
@@ -44,6 +40,17 @@ jobs:
             & $env:AIR_FLUTTER create . --platforms=android --org com.analyticalstocks
             if ($LASTEXITCODE -ne 0) { throw 'Flutter Android platform generation failed.' }
           }
+      - name: Enable HTTP only for trusted-LAN lab backend
+        working-directory: mobile
+        run: |
+          $manifest = Join-Path $PWD 'android/app/src/main/AndroidManifest.xml'
+          if (-not (Test-Path -LiteralPath $manifest)) { throw "Android manifest missing: $manifest" }
+          $xml = Get-Content -LiteralPath $manifest -Raw
+          if ($xml -notmatch 'usesCleartextTraffic') {
+            $xml = [regex]::Replace($xml, '<application(?=\s|>)', '<application android:usesCleartextTraffic="true"', 1)
+          }
+          Set-Content -LiteralPath $manifest -Value $xml -Encoding utf8
+          if ((Get-Content -LiteralPath $manifest -Raw) -notmatch 'android:usesCleartextTraffic="true"') { throw 'Lab HTTP traffic setting was not applied.' }
       - name: Resolve Flutter packages
         working-directory: mobile
         run: |

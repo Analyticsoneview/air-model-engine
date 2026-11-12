@@ -74,13 +74,9 @@ class PostgresAdminAuthStore:
         if self.redis is not None:
             return bool(self.redis.get("air:admin:lock:" + key))
         with self.engine.connect() as conn:
-            row = conn.execute(text("SELECT locked_until FROM air_admin_login_limits WHERE rate_key=:key"), {"key": key}).first()
+            row = conn.execute(text("SELECT locked_until FROM air_admin_login_limits WHERE rate_key=:key"),
+                               {"key": key}).first()
             return bool(row and row.locked_until > now)
-
-    def _clear_login_limit(self, key: str):
-        """Reset Redis failure and lock state after a successful login."""
-        if self.redis is not None:
-            self.redis.delete("air:admin:fail:" + key, "air:admin:lock:" + key)
 
     def _record_login_failure(self, key: str, now: int):
         if self.redis is not None:
@@ -91,7 +87,8 @@ class PostgresAdminAuthStore:
                 self.redis.setex("air:admin:lock:" + key, 900, "1")
             return
         with self.engine.begin() as conn:
-            row = conn.execute(text("SELECT failures,window_started FROM air_admin_login_limits WHERE rate_key=:key FOR UPDATE"), {"key": key}).first()
+            row = conn.execute(text("SELECT failures,window_started FROM air_admin_login_limits WHERE rate_key=:key FOR UPDATE"),
+                               {"key": key}).first()
             if not row or now - row.window_started >= 900:
                 conn.execute(text("""INSERT INTO air_admin_login_limits(rate_key,failures,window_started,locked_until)
                     VALUES(:key,1,:now,0) ON CONFLICT(rate_key) DO UPDATE SET failures=1,window_started=:now,locked_until=0"""),
@@ -100,6 +97,11 @@ class PostgresAdminAuthStore:
                 failures = row.failures + 1
                 conn.execute(text("UPDATE air_admin_login_limits SET failures=:n,locked_until=:lock WHERE rate_key=:key"),
                              {"n": failures, "lock": now + 900 if failures >= 5 else 0, "key": key})
+
+    def _clear_login_limit(self, key: str) -> None:
+        """Reset Redis throttling after a successful password + TOTP login."""
+        if self.redis is not None:
+            self.redis.delete("air:admin:fail:" + key, "air:admin:lock:" + key)
 
     def authenticate(self, email: str, password: str, code: str, rate_key: str = "unknown", now: int | None = None):
         current = int(time.time() if now is None else now)
@@ -125,12 +127,11 @@ class PostgresAdminAuthStore:
             if updated.rowcount != 1:
                 return None
             conn.execute(text("DELETE FROM air_admin_login_limits WHERE rate_key=:key"), {"key": key})
-            conn.execute(text("""INSERT INTO air_admin_sessions(session_id,admin_id,expires_at)
-                VALUES(:sid,:id,CURRENT_TIMESTAMP + INTERVAL '20 minutes')"""),
-                {"sid": sid, "id": row["admin_id"]})
+            conn.execute(text("INSERT INTO air_admin_sessions(session_id,admin_id) VALUES(:sid,:id)"),
+                         {"sid": sid, "id": row["admin_id"]})
             self._audit(conn, row["admin_id"], "LOGIN_SUCCESS", row["admin_id"])
+        self._clear_login_limit(key)
         if self.redis is not None:
-            self._clear_login_limit(key)
             self.redis.setex("air:admin:session:" + sid, 1200, row["admin_id"])
             self.redis.sadd("air:admin:user-sessions:" + row["admin_id"], sid)
             self.redis.expire("air:admin:user-sessions:" + row["admin_id"], 1200)
@@ -173,8 +174,7 @@ class PostgresAdminAuthStore:
             for sid in self.redis.smembers("air:admin:user-sessions:" + admin["admin_id"]):
                 if sid != admin["session_id"]:
                     self.redis.delete("air:admin:session:" + sid)
-            self.redis.srem("air:admin:user-sessions:" + admin["admin_id"],
-                            *self.redis.smembers("air:admin:user-sessions:" + admin["admin_id"]))
+            self.redis.srem("air:admin:user-sessions:" + admin["admin_id"], *self.redis.smembers("air:admin:user-sessions:" + admin["admin_id"]))
 
     def list_admins(self):
         with self.engine.connect() as conn:
@@ -186,8 +186,10 @@ class PostgresAdminAuthStore:
         if actor["role"] != "SUPER_ADMIN":
             raise PermissionError("Only SUPER_ADMIN can change administrator status")
         with self.engine.begin() as conn:
+            # Prevent concurrent deactivation of the last active Super Admin.
             conn.execute(text("SELECT pg_advisory_xact_lock(741902611)"))
-            row = conn.execute(text("SELECT role FROM air_admin_users WHERE admin_id=:id FOR UPDATE"), {"id": target_id}).first()
+            row = conn.execute(text("SELECT role FROM air_admin_users WHERE admin_id=:id FOR UPDATE"),
+                               {"id": target_id}).first()
             if not row:
                 return False
             if target_id == actor["admin_id"] and not active:
@@ -212,6 +214,7 @@ class PostgresAdminAuthStore:
         if role not in ROLES:
             raise ValueError("Unsupported administrator role")
         with self.engine.begin() as conn:
+            # Use the same transaction lock as status changes and bootstrap.
             conn.execute(text("SELECT pg_advisory_xact_lock(741902611)"))
             row = conn.execute(text("SELECT role,is_active FROM air_admin_users WHERE admin_id=:id FOR UPDATE"),
                                {"id": target_id}).first()
@@ -236,15 +239,26 @@ class PostgresAdminAuthStore:
         return [dict(r) for r in rows]
 
     def session(self, session_id: str):
+        cache_key = "air:admin:session:" + session_id
+        cached_admin_id = None
         if self.redis is not None:
-            cached_admin_id = self.redis.get("air:admin:session:" + session_id)
+            cached_admin_id = self.redis.get(cache_key)
             if not cached_admin_id:
                 return None
-        with self.engine.connect() as conn:
+        with self.engine.begin() as conn:
             row = conn.execute(text("""SELECT u.admin_id,u.email,u.role,u.must_change_password
                 FROM air_admin_sessions s JOIN air_admin_users u ON u.admin_id=s.admin_id
                 WHERE s.session_id=:sid AND s.active=true AND u.is_active=true
-                  AND s.expires_at > CURRENT_TIMESTAMP"""), {"sid": session_id}).mappings().first()
+                  AND s.expires_at > CURRENT_TIMESTAMP"""),
+                {"sid": session_id}).mappings().first()
+            if row is None:
+                conn.execute(text("""UPDATE air_admin_sessions SET active=false
+                    WHERE session_id=:sid AND active=true AND expires_at <= CURRENT_TIMESTAMP"""),
+                    {"sid": session_id})
+        if row is None and self.redis is not None:
+            self.redis.delete(cache_key)
+            if cached_admin_id:
+                self.redis.srem("air:admin:user-sessions:" + cached_admin_id, session_id)
         return row
 
     def revoke(self, session_id: str):
