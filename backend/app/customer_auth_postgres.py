@@ -15,7 +15,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
 
-_E164 = re.compile(r"^\\+[1-9][0-9]{7,14}$")
+_E164 = re.compile(r"^\+[1-9][0-9]{7,14}$")
 _PLANS = {"DAILY", "MONTHLY", "SIX_MONTHS", "YEARLY"}
 _SEGMENTS = {"ALL", "NEVER_SUBSCRIBED", "EXPIRED", "ACTIVE", "CANCELLED",
              "INACTIVE", "PENDING_ACCESS", "OPTED_OUT", "NOT_GRANTED"}
