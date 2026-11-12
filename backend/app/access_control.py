@@ -234,7 +234,7 @@ class AccessStore:
     def list_marketing_customers(self, segment: str = "ALL", search: str = "", limit: int = 200):
         """Return one row per mobile identity, never one row per device."""
         segment = segment.upper()
-        allowed = {"ALL", "NEVER_SUBSCRIBED", "EXPIRED", "ACTIVE", "CANCELLED", "INACTIVE", "PENDING_ACCESS", "OPTED_OUT"}
+        allowed = {"ALL", "NEVER_SUBSCRIBED", "EXPIRED", "ACTIVE", "CANCELLED", "INACTIVE", "PENDING_ACCESS", "OPTED_OUT", "NOT_GRANTED"}
         if segment not in allowed:
             raise ValueError("Unsupported customer segment")
         limit = max(1, min(int(limit), 500))
@@ -292,6 +292,8 @@ class AccessStore:
             if segment == "PENDING_ACCESS" and item["access_status"] != "PENDING":
                 continue
             if segment == "OPTED_OUT" and item["marketing_status"] != "OPTED_OUT":
+                continue
+            if segment == "NOT_GRANTED" and item["marketing_status"] != "NOT_GRANTED":
                 continue
             result.append(item)
             if len(result) >= limit:
