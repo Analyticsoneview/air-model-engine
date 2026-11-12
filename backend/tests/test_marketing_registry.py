@@ -81,6 +81,17 @@ class MarketingRegistryTests(unittest.TestCase):
                 starts.isoformat(), expires.isoformat(), "", "admin-1",
             )
 
+    def test_expired_draft_offer_cannot_be_approved(self):
+        starts = datetime.now(timezone.utc) - timedelta(days=3)
+        expires = datetime.now(timezone.utc) - timedelta(days=1)
+        offer = self.store.create_marketing_offer(
+            "Expired draft", "OLDDEAL", "MONTHLY", 10,
+            starts.isoformat(), expires.isoformat(), "", "admin-1",
+        )
+        with self.assertRaises(ValueError):
+            self.store.approve_marketing_offer(offer["offer_id"], "super-admin-1")
+        self.assertEqual(self.store.get_marketing_offer(offer["offer_id"])["status"], "DRAFT")
+
     def test_offer_expiry_must_follow_start(self):
         starts = datetime.now(timezone.utc)
         with self.assertRaises(ValueError):
