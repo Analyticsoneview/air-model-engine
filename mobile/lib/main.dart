@@ -9,6 +9,9 @@ import 'auth/air_access_gate.dart';
 
 import 'screens/air_connection_screen.dart';
 import 'screens/air_admin_screen.dart';
+import 'screens/air_subscription_screen.dart';
+import 'screens/air_server_setup_screen.dart';
+import 'screens/air_admin_console_screen.dart';
 import 'screens/air_qoc_screen.dart';
 import 'screens/model_engine_screen.dart';
 import 'screens/orb_strategy_screen.dart';
@@ -18,7 +21,8 @@ import 'services/air_api_client.dart';
 void main() => runApp(const AirModelEngineApp());
 
 class AirModelEngineApp extends StatefulWidget {
-  const AirModelEngineApp({super.key});
+  const AirModelEngineApp({super.key, this.initialServerUrl});
+  final String? initialServerUrl;
   @override
   State<AirModelEngineApp> createState() => _AirModelEngineAppState();
 }
@@ -26,11 +30,36 @@ class AirModelEngineApp extends StatefulWidget {
 class _AirModelEngineAppState extends State<AirModelEngineApp> {
   final FlutterSecureStorage _settingsStorage = FlutterSecureStorage();
   AirLook look = AirLook.dark;
+  bool _serverLoaded = false;
+  bool _serverReady = false;
 
   @override
   void initState() {
     super.initState();
     _restoreAppearance();
+    _restoreServerAddress();
+  }
+
+  Future<void> _restoreServerAddress() async {
+    final initial = widget.initialServerUrl?.trim();
+    if (initial != null && initial.isNotEmpty) {
+      AirApiClient.configureBaseUrl(initial);
+      _serverReady = true;
+      _serverLoaded = true;
+      return;
+    }
+    try {
+      final saved = await _settingsStorage.read(key: 'air_api_base_url');
+      if (saved != null && saved.trim().isNotEmpty) {
+        AirApiClient.configureBaseUrl(saved);
+        _serverReady = true;
+      } else {
+        _serverReady = AirApiClient.hasConfiguredBaseUrl;
+      }
+    } catch (_) {
+      _serverReady = AirApiClient.hasConfiguredBaseUrl;
+    }
+    if (mounted) setState(() => _serverLoaded = true);
   }
 
   Future<void> _restoreAppearance() async {
@@ -54,10 +83,14 @@ class _AirModelEngineAppState extends State<AirModelEngineApp> {
     title: 'AIR | Investment Intelligence',
     debugShowCheckedModeBanner: false,
     theme: AirTheme.build(look),
-    home: AirAccessGate(builder: (_) => AirShell(
-      look: look,
-      onLookChanged: _setLook,
-    )),
+    home: !_serverLoaded
+        ? const Scaffold(body: Center(child: CircularProgressIndicator()))
+        : !_serverReady
+            ? AirServerSetupScreen(onConnected: () => setState(() => _serverReady = true))
+            : AirAccessGate(builder: (_) => AirShell(
+                look: look,
+                onLookChanged: _setLook,
+              )),
   );
 }
 
@@ -172,6 +205,8 @@ class AirMoreScreen extends StatelessWidget {
       (icon: Icons.candlestick_chart_rounded, title: 'ORB Strategy', subtitle: 'Opening-range research and strategy workspace', page: const OrbStrategyScreen()),
       (icon: Icons.storage_rounded, title: 'NSE Data Center', subtitle: 'Historical market data and import status', page: const NseDataScreen()),
       (icon: Icons.admin_panel_settings_outlined, title: 'AIR Administration', subtitle: 'Operator tools and customer access management', page: const AirAdminScreen()),
+      (icon: Icons.verified_user_outlined, title: 'Administrator Sign In', subtitle: 'Separate email, password and authenticator MFA console', page: const AirAdminConsoleScreen()),
+      (icon: Icons.workspace_premium_outlined, title: 'AIR Subscription', subtitle: 'Plans, validity and strategy access', page: const AirSubscriptionScreen()),
       (icon: Icons.account_tree_outlined, title: 'Broker Connections', subtitle: 'Assigned accounts and data-source connection status', page: const AirConnectionScreen()),
     ];
 

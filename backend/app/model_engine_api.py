@@ -15,6 +15,11 @@ from app.model_engine_strategies import ORIGINAL366_BASELINE
 from app.expiry_case_study_27oct2026 import historical_expired_contracts
 from app.air_qoc_store import AirQocStore
 from app.access_control import access_store
+from app.subscription_access import (
+    active_subscription as _active_subscription,
+    is_operator_customer as _is_operator_customer,
+    require_strategy_subscription as _require_strategy_subscription,
+)
 from app.brokers.customer_accounts import CustomerAccountDirectory
 from app.security import require_customer
 from app.telegram_notifications import notify_candidates, send_telegram_message
@@ -67,12 +72,6 @@ async def _customer_market_data_service(customer_id: str):
             detail=f"Customer market-data source is unavailable: {type(exc).__name__}",
         ) from exc
 
-
-def _is_operator_customer(customer_id: str) -> bool:
-    allowed = {x.strip() for x in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",") if x.strip()}
-    if customer_id in allowed:
-        return True
-    return (access_store.mobile_for_request_id(customer_id) or "") in allowed
 
 
 def _operator(customer_id: str = Depends(require_customer)) -> str:
@@ -129,6 +128,7 @@ async def get_model_engine_ledger(
     limit: int = Query(default=500, ge=1, le=2000),
     customer_id: str = Depends(require_customer),
 ) -> dict:
+    _require_strategy_subscription(customer_id)
     customer_service = await _customer_market_data_service(customer_id)
     rows = await customer_service.hydrate_strategy_rows(_strategy_rows_for_customer(customer_id, limit))
     groups = {key: [] for key in
@@ -162,6 +162,7 @@ async def get_model_engine_master(
     customer_id: str = Depends(require_customer),
 ) -> dict:
     """Canonical MASTER view over verified persisted signals."""
+    _require_strategy_subscription(customer_id)
     customer_service = await _customer_market_data_service(customer_id)
     rows = await customer_service.hydrate_strategy_rows(_strategy_rows_for_customer(customer_id, limit), max_contracts=2000)
     # Valid past-expiry observations from EXPIRYSCAN also belong in EXPIRED.
@@ -240,6 +241,19 @@ async def get_model_engine_master(
         "updated_at": max((row.get("updated_at") for row in rows if row.get("updated_at")), default=None),
         "data_status": "POPULATED" if rows else "AWAITING_VERIFIED_SIGNALS",
     })
+    subscription = _active_subscription(customer_id)
+    if not subscription or subscription.get("status") != "ACTIVE":
+        # Keep the dashboard reachable while withholding all strategy records
+        # until a plan is active. Operator accounts retain unrestricted access.
+        result["strategies"] = {}
+        result["groups"] = {}
+        result["counts"] = {}
+        result["summary"] = {}
+        result["breakdowns"] = {}
+        result["data_status"] = "SUBSCRIPTION_REQUIRED"
+        result["subscription"] = {"status": "NONE", "strategy_access": False}
+    else:
+        result["subscription"] = {**subscription, "strategy_access": True}
     return result
 
 
@@ -287,6 +301,7 @@ async def get_original366_engine(
     as_of: str | None = Query(default=None, description="Replay cutoff date YYYY-MM-DD"),
     customer_id: str = Depends(require_customer),
 ) -> dict:
+    _require_strategy_subscription(customer_id)
     """Build the RECOVERED watch from the ORIGINAL366 cohort and post-stop daily closes."""
     customer_service = await _customer_market_data_service(customer_id)
     rows = await customer_service.hydrate_strategy_rows(_strategy_rows_for_customer(customer_id, limit), max_contracts=2000)
@@ -404,6 +419,7 @@ async def get_expiry78_engine(
     as_of: str | None = Query(default=None, description="Replay cutoff date YYYY-MM-DD"),
     customer_id: str = Depends(require_customer),
 ) -> dict:
+    _require_strategy_subscription(customer_id)
     """Replay verified daily option OHLCV for explicitly tagged EXPIRY78 contracts."""
     customer_service = await _customer_market_data_service(customer_id)
     rows = await customer_service.hydrate_strategy_rows(_strategy_rows_for_customer(customer_id, limit), max_contracts=2000)
@@ -465,6 +481,7 @@ async def get_expiry_scan(
     limit: int = Query(default=500, ge=1, le=2000),
     customer_id: str = Depends(require_customer),
 ) -> dict:
+    _require_strategy_subscription(customer_id)
     """Read-only scan of option-chain observations from the selected live provider."""
     result = await _expiry_scan_for_customer(customer_id, max_dte=max_dte, limit=limit)
     result["execution_policy"] = execution_policy.get()
@@ -482,6 +499,7 @@ async def get_expiry_scan(
 async def get_physical_settlement_review(
     customer_id: str = Depends(require_customer),
 ) -> dict:
+    _require_strategy_subscription(customer_id)
     """Read-only physical-delivery review for the historical EXPIRY78 cohort."""
     from app.model_engine_physical_settlement import build_physical_settlement_review
     result = build_physical_settlement_review()
@@ -496,6 +514,7 @@ async def get_model_engine_pnl_calendar(
     limit: int = Query(default=2000, ge=1, le=2000),
     customer_id: str = Depends(require_customer),
 ) -> dict:
+    _require_strategy_subscription(customer_id)
     """Calendar P&L with separate entry-capital and exit-realization dates."""
     from app.model_engine_pnl_calendar import build_pnl_calendar
     from app.model_engine_physical_settlement import build_physical_settlement_review

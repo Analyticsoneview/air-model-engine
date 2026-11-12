@@ -7,7 +7,7 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
+  pull-requests: read
 
 concurrency:
   group: air-pr-validation-${{ github.event.pull_request.number || github.ref }}
@@ -30,13 +30,13 @@ jobs:
           filters: |
             backend:
               - 'backend/**'
-              - '.github/workflows/air-pr-validation-automerge.yml'
+              - '.github/workflows/**'
             android:
               - 'mobile/**'
 
   backend:
     needs: changes
-    if: github.event.action != 'closed' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event.action != 'closed' && (needs.changes.outputs.backend == 'true' || needs.changes.outputs.android == 'true' || github.event_name == 'workflow_dispatch') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     name: Backend tests (Python 3.12)
     runs-on: self-hosted
     timeout-minutes: 30
@@ -45,6 +45,24 @@ jobs:
         shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "& '{0}'"
     steps:
       - uses: actions/checkout@v4
+      - name: Validate Windows launcher PowerShell syntax
+        run: |
+          $files = @('AIRSTART.ps1', 'LOCAL-APP-STARTUP/AIRSTART.ps1')
+          foreach ($file in $files) {
+            if (-not (Test-Path -LiteralPath $file)) { continue }
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $env:GITHUB_WORKSPACE $file), [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error $_.Message }
+              throw "PowerShell syntax validation failed: $file"
+            }
+          }
+          $bash = Join-Path $env:ProgramFiles 'Git\bin\bash.exe'
+          if (Test-Path -LiteralPath $bash) {
+            & $bash -n AIRSTART.sh
+            if ($LASTEXITCODE -ne 0) { throw 'AIRSTART.sh syntax validation failed.' }
+          }
       - name: Bootstrap portable Python 3.12 (no installer or admin rights)
         run: |
           Remove-Item Env:PYTHONHOME -ErrorAction SilentlyContinue
@@ -75,16 +93,16 @@ jobs:
           & $python -m pip --version
           if ($LASTEXITCODE -ne 0) { throw 'Portable Python pip validation failed.' }
           "AIR_PYTHON=$python" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-      - name: Install AIR core dependencies
+      - name: Install backend dependencies and test runner
         working-directory: .
         run: |
           Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
           & $env:AIR_PYTHON -m pip install --disable-pip-version-check --upgrade pip setuptools wheel
           if ($LASTEXITCODE -ne 0) { throw 'Python packaging toolchain installation failed.' }
-          & $env:AIR_PYTHON -m pip install --disable-pip-version-check -r backend/requirements.txt
-          if ($LASTEXITCODE -ne 0) { throw 'AIR core dependency installation failed.' }
+          & $env:AIR_PYTHON -m pip install --disable-pip-version-check -r backend/requirements.txt pytest pytest-asyncio
+          if ($LASTEXITCODE -ne 0) { throw 'AIR backend dependency installation failed.' }
           & $env:AIR_PYTHON -m pip check
-          if ($LASTEXITCODE -ne 0) { throw 'AIR core dependency consistency check failed.' }
+          if ($LASTEXITCODE -ne 0) { throw 'AIR backend dependency consistency check failed.' }
       - name: Validate broker SDKs in isolated dependency targets
         working-directory: .
         run: |
@@ -117,10 +135,22 @@ jobs:
           Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
           & $env:AIR_PYTHON -m unittest discover -s tests -v
           if ($LASTEXITCODE -ne 0) { throw 'Backend tests failed.' }
+      - name: Run backend pytest suite
+        working-directory: backend
+        timeout-minutes: 10
+        run: |
+          Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+          & $env:AIR_PYTHON -m pytest -q tests
+          if ($LASTEXITCODE -ne 0) { throw 'Backend pytest suite failed.' }
+
+  admin-postgres-integration:
+    needs: [changes, backend]
+    if: github.event.action != 'closed' && needs.backend.result == 'success' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    uses: ./.github/workflows/admin-postgres-integration.yml
 
   android:
-    needs: [changes, backend]
-    if: always() && github.event.action != 'closed' && needs.backend.result == 'success' && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.android == 'true')
+    needs: [changes, backend, admin-postgres-integration]
+    if: always() && github.event.action != 'closed' && needs.backend.result == 'success' && needs.admin-postgres-integration.result == 'success' && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.android == 'true')
     name: Android ARM64 APK build
     runs-on: self-hosted
     timeout-minutes: 90
@@ -161,6 +191,17 @@ jobs:
             & $env:AIR_FLUTTER create . --platforms=android --org com.analyticalstocks
             if ($LASTEXITCODE -ne 0) { throw 'Flutter Android platform generation failed.' }
           }
+      - name: Enable HTTP only for trusted-LAN lab backend
+        working-directory: mobile
+        run: |
+          $manifest = Join-Path $PWD 'android/app/src/main/AndroidManifest.xml'
+          if (-not (Test-Path -LiteralPath $manifest)) { throw "Android manifest missing: $manifest" }
+          $xml = Get-Content -LiteralPath $manifest -Raw
+          if ($xml -notmatch 'usesCleartextTraffic') {
+            $xml = [regex]::Replace($xml, '<application(?=\s|>)', '<application android:usesCleartextTraffic="true"', 1)
+          }
+          Set-Content -LiteralPath $manifest -Value $xml -Encoding utf8
+          if ((Get-Content -LiteralPath $manifest -Raw) -notmatch 'android:usesCleartextTraffic="true"') { throw 'Lab HTTP traffic setting was not applied.' }
       - name: Resolve packages
         working-directory: mobile
         run: |
@@ -190,32 +231,3 @@ jobs:
           path: mobile/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
           retention-days: 30
-
-  merge-after-validation:
-    needs: [changes, backend, android]
-    if: always() && github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.number == 7 && github.event.pull_request.draft == false && needs.backend.result == 'success' && (needs.android.result == 'success' || (needs.android.result == 'skipped' && needs.changes.outputs.android != 'true'))
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-    steps:
-      - name: Squash merge PR 7 after both validations pass
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: gh pr merge "$PR_NUMBER" --squash --delete-branch
-
-  retarget-stacked-ui-pr:
-    if: github.event.action == 'closed' && github.event.pull_request.merged == true && github.event.pull_request.number == 7
-    runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
-    steps:
-      - name: Move stacked PRs 8 and 9 onto main
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          gh pr edit 8 --base main
-          gh pr edit 9 --base main

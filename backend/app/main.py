@@ -1,17 +1,18 @@
 import os
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from decimal import Decimal
 from uuid import uuid4
 import secrets
 
-from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, Header
+from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from app.auth_store import AuthStore
 from app.access_control import access_store
+from app.admin_auth import get_admin_auth_store
 from app.brokers.customer_accounts import CustomerAccountDirectory, CustomerTradingAccount
 from app.brokers.catalog import get_broker_catalog, is_supported_broker
 from app.brokers.dhan import DhanHQClient, DhanAPIError
@@ -32,6 +33,7 @@ from app.market_data.master_refresh import BrokerMasterRefresher
 from app.market_data.customer_runtime import (configure_customer_market_data_runtime, invalidate_customer_market_data_service, close_customer_market_data_runtimes, get_customer_market_data_status)
 from app.air_qoc_dhan import router as air_qoc_dhan_router
 from app.model_engine_api import router as model_engine_router
+from app.backtest_api import router as backtest_router
 from app.model_engine_settlement_comparison import router as settlement_comparison_router
 from app.orb_strategy_api import router as orb_strategy_router
 from app.air_qoc_scheduler import start_qoc_scheduler, stop_qoc_scheduler, capture_dhan_eod_snapshots, capture_selected_provider_option_chains
@@ -40,12 +42,14 @@ from app.telegram_notifications import send_telegram_message
 from app.account_reporting import AccountReporting
 from app import telegram_destinations
 from app.nse_bhavcopy import (nse_data_status, nse_data_rows, start_nse_data_jobs, stop_nse_data_jobs, trigger_nse_bootstrap)
-from app.security import create_access_token, hash_password, require_customer, verify_password
+from app.security import create_access_token, create_admin_access_token, hash_password, require_customer, require_admin, verify_password
+from app.persistence import get_persistence_runtime
 
 app = FastAPI(title="AIR Model Engine API", version="0.3.0",
               description="Self-hosted AIR authentication, broker account and market-data gateway.")
 app.include_router(air_qoc_dhan_router)
 app.include_router(model_engine_router)
+app.include_router(backtest_router)
 app.include_router(settlement_comparison_router)
 app.include_router(orb_strategy_router)
 _cors_origins = [
@@ -62,7 +66,7 @@ app.add_middleware(
 _market_health_task: asyncio.Task | None = None
 _master_refresh_task: asyncio.Task | None = None
 set_default_market_data_service(market_data_service)
-auth_store = AuthStore(os.getenv("AIR_AUTH_DB_PATH", "data/air_auth.sqlite3"))
+auth_store = AuthStore()
 account_directory = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3"))
 _credential_vault: CredentialVault | None = None
 _upstox_oauth_states: dict[tuple[str, str], str] = {}
@@ -480,6 +484,11 @@ class MobileAccessRequest(BaseModel):
     device_id: str = Field(min_length=8, max_length=128)
 
 
+class SubscriptionAssignment(BaseModel):
+    customer_id: str = Field(min_length=9, max_length=100)
+    plan_code: str = Field(pattern="^(DAILY|MONTHLY|SIX_MONTHS|YEARLY)$")
+
+
 class AccessReview(BaseModel):
     status: str = Field(pattern="^(APPROVED|REJECTED|BLOCKED)$")
     note: str = Field(default="", max_length=500)
@@ -637,7 +646,12 @@ async def broker_catalog(customer_id: str = Depends(require_customer)) -> dict:
 
 @app.get("/health")
 async def health() -> dict:
-    return {"status": "ok", "service": "air-model-engine-api"}
+    dependencies = get_persistence_runtime().health()
+    failures = [name for name, item in dependencies.items()
+                if item["configured"] and item["status"] != "ok"]
+    if failures:
+        raise HTTPException(status_code=503, detail={"status": "degraded", "dependencies": dependencies})
+    return {"status": "ok", "service": "air-model-engine-api", "dependencies": dependencies}
 
 @app.get("/api/v1/nse-data/status")
 async def nse_bhavcopy_status(customer_id: str = Depends(require_customer)) -> dict:
@@ -685,9 +699,43 @@ async def mobile_login(body: MobileAccessRequest) -> dict:
     session_id = access_store.create_session(request["request_id"])
     # Use the approved E.164 identity as the stable customer/operator subject.
     # Each device still has its own revocable session (jti) in AccessStore.
-    token = create_access_token(body.mobile_e164, expires_minutes=525600, session_id=session_id)
+    token = create_access_token(body.mobile_e164, expires_minutes=720, session_id=session_id)
     return {"status": "APPROVED", "access_token": token, "token_type": "bearer",
-            "expires_in": 31536000, "customer_id": body.mobile_e164}
+            "expires_in": 43200, "customer_id": body.mobile_e164}
+
+
+@app.get("/api/v1/subscription/plans")
+async def subscription_plans() -> dict:
+    return {"plans": [
+        {"code": "DAILY", "name": "Daily", "validity_days": 1},
+        {"code": "MONTHLY", "name": "Monthly", "validity_days": 30},
+        {"code": "SIX_MONTHS", "name": "6 Months", "validity_days": 180},
+        {"code": "YEARLY", "name": "1 Year", "validity_days": 365},
+    ], "activation": "Administrator activation during the initial rollout; online payment is not enabled."}
+
+
+@app.get("/api/v1/subscription/me")
+async def current_subscription(customer_id: str = Depends(require_customer)) -> dict:
+    subscription = access_store.get_subscription(customer_id)
+    return {"customer_id": customer_id, "subscription": subscription,
+            "strategy_access": bool(subscription and subscription["status"] == "ACTIVE")}
+
+
+@app.post("/api/v1/admin/subscriptions/assign")
+async def assign_customer_subscription(
+    body: SubscriptionAssignment,
+    admin: dict = Depends(require_admin),
+) -> dict:
+    if admin.get("role") not in {"SUPER_ADMIN", "ADMIN"}:
+        raise HTTPException(status_code=403, detail="Administrator management permission is required")
+    durations = {"DAILY": 1, "MONTHLY": 30, "SIX_MONTHS": 180, "YEARLY": 365}
+    starts = datetime.now(timezone.utc)
+    expires = starts + timedelta(days=durations[body.plan_code])
+    access_store.assign_subscription(
+        body.customer_id, body.plan_code, starts.isoformat(), expires.isoformat()
+    )
+    return {"customer_id": body.customer_id, "plan_code": body.plan_code,
+            "starts_at": starts.isoformat(), "expires_at": expires.isoformat(), "status": "ACTIVE"}
 
 
 @app.get("/api/v1/auth/mobile-status")
@@ -710,13 +758,147 @@ async def current_customer(customer_id: str = Depends(require_customer)) -> dict
     return {"customer_id": customer_id, "status": "APPROVED"}
 
 
-@app.get("/api/v1/admin/access-requests", dependencies=[Depends(require_air_admin)])
-async def list_access_requests(status: str | None = Query(default=None, pattern="^(PENDING|APPROVED|REJECTED|BLOCKED)$")) -> dict:
+class AdminLoginRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=254)
+    password: str = Field(min_length=12, max_length=256)
+    totp_code: str = Field(pattern=r"^\d{6}$")
+
+
+class AdminPasswordChangeRequest(BaseModel):
+    current_password: str = Field(min_length=12, max_length=256)
+    new_password: str = Field(min_length=12, max_length=256)
+
+
+class AdminCreateRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=254)
+    role: str = Field(pattern="^(ADMIN|RESEARCH_ADMIN)$")
+
+
+class AdminStatusRequest(BaseModel):
+    active: bool
+
+
+class AdminRoleRequest(BaseModel):
+    role: str = Field(pattern="^(SUPER_ADMIN|ADMIN|RESEARCH_ADMIN)$")
+
+
+@app.post("/api/v1/admin/auth/login")
+async def admin_login(body: AdminLoginRequest, request: Request) -> dict:
+    try:
+        store = get_admin_auth_store()
+        client_host = request.client.host if request.client else "unknown"
+        admin = store.authenticate(body.email, body.password, body.totp_code,
+                                   rate_key=f"{body.email.strip().lower()}|{client_host}")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Administrator authentication is not configured") from exc
+    if not admin:
+        raise HTTPException(status_code=429, detail="Administrator login failed or temporarily locked. Try again later.")
+    token = create_admin_access_token(admin["admin_id"], admin["role"], admin["session_id"], expires_minutes=20)
+    return {"access_token": token, "token_type": "bearer", "expires_in": 1200,
+            "admin": {"admin_id": admin["admin_id"], "email": admin["email"], "role": admin["role"], "must_change_password": admin["must_change_password"]}}
+
+
+
+@app.put("/api/v1/admin/auth/password")
+async def admin_change_password(body: AdminPasswordChangeRequest,
+                                admin: dict = Depends(require_admin)) -> dict:
+    try:
+        get_admin_auth_store().change_password(
+            admin, body.current_password, body.new_password
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"status": "password_changed", "other_sessions_revoked": True}
+
+
+@app.get("/api/v1/admin/auth/me")
+async def admin_me(admin: dict = Depends(require_admin)) -> dict:
+    return {key: value for key, value in admin.items() if key != "session_id"}
+
+
+@app.post("/api/v1/admin/auth/logout")
+async def admin_logout(admin: dict = Depends(require_admin)) -> dict:
+    get_admin_auth_store().revoke(admin["session_id"])
+    return {"status": "signed_out"}
+
+
+def require_admin_management(admin: dict = Depends(require_admin)) -> dict:
+    if admin["role"] not in {"SUPER_ADMIN", "ADMIN"}:
+        raise HTTPException(status_code=403, detail="Administrator management permission is required")
+    return admin
+
+
+
+@app.get("/api/v1/admin/users")
+async def admin_list_users(admin: dict = Depends(require_admin)) -> dict:
+    if admin["role"] != "SUPER_ADMIN":
+        raise HTTPException(status_code=403, detail="Only Super Admin can manage administrator accounts")
+    return {"admins": get_admin_auth_store().list_admins()}
+
+
+@app.post("/api/v1/admin/users", status_code=201)
+async def admin_create_user(body: AdminCreateRequest, admin: dict = Depends(require_admin)) -> dict:
+    try:
+        created, provisioning_uri = get_admin_auth_store().create_admin(admin, body.email, body.role)
+        return {"admin": {k: v for k, v in created.items() if k != "temporary_password"},
+                "temporary_password": created["temporary_password"],
+                "totp_provisioning_uri": provisioning_uri,
+                "note": "Share these one-time setup values securely. The authenticator secret is not retrievable later."}
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        if "UNIQUE constraint failed" in str(exc):
+            raise HTTPException(status_code=409, detail="Administrator email already exists") from exc
+        raise
+
+
+@app.put("/api/v1/admin/users/{target_admin_id}/status")
+async def admin_update_user_status(target_admin_id: str, body: AdminStatusRequest,
+                                   admin: dict = Depends(require_admin)) -> dict:
+    try:
+        updated = get_admin_auth_store().set_admin_status(admin, target_admin_id, body.active)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not updated:
+        raise HTTPException(status_code=404, detail="Administrator not found")
+    return {"admin_id": target_admin_id, "active": body.active, "updated": True}
+
+
+@app.put("/api/v1/admin/users/{target_admin_id}/role")
+async def admin_update_user_role(target_admin_id: str, body: AdminRoleRequest,
+                                 admin: dict = Depends(require_admin)) -> dict:
+    try:
+        updated = get_admin_auth_store().set_admin_role(admin, target_admin_id, body.role)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not updated:
+        raise HTTPException(status_code=404, detail="Administrator not found")
+    return {"admin_id": target_admin_id, "role": body.role, "updated": True, "sessions_revoked": True}
+
+
+@app.get("/api/v1/admin/audit")
+async def admin_audit(limit: int = Query(default=100, ge=1, le=500),
+                      admin: dict = Depends(require_admin)) -> dict:
+    if admin["role"] != "SUPER_ADMIN":
+        raise HTTPException(status_code=403, detail="Only Super Admin can view administrator audit events")
+    return {"events": get_admin_auth_store().audit_events(limit)}
+
+
+@app.get("/api/v1/admin/access-requests")
+async def list_access_requests(status: str | None = Query(default=None, pattern="^(PENDING|APPROVED|REJECTED|BLOCKED)$"), admin: dict = Depends(require_admin)) -> dict:
     return {"requests": [dict(row) for row in access_store.list_requests(status)]}
 
 
-@app.put("/api/v1/admin/access-requests/{request_id}", dependencies=[Depends(require_air_admin)])
-async def review_access_request(request_id: str, body: AccessReview) -> dict:
+@app.put("/api/v1/admin/access-requests/{request_id}")
+async def review_access_request(request_id: str, body: AccessReview, admin: dict = Depends(require_admin_management)) -> dict:
     if not access_store.review(request_id, body.status, body.note):
         raise HTTPException(status_code=404, detail="Access request not found")
     return {"request_id": request_id, "status": body.status, "updated": True}
@@ -1813,7 +1995,7 @@ async def operator_test_telegram_destination(
     if not selected:
         raise HTTPException(status_code=409, detail="Add and enable at least one Telegram destination first")
     result = await send_telegram_message(
-        "✅ <b>AIR Telegram connection test</b>\\nThis destination is reachable. Alert routing is configured.",
+        "✅ <b>AIR Telegram connection test</b>\nThis destination is reachable. Alert routing is configured.",
         [row["chat_id"] for row in selected],
     )
     if not result.get("configured") or result.get("failures"):

@@ -6,12 +6,13 @@ permissions:
 jobs:
   backend-tests:
     runs-on: self-hosted
+    timeout-minutes: 30
     defaults:
       run:
         shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "& '{0}'"
     steps:
       - uses: actions/checkout@v4
-      - name: Bootstrap portable Python 3.12 (no installer or admin rights)
+      - name: Bootstrap portable Python 3.12
         run: |
           Remove-Item Env:PYTHONHOME -ErrorAction SilentlyContinue
           Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
@@ -28,7 +29,7 @@ jobs:
           }
           $pth = Join-Path $pythonHome 'python312._pth'
           if (-not (Test-Path $pth)) { throw "Python path configuration file missing: $pth" }
-          $pthLines = @('python312.zip','.', 'Lib\site-packages','import site')
+          $pthLines = @('python312.zip','.', 'Lib\site-packages', (Join-Path $env:GITHUB_WORKSPACE 'backend'), 'import site')
           Set-Content -LiteralPath $pth -Value $pthLines -Encoding ascii
           New-Item -ItemType Directory -Force -Path (Join-Path $pythonHome 'Lib\site-packages') | Out-Null
           & $python -c "import encodings,sys; print(sys.version); print(sys.executable); print(encodings.__file__)"
@@ -38,18 +39,20 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path $getPip)) { throw 'Could not download pip bootstrap.' }
           & $python $getPip --disable-pip-version-check
           if ($LASTEXITCODE -ne 0) { throw 'pip bootstrap failed for portable Python.' }
-          & $python -m pip --version
-          if ($LASTEXITCODE -ne 0) { throw 'Portable Python pip validation failed.' }
           "AIR_PYTHON=$python" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-      - name: Install backend dependencies
-        working-directory: .
+      - name: Install backend dependencies and test runner
         run: |
           Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
-          & $env:AIR_PYTHON -m pip install --disable-pip-version-check -r backend/requirements.txt
+          & $env:AIR_PYTHON -m pip install --disable-pip-version-check --upgrade pip setuptools wheel
+          if ($LASTEXITCODE -ne 0) { throw 'Python packaging toolchain installation failed.' }
+          & $env:AIR_PYTHON -m pip install --disable-pip-version-check -r backend/requirements.txt pytest pytest-asyncio
           if ($LASTEXITCODE -ne 0) { throw 'Backend dependency installation failed.' }
-      - name: Run backend unit tests
-        working-directory: .
+          & $env:AIR_PYTHON -m pip check
+          if ($LASTEXITCODE -ne 0) { throw 'Backend dependency consistency check failed.' }
+      - name: Run backend test suite
+        working-directory: backend
+        timeout-minutes: 15
         run: |
           Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
-          & $env:AIR_PYTHON -m unittest discover -s backend/tests -v
-          if ($LASTEXITCODE -ne 0) { throw 'Backend unit tests failed.' }
+          & $env:AIR_PYTHON -m pytest -q tests
+          if ($LASTEXITCODE -ne 0) { throw 'Backend pytest suite failed.' }

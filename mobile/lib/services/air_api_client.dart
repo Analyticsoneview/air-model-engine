@@ -11,6 +11,23 @@ class AirApiException implements Exception {
 
 class AirApiClient {
   static const _configuredBaseUrl = String.fromEnvironment('AIR_API_BASE_URL');
+  static String? _runtimeBaseUrl;
+
+  static String? get configuredBaseUrl {
+    final candidate = _runtimeBaseUrl ?? _configuredBaseUrl.trim();
+    if (candidate.isEmpty) return null;
+    final host = Uri.tryParse(candidate)?.host.toLowerCase();
+    if (host == 'localhost' || host == '127.0.0.1' || host == '::1') return null;
+    return _normalizeBaseUrl(candidate);
+  }
+
+  static bool get hasConfiguredBaseUrl => configuredBaseUrl != null;
+
+  static void configureBaseUrl(String value) {
+    _runtimeBaseUrl = _normalizeBaseUrl(value.trim());
+  }
+
+  static void clearRuntimeBaseUrl() => _runtimeBaseUrl = null;
 
   static String _normalizeBaseUrl(String value) {
     var normalized = value;
@@ -22,15 +39,16 @@ class AirApiClient {
 
   AirApiClient({http.Client? client, String? baseUrl})
       : _client = client ?? http.Client(),
-        baseUrl = _normalizeBaseUrl(
-          baseUrl ??
-              (_configuredBaseUrl.isEmpty
-                  ? 'http://127.0.0.1:8000'
-                  : _configuredBaseUrl),
-        );
+        _baseUrlOverride = baseUrl == null ? null : _normalizeBaseUrl(baseUrl);
 
   final http.Client _client;
-  final String baseUrl;
+  final String? _baseUrlOverride;
+  String get baseUrl => _normalizeBaseUrl(
+        _baseUrlOverride ??
+            (_runtimeBaseUrl ?? (_configuredBaseUrl.isEmpty
+                ? 'http://127.0.0.1:8000'
+                : _configuredBaseUrl)),
+      );
   static String? _sharedAccessToken;
   String? get _accessToken => _sharedAccessToken;
 
@@ -44,6 +62,10 @@ class AirApiClient {
         'Content-Type': 'application/json',
         if (_accessToken != null) 'Authorization': 'Bearer $_accessToken',
       };
+
+  Future<Map<String, dynamic>> health() async {
+    return _decode(await _client.get(Uri.parse('$baseUrl/health'), headers: _headers).timeout(const Duration(seconds: 8)));
+  }
 
   Future<Map<String, dynamic>> login(String email, String password) async {
     final response = await _client.post(
@@ -81,6 +103,22 @@ class AirApiClient {
       queryParameters: {'mobile_e164': mobileE164.trim(), 'device_id': deviceId},
     );
     return _decode(await _client.get(uri, headers: _headers));
+  }
+
+  Future<List<Map<String, dynamic>>> subscriptionPlans() async {
+    final data = _decode(await _client.get(
+      Uri.parse('$baseUrl/api/v1/subscription/plans'),
+      headers: _headers,
+    ));
+    return (data['plans'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>().toList(growable: false);
+  }
+
+  Future<Map<String, dynamic>> mySubscription() async {
+    return _decode(await _client.get(
+      Uri.parse('$baseUrl/api/v1/subscription/me'),
+      headers: _headers,
+    ));
   }
 
   Future<Map<String, dynamic>> me() async {

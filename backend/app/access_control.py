@@ -9,9 +9,16 @@ _E164 = re.compile(r"^\+[1-9][0-9]{7,14}$")
 
 
 class AccessStore:
-    """Admin-approved mobile/device access requests and revocable sessions."""
+    """Phone-number onboarding, revocable device sessions and subscription entitlements."""
 
-    def __init__(self, db_path: str = "data/air_auth.sqlite3"):
+    def __new__(cls, db_path: str | None = None):
+        if db_path is None and (os.getenv("AIR_CUSTOMER_DATABASE_URL") or os.getenv("AIR_CUSTOMER_DATABASE_URL_FILE")):
+            from app.customer_auth_postgres import PostgresAccessStore
+            return PostgresAccessStore()
+        return super().__new__(cls)
+
+    def __init__(self, db_path: str | None = None):
+        db_path = db_path or os.getenv("AIR_AUTH_DB_PATH", "data/air_auth.sqlite3")
         if db_path != ":memory:":
             Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(db_path, check_same_thread=False)
@@ -37,6 +44,16 @@ class AccessStore:
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS air_customer_subscriptions (
+                customer_id TEXT PRIMARY KEY,
+                plan_code TEXT NOT NULL CHECK(plan_code IN ('DAILY','MONTHLY','SIX_MONTHS','YEARLY')),
+                starts_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE','CANCELLED','EXPIRED')),
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         self.db.commit()
 
     @staticmethod
@@ -54,7 +71,7 @@ class AccessStore:
         with self.db:
             self.db.execute(
                 """INSERT OR IGNORE INTO air_access_requests
-                   (request_id,mobile_e164,device_id) VALUES(?,?,?)""",
+                   (request_id,mobile_e164,device_id,status) VALUES(?,?,?,'PENDING')""",
                 (str(uuid4()), mobile, device),
             )
         return self.get_request(mobile, device)
@@ -126,8 +143,60 @@ class AccessStore:
         ).fetchone()
         return bool(row and row["active"] and row["status"] == "APPROVED")
 
+    @staticmethod
+    def _subscription_datetime(value: str):
+        from datetime import datetime, timezone
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("Subscription timestamps must be non-empty ISO-8601 strings")
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    def assign_subscription(self, customer_id: str, plan_code: str, starts_at: str, expires_at: str):
+        plan = plan_code.upper()
+        if plan not in {"DAILY", "MONTHLY", "SIX_MONTHS", "YEARLY"}:
+            raise ValueError("Unsupported AIR subscription plan")
+        starts = self._subscription_datetime(starts_at)
+        expires = self._subscription_datetime(expires_at)
+        if expires <= starts:
+            raise ValueError("Subscription expiry must be later than its start date")
+        with self.db:
+            self.db.execute(
+                """INSERT INTO air_customer_subscriptions
+                   (customer_id,plan_code,starts_at,expires_at,status,updated_at)
+                   VALUES(?,?,?,?, 'ACTIVE', CURRENT_TIMESTAMP)
+                   ON CONFLICT(customer_id) DO UPDATE SET
+                   plan_code=excluded.plan_code, starts_at=excluded.starts_at,
+                   expires_at=excluded.expires_at, status='ACTIVE', updated_at=CURRENT_TIMESTAMP""",
+                (customer_id, plan, starts.isoformat(), expires.isoformat()),
+            )
+
+    def get_subscription(self, customer_id: str):
+        row = self.db.execute(
+            """SELECT customer_id,plan_code,starts_at,expires_at,status
+               FROM air_customer_subscriptions WHERE customer_id=?""",
+            (customer_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        result = dict(row)
+        if result["status"] == "ACTIVE":
+            from datetime import datetime, timezone
+            try:
+                starts = self._subscription_datetime(result["starts_at"])
+                expires = self._subscription_datetime(result["expires_at"])
+                now = datetime.now(timezone.utc)
+                if starts > now:
+                    result["status"] = "PENDING"
+                elif expires <= now:
+                    result["status"] = "EXPIRED"
+            except (TypeError, ValueError):
+                result["status"] = "EXPIRED"
+        return result
+
     def close(self):
         self.db.close()
 
 
-access_store = AccessStore(os.getenv("AIR_AUTH_DB_PATH", "data/air_auth.sqlite3"))
+access_store = AccessStore()

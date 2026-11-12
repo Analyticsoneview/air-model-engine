@@ -144,9 +144,11 @@ def _recovery_verified(row: dict[str, Any]) -> bool:
 
 
 def _sort_key(row: dict[str, Any]) -> tuple:
+    # Callers sort in reverse order: negate entry price to keep cheaper
+    # entries first within each signal date.
     return (
         str(row.get("signal_date") or ""),
-        float(row.get("entry_price") or 0),
+        -float(row.get("entry_price") or 0),
         str(row.get("symbol") or ""),
         str(row.get("expiry") or ""),
         float(row.get("strike") or 0),
