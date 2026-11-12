@@ -404,6 +404,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
       ('ACTIVE', 'Active subscribers'),
       ('PENDING_ACCESS', 'Pending access'),
       ('OPTED_OUT', 'Opted out'),
+      ('NOT_GRANTED', 'No marketing consent'),
     ];
     return ListView(padding: const EdgeInsets.all(16), children: [
       const Text('CUSTOMER GROWTH · REGISTRY', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: .6)),
