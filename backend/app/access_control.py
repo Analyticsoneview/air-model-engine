@@ -234,7 +234,7 @@ class AccessStore:
     def list_marketing_customers(self, segment: str = "ALL", search: str = "", limit: int = 200):
         """Return one row per mobile identity, never one row per device."""
         segment = segment.upper()
-        allowed = {"ALL", "NEVER_SUBSCRIBED", "EXPIRED", "ACTIVE", "PENDING_ACCESS", "OPTED_OUT"}
+        allowed = {"ALL", "NEVER_SUBSCRIBED", "EXPIRED", "ACTIVE", "CANCELLED", "INACTIVE", "PENDING_ACCESS", "OPTED_OUT"}
         if segment not in allowed:
             raise ValueError("Unsupported customer segment")
         limit = max(1, min(int(limit), 500))
@@ -285,6 +285,10 @@ class AccessStore:
                 continue
             if segment == "ACTIVE" and subscription_status != "ACTIVE":
                 continue
+            if segment == "CANCELLED" and subscription_status != "CANCELLED":
+                continue
+            if segment == "INACTIVE" and subscription_status not in {"EXPIRED", "CANCELLED"}:
+                continue
             if segment == "PENDING_ACCESS" and item["access_status"] != "PENDING":
                 continue
             if segment == "OPTED_OUT" and item["marketing_status"] != "OPTED_OUT":
@@ -334,6 +338,9 @@ class AccessStore:
             "NEVER_SUBSCRIBED": 0,
             "EXPIRED": 0,
             "ACTIVE": 0,
+            "CANCELLED": 0,
+            "INACTIVE": 0,
+            "PENDING": 0,
             "PENDING_ACCESS": 0,
             "OPTED_OUT": 0,
             "NOT_GRANTED": 0,
@@ -341,15 +348,17 @@ class AccessStore:
         }
         for customer in customers:
             status = customer["subscription_status"]
-            if status in {"NEVER_SUBSCRIBED", "EXPIRED", "ACTIVE"}:
+            if status in {"NEVER_SUBSCRIBED", "EXPIRED", "ACTIVE", "CANCELLED", "PENDING"}:
                 counts[status] += 1
+            if status in {"EXPIRED", "CANCELLED"}:
+                counts["INACTIVE"] += 1
             if customer["access_status"] == "PENDING":
                 counts["PENDING_ACCESS"] += 1
             if customer["marketing_status"] == "OPTED_OUT":
                 counts["OPTED_OUT"] += 1
             elif customer["marketing_status"] == "NOT_GRANTED":
                 counts["NOT_GRANTED"] += 1
-            if customer["access_status"] == "APPROVED" and status != "ACTIVE" and customer["promotional_consent"]:
+            if customer["access_status"] == "APPROVED" and status in {"NEVER_SUBSCRIBED", "EXPIRED", "CANCELLED"} and customer["promotional_consent"]:
                 counts["ELIGIBLE_FOR_PROMOTIONS"] += 1
         return counts
 
@@ -415,7 +424,14 @@ class AccessStore:
                 """, (str(uuid4()), approved_by, "MARKETING_OFFER_APPROVED", offer_id, "Super Admin approval"))
         if not cursor.rowcount:
             raise ValueError("Draft offer not found or already reviewed")
-        return self.get_marketing_offer(offer_id)
+        offer = self.get_marketing_offer(offer_id)
+        if self._subscription_datetime(offer["expires_at"]) <= self._subscription_datetime(
+            __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+        ):
+            with self.db:
+                self.db.execute("UPDATE air_marketing_offers SET status='DRAFT',approved_by=NULL,approved_at=NULL WHERE offer_id=?", (offer_id,))
+            raise ValueError("Expired offers cannot be approved")
+        return offer
 
     def revoke_marketing_offer(self, offer_id: str, actor: str):
         with self.db:
