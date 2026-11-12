@@ -103,7 +103,7 @@ def migrate(source_path: str, database_url: str) -> dict[str, int]:
 
 if __name__ == "__main__":
     sqlite_path = os.getenv("AIR_CUSTOMER_SQLITE_PATH", os.getenv("AIR_AUTH_DB_PATH", "data/air_auth.sqlite3"))
-    database_url = PostgresAccessUrl = os.getenv("AIR_CUSTOMER_DATABASE_URL", "")
+    database_url = os.getenv("AIR_CUSTOMER_DATABASE_URL", "")
     if not database_url and os.getenv("AIR_CUSTOMER_DATABASE_URL_FILE"):
         database_url = Path(os.environ["AIR_CUSTOMER_DATABASE_URL_FILE"]).read_text(encoding="utf-8").strip()
     result = migrate(sqlite_path, database_url)
