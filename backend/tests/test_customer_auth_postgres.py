@@ -9,6 +9,7 @@ import sqlite3
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pytest
 from sqlalchemy import create_engine, text
@@ -30,6 +31,9 @@ def _database_url():
         pytest.skip("AIR_TEST_CUSTOMER_DATABASE_URL not configured")
     if not url.startswith(("postgresql://", "postgresql+psycopg://")):
         pytest.fail("AIR_TEST_CUSTOMER_DATABASE_URL must point to PostgreSQL")
+    database_name = urlparse(url).path.lstrip("/")
+    if "test" not in database_name.lower():
+        pytest.fail("Customer integration tests are destructive and require a disposable database with test in its name")
     return url
 
 
