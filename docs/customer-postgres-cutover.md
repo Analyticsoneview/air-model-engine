@@ -35,12 +35,11 @@ approval/revocation, persistence after reconnect, and idempotent SQLite import.
    against the same PostgreSQL database. Do not delete or rename the SQLite source.
 5. Only after successful migration and verification, configure
    `AIR_CUSTOMER_DATABASE_URL_FILE=/run/secrets/air_database_url` for the API
-   service and restart it. Confirm customer login, Admin access review, session
-   revocation, subscription reads, consent and offer management.
-6. Add `AIR_CUSTOMER_DATABASE_URL_FILE=/run/secrets/air_database_url` to the
-   API service environment (for example, in the existing `.air-local.env`), then
-   start the API with `docker compose -f compose.local.yml up -d air-api` and
-   verify the workflows listed above. Retain the SQLite backup through the agreed
+   service environment (for example, in the existing `.air-local.env`).
+6. Start `AIR_CUSTOMER_DATABASE_URL_FILE=/run/secrets/air_database_url` to the
+   the API with `docker compose -f compose.local.yml up -d air-api` and verify
+   customer login, Admin access review, session revocation, subscription reads,
+   consent and offer management. Retain the SQLite backup through the agreed
    rollback window. Rollback means
    restoring the previous application configuration to SQLite; do not attempt to
    write PostgreSQL data back into the old SQLite file.
