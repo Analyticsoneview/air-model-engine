@@ -214,6 +214,10 @@ def test_postgres_admin_successful_login_resets_redis_throttle(admin_store):
 
     key = admin_store._limit_key(rate_key)
     assert admin_store.redis.get("air:admin:fail:" + key) == "4"
+    # A stale PostgreSQL throttle row must also be cleared by a Redis-backed success.
+    with admin_store.engine.begin() as conn:
+        conn.execute(text("""INSERT INTO air_admin_login_limits(rate_key,failures,window_started,locked_until)
+            VALUES(:key,2,:now,0)"""), {"key": key, "now": now - 60})
     login = admin_store.authenticate("root@example.com", "Long-Strong-Password-123!",
                                      _totp(secret, now), rate_key=rate_key, now=now)
     assert login and login["admin_id"] == admin_id
@@ -226,6 +230,19 @@ def test_postgres_admin_successful_login_resets_redis_throttle(admin_store):
     with admin_store.engine.connect() as conn:
         assert conn.execute(text("SELECT 1 FROM air_admin_login_limits WHERE rate_key=:key"),
                             {"key": key}).first() is None
+
+
+def test_successful_login_clear_helper_removes_both_redis_lockout_keys(admin_store):
+    key = admin_store._limit_key("root|clear-both-keys")
+    failure_key = "air:admin:fail:" + key
+    lock_key = "air:admin:lock:" + key
+    admin_store.redis.setex(failure_key, 900, "4")
+    admin_store.redis.setex(lock_key, 900, "1")
+
+    admin_store._clear_login_limit(key)
+
+    assert admin_store.redis.get(failure_key) is None
+    assert admin_store.redis.get(lock_key) is None
 
 
 def test_postgres_only_mode_enforces_and_resets_database_lockout(admin_store_without_redis):

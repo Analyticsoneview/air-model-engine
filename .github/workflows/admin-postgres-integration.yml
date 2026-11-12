@@ -102,6 +102,7 @@ jobs:
 
             $databaseUrl = "postgresql+psycopg://air_test:air_test@127.0.0.1:$pgPort/air_test"
             $env:AIR_ADMIN_DATABASE_URL = $databaseUrl
+            $env:AIR_CUSTOMER_DATABASE_URL = $databaseUrl
             $env:AIR_TEST_ADMIN_DATABASE_URL = $databaseUrl
             $env:AIR_TEST_ADMIN_REDIS_URL = "redis://127.0.0.1:$redisPort/0"
             & $env:AIR_PYTHON -m alembic upgrade head
