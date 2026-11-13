@@ -5,7 +5,6 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../services/air_api_client.dart';
 import '../screens/air_server_setup_screen.dart';
-import '../screens/air_admin_console_screen.dart';
 
 class AirAccessGate extends StatefulWidget {
   const AirAccessGate({super.key, required this.builder});
@@ -42,7 +41,6 @@ class _AirAccessGateState extends State<AirAccessGate> {
     // A bearer token belongs to the previous server; never forward it to a newly selected host.
     AirApiClient.setAccessToken(null);
     await _storage.delete(key: 'air_access_token');
-    await _storage.delete(key: 'air_admin_access_token');
     _api.dispose();
     _api = AirApiClient();
     setState(() {
@@ -250,13 +248,6 @@ class _AirAccessGateState extends State<AirAccessGate> {
                       onPressed: _busy ? null : _changeServer,
                       icon: const Icon(Icons.dns_outlined, color: Color(0xFFE5B85C)),
                       label: const Text('CHANGE AIR SERVER', style: TextStyle(color: Color(0xFFE5B85C), fontWeight: FontWeight.w800)),
-                    ),
-                    TextButton.icon(
-                      onPressed: _busy ? null : () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(builder: (_) => const AirAdminConsoleScreen()),
-                      ),
-                      icon: const Icon(Icons.admin_panel_settings_outlined, color: Color(0xFFE5B85C)),
-                      label: const Text('ADMINISTRATOR SIGN IN', style: TextStyle(color: Color(0xFFE5B85C), fontWeight: FontWeight.w800)),
                     ),
                     const SizedBox(height: 14),
                     const SizedBox(height: 10),

@@ -10,7 +10,7 @@ void main() {
     expect(find.text('Your market intelligence workspace.'), findsOneWidget);
     expect(find.text('International mobile number'), findsOneWidget);
     expect(find.text('DASHBOARD ACCESS  •  SUBSCRIPTION-BASED STRATEGIES'), findsOneWidget);
-    expect(find.text('ADMINISTRATOR SIGN IN'), findsOneWidget);
+    expect(find.text('ADMINISTRATOR SIGN IN'), findsNothing);
     expect(find.textContaining('Verify ownership before enabling payments'), findsOneWidget);
   });
 }
