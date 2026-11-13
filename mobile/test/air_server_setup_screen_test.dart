@@ -34,7 +34,7 @@ void main() {
     await tester.pump();
 
     expect(
-      find.text('Enter a valid http:// or https:// AIR server address.'),
+      find.text('Enter a valid AIR server URL, including http:// or https://.'),
       findsOneWidget,
     );
 
@@ -43,7 +43,7 @@ void main() {
     await tester.pump();
 
     expect(
-      find.text('Use the Windows PC LAN IP address; localhost points to this phone.'),
+      find.text('On a phone, use your Windows PC LAN IP or a public HTTPS domain. Localhost points to the phone.'),
       findsOneWidget,
     );
   });
