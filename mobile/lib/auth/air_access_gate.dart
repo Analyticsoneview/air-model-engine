@@ -172,7 +172,7 @@ class _AirAccessGateState extends State<AirAccessGate> {
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24),
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 440),
+                constraints: const BoxConstraints(maxWidth: 1040),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -192,66 +192,27 @@ class _AirAccessGateState extends State<AirAccessGate> {
                     const Text('Your market intelligence workspace.', style: TextStyle(color: Colors.white, fontSize: 25, fontWeight: FontWeight.w800)),
                     const SizedBox(height: 10),
                     const Text('Enter your international mobile number to access your AIR dashboard. Choose a subscription later to unlock strategy workspaces.', style: TextStyle(color: Color(0xFFB6C2D2), height: 1.5, fontSize: 13)),
-                    const SizedBox(height: 26),
-                    TextField(
-                      controller: _mobile,
-                      enabled: !_busy && !denied,
-                      keyboardType: TextInputType.phone,
-                      style: const TextStyle(color: Colors.white, fontSize: 16),
-                      decoration: InputDecoration(
-                        labelText: 'International mobile number',
-                        hintText: '+14155550123',
-                        hintStyle: const TextStyle(color: Color(0xFF7E8CA0)),
-                        labelStyle: const TextStyle(color: Color(0xFFB6C2D2)),
-                        prefixIcon: const Icon(Icons.public_rounded, color: Color(0xFFE5B85C)),
-                        filled: true,
-                        fillColor: const Color(0xFF1A2638),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    if (!pending && !approvedStatus)
-                      FilledButton(
-                        onPressed: _busy || denied ? null : () => _requestOrCheck(),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFFE5B85C),
-                          foregroundColor: const Color(0xFF111827),
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        ),
-                        child: _busy ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('CONTINUE TO AIR', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: .7)),
-                      ),
-                    if (pending || approvedStatus)
-                      OutlinedButton.icon(
-                        onPressed: _busy ? null : () => _requestOrCheck(checkOnly: true),
-                        icon: const Icon(Icons.refresh_rounded),
-                        label: const Text('CHECK APPROVAL STATUS'),
-                        style: OutlinedButton.styleFrom(foregroundColor: const Color(0xFFE5B85C), padding: const EdgeInsets.symmetric(vertical: 15), side: const BorderSide(color: Color(0x66E5B85C))),
-                      ),
-                    if (pending || approvedStatus || denied || _status == 'ERROR' || _status == 'INVALID')
-                      Container(
-                        margin: const EdgeInsets.only(top: 20),
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: (pending ? const Color(0xFFB9852C) : denied ? const Color(0xFF8F3434) : const Color(0xFF247B5B)).withValues(alpha: .14),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: (pending ? const Color(0xFFE5B85C) : denied ? const Color(0xFFE16C6C) : const Color(0xFF45C994)).withValues(alpha: .45)),
-                        ),
-                        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Icon(pending ? Icons.hourglass_top_rounded : denied ? Icons.lock_outline_rounded : Icons.info_outline_rounded, color: pending ? const Color(0xFFE5B85C) : denied ? const Color(0xFFE16C6C) : const Color(0xFF45C994)),
-                          const SizedBox(width: 12),
-                          Expanded(child: Text(_message, style: const TextStyle(color: Colors.white, height: 1.45, fontSize: 12))),
-                        ]),
-                      ),
-                    const SizedBox(height: 18),
-                    TextButton.icon(
-                      onPressed: _busy ? null : _changeServer,
-                      icon: const Icon(Icons.dns_outlined, color: Color(0xFFE5B85C)),
-                      label: const Text('CHANGE AIR SERVER', style: TextStyle(color: Color(0xFFE5B85C), fontWeight: FontWeight.w800)),
-                    ),
-                    const SizedBox(height: 14),
+                    const Text('A clearer view of the markets. A more disciplined way to research.', style: TextStyle(color: Color(0xFFE5B85C), fontSize: 16, fontWeight: FontWeight.w700, height: 1.35)),
                     const SizedBox(height: 10),
-                    const Text('DASHBOARD ACCESS  •  SUBSCRIPTION-BASED STRATEGIES', textAlign: TextAlign.center, style: TextStyle(color: Color(0xFF7E8CA0), fontSize: 9, letterSpacing: 1, fontWeight: FontWeight.w700)),
+                    const Text('Bring market context, options research and portfolio insight into one focused workspace. AIR presents research tools and evidence to support your decisions; it does not promise returns or remove investment risk.', style: TextStyle(color: Color(0xFFB6C2D2), height: 1.55, fontSize: 13)),
+                    const SizedBox(height: 20),
+                    Wrap(spacing: 10, runSpacing: 10, children: const [
+                      _AirValuePill(icon: Icons.insights_rounded, title: 'Market intelligence'),
+                      _AirValuePill(icon: Icons.radar_rounded, title: 'AIR QOC research'),
+                      _AirValuePill(icon: Icons.query_stats_rounded, title: 'Portfolio insights'),
+                    ]),
+                    const SizedBox(height: 24),
+                    LayoutBuilder(builder: (context, constraints) {
+                      final wide = constraints.maxWidth > 680;
+                      final form = _AirOnboardingPanel(
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                          const Text('GET STARTED', style: TextStyle(color: Color(0xFFE5B85C), fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.2)),
+                          const SizedBox(height: 8),
+                          const Text('Your AIR access', style: TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.w800)),
+                          const SizedBox(height: 8),
+                          const Text('Use your international mobile number to request or restore access on this device.', style: TextStyle(color: Color(0xFFB6C2D2), fontSize: 12, height: 1.4)),
+                          const SizedBox(height: 18),
+                          const Text('DASHBOARD ACCESS  •  SUBSCRIPTION-BASED STRATEGIES', textAlign: TextAlign.center, style: TextStyle(color: Color(0xFF7E8CA0), fontSize: 9, letterSpacing: 1, fontWeight: FontWeight.w700)),
                     const SizedBox(height: 8),
                     const Text('Phone number identifies your customer profile. Verify ownership before enabling payments, broker credentials or trading permissions.', textAlign: TextAlign.center, style: TextStyle(color: Color(0xFF7E8CA0), fontSize: 10)),
                   ],
@@ -263,4 +224,80 @@ class _AirAccessGateState extends State<AirAccessGate> {
       ),
     );
   }
+}
+
+class _AirValuePill extends StatelessWidget {
+  const _AirValuePill({required this.icon, required this.title});
+  final IconData icon;
+  final String title;
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    decoration: BoxDecoration(color: const Color(0xFF1A2638), borderRadius: BorderRadius.circular(30), border: Border.all(color: const Color(0xFF344258))),
+    child: Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(icon, size: 16, color: const Color(0xFFE5B85C)),
+      const SizedBox(width: 7),
+      Text(title, style: const TextStyle(color: Color(0xFFD8E0EA), fontSize: 11, fontWeight: FontWeight.w700)),
+    ]),
+  );
+}
+
+class _AirOnboardingPanel extends StatelessWidget {
+  const _AirOnboardingPanel({required this.child});
+  final Widget child;
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(22),
+    decoration: BoxDecoration(color: const Color(0xFF111C2C), borderRadius: BorderRadius.circular(22), border: Border.all(color: const Color(0xFF344258)), boxShadow: const [BoxShadow(color: Color(0x44000000), blurRadius: 28, offset: Offset(0, 12))]),
+    child: child,
+  );
+}
+
+class _AirJourneyPanel extends StatelessWidget {
+  const _AirJourneyPanel();
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(22),
+    decoration: BoxDecoration(color: const Color(0xFF111C2C).withValues(alpha: .72), borderRadius: BorderRadius.circular(22), border: Border.all(color: const Color(0xFF344258))),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: const [
+      Text('RESEARCH WITH CONTEXT', style: TextStyle(color: Color(0xFFE5B85C), fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.2)),
+      SizedBox(height: 10),
+      Text('From market signals to informed decisions.', style: TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w800, height: 1.2)),
+      SizedBox(height: 10),
+      Text('A structured workspace for market monitoring, options research and portfolio review.', style: TextStyle(color: Color(0xFFB6C2D2), fontSize: 13, height: 1.5)),
+      SizedBox(height: 22),
+      _AirJourneyStep(number: '01', title: 'Request access', detail: 'Register this device with your international mobile number.'),
+      SizedBox(height: 16),
+      _AirJourneyStep(number: '02', title: 'AIR reviews your request', detail: 'Access remains pending until an AIR administrator approves it.'),
+      SizedBox(height: 16),
+      _AirJourneyStep(number: '03', title: 'Explore your workspace', detail: 'Your dashboard opens after approval. Strategy features depend on your assigned subscription.'),
+      SizedBox(height: 20),
+      Divider(color: Color(0xFF344258)),
+      SizedBox(height: 12),
+      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(Icons.shield_outlined, color: Color(0xFFE5B85C), size: 18),
+        SizedBox(width: 9),
+        Expanded(child: Text('Access is approval-based. A mobile number identifies your request; phone ownership verification is not yet provided by this flow. Do not use it for payments or broker authorization until verification is added.', style: TextStyle(color: Color(0xFF9EADBF), fontSize: 11, height: 1.45))),
+      ]),
+      SizedBox(height: 10),
+      Text('Market research is informational and does not guarantee investment outcomes.', style: TextStyle(color: Color(0xFF7E8CA0), fontSize: 10, height: 1.4)),
+    ]),
+  );
+}
+
+class _AirJourneyStep extends StatelessWidget {
+  const _AirJourneyStep({required this.number, required this.title, required this.detail});
+  final String number;
+  final String title;
+  final String detail;
+  @override
+  Widget build(BuildContext context) => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    Container(width: 34, height: 34, alignment: Alignment.center, decoration: BoxDecoration(color: const Color(0xFFE5B85C).withValues(alpha: .13), borderRadius: BorderRadius.circular(11)), child: Text(number, style: const TextStyle(color: Color(0xFFE5B85C), fontWeight: FontWeight.w900, fontSize: 11))),
+    const SizedBox(width: 12),
+    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13)),
+      const SizedBox(height: 4),
+      Text(detail, style: const TextStyle(color: Color(0xFF9EADBF), fontSize: 11, height: 1.4)),
+    ])),
+  ]);
 }

@@ -113,6 +113,7 @@ class _AirServerSetupScreenState extends State<AirServerSetupScreen> {
     try {
       AirApiClient.setAccessToken(null);
       await _storage.delete(key: 'air_access_token');
+      await _storage.delete(key: 'air_admin_access_token');
       AirApiClient.configureBaseUrl(normalized);
       api = AirApiClient();
       final health = await api.health();
