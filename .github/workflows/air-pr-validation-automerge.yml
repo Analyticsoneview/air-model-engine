@@ -35,13 +35,12 @@ jobs:
               - 'AIRSTART.ps1'
               - 'AIRSTART.sh'
               - 'scripts/**'
-              - '.github/workflows/**'
             android:
               - 'mobile/**'
 
   backend:
     needs: changes
-    if: github.event.action != 'closed' && (needs.changes.outputs.backend == 'true' || needs.changes.outputs.android == 'true' || github.event_name == 'workflow_dispatch') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event.action != 'closed' && (needs.changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     name: Backend tests (Python 3.12)
     runs-on: self-hosted
     timeout-minutes: 30
@@ -150,12 +149,12 @@ jobs:
 
   admin-postgres-integration:
     needs: [changes, backend]
-    if: github.event.action != 'closed' && needs.backend.result == 'success' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event.action != 'closed' && needs.changes.outputs.backend == 'true' && needs.backend.result == 'success' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     uses: ./.github/workflows/admin-postgres-integration.yml
 
   android:
-    needs: [changes, backend, admin-postgres-integration]
-    if: always() && github.event.action != 'closed' && needs.backend.result == 'success' && needs.admin-postgres-integration.result == 'success' && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.android == 'true')
+    needs: changes
+    if: github.event.action != 'closed' && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.android == 'true')
     name: Android ARM64 APK build
     runs-on: self-hosted
     timeout-minutes: 90
