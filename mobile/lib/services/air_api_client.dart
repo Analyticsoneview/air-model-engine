@@ -16,8 +16,6 @@ class AirApiClient {
   static String? get configuredBaseUrl {
     final candidate = _runtimeBaseUrl ?? _configuredBaseUrl.trim();
     if (candidate.isEmpty) return null;
-    final host = Uri.tryParse(candidate)?.host.toLowerCase();
-    if (host == 'localhost' || host == '127.0.0.1' || host == '::1') return null;
     return _normalizeBaseUrl(candidate);
   }
 
