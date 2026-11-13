@@ -31,10 +31,10 @@ approval/revocation, persistence after reconnect, and idempotent SQLite import.
 3. Copy the SQLite customer data. The command uses the mounted data volume and
    existing database URL secret; it does not print the URL:
    `docker compose -f compose.local.yml run --rm --no-deps -e AIR_CUSTOMER_DATABASE_URL_FILE=/run/secrets/air_database_url -e AIR_CUSTOMER_SQLITE_PATH=/var/lib/air/auth.sqlite3 --entrypoint python air-api -m app.scripts.migrate_customer_sqlite_to_postgres`
-4. Confirm all six reported row counts. The importer verifies each copied row
-   against its source value and rolls back on any conflict. The destructive
-   integration tests run only in CI against a disposable database; never point
-   them at the local customer database. Do not delete or rename the SQLite source.
+4. Confirm all six reported row counts. The importer verifies every copied row
+   against its source value and rolls back on any conflict. Destructive integration
+   tests run only in CI against a disposable database; never point them at the
+   local customer database. Do not delete or rename the SQLite source.
 5. Only after successful migration and verification, configure
    `AIR_CUSTOMER_DATABASE_URL_FILE=/run/secrets/air_database_url` for the API
    service environment (for example, in the existing `.air-local.env`).
