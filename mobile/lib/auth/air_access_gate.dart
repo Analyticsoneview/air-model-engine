@@ -204,15 +204,73 @@ class _AirAccessGateState extends State<AirAccessGate> {
                     const SizedBox(height: 24),
                     LayoutBuilder(builder: (context, constraints) {
                       final wide = constraints.maxWidth > 680;
-                      final form = _AirOnboardingPanel(
-                        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                      final form = _AirOnboardingPanel(child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
                           const Text('GET STARTED', style: TextStyle(color: Color(0xFFE5B85C), fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.2)),
                           const SizedBox(height: 8),
                           const Text('Your AIR access', style: TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.w800)),
                           const SizedBox(height: 8),
                           const Text('Use your international mobile number to request or restore access on this device.', style: TextStyle(color: Color(0xFFB6C2D2), fontSize: 12, height: 1.4)),
                           const SizedBox(height: 18),
-                          const Text('DASHBOARD ACCESS  •  SUBSCRIPTION-BASED STRATEGIES', textAlign: TextAlign.center, style: TextStyle(color: Color(0xFF7E8CA0), fontSize: 9, letterSpacing: 1, fontWeight: FontWeight.w700)),
+                          TextField(
+                            controller: _mobile,
+                            enabled: !_busy && !denied,
+                            keyboardType: TextInputType.phone,
+                            style: const TextStyle(color: Colors.white, fontSize: 16),
+                            decoration: InputDecoration(
+                              labelText: 'International mobile number',
+                              hintText: '+14155550123',
+                              hintStyle: const TextStyle(color: Color(0xFF7E8CA0)),
+                              labelStyle: const TextStyle(color: Color(0xFFB6C2D2)),
+                              prefixIcon: const Icon(Icons.public_rounded, color: Color(0xFFE5B85C)),
+                              filled: true,
+                              fillColor: const Color(0xFF1A2638),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          if (!pending && !approvedStatus)
+                            FilledButton(
+                              onPressed: _busy || denied ? null : () => _requestOrCheck(),
+                              style: FilledButton.styleFrom(backgroundColor: const Color(0xFFE5B85C), foregroundColor: const Color(0xFF111827), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
+                              child: _busy ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('REQUEST ACCESS', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: .7)),
+                            ),
+                          if (pending || approvedStatus)
+                            OutlinedButton.icon(
+                              onPressed: _busy ? null : () => _requestOrCheck(checkOnly: true),
+                              icon: const Icon(Icons.refresh_rounded),
+                              label: const Text('CHECK ACCESS STATUS'),
+                              style: OutlinedButton.styleFrom(foregroundColor: const Color(0xFFE5B85C), padding: const EdgeInsets.symmetric(vertical: 15), side: const BorderSide(color: Color(0x66E5B85C))),
+                            ),
+                          if (pending || approvedStatus || denied || _status == 'ERROR' || _status == 'INVALID')
+                            Container(
+                              margin: const EdgeInsets.only(top: 16),
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: (pending ? const Color(0xFFB9852C) : denied ? const Color(0xFF8F3434) : const Color(0xFF247B5B)).withValues(alpha: .14),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(color: (pending ? const Color(0xFFE5B85C) : denied ? const Color(0xFFE16C6C) : const Color(0xFF45C994)).withValues(alpha: .45)),
+                              ),
+                              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Icon(pending ? Icons.hourglass_top_rounded : denied ? Icons.lock_outline_rounded : Icons.info_outline_rounded, color: pending ? const Color(0xFFE5B85C) : denied ? const Color(0xFFE16C6C) : const Color(0xFF45C994)),
+                                const SizedBox(width: 10),
+                                Expanded(child: Text(_message, style: const TextStyle(color: Colors.white, height: 1.45, fontSize: 12))),
+                              ]),
+                            ),
+                          const SizedBox(height: 12),
+                          TextButton.icon(onPressed: _busy ? null : _changeServer, icon: const Icon(Icons.dns_outlined, color: Color(0xFFE5B85C)), label: const Text('CHANGE AIR SERVER', style: TextStyle(color: Color(0xFFE5B85C), fontWeight: FontWeight.w800))),
+                        ],
+                      ));
+                      const journey = _AirJourneyPanel();
+                      if (!wide) return Column(children: [form, const SizedBox(height: 18), journey]);
+                      return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Expanded(flex: 11, child: journey),
+                        const SizedBox(width: 22),
+                        Expanded(flex: 10, child: form),
+                      ]);
+                    }),
+                    const Text('DASHBOARD ACCESS  •  SUBSCRIPTION-BASED STRATEGIES', textAlign: TextAlign.center, style: TextStyle(color: Color(0xFF7E8CA0), fontSize: 9, letterSpacing: 1, fontWeight: FontWeight.w700)),
                     const SizedBox(height: 8),
                     const Text('Phone number identifies your customer profile. Verify ownership before enabling payments, broker credentials or trading permissions.', textAlign: TextAlign.center, style: TextStyle(color: Color(0xFF7E8CA0), fontSize: 10)),
                   ],
