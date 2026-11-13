@@ -30,7 +30,7 @@ void main() {
     expect(find.textContaining('localhost refers to the phone'), findsOneWidget);
 
     await tester.enterText(find.byType(TextField), 'not-a-server-address');
-    await tester.tap(find.text('TEST AND SAVE SERVER'));
+    await tester.tap(find.text('TEST CONNECTION & CONTINUE'));
     await tester.pump();
 
     expect(
@@ -39,7 +39,7 @@ void main() {
     );
 
     await tester.enterText(find.byType(TextField), 'http://127.0.0.1:8000');
-    await tester.tap(find.text('TEST AND SAVE SERVER'));
+    await tester.tap(find.text('TEST CONNECTION & CONTINUE'));
     await tester.pump();
 
     expect(
