@@ -29,10 +29,13 @@ void main() {
     expect(find.text('AWS production'), findsOneWidget);
     expect(find.textContaining('localhost refers to the phone'), findsOneWidget);
 
-    final continueButton = find.text('TEST CONNECTION & CONTINUE');
+    // Invoke the real button callback directly. The connection form is intentionally
+    // scrollable, so hit-testing its off-screen button makes this test viewport-dependent.
+    final button = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'TEST CONNECTION & CONTINUE'),
+    );
     await tester.enterText(find.byType(TextField), 'not-a-server-address');
-    await tester.ensureVisible(continueButton);
-    await tester.tap(continueButton);
+    button.onPressed!();
     await tester.pump();
 
     expect(
@@ -41,8 +44,10 @@ void main() {
     );
 
     await tester.enterText(find.byType(TextField), 'http://127.0.0.1:8000');
-    await tester.ensureVisible(continueButton);
-    await tester.tap(continueButton);
+    final updatedButton = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'TEST CONNECTION & CONTINUE'),
+    );
+    updatedButton.onPressed!();
     await tester.pump();
 
     expect(
