@@ -14,104 +14,58 @@ concurrency:
 jobs:
   admin-postgres-integration:
     name: Admin + customer PostgreSQL/Redis integration (disposable services)
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 35
-    defaults:
-      run:
-        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "& '{0}'"
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: air_test
+          POSTGRES_PASSWORD: air_test
+          POSTGRES_DB: air_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U air_test -d air_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      AIR_ADMIN_DATABASE_URL: postgresql+psycopg://air_test:air_test@127.0.0.1:5432/air_test
+      AIR_CUSTOMER_DATABASE_URL: postgresql+psycopg://air_test:air_test@127.0.0.1:5432/air_test
+      AIR_TEST_ADMIN_DATABASE_URL: postgresql+psycopg://air_test:air_test@127.0.0.1:5432/air_test
+      AIR_TEST_CUSTOMER_DATABASE_URL: postgresql+psycopg://air_test:air_test@127.0.0.1:5432/air_test
+      AIR_TEST_ADMIN_REDIS_URL: redis://127.0.0.1:6379/0
     steps:
       - uses: actions/checkout@v4
 
-      - name: Bootstrap portable Python 3.12
-        run: |
-          Remove-Item Env:PYTHONHOME -ErrorAction SilentlyContinue
-          Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
-          $pythonHome = Join-Path $env:RUNNER_TEMP 'AIR-Python312-embed'
-          $python = Join-Path $pythonHome 'python.exe'
-          $zip = Join-Path $env:RUNNER_TEMP 'python-3.12.10-embed-amd64.zip'
-          New-Item -ItemType Directory -Force -Path $pythonHome | Out-Null
-          if (-not (Test-Path -LiteralPath (Join-Path $pythonHome 'python312.zip'))) {
-            if (-not (Test-Path -LiteralPath $zip) -or (Get-Item $zip).Length -lt 10MB) {
-              & curl.exe --fail --location --show-error --retry 4 --retry-all-errors --connect-timeout 30 --max-time 900 --output $zip 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip'
-              if ($LASTEXITCODE -ne 0 -or -not (Test-Path $zip) -or (Get-Item $zip).Length -lt 10MB) { throw 'Python embeddable ZIP download failed.' }
-            }
-            Expand-Archive -LiteralPath $zip -DestinationPath $pythonHome -Force
-          }
-          $pth = Join-Path $pythonHome 'python312._pth'
-          if (-not (Test-Path $pth)) { throw "Python path configuration file missing: $pth" }
-          $pthLines = @('python312.zip','.', 'Lib\site-packages', (Join-Path $env:GITHUB_WORKSPACE 'backend'), 'import site')
-          Set-Content -LiteralPath $pth -Value $pthLines -Encoding ascii
-          New-Item -ItemType Directory -Force -Path (Join-Path $pythonHome 'Lib\site-packages') | Out-Null
-          & $python -c "import encodings,sys; print(sys.version); print(sys.executable)"
-          if ($LASTEXITCODE -ne 0) { throw 'Portable Python standard-library validation failed.' }
-          $getPip = Join-Path $env:RUNNER_TEMP 'get-pip.py'
-          & curl.exe --fail --location --show-error --retry 4 --retry-all-errors --connect-timeout 30 --max-time 300 --output $getPip 'https://bootstrap.pypa.io/get-pip.py'
-          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $getPip)) { throw 'Could not download pip bootstrap.' }
-          & $python $getPip --disable-pip-version-check
-          if ($LASTEXITCODE -ne 0) { throw 'pip bootstrap failed.' }
-          "AIR_PYTHON=$python" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
 
       - name: Install backend dependencies
-        working-directory: .
-        run: |
-          Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
-          & $env:AIR_PYTHON -m pip install --disable-pip-version-check --upgrade pip setuptools wheel
-          if ($LASTEXITCODE -ne 0) { throw 'Python packaging toolchain installation failed.' }
-          & $env:AIR_PYTHON -m pip install --disable-pip-version-check -r backend/requirements.txt pytest pytest-asyncio
-          if ($LASTEXITCODE -ne 0) { throw 'Backend dependency installation failed.' }
-          & $env:AIR_PYTHON -m pip check
-          if ($LASTEXITCODE -ne 0) { throw 'Backend dependency consistency check failed.' }
-
-      - name: Start disposable PostgreSQL 16 and Redis 7; migrate and test
         working-directory: backend
-        timeout-minutes: 20
         run: |
-          $pgContainer = "air-admin-pg-ci-$env:GITHUB_RUN_ID"
-          $redisContainer = "air-admin-redis-ci-$env:GITHUB_RUN_ID"
-          docker version
-          if ($LASTEXITCODE -ne 0) { throw 'Docker Engine unavailable; Admin PostgreSQL integration cannot be skipped.' }
-          try {
-            docker run --detach --rm --name $pgContainer -e POSTGRES_USER=air_test -e POSTGRES_PASSWORD=air_test -e POSTGRES_DB=air_test -p "127.0.0.1::5432" postgres:16-alpine
-            if ($LASTEXITCODE -ne 0) { throw 'Could not start disposable PostgreSQL 16.' }
-            docker run --detach --rm --name $redisContainer -p "127.0.0.1::6379" redis:7-alpine
-            if ($LASTEXITCODE -ne 0) { throw 'Could not start disposable Redis 7.' }
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -r requirements.txt pytest pytest-asyncio
+          python -m pip check
 
-            $pgBinding = docker port $pgContainer 5432/tcp
-            $redisBinding = docker port $redisContainer 6379/tcp
-            if ($LASTEXITCODE -ne 0 -or -not $pgBinding -or -not $redisBinding) { throw 'Could not determine disposable service host ports.' }
-            $pgPort = 0
-            $redisPort = 0
-            if (-not [int]::TryParse((($pgBinding | Select-Object -First 1) -split ':')[-1], [ref]$pgPort) -or $pgPort -lt 1) { throw "Invalid PostgreSQL binding: $pgBinding" }
-            if (-not [int]::TryParse((($redisBinding | Select-Object -First 1) -split ':')[-1], [ref]$redisPort) -or $redisPort -lt 1) { throw "Invalid Redis binding: $redisBinding" }
+      - name: Apply PostgreSQL migrations
+        working-directory: backend
+        run: python -m alembic upgrade head
 
-            $pgReady = $false
-            for ($i = 0; $i -lt 60; $i++) {
-              docker exec $pgContainer pg_isready -U air_test -d air_test
-              if ($LASTEXITCODE -eq 0) { $pgReady = $true; break }
-              Start-Sleep -Seconds 2
-            }
-            if (-not $pgReady) { docker logs $pgContainer; throw 'PostgreSQL did not become ready within 120 seconds.' }
-
-            $redisReady = $false
-            for ($i = 0; $i -lt 30; $i++) {
-              docker exec $redisContainer redis-cli ping
-              if ($LASTEXITCODE -eq 0) { $redisReady = $true; break }
-              Start-Sleep -Seconds 2
-            }
-            if (-not $redisReady) { docker logs $redisContainer; throw 'Redis did not become ready within 60 seconds.' }
-
-            $databaseUrl = "postgresql+psycopg://air_test:air_test@127.0.0.1:$pgPort/air_test"
-            $env:AIR_ADMIN_DATABASE_URL = $databaseUrl
-            $env:AIR_CUSTOMER_DATABASE_URL = $databaseUrl
-            $env:AIR_TEST_ADMIN_DATABASE_URL = $databaseUrl
-            $env:AIR_TEST_CUSTOMER_DATABASE_URL = $databaseUrl
-            $env:AIR_TEST_ADMIN_REDIS_URL = "redis://127.0.0.1:$redisPort/0"
-            & $env:AIR_PYTHON -m alembic upgrade head
-            if ($LASTEXITCODE -ne 0) { throw 'Admin PostgreSQL Alembic migration failed.' }
-            & $env:AIR_PYTHON -m pytest -q tests/test_admin_auth_postgres_store.py tests/test_customer_auth_postgres.py
-            if ($LASTEXITCODE -ne 0) { throw 'Admin/customer PostgreSQL integration tests failed.' }
-          }
-          finally {
-            docker rm --force $redisContainer 2>$null | Out-Null
-            docker rm --force $pgContainer 2>$null | Out-Null
-          }
+      - name: Run admin and customer PostgreSQL integration tests
+        working-directory: backend
+        run: python -m pytest -q tests/test_admin_auth_postgres_store.py tests/test_customer_auth_postgres.py
