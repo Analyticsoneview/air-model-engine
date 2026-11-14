@@ -135,16 +135,15 @@ class AccessStore:
         return row["mobile_e164"] if row else None
 
     def list_requests(self, status: str | None = None):
-        if status:
-            return self.db.execute(
-                """SELECT request_id,mobile_e164,device_id,status,created_at,reviewed_at,reviewer_note
-                   FROM air_access_requests WHERE status=? ORDER BY created_at DESC""",
-                (status.upper(),),
-            ).fetchall()
-        return self.db.execute(
-            """SELECT request_id,mobile_e164,device_id,status,created_at,reviewed_at,reviewer_note
-               FROM air_access_requests ORDER BY created_at DESC"""
-        ).fetchall()
+        where, params = (" WHERE r.status=?", (status.upper(),)) if status else ("", ())
+        return self.db.execute("""SELECT r.request_id,r.mobile_e164,r.device_id,r.status,r.created_at,
+            r.reviewed_at,r.reviewer_note,
+            CASE WHEN r.request_id=(SELECT r2.request_id FROM air_access_requests r2
+                WHERE r2.mobile_e164=r.mobile_e164 ORDER BY r2.created_at,r2.request_id LIMIT 1)
+                THEN 'NEW' ELSE 'EXISTING' END AS customer_type,
+            (SELECT MIN(r3.created_at) FROM air_access_requests r3 WHERE r3.mobile_e164=r.mobile_e164)
+                AS first_registered_at
+            FROM air_access_requests r""" + where + " ORDER BY r.created_at DESC,r.request_id", params).fetchall()
 
     def get_request_by_id(self, request_id: str):
         return self.db.execute("SELECT * FROM air_access_requests WHERE request_id=?", (request_id,)).fetchone()

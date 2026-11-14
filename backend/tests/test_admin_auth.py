@@ -60,6 +60,25 @@ def test_admin_login_rejects_totp_replay_and_throttles(tmp_path, monkeypatch):
         store.close()
 
 
+def test_privileged_action_requires_fresh_one_time_totp(tmp_path, monkeypatch):
+    store = _store(tmp_path, monkeypatch)
+    try:
+        admin_id, secret = store.bootstrap("root@example.com", "Long-Strong-Password-123!")
+        now = 1_800_000_000
+        login = store.authenticate("root@example.com", "Long-Strong-Password-123!",
+                                   _totp(secret, now), rate_key="root|local", now=now)
+        assert login
+        actor = {"admin_id": admin_id, "role": "SUPER_ADMIN"}
+        fresh_code = _totp(secret, now + 30)
+        assert store.verify_action_totp(actor, fresh_code, "CUSTOMER_ACCESS_APPROVED", "request-1", now=now + 30) == (now + 30) // 30
+        with pytest.raises(PermissionError, match="invalid, expired or already used"):
+            store.verify_action_totp(actor, fresh_code, "CUSTOMER_ACCESS_APPROVED", "request-1", now=now + 30)
+        with pytest.raises(PermissionError):
+            store.verify_action_totp(actor, "000000", "CUSTOMER_ACCESS_REJECTED", "request-2", now=now + 60)
+    finally:
+        store.close()
+
+
 def test_super_admin_can_provision_and_disable_research_admin(tmp_path, monkeypatch):
     store = _store(tmp_path, monkeypatch)
     try:

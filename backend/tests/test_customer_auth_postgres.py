@@ -19,7 +19,7 @@ from app.scripts.migrate_customer_sqlite_to_postgres import migrate
 
 
 TABLES = (
-    "air_marketing_audit", "air_marketing_offers",
+    "air_access_decision_history", "air_marketing_audit", "air_marketing_offers",
     "air_customer_marketing_preferences", "air_customer_subscriptions",
     "air_device_sessions", "air_access_requests",
 )
@@ -64,10 +64,15 @@ def test_access_approval_session_and_block_revocation(customer_store):
     assert request["status"] == "PENDING"
     with pytest.raises(PermissionError):
         customer_store.create_session(request["request_id"])
-    assert customer_store.review(request["request_id"], "APPROVED", "Verified by Admin")
+    assert customer_store.review(request["request_id"], "APPROVED", "Verified by Admin",
+                                  reviewer_admin_id="admin-test", reviewer_role="SUPER_ADMIN", totp_counter=60000001)
     session_id = customer_store.create_session(request["request_id"])
     assert customer_store.is_session_active(session_id)
-    assert customer_store.review(request["request_id"], "BLOCKED", "Access withdrawn")
+    assert customer_store.review(request["request_id"], "BLOCKED", "Access withdrawn",
+                                  reviewer_admin_id="admin-test", reviewer_role="SUPER_ADMIN", totp_counter=60000002)
+    history = customer_store.decision_history(request["request_id"])
+    assert [item["new_status"] for item in history] == ["APPROVED", "BLOCKED"]
+    assert history[-1]["reviewer_admin_id"] == "admin-test"
     assert not customer_store.is_session_active(session_id)
     assert customer_store.list_requests("BLOCKED")[0]["request_id"] == request["request_id"]
 
@@ -76,7 +81,11 @@ def test_device_deduplication_consent_and_subscription_segmentation(customer_sto
     first = customer_store.request_access("+919876543211", "android-device-0002")
     second = customer_store.request_access("+919876543211", "android-device-0003")
     assert first["request_id"] != second["request_id"]
-    customer_store.review(first["request_id"], "APPROVED")
+    listed = {row["request_id"]: row for row in customer_store.list_requests()}
+    assert listed[first["request_id"]]["customer_type"] == "NEW"
+    assert listed[second["request_id"]]["customer_type"] == "EXISTING"
+    customer_store.review(first["request_id"], "APPROVED", reviewer_admin_id="admin-test",
+                            reviewer_role="SUPER_ADMIN", totp_counter=60000003)
     customer_store.set_marketing_consent("+919876543211", True)
     customers = customer_store.list_marketing_customers()
     assert len(customers) == 1
@@ -109,7 +118,8 @@ def test_offer_requires_approval_and_can_be_revoked(customer_store):
 
 def test_state_persists_after_store_recreation(customer_store):
     request = customer_store.request_access("+919876543212", "android-device-0004")
-    customer_store.review(request["request_id"], "APPROVED")
+    customer_store.review(request["request_id"], "APPROVED", reviewer_admin_id="admin-test",
+                            reviewer_role="SUPER_ADMIN", totp_counter=60000004)
     customer_store.set_marketing_consent("+919876543212", True)
     url = os.environ["AIR_TEST_CUSTOMER_DATABASE_URL"]
     customer_store.close()
