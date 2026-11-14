@@ -35,6 +35,7 @@ jobs:
               - 'AIRSTART.ps1'
               - 'AIRSTART.sh'
               - 'scripts/**'
+              - '.github/workflows/**'
             android:
               - 'mobile/**'
 
