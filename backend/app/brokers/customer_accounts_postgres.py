@@ -1,15 +1,8 @@
 """PostgreSQL implementation of AIR customer broker-account ownership and entitlements."""
 from __future__ import annotations
-from dataclasses import dataclass
+from app.brokers.customer_accounts import CustomerTradingAccount
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
-
-@dataclass(frozen=True)
-class CustomerTradingAccount:
-    customer_id: str
-    broker: str
-    account_id: str
-    enabled_for_orders: bool = False
 
 class PostgresCustomerAccountDirectory:
     def __init__(self, database_url: str, engine: Engine | None = None):
