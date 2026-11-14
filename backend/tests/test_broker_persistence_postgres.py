@@ -76,7 +76,8 @@ def test_postgres_market_data_entitlement_is_owned_and_transactional(stores):
 
 
 def test_postgres_credential_vault_encrypts_and_scopes_credentials(stores):
-    _, vault, url = stores
+    accounts, vault, url = stores
+    accounts.add(CustomerTradingAccount("customer-1", "Dhan", "D001"))
     secret = "dhan-token-sensitive-value"
     vault.put("customer-1", "dhan", "D001", {"access_token": secret, "client_id": "D001"})
     assert vault.get("customer-1", "dhan", "D001")["access_token"] == secret
