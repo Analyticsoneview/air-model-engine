@@ -1,12 +1,12 @@
 """Add PostgreSQL broker account, entitlement and encrypted credential stores.
 
-Revision ID: 0003_broker_account_credential_stores
+Revision ID: 0003_broker_stores
 Revises: 0002_customer_access_schema
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0003_broker_account_credential_stores"
+revision = "0003_broker_stores"
 down_revision = "0002_customer_access_schema"
 branch_labels = None
 depends_on = None
