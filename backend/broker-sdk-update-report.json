@@ -1,0 +1,47 @@
+{
+  "checked_at_utc": "2026-11-14T09:16:12.616168+00:00",
+  "checked": [
+    {
+      "package": "kiteconnect",
+      "current": "5.0.1",
+      "latest": "5.2.2"
+    },
+    {
+      "package": "upstox-python-sdk",
+      "current": "2.23.0",
+      "latest": "2.30.0"
+    },
+    {
+      "package": "fyers-apiv3",
+      "current": "3.1.4",
+      "latest": "3.2.1"
+    },
+    {
+      "package": "smartapi-python",
+      "current": "1.5.5",
+      "latest": "1.5.5"
+    }
+  ],
+  "updates": [
+    {
+      "package": "kiteconnect",
+      "from": "5.0.1",
+      "to": "5.2.2",
+      "file": "dependencies/brokers/zerodha.txt"
+    },
+    {
+      "package": "upstox-python-sdk",
+      "from": "2.23.0",
+      "to": "2.30.0",
+      "file": "dependencies/brokers/upstox.txt"
+    },
+    {
+      "package": "fyers-apiv3",
+      "from": "3.1.4",
+      "to": "3.2.1",
+      "file": "dependencies/brokers/fyers.txt"
+    }
+  ],
+  "errors": [],
+  "policy": "Updates are proposed in a PR; they are not deployed automatically."
+}
