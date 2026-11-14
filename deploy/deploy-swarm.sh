@@ -35,6 +35,12 @@ REQUIRED_SECRETS=(
   air_postgres_password air_redis_password air_database_url air_redis_url
   air_telegram_bot_token air_smtp_password
 )
+state="$(docker info --format '{{.Swarm.LocalNodeState}}')"
+if [[ "$state" != "active" ]]; then
+  echo "Docker Swarm is not active on this host (state: $state)." >&2
+  exit 1
+fi
+
 missing_secrets=()
 for secret in "${REQUIRED_SECRETS[@]}"; do
   if ! docker secret inspect "$secret" >/dev/null 2>&1; then
@@ -49,12 +55,6 @@ fi
 
 echo "Validating rendered Docker Swarm stack..."
 docker stack config --compose-file docker-stack.yml >/dev/null
-
-state="$(docker info --format '{{.Swarm.LocalNodeState}}')"
-if [[ "$state" != "active" ]]; then
-  echo "Docker Swarm is not active on this host (state: $state)." >&2
-  exit 1
-fi
 
 echo "Pulling immutable AIR images..."
 docker pull "$AIR_BACKEND_IMAGE"
