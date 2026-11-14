@@ -48,7 +48,7 @@ for secret in "${REQUIRED_SECRETS[@]}"; do
   fi
 done
 if (("${#missing_secrets[@]}")); then
-  printf 'Missing required Docker Swarm secrets: %s\\n' "${missing_secrets[*]}" >&2
+  printf 'Missing required Docker Swarm secrets: %s\n' "${missing_secrets[*]}" >&2
   echo "Create the missing secrets using deploy/DOCKER_SWARM.md before deploying." >&2
   exit 1
 fi
