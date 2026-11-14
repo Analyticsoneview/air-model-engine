@@ -252,7 +252,11 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     noteController.dispose();
     totpController.dispose();
     if (accepted != true || !mounted) return;
-    if (!RegExp(r'^\d{6}    setState(() { _busy = true; _error = null; });
+    if (!RegExp(r'^\d{6}$').hasMatch(totpCode)) {
+      setState(() => _error = 'Enter a fresh six-digit authenticator code.');
+      return;
+    }
+    setState(() { _busy = true; _error = null; });
     try {
       await _request('PUT', '/api/v1/admin/access-requests/${row['request_id']}', body: {
         'status': status, 'note': note, 'totp_code': totpCode,
