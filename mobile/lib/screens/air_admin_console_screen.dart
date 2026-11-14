@@ -139,11 +139,13 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     _admins = (requestResults[1]['admins'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
     _audit = (requestResults[2]['events'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
     if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') {
+      final today = DateTime.now().toIso8601String().substring(0, 10);
       final growthResults = await Future.wait([
         _request('GET', '/api/v1/admin/marketing/customers?segment=$_customerSegment&search=${Uri.encodeQueryComponent(_customerSearch.text.trim())}&limit=500'),
         _request('GET', '/api/v1/admin/marketing/offers'),
+        _request('GET', '/api/v1/admin/customers?as_of_date=$today&segment=${_customerSegment == 'ELIGIBLE_FOR_PROMOTIONS' ? 'ALL' : _customerSegment}&search=${Uri.encodeQueryComponent(_customerSearch.text.trim())}&limit=500'),
       ]);
-      _customers = (growthResults[0]['customers'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
+      _customers = (growthResults[2]['customers'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
       _segmentCounts = Map<String,dynamic>.from(growthResults[0]['segment_counts'] as Map? ?? {});
       _offers = (growthResults[1]['offers'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
     }
@@ -452,11 +454,12 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
       for (final customer in _customers)
         Card(child: ExpansionTile(
           title: Text(_maskCustomer(customer['customer_id']?.toString() ?? ''), style: const TextStyle(fontWeight: FontWeight.w800)),
-          subtitle: Text('${customer['subscription_status']} · Access: ${customer['access_status']}'),
+          subtitle: Text('${customer['customer_type'] ?? '—'} · ${customer['subscription_status']} · Access: ${customer['access_status']}'),
           childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
           children: [
             SelectableText('Customer: ${customer['customer_id']}'),
             Align(alignment: Alignment.centerLeft, child: Text('Registered: ${customer['registered_at'] ?? '—'}')),
+            Align(alignment: Alignment.centerLeft, child: Text('Lifecycle: ${customer['customer_type'] ?? '—'}')),
             Align(alignment: Alignment.centerLeft, child: Text('Devices: ${customer['device_count'] ?? 0}')),
             Align(alignment: Alignment.centerLeft, child: Text('Plan: ${customer['plan_code'] ?? 'None'}')),
             Align(alignment: Alignment.centerLeft, child: Text('Expiry: ${customer['subscription_expires_at'] ?? '—'}')),
