@@ -9,53 +9,59 @@ import os
 import sqlite3
 from pathlib import Path
 
+from app.db_compat import PostgresConnection, read_database_url
+
 
 class MarketInstrumentDirectory:
     def __init__(self, db_path: str | None = None):
-        self.db_path = db_path or os.getenv(
-            "AIR_MARKET_INSTRUMENT_DB_PATH", "data/air_market_instruments.sqlite3"
-        )
-        if self.db_path != ":memory:":
-            Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30)
-        self.db.row_factory = sqlite3.Row
-        self.db.execute("PRAGMA busy_timeout=30000")
-        self.db.execute("""
-            CREATE TABLE IF NOT EXISTS market_instruments (
-                provider TEXT NOT NULL,
-                account_id TEXT NOT NULL,
-                exchange TEXT NOT NULL,
-                symbol TEXT NOT NULL,
-                underlying_symbol TEXT,
-                token TEXT NOT NULL,
-                segment TEXT NOT NULL,
-                expiry TEXT,
-                strike TEXT,
-                option_type TEXT,
-                lot_size INTEGER,
-                instrument_type TEXT,
-                tick_size TEXT,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY(provider, account_id, token)
+        database_url = read_database_url("AIR_MARKET_INSTRUMENT_DATABASE_URL") if db_path is None else None
+        self._is_postgres = database_url is not None
+        if self._is_postgres:
+            self.db_path = None
+            self.db = PostgresConnection(database_url)
+            try:
+                self.db.execute("SELECT 1 FROM market_instruments LIMIT 0")
+                self.db.execute("SELECT 1 FROM market_master_refresh LIMIT 0")
+            except Exception as exc:
+                self.db.close()
+                raise RuntimeError("PostgreSQL instrument-master schema is missing; run Alembic migrations first") from exc
+        else:
+            self.db_path = db_path or os.getenv(
+                "AIR_MARKET_INSTRUMENT_DB_PATH", "data/air_market_instruments.sqlite3"
             )
-        """)
-        columns = {row["name"] for row in self.db.execute("PRAGMA table_info(market_instruments)")}
-        if "tick_size" not in columns:
-            self.db.execute("ALTER TABLE market_instruments ADD COLUMN tick_size TEXT")
-        if "underlying_symbol" not in columns:
-            self.db.execute("ALTER TABLE market_instruments ADD COLUMN underlying_symbol TEXT")
-        self.db.execute("""
-            CREATE TABLE IF NOT EXISTS market_master_refresh (
-                provider TEXT NOT NULL, account_id TEXT NOT NULL,
-                row_count INTEGER NOT NULL, source TEXT, refreshed_at TEXT NOT NULL,
-                PRIMARY KEY(provider, account_id)
-            )
-        """)
-        self.db.execute("""
-            CREATE INDEX IF NOT EXISTS idx_market_instruments_symbol
-            ON market_instruments(provider, account_id, symbol)
-        """)
-        self.db.commit()
+            if self.db_path != ":memory:":
+                Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+            self.db = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30)
+            self.db.row_factory = sqlite3.Row
+            self.db.execute("PRAGMA busy_timeout=30000")
+        if not self._is_postgres:
+            self.db.execute("""
+                CREATE TABLE IF NOT EXISTS market_instruments (
+                    provider TEXT NOT NULL, account_id TEXT NOT NULL, exchange TEXT NOT NULL,
+                    symbol TEXT NOT NULL, underlying_symbol TEXT, token TEXT NOT NULL,
+                    segment TEXT NOT NULL, expiry TEXT, strike TEXT, option_type TEXT,
+                    lot_size INTEGER, instrument_type TEXT, tick_size TEXT,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY(provider, account_id, token)
+                )
+            """)
+            columns = {row["name"] for row in self.db.execute("PRAGMA table_info(market_instruments)")}
+            if "tick_size" not in columns:
+                self.db.execute("ALTER TABLE market_instruments ADD COLUMN tick_size TEXT")
+            if "underlying_symbol" not in columns:
+                self.db.execute("ALTER TABLE market_instruments ADD COLUMN underlying_symbol TEXT")
+            self.db.execute("""
+                CREATE TABLE IF NOT EXISTS market_master_refresh (
+                    provider TEXT NOT NULL, account_id TEXT NOT NULL,
+                    row_count INTEGER NOT NULL, source TEXT, refreshed_at TEXT NOT NULL,
+                    PRIMARY KEY(provider, account_id)
+                )
+            """)
+            self.db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_market_instruments_symbol
+                ON market_instruments(provider, account_id, symbol)
+            """)
+            self.db.commit()
 
     def upsert(self, provider: str, account_id: str, *, exchange: str,
                symbol: str, token: str, segment: str, expiry: str | None = None,
@@ -105,8 +111,7 @@ class MarketInstrumentDirectory:
                 item.get("option_type"), item.get("lot_size"), item.get("instrument_type"),
                 item.get("tick_size")))
         stamp = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
-        self.db.execute("BEGIN IMMEDIATE")
-        try:
+        with self.db:
             self.db.execute("DELETE FROM market_instruments WHERE provider=? AND account_id=?",
                             (provider, account_id))
             self.db.executemany("""
@@ -121,10 +126,6 @@ class MarketInstrumentDirectory:
                 ON CONFLICT(provider,account_id) DO UPDATE SET
                     row_count=excluded.row_count,refreshed_at=excluded.refreshed_at
             """, (provider, account_id, len(values), stamp))
-            self.db.commit()
-        except Exception:
-            self.db.rollback()
-            raise
         return len(values)
 
     def master_status(self) -> list[dict]:
