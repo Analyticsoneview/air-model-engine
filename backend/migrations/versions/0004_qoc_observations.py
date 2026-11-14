@@ -1,7 +1,7 @@
 """PostgreSQL schema for AIR QOC option-chain observations.
 
 Revision ID: 0004_qoc_observations
-Revises: 0003_postgres_domain_stores
+Revises: 0003_broker_stores
 """
 from alembic import op
 import sqlalchemy as sa
