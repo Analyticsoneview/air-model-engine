@@ -1,6 +1,7 @@
 """PostgreSQL integration tests for execution policy and durable order ledger."""
 import os
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -42,6 +43,17 @@ def test_durable_order_ledger_idempotency_recovery_and_event_history():
     key = "intent-" + uuid.uuid4().hex
     try:
         assert ledger.reserve(broker, account_id, key, {"symbol": "NIFTY", "mode": "PAPER"})
+        # Separate processes/connections racing on the same intent still get one reservation.
+        concurrent_key = "race-" + uuid.uuid4().hex
+        def reserve_once(_):
+            connection = DurableOrderLedger()
+            try:
+                return connection.reserve(broker, account_id, concurrent_key, {"symbol": "BANKNIFTY"})
+            finally:
+                connection.close()
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            race_results = list(pool.map(reserve_once, range(8)))
+        assert sum(race_results) == 1
         # A restart/retry with the same idempotency key cannot reserve again.
         assert not ledger.reserve(broker, account_id, key, {"symbol": "NIFTY", "mode": "PAPER"})
         pending = ledger.get(broker, account_id, key)
