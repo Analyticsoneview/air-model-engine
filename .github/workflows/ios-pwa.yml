@@ -2,11 +2,19 @@ name: AIR iPhone Web App (Self-hosted PWA)
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+      - 'deploy/nginx-air-pwa.conf'
+      - 'deploy/pwa.Dockerfile'
+      - '.github/workflows/ios-pwa.yml'
   push:
     branches: [main]
     paths:
       - 'mobile/**'
       - 'deploy/nginx-air-pwa.conf'
+      - 'deploy/pwa.Dockerfile'
       - '.github/workflows/ios-pwa.yml'
 
 permissions:
