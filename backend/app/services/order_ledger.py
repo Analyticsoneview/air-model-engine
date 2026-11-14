@@ -158,7 +158,15 @@ class DurableOrderLedger:
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         rows = self._db.execute(
             "SELECT broker, account_id, broker_order_id, status, raw_json FROM order_ledger"
-            + where + " ORDER BY created_at DESC LIMIT ?", (*params, limit)
+            + where
+            + """ ORDER BY (
+                SELECT MAX(events.event_id)
+                FROM order_ledger_events AS events
+                WHERE events.broker = order_ledger.broker
+                  AND events.account_id = order_ledger.account_id
+                  AND events.idempotency_key = order_ledger.idempotency_key
+            ) DESC, updated_at DESC, created_at DESC LIMIT ?""",
+            (*params, limit)
         ).fetchall()
         return [BrokerOrder(r["broker"], r["account_id"], r["broker_order_id"],
                             r["status"], json.loads(r["raw_json"])) for r in rows]
