@@ -2,11 +2,19 @@ name: AIR iPhone Web App (Self-hosted PWA)
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+      - 'deploy/nginx-air-pwa.conf'
+      - 'deploy/pwa.Dockerfile'
+      - '.github/workflows/ios-pwa.yml'
   push:
     branches: [main]
     paths:
       - 'mobile/**'
       - 'deploy/nginx-air-pwa.conf'
+      - 'deploy/pwa.Dockerfile'
       - '.github/workflows/ios-pwa.yml'
 
 permissions:
@@ -63,10 +71,21 @@ jobs:
           AIR_API_BASE_URL: ${{ vars.AIR_API_BASE_URL }}
         shell: powershell -ExecutionPolicy Bypass -File {0}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:AIR_API_BASE_URL)) {
-            throw "AIR_API_BASE_URL repository variable is required for a connected build."
+          $buildArgs = @(
+            'build', 'web', '--release', '--tree-shake-icons', '--no-source-maps',
+            '--base-href', '/', '--dart-define=APP_ENV=production'
+          )
+          if (-not [string]::IsNullOrWhiteSpace($env:AIR_API_BASE_URL)) {
+            $endpoint = [Uri]::new($env:AIR_API_BASE_URL.Trim())
+            if ($endpoint.Scheme -ne 'https' -or -not $endpoint.IsAbsoluteUri) {
+              throw "AIR_API_BASE_URL must be an absolute HTTPS URL when supplied."
+            }
+            $buildArgs += "--dart-define=AIR_API_BASE_URL=$($endpoint.AbsoluteUri.TrimEnd('/'))"
+            Write-Host "Building AIR PWA with the supplied HTTPS API endpoint."
+          } else {
+            Write-Host "No API endpoint supplied. Building the PWA with Connection Manager onboarding enabled."
           }
-          flutter build web --release --tree-shake-icons --no-source-maps --base-href "/" --dart-define=APP_ENV=production --dart-define=AIR_API_BASE_URL="$env:AIR_API_BASE_URL"
+          & flutter @buildArgs
 
       - name: Report web bundle size
         working-directory: mobile
