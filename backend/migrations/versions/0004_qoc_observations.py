@@ -18,7 +18,7 @@ def upgrade() -> None:
         sa.Column("id", sa.BigInteger(), sa.Identity(always=False), primary_key=True),
         sa.Column("provider", sa.String(32), nullable=False),
         sa.Column("account_id", sa.String(128), nullable=False),
-        sa.Column("underlying_scrip", sa.BigInteger(), nullable=False),
+        sa.Column("underlying_scrip", sa.String(128), nullable=False),
         sa.Column("underlying_segment", sa.String(32), nullable=False),
         sa.Column("expiry", sa.String(10), nullable=False),
         sa.Column("underlying_price", sa.Float()),
