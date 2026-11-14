@@ -44,7 +44,7 @@ def run(source_data_dir: Path, dry_run: bool = False) -> dict[str, Any]:
                 f"SELECT {','.join(selected)} FROM option_observations ORDER BY id"
             ).fetchall():
                 item = dict(raw)
-                rows.append({column: item.get(column) for column in COLUMNS})
+                rows.append({column: (str(item.get(column)) if column == "underlying_scrip" and item.get(column) is not None else item.get(column)) for column in COLUMNS})
     finally:
         source.close()
 
