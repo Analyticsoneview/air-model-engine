@@ -157,6 +157,26 @@ class AdminAuthStore:
             self.db.execute("UPDATE air_admin_sessions SET active=0 WHERE admin_id=?", (row["admin_id"],))
             self._audit(row["admin_id"], "ADMIN_MFA_ROTATED", row["admin_id"], normalized_email)
 
+    def verify_action_totp(self, admin: dict, code: str, action: str, target_id: str, now: int | None = None) -> int:
+        current = int(time.time() if now is None else now)
+        if admin.get("role") not in {"SUPER_ADMIN", "ADMIN"}:
+            raise PermissionError("Administrator management permission is required")
+        row = self.db.execute("SELECT mfa_secret,last_totp_counter FROM air_admin_users WHERE admin_id=? AND is_active=1",
+                              (admin["admin_id"],)).fetchone()
+        if not row:
+            raise PermissionError("Active administrator account is required")
+        counter = matching_totp_counter(self.cipher.decrypt(row["mfa_secret"]).decode(), code, current)
+        if counter is None or counter <= row["last_totp_counter"]:
+            raise PermissionError("Authenticator code is invalid, expired or already used")
+        with self.db:
+            updated = self.db.execute("""UPDATE air_admin_users SET last_totp_counter=?
+                WHERE admin_id=? AND is_active=1 AND last_totp_counter<?""",
+                (counter, admin["admin_id"], counter))
+            if updated.rowcount != 1:
+                raise PermissionError("Authenticator code has already been used")
+            self._audit(admin["admin_id"], "STEP_UP_" + action, target_id, f"totp_counter={counter}")
+        return counter
+
     def change_password(self, admin: dict, current_password: str, new_password: str) -> None:
         row = self.db.execute("SELECT password_hash FROM air_admin_users WHERE admin_id=? AND is_active=1",
                               (admin["admin_id"],)).fetchone()

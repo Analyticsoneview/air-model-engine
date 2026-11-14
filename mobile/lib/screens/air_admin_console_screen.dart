@@ -25,6 +25,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
   final _subscriptionCustomer = TextEditingController();
   final _requestSearch = TextEditingController();
   final _customerSearch = TextEditingController();
+  final _customerAsOfDate = TextEditingController(text: DateTime.now().toIso8601String().substring(0, 10));
   final _offerName = TextEditingController();
   final _offerCode = TextEditingController();
   final _offerDiscount = TextEditingController(text: '10');
@@ -139,11 +140,13 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     _admins = (requestResults[1]['admins'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
     _audit = (requestResults[2]['events'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
     if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') {
+      final asOfDate = _customerAsOfDate.text.trim();
       final growthResults = await Future.wait([
         _request('GET', '/api/v1/admin/marketing/customers?segment=$_customerSegment&search=${Uri.encodeQueryComponent(_customerSearch.text.trim())}&limit=500'),
         _request('GET', '/api/v1/admin/marketing/offers'),
+        _request('GET', '/api/v1/admin/customers?as_of_date=$asOfDate&segment=${_customerSegment == 'ELIGIBLE_FOR_PROMOTIONS' ? 'ALL' : _customerSegment}&search=${Uri.encodeQueryComponent(_customerSearch.text.trim())}&limit=500'),
       ]);
-      _customers = (growthResults[0]['customers'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
+      _customers = (growthResults[2]['customers'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
       _segmentCounts = Map<String,dynamic>.from(growthResults[0]['segment_counts'] as Map? ?? {});
       _offers = (growthResults[1]['offers'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
     }
@@ -216,6 +219,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
 
   Future<void> _review(Map<String,dynamic> row, String status) async {
     final noteController = TextEditingController();
+    final totpController = TextEditingController();
     final mobile = row['mobile_e164']?.toString() ?? 'this customer';
     final accepted = await showDialog<bool>(
       context: context,
@@ -230,6 +234,11 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
           const SizedBox(height: 12),
           TextField(controller: noteController, maxLength: 500, maxLines: 2,
             decoration: const InputDecoration(labelText: 'Administrator note (optional)', border: OutlineInputBorder())),
+          const SizedBox(height: 12),
+          TextField(controller: totpController, keyboardType: TextInputType.number, maxLength: 6,
+            obscureText: true, decoration: const InputDecoration(labelText: 'Fresh 6-digit Authenticator code',
+              helperText: 'A new code is required for each approval or rejection.',
+              border: OutlineInputBorder())),
         ]),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('CANCEL')),
@@ -240,11 +249,19 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
       ),
     );
     final note = noteController.text.trim();
+    final totpCode = totpController.text.trim();
     noteController.dispose();
+    totpController.dispose();
     if (accepted != true || !mounted) return;
+    if (!RegExp(r'^\d{6}$').hasMatch(totpCode)) {
+      setState(() => _error = 'Enter a fresh six-digit authenticator code.');
+      return;
+    }
     setState(() { _busy = true; _error = null; });
     try {
-      await _request('PUT', '/api/v1/admin/access-requests/${row['request_id']}', body: {'status': status, 'note': note});
+      await _request('PUT', '/api/v1/admin/access-requests/${row['request_id']}', body: {
+        'status': status, 'note': note, 'totp_code': totpCode,
+      });
       await _load();
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$mobile access status updated to $status.')));
     } catch (e) {
@@ -286,7 +303,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
   void dispose() {
     _client.close(); _email.dispose(); _password.dispose(); _totp.dispose();
     _newEmail.dispose(); _newPassword.dispose(); _subscriptionCustomer.dispose();
-    _requestSearch.dispose(); _customerSearch.dispose();
+    _requestSearch.dispose(); _customerSearch.dispose(); _customerAsOfDate.dispose();
     _offerName.dispose(); _offerCode.dispose(); _offerDiscount.dispose();
     _offerStarts.dispose(); _offerExpires.dispose(); _offerTerms.dispose();
     super.dispose();
@@ -436,6 +453,12 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
         onSubmitted: (_) => _refresh(),
       ),
       const SizedBox(height: 8),
+      TextField(controller: _customerAsOfDate, keyboardType: TextInputType.datetime,
+        decoration: const InputDecoration(labelText: 'Classify NEW vs EXISTING as of date (YYYY-MM-DD)',
+          helperText: 'Customers registered on this date are NEW; earlier registrations are EXISTING.',
+          border: OutlineInputBorder()),
+        onSubmitted: (_) => _refresh()),
+      const SizedBox(height: 8),
       OutlinedButton.icon(onPressed: _busy ? null : _refresh, icon: const Icon(Icons.refresh), label: const Text('REFRESH CUSTOMERS')),
       Text('${_customers.length} customer(s) displayed', style: Theme.of(context).textTheme.labelMedium),
       if (_customers.isEmpty) const Card(child: Padding(padding: EdgeInsets.all(24), child: Center(child: Text('No customers match this segment.')))),
@@ -447,6 +470,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
           children: [
             SelectableText('Customer: ${customer['customer_id']}'),
             Align(alignment: Alignment.centerLeft, child: Text('Registered: ${customer['registered_at'] ?? '—'}')),
+            Align(alignment: Alignment.centerLeft, child: Text('Lifecycle: ${customer['customer_type'] ?? '—'}')),
             Align(alignment: Alignment.centerLeft, child: Text('Devices: ${customer['device_count'] ?? 0}')),
             Align(alignment: Alignment.centerLeft, child: Text('Plan: ${customer['plan_code'] ?? 'None'}')),
             Align(alignment: Alignment.centerLeft, child: Text('Expiry: ${customer['subscription_expires_at'] ?? '—'}')),
@@ -635,6 +659,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
           const SizedBox(height: 8),
           SelectableText('Device ID: ${r['device_id'] ?? '—'}'),
           if (r['created_at'] != null) Text('Submitted: ${r['created_at']}'),
+          Text('Customer: ${r['customer_type'] ?? 'NEW'} • First registered: ${r['first_registered_at'] ?? r['created_at'] ?? '—'}'),
           if ((r['reviewer_note']?.toString() ?? '').isNotEmpty) Text('Admin note: ${r['reviewer_note']}'),
           if (_role != 'RESEARCH_ADMIN' && (r['status'] == 'PENDING' || r['status'] == 'APPROVED')) ...[
             const SizedBox(height: 12),

@@ -46,47 +46,6 @@ class _AirAdminScreenState extends State<AirAdminScreen> {
     }
   }
 
-  Future<void> _review(Map<String, dynamic> request, String status) async {
-    final id = request['request_id']?.toString();
-    if (id == null || id.isEmpty) return;
-    final noteController = TextEditingController();
-    final note = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('$status access?'),
-        content: TextField(
-          controller: noteController,
-          maxLength: 500,
-          decoration: const InputDecoration(
-            labelText: 'Administrator note (optional)',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('CANCEL'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, noteController.text),
-            child: Text(status),
-          ),
-        ],
-      ),
-    );
-    noteController.dispose();
-    if (note == null) return;
-    setState(() => _loading = true);
-    try {
-      await _api.reviewOperatorAccessRequest(id, status, note: note);
-      await _load();
-    } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
   Color _statusColor(BuildContext context, String status) {
     switch (status) {
       case 'APPROVED':
@@ -265,28 +224,8 @@ class _AirAdminScreenState extends State<AirAdminScreen> {
                                     padding: const EdgeInsets.only(top: 5),
                                     child: Text('Note: $reviewerNote', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
                                   ),
-                                if (status == 'PENDING' || status == 'APPROVED') ...[
-                                  const SizedBox(height: 12),
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 6,
-                                    children: [
-                                      if (status == 'PENDING')
-                                        FilledButton.tonal(
-                                          onPressed: _loading ? null : () => _review(request, 'APPROVED'),
-                                          child: const Text('APPROVE'),
-                                        ),
-                                      OutlinedButton(
-                                        onPressed: _loading ? null : () => _review(request, 'REJECTED'),
-                                        child: const Text('REJECT'),
-                                      ),
-                                      OutlinedButton(
-                                        onPressed: _loading ? null : () => _review(request, 'BLOCKED'),
-                                        child: const Text('BLOCK'),
-                                      ),
-                                    ],
-                                  ),
-                                ],
+                                const SizedBox(height: 8),
+                                const Text('Access decisions are available only in the dedicated AIR Administrator Console and require a fresh authenticator code.'),
                               ],
                             ),
                           ),

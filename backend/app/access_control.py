@@ -37,6 +37,15 @@ class AccessStore:
             )
         """)
         self.db.execute("""
+            CREATE TABLE IF NOT EXISTS air_access_decision_history (
+                decision_id TEXT PRIMARY KEY, request_id TEXT NOT NULL, mobile_e164 TEXT NOT NULL,
+                previous_status TEXT NOT NULL, new_status TEXT NOT NULL, reviewer_admin_id TEXT NOT NULL,
+                reviewer_role TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', totp_counter INTEGER NOT NULL,
+                decided_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        self.db.execute("CREATE INDEX IF NOT EXISTS ix_air_access_decisions_request ON air_access_decision_history(request_id, decided_at)")
+        self.db.execute("""
             CREATE TABLE IF NOT EXISTS air_device_sessions (
                 session_id TEXT PRIMARY KEY,
                 request_id TEXT NOT NULL REFERENCES air_access_requests(request_id),
@@ -126,33 +135,55 @@ class AccessStore:
         return row["mobile_e164"] if row else None
 
     def list_requests(self, status: str | None = None):
-        if status:
-            return self.db.execute(
-                """SELECT request_id,mobile_e164,device_id,status,created_at,reviewed_at,reviewer_note
-                   FROM air_access_requests WHERE status=? ORDER BY created_at DESC""",
-                (status.upper(),),
-            ).fetchall()
-        return self.db.execute(
-            """SELECT request_id,mobile_e164,device_id,status,created_at,reviewed_at,reviewer_note
-               FROM air_access_requests ORDER BY created_at DESC"""
-        ).fetchall()
+        where, params = (" WHERE r.status=?", (status.upper(),)) if status else ("", ())
+        return self.db.execute("""SELECT r.request_id,r.mobile_e164,r.device_id,r.status,r.created_at,
+            r.reviewed_at,r.reviewer_note,
+            CASE WHEN r.request_id=(SELECT r2.request_id FROM air_access_requests r2
+                WHERE r2.mobile_e164=r.mobile_e164 ORDER BY r2.created_at,r2.request_id LIMIT 1)
+                THEN 'NEW' ELSE 'EXISTING' END AS customer_type,
+            (SELECT MIN(r3.created_at) FROM air_access_requests r3 WHERE r3.mobile_e164=r.mobile_e164)
+                AS first_registered_at
+            FROM air_access_requests r""" + where + " ORDER BY r.created_at DESC,r.request_id", params).fetchall()
 
-    def review(self, request_id: str, status: str, note: str = "") -> bool:
+    def get_request_by_id(self, request_id: str):
+        return self.db.execute("SELECT * FROM air_access_requests WHERE request_id=?", (request_id,)).fetchone()
+
+    def decision_history(self, request_id: str):
+        rows = self.db.execute("""SELECT decision_id,request_id,mobile_e164,previous_status,new_status,
+            reviewer_admin_id,reviewer_role,note,totp_counter,decided_at
+            FROM air_access_decision_history WHERE request_id=? ORDER BY decided_at,decision_id""",
+            (request_id,)).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_decisions(self, start_date: str | None = None, end_date: str | None = None):
+        clauses, params = [], []
+        if start_date: clauses.append("date(decided_at)>=date(?)"); params.append(start_date)
+        if end_date: clauses.append("date(decided_at)<=date(?)"); params.append(end_date)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        rows = self.db.execute("""SELECT decision_id,request_id,mobile_e164,previous_status,new_status,
+            reviewer_admin_id,reviewer_role,note,totp_counter,decided_at FROM air_access_decision_history""" +
+            where + " ORDER BY decided_at DESC,decision_id DESC", params).fetchall()
+        return [dict(row) for row in rows]
+
+    def review(self, request_id: str, status: str, note: str = "", reviewer_admin_id: str = "",
+               reviewer_role: str = "", totp_counter: int = -1) -> bool:
         status = status.upper()
         if status not in {"APPROVED", "REJECTED", "BLOCKED"}:
             raise ValueError("Status must be APPROVED, REJECTED or BLOCKED")
         with self.db:
-            cursor = self.db.execute(
-                """UPDATE air_access_requests SET status=?, reviewed_at=CURRENT_TIMESTAMP,
-                   reviewer_note=? WHERE request_id=?""",
-                (status, note[:500], request_id),
-            )
+            current = self.db.execute("SELECT mobile_e164,status FROM air_access_requests WHERE request_id=?",
+                                       (request_id,)).fetchone()
+            if not current: return False
+            cursor = self.db.execute("""UPDATE air_access_requests SET status=?,reviewed_at=CURRENT_TIMESTAMP,
+                reviewer_note=? WHERE request_id=?""", (status, note[:500], request_id))
             if cursor.rowcount:
+                self.db.execute("""INSERT INTO air_access_decision_history
+                    (decision_id,request_id,mobile_e164,previous_status,new_status,reviewer_admin_id,
+                     reviewer_role,note,totp_counter) VALUES(?,?,?,?,?,?,?,?,?)""",
+                    (str(uuid4()), request_id, current["mobile_e164"], current["status"], status,
+                     reviewer_admin_id, reviewer_role, note[:500], int(totp_counter)))
                 if status != "APPROVED":
-                    self.db.execute(
-                        """UPDATE air_device_sessions SET active=0 WHERE request_id=?""",
-                        (request_id,),
-                    )
+                    self.db.execute("UPDATE air_device_sessions SET active=0 WHERE request_id=?", (request_id,))
         return cursor.rowcount > 0
 
     def create_session(self, request_id: str) -> str:

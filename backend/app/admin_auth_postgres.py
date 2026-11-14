@@ -203,6 +203,26 @@ class PostgresAdminAuthStore:
             self.redis.srem("air:admin:user-sessions:" + admin["admin_id"],
                             *self.redis.smembers("air:admin:user-sessions:" + admin["admin_id"]))
 
+    def verify_action_totp(self, admin: dict, code: str, action: str, target_id: str, now: int | None = None) -> int:
+        current = int(time.time() if now is None else now)
+        if admin.get("role") not in {"SUPER_ADMIN", "ADMIN"}:
+            raise PermissionError("Administrator management permission is required")
+        with self.engine.begin() as conn:
+            row = conn.execute(text("""SELECT mfa_secret,last_totp_counter FROM air_admin_users
+                WHERE admin_id=:id AND is_active=true FOR UPDATE"""), {"id": admin["admin_id"]}).first()
+            if not row:
+                raise PermissionError("Active administrator account is required")
+            counter = matching_totp_counter(self.cipher.decrypt(bytes(row.mfa_secret)).decode(), code, current)
+            if counter is None or counter <= row.last_totp_counter:
+                raise PermissionError("Authenticator code is invalid, expired or already used")
+            updated = conn.execute(text("""UPDATE air_admin_users SET last_totp_counter=:counter
+                WHERE admin_id=:id AND is_active=true AND last_totp_counter<:counter"""),
+                {"counter": counter, "id": admin["admin_id"]})
+            if updated.rowcount != 1:
+                raise PermissionError("Authenticator code has already been used")
+            self._audit(conn, admin["admin_id"], "STEP_UP_" + action, target_id, f"totp_counter={counter}")
+        return counter
+
     def list_admins(self):
         with self.engine.connect() as conn:
             rows = conn.execute(text("""SELECT admin_id,email,role,is_active,must_change_password,created_at
