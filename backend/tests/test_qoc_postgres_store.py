@@ -66,5 +66,21 @@ def test_qoc_observations_import_to_postgres_and_remain_readable(tmp_path, monke
         assert len(updated) == 1
         assert updated[0]["last_price"] == 126.0
         assert updated[0]["volume"] == 5100
+        # Non-Dhan adapters identify underlyings by symbol rather than numeric scrip ID.
+        symbol_saved = store.save_option_chain(
+            provider="zerodha", account_id="test-account",
+            underlying_scrip="NIFTY", underlying_segment="NFO",
+            expiry="2026-12-31", underlying_price=24510.0,
+            observed_at="2026-11-11T10:01:00+05:30",
+            chain={"oc": {"24500": {"pe": {
+                "security_id": "sec-2", "last_price": 98.0,
+                "volume": 200, "oi": 300, "greeks": {},
+            }}}},
+        )
+        assert symbol_saved == 1
+        symbol_rows = store.latest_observations(
+            account_id="test-account", provider="zerodha", limit=5
+        )
+        assert symbol_rows[0]["underlying_scrip"] == "NIFTY"
     finally:
         store.close()
