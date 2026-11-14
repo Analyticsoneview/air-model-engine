@@ -25,6 +25,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
   final _subscriptionCustomer = TextEditingController();
   final _requestSearch = TextEditingController();
   final _customerSearch = TextEditingController();
+  final _customerAsOfDate = TextEditingController(text: DateTime.now().toIso8601String().substring(0, 10));
   final _offerName = TextEditingController();
   final _offerCode = TextEditingController();
   final _offerDiscount = TextEditingController(text: '10');
@@ -139,11 +140,11 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     _admins = (requestResults[1]['admins'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
     _audit = (requestResults[2]['events'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
     if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') {
-      final today = DateTime.now().toIso8601String().substring(0, 10);
+      final asOfDate = _customerAsOfDate.text.trim();
       final growthResults = await Future.wait([
         _request('GET', '/api/v1/admin/marketing/customers?segment=$_customerSegment&search=${Uri.encodeQueryComponent(_customerSearch.text.trim())}&limit=500'),
         _request('GET', '/api/v1/admin/marketing/offers'),
-        _request('GET', '/api/v1/admin/customers?as_of_date=$today&segment=${_customerSegment == 'ELIGIBLE_FOR_PROMOTIONS' ? 'ALL' : _customerSegment}&search=${Uri.encodeQueryComponent(_customerSearch.text.trim())}&limit=500'),
+        _request('GET', '/api/v1/admin/customers?as_of_date=$asOfDate&segment=${_customerSegment == 'ELIGIBLE_FOR_PROMOTIONS' ? 'ALL' : _customerSegment}&search=${Uri.encodeQueryComponent(_customerSearch.text.trim())}&limit=500'),
       ]);
       _customers = (growthResults[2]['customers'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
       _segmentCounts = Map<String,dynamic>.from(growthResults[0]['segment_counts'] as Map? ?? {});
@@ -302,7 +303,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
   void dispose() {
     _client.close(); _email.dispose(); _password.dispose(); _totp.dispose();
     _newEmail.dispose(); _newPassword.dispose(); _subscriptionCustomer.dispose();
-    _requestSearch.dispose(); _customerSearch.dispose();
+    _requestSearch.dispose(); _customerSearch.dispose(); _customerAsOfDate.dispose();
     _offerName.dispose(); _offerCode.dispose(); _offerDiscount.dispose();
     _offerStarts.dispose(); _offerExpires.dispose(); _offerTerms.dispose();
     super.dispose();
@@ -449,6 +450,17 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
         decoration: InputDecoration(labelText: 'Search mobile identity', prefixIcon: const Icon(Icons.search),
           suffixIcon: IconButton(onPressed: () { _customerSearch.clear(); _refresh(); }, icon: const Icon(Icons.close)),
           border: const OutlineInputBorder()),
+        onSubmitted: (_) => _refresh(),
+      ),
+      const SizedBox(height: 8),
+      TextField(
+        controller: _customerAsOfDate,
+        keyboardType: TextInputType.datetime,
+        decoration: const InputDecoration(
+          labelText: 'Classify NEW vs EXISTING as of date (YYYY-MM-DD)',
+          helperText: 'Customers registered on this date are NEW; earlier registrations are EXISTING.',
+          border: OutlineInputBorder(),
+        ),
         onSubmitted: (_) => _refresh(),
       ),
       const SizedBox(height: 8),
