@@ -45,6 +45,7 @@ def test_durable_order_ledger_idempotency_recovery_and_event_history():
         assert ledger.reserve(broker, account_id, key, {"symbol": "NIFTY", "mode": "PAPER"})
         # Separate processes/connections racing on the same intent still get one reservation.
         concurrent_key = "race-" + uuid.uuid4().hex
+        race_account_id = "race-acct-" + uuid.uuid4().hex
         def reserve_once(_):
             connection = DurableOrderLedger()
             try:
