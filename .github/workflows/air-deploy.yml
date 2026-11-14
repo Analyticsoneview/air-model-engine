@@ -96,6 +96,8 @@ jobs:
         with:
           context: .
           file: ./deploy/pwa.Dockerfile
+          build-args: |
+            AIR_API_BASE_URL=${{ vars.AIR_API_BASE_URL }}
           push: true
           tags: |
             ghcr.io/${{ steps.image.outputs.owner_lc }}/air-model-engine-pwa:${{ github.sha }}
