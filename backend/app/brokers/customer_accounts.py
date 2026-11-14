@@ -17,7 +17,16 @@ class CustomerTradingAccount:
 
 
 class CustomerAccountDirectory:
-    """SQLite-backed ownership registry; safe to reopen across server restarts."""
+    """SQLite compatibility registry; PostgreSQL is selected with AIR_ACCOUNT_DATABASE_URL."""
+
+    def __new__(cls, db_path: str = "data/customer_accounts.sqlite3"):
+        import os
+        url_file = os.getenv("AIR_ACCOUNT_DATABASE_URL_FILE")
+        url = Path(url_file).read_text(encoding="utf-8").strip() if url_file else os.getenv("AIR_ACCOUNT_DATABASE_URL", "").strip()
+        if url:
+            from app.brokers.customer_accounts_postgres import PostgresCustomerAccountDirectory
+            return PostgresCustomerAccountDirectory(database_url=url)
+        return super().__new__(cls)
 
     def __init__(self, db_path: str = "data/customer_accounts.sqlite3"):
         self.db_path = db_path
