@@ -506,6 +506,7 @@ class MarketingOfferCreate(BaseModel):
 class AccessReview(BaseModel):
     status: str = Field(pattern="^(APPROVED|REJECTED|BLOCKED)$")
     note: str = Field(default="", max_length=500)
+    totp_code: str = Field(pattern=r"^\d{6}$")
 
 
 class TradingAccountCreate(BaseModel):
@@ -1008,9 +1009,62 @@ async def list_access_requests(status: str | None = Query(default=None, pattern=
 
 @app.put("/api/v1/admin/access-requests/{request_id}")
 async def review_access_request(request_id: str, body: AccessReview, admin: dict = Depends(require_admin_management)) -> dict:
-    if not access_store.review(request_id, body.status, body.note):
+    if not access_store.get_request_by_id(request_id):
         raise HTTPException(status_code=404, detail="Access request not found")
-    return {"request_id": request_id, "status": body.status, "updated": True}
+    try:
+        counter = get_admin_auth_store().verify_action_totp(
+            admin, body.totp_code, "CUSTOMER_ACCESS_" + body.status, request_id
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    updated = access_store.review(request_id, body.status, body.note, admin["admin_id"], admin["role"], counter)
+    if not updated:
+        raise HTTPException(status_code=409, detail="Access request changed before the decision was recorded")
+    return {"request_id": request_id, "status": body.status, "updated": True,
+            "reviewed_by": admin["admin_id"], "totp_verified": True}
+
+
+@app.get("/api/v1/admin/access-requests/{request_id}/history")
+async def access_request_history(request_id: str, admin: dict = Depends(require_admin)) -> dict:
+    return {"request_id": request_id, "decisions": [dict(row) for row in access_store.decision_history(request_id)]}
+
+
+@app.get("/api/v1/admin/customers")
+async def admin_customer_register(
+    registered_from: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    registered_to: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    as_of_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    segment: str = Query(default="ALL", pattern="^(ALL|NEVER_SUBSCRIBED|EXPIRED|ACTIVE|CANCELLED|INACTIVE|PENDING_ACCESS|OPTED_OUT|NOT_GRANTED)$"),
+    search: str = Query(default="", max_length=100),
+    limit: int = Query(default=200, ge=1, le=500),
+    admin: dict = Depends(require_admin),
+) -> dict:
+    if registered_from and registered_to and registered_from > registered_to:
+        raise HTTPException(status_code=422, detail="registered_from must be before or equal to registered_to")
+    customers = access_store.list_marketing_customers(segment, search, limit)
+    filtered = [dict(item) for item in customers
+                if (not registered_from or str(item["registered_at"])[:10] >= registered_from)
+                and (not registered_to or str(item["registered_at"])[:10] <= registered_to)]
+    for item in filtered:
+        item["customer_type"] = ("NEW" if not as_of_date or str(item["registered_at"])[:10] == as_of_date
+                                else "EXISTING" if str(item["registered_at"])[:10] < as_of_date
+                                else "NOT_YET_REGISTERED")
+        if item["subscription_status"] == "NEVER_SUBSCRIBED":
+            item["subscription_status"] = "NO_PLAN_AVAILED"
+    return {"customers": filtered, "count": len(filtered), "segment": segment,
+            "registered_from": registered_from, "registered_to": registered_to, "as_of_date": as_of_date}
+
+
+@app.get("/api/v1/admin/access-decisions")
+async def admin_access_decisions(
+    start_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    admin: dict = Depends(require_admin),
+) -> dict:
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(status_code=422, detail="start_date must be before or equal to end_date")
+    decisions = access_store.list_decisions(start_date, end_date)
+    return {"decisions": decisions, "count": len(decisions)}
 
 
 @app.get("/api/v1/operator/access-requests")
@@ -1021,15 +1075,8 @@ async def operator_list_access_requests(
     return {"requests": [dict(row) for row in access_store.list_requests(status)]}
 
 
-@app.put("/api/v1/operator/access-requests/{request_id}")
-async def operator_review_access_request(
-    request_id: str,
-    body: AccessReview,
-    customer_id: str = Depends(require_air_operator),
-) -> dict:
-    if not access_store.review(request_id, body.status, body.note):
-        raise HTTPException(status_code=404, detail="Access request not found")
-    return {"request_id": request_id, "status": body.status, "updated": True}
+# Customer access decisions are restricted to authenticated AIR administrators.
+# The former operator review endpoint is removed to prevent bypassing authenticator verification.
 
 
 @app.post("/api/v1/auth/register", status_code=410)

@@ -92,8 +92,12 @@ class PostgresAccessStore:
                                 {"id": request_id}).scalar_one_or_none()
 
     def list_requests(self, status: str | None = None):
-        statement = """SELECT request_id,mobile_e164,device_id,status,created_at,reviewed_at,reviewer_note
-            FROM air_access_requests"""
+        statement = """SELECT r.request_id,r.mobile_e164,r.device_id,r.status,r.created_at,r.reviewed_at,
+            r.reviewer_note,CASE WHEN r.request_id=(SELECT r2.request_id FROM air_access_requests r2
+                WHERE r2.mobile_e164=r.mobile_e164 ORDER BY r2.created_at,r2.request_id LIMIT 1)
+                THEN 'NEW' ELSE 'EXISTING' END AS customer_type,
+            (SELECT MIN(r3.created_at) FROM air_access_requests r3 WHERE r3.mobile_e164=r.mobile_e164)
+                AS first_registered_at FROM air_access_requests r"""
         params = {}
         if status:
             statement += " WHERE status=:status"
@@ -103,18 +107,51 @@ class PostgresAccessStore:
             rows = conn.execute(text(statement), params).mappings().all()
         return [dict(row) for row in rows]
 
-    def review(self, request_id: str, status: str, note: str = "") -> bool:
+    def get_request_by_id(self, request_id: str):
+        with self.engine.connect() as conn:
+            row = conn.execute(text("SELECT * FROM air_access_requests WHERE request_id=:id"),
+                               {"id": request_id}).mappings().first()
+        return self._dict(row)
+
+    def decision_history(self, request_id: str):
+        with self.engine.connect() as conn:
+            rows = conn.execute(text("""SELECT decision_id,request_id,mobile_e164,previous_status,new_status,
+                reviewer_admin_id,reviewer_role,note,totp_counter,decided_at FROM air_access_decision_history
+                WHERE request_id=:id ORDER BY decided_at,decision_id"""), {"id": request_id}).mappings().all()
+        return [dict(row) for row in rows]
+
+    def list_decisions(self, start_date: str | None = None, end_date: str | None = None):
+        clauses, params = [], {}
+        if start_date: clauses.append("decided_at::date >= CAST(:start_date AS date)"); params["start_date"] = start_date
+        if end_date: clauses.append("decided_at::date <= CAST(:end_date AS date)"); params["end_date"] = end_date
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        with self.engine.connect() as conn:
+            rows = conn.execute(text("""SELECT decision_id,request_id,mobile_e164,previous_status,new_status,
+                reviewer_admin_id,reviewer_role,note,totp_counter,decided_at FROM air_access_decision_history""" +
+                where + " ORDER BY decided_at DESC,decision_id DESC"), params).mappings().all()
+        return [dict(row) for row in rows]
+
+    def review(self, request_id: str, status: str, note: str = "", reviewer_admin_id: str = "",
+               reviewer_role: str = "", totp_counter: int = -1) -> bool:
         status = status.upper()
         if status not in {"APPROVED", "REJECTED", "BLOCKED"}:
             raise ValueError("Status must be APPROVED, REJECTED or BLOCKED")
         with self.engine.begin() as conn:
-            result = conn.execute(text("""UPDATE air_access_requests
-                SET status=:status,reviewed_at=CURRENT_TIMESTAMP,reviewer_note=:note
-                WHERE request_id=:id"""),
+            current = conn.execute(text("SELECT mobile_e164,status FROM air_access_requests WHERE request_id=:id FOR UPDATE"),
+                                   {"id": request_id}).first()
+            if not current: return False
+            result = conn.execute(text("""UPDATE air_access_requests SET status=:status,
+                reviewed_at=CURRENT_TIMESTAMP,reviewer_note=:note WHERE request_id=:id"""),
                 {"status": status, "note": note[:500], "id": request_id})
-            if result.rowcount and status != "APPROVED":
-                conn.execute(text("UPDATE air_device_sessions SET active=false WHERE request_id=:id"),
-                             {"id": request_id})
+            if result.rowcount:
+                conn.execute(text("""INSERT INTO air_access_decision_history
+                    (decision_id,request_id,mobile_e164,previous_status,new_status,reviewer_admin_id,
+                     reviewer_role,note,totp_counter) VALUES(:decision,:request,:mobile,:previous,:status,:admin,:role,:note,:counter)"""),
+                    {"decision": str(uuid4()), "request": request_id, "mobile": current.mobile_e164,
+                     "previous": current.status, "status": status, "admin": reviewer_admin_id,
+                     "role": reviewer_role, "note": note[:500], "counter": int(totp_counter)})
+                if status != "APPROVED":
+                    conn.execute(text("UPDATE air_device_sessions SET active=false WHERE request_id=:id"), {"id": request_id})
         return result.rowcount > 0
 
     def create_session(self, request_id: str) -> str:
