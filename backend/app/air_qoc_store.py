@@ -68,7 +68,7 @@ class AirQocStore:
             """)
             self.db.commit()
 
-    def save_option_chain(self, *, account_id: str, underlying_scrip: int,
+    def save_option_chain(self, *, account_id: str, underlying_scrip: int | str,
                           underlying_segment: str, expiry: str,
                           underlying_price: float | None,
                           observed_at: str, chain: dict[str, Any],
@@ -83,7 +83,7 @@ class AirQocStore:
                     continue
                 greeks = item.get("greeks") or {}
                 rows.append((
-                    provider, account_id, underlying_scrip, underlying_segment, expiry,
+                    provider, account_id, str(underlying_scrip), underlying_segment, expiry,
                     underlying_price, str(strike), option_type, str(item.get("security_id") or ""),
                     _number(item.get("last_price")), _number(item.get("previous_close_price")),
                     _integer(item.get("volume")), _integer(item.get("previous_volume")),
