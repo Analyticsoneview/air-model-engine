@@ -24,18 +24,35 @@ unset OVERRIDE_BACKEND_IMAGE OVERRIDE_PWA_IMAGE
 : "${AIR_PWA_IMAGE:?AIR_PWA_IMAGE must be supplied by the deployment workflow}"
 : "${AIR_OPERATOR_CUSTOMER_IDS:?Set AIR_OPERATOR_CUSTOMER_IDS in $ENV_FILE}"
 : "${AIR_TELEGRAM_CHAT_IDS:?Set AIR_TELEGRAM_CHAT_IDS in $ENV_FILE}"
+: "${AIR_APP_DOMAIN:?Set AIR_APP_DOMAIN in $ENV_FILE}"
+: "${AIR_API_DOMAIN:?Set AIR_API_DOMAIN in $ENV_FILE}"
+: "${AIR_TLS_EMAIL:?Set AIR_TLS_EMAIL in $ENV_FILE}"
+: "${AIR_CORS_ORIGINS:?Set AIR_CORS_ORIGINS in $ENV_FILE}"
+
+# Check every external secret declared by docker-stack.yml before image pulls or mutation.
+REQUIRED_SECRETS=(
+  air_jwt_secret air_credential_key air_admin_api_key air_admin_mfa_key
+  air_postgres_password air_redis_password air_database_url air_redis_url
+  air_telegram_bot_token air_smtp_password
+)
+missing_secrets=()
+for secret in "${REQUIRED_SECRETS[@]}"; do
+  if ! docker secret inspect "$secret" >/dev/null 2>&1; then
+    missing_secrets+=("$secret")
+  fi
+done
+if (("${#missing_secrets[@]}")); then
+  printf 'Missing required Docker Swarm secrets: %s\\n' "${missing_secrets[*]}" >&2
+  echo "Create the missing secrets using deploy/DOCKER_SWARM.md before deploying." >&2
+  exit 1
+fi
+
+echo "Validating rendered Docker Swarm stack..."
+docker stack config --compose-file docker-stack.yml >/dev/null
 
 state="$(docker info --format '{{.Swarm.LocalNodeState}}')"
 if [[ "$state" != "active" ]]; then
   echo "Docker Swarm is not active on this host (state: $state)." >&2
-  exit 1
-fi
-
-if ! docker secret inspect air_jwt_secret >/dev/null 2>&1 ||
-   ! docker secret inspect air_credential_key >/dev/null 2>&1 ||
-   ! docker secret inspect air_admin_api_key >/dev/null 2>&1 ||
-   ! docker secret inspect air_telegram_bot_token >/dev/null 2>&1; then
-  echo "One or more required Docker Swarm secrets are missing. Complete deploy/DOCKER_SWARM.md first." >&2
   exit 1
 fi
 
