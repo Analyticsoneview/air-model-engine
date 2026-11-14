@@ -1,6 +1,6 @@
 # Self-hosted Docker Swarm deployment (single-node lab)
 
-This stack serves the Flutter PWA and API on a private overlay network. It is a **single-replica lab deployment**, not a highly available production cluster. PostgreSQL 16 and Redis 7 are provisioned with persistent volumes and Docker secrets, and the API reports their connection health. Existing domain repositories still use SQLite in this migration phase; do not assume application records have moved to PostgreSQL or that Redis-backed sessions/OAuth are active. Do not scale the API above one replica until repository migration and shared-state tests are complete.
+This stack serves the Flutter PWA and API on a private overlay network. It is a **single-replica lab deployment**, not a highly available production cluster. PostgreSQL 16 and Redis 7 are provisioned with persistent volumes and Docker secrets. The API container applies Alembic migrations before starting Uvicorn. Broker account ownership, market-data entitlements/selections and encrypted broker credentials use PostgreSQL through the shared `air_database_url` secret. Authentication, sessions, QOC, instruments and remaining repositories are still on their existing stores until their own migrations and tests are complete. Do not scale the API above one replica until repository migration and shared-state tests are complete.
 
 ## 1. Build images
 
@@ -114,7 +114,8 @@ The GitHub Actions workflow `.github/workflows/ios-pwa.yml` runs Flutter analysi
 
 - Customer signup is disabled by default. Provision the initial operator through the backend's trusted administrative bootstrap procedure; do not enable public signup on an exposed instance.
 - Back up the `air_data` volume and test restore before storing broker credentials.
-- PostgreSQL and Redis containers and connection health checks are now provisioned. Existing customer, Admin, account, credential, QOC and instrument repositories remain SQLite-backed until their individual schema/data migrations and rollback tests are completed. Redis is not yet the authoritative session/rate-limit store. The deployment must remain at one API replica.
+- The API image includes `alembic.ini` and the migration scripts. Its startup command runs `python -m alembic upgrade head` and starts Uvicorn only if migration succeeds. Both Compose and Swarm set `AIR_ACCOUNT_DATABASE_URL_FILE` and `AIR_CREDENTIAL_DATABASE_URL_FILE` to `/run/secrets/air_database_url`; the credential encryption key remains `/run/secrets/air_credential_key`. Migration failure prevents API startup rather than serving against a partial schema.
+- Broker account ownership, market-data entitlements/selections and encrypted credentials are PostgreSQL-backed after this gate. Authentication, sessions, QOC, instrument masters and remaining repositories are not yet fully migrated. Redis is not yet the authoritative session/rate-limit store. Keep the API at one replica.
 - Configure a TLS reverse proxy, strict firewall rules, monitoring, log retention and backup rotation.
 - Broker API plans, market-data entitlements, static IP approvals, instrument masters and exchange data redistribution rights must be verified separately.
 - No live order permission is enabled by this deployment. Live trading must remain disabled until provider-specific preflight, reconciliation and explicit confirmation tests pass.
