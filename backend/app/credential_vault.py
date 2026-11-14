@@ -7,8 +7,15 @@ from cryptography.fernet import Fernet, InvalidToken
 
 
 class CredentialVault:
-    """Encrypt broker credential payloads at rest; never return plaintext in list APIs."""
+    """Encrypted credential vault; PostgreSQL is selected with AIR_CREDENTIAL_DATABASE_URL."""
 
+    def __new__(cls, db_path: str = "data/air_credentials.sqlite3"):
+        url_file = os.getenv("AIR_CREDENTIAL_DATABASE_URL_FILE")
+        url = Path(url_file).read_text(encoding="utf-8").strip() if url_file else os.getenv("AIR_CREDENTIAL_DATABASE_URL", "").strip()
+        if url:
+            from app.credential_vault_postgres import PostgresCredentialVault
+            return PostgresCredentialVault(database_url=url)
+        return super().__new__(cls)
     def __init__(self, db_path: str = "data/air_credentials.sqlite3"):
         key_file = os.getenv("AIR_CREDENTIAL_KEY_FILE")
         key = Path(key_file).read_bytes().strip() if key_file else os.getenv("AIR_CREDENTIAL_KEY", "").encode()
