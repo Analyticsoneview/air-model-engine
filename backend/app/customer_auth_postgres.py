@@ -227,12 +227,12 @@ class PostgresAccessStore:
                  "starts": starts, "expires": expires, "admin": assigned_by_admin_id, "assigned_at": assigned_at})
             conn.execute(text("""INSERT INTO air_customer_lifecycle
                 (customer_id,first_registered_at,first_plan_availed_at)
-                SELECT :customer,MIN(created_at::timestamptz),:assigned_at
-                FROM air_access_requests WHERE mobile_e164=:customer
+                SELECT CAST(:customer_id AS text),MIN(created_at::timestamptz),CAST(:assigned_at AS timestamptz)
+                FROM air_access_requests WHERE mobile_e164=CAST(:mobile AS varchar)
                 ON CONFLICT(customer_id) DO UPDATE SET
                 first_plan_availed_at=COALESCE(air_customer_lifecycle.first_plan_availed_at,EXCLUDED.first_plan_availed_at),
                 updated_at=CURRENT_TIMESTAMP"""),
-                {"customer": customer_id, "assigned_at": assigned_at})
+                {"customer_id": customer_id, "mobile": customer_id, "assigned_at": assigned_at})
 
     def get_subscription(self, customer_id: str):
         with self.engine.connect() as conn:
