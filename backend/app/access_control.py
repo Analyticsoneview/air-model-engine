@@ -21,8 +21,9 @@ class AccessStore:
         db_path = db_path or os.getenv("AIR_AUTH_DB_PATH", "data/air_auth.sqlite3")
         if db_path != ":memory:":
             Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(db_path, check_same_thread=False)
+        self.db = sqlite3.connect(db_path, timeout=30.0, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
+        self.db.execute('PRAGMA busy_timeout=30000')
         self.db.execute("""
             CREATE TABLE IF NOT EXISTS air_access_requests (
                 request_id TEXT PRIMARY KEY,
@@ -64,23 +65,6 @@ class AccessStore:
         lifecycle_columns = {row["name"] for row in self.db.execute("PRAGMA table_info(air_customer_lifecycle)")}
         if "first_rejected_at" not in lifecycle_columns:
             self.db.execute("ALTER TABLE air_customer_lifecycle ADD COLUMN first_rejected_at TEXT")
-        self.db.execute("""INSERT OR IGNORE INTO air_customer_lifecycle(customer_id,first_registered_at)
-            SELECT mobile_e164,MIN(created_at) FROM air_access_requests GROUP BY mobile_e164""")
-        self.db.execute("""UPDATE air_customer_lifecycle SET first_approved_at=(
-            SELECT MIN(decided_at) FROM air_access_decision_history
-            WHERE mobile_e164=air_customer_lifecycle.customer_id AND new_status='APPROVED')
-            WHERE first_approved_at IS NULL AND EXISTS(
-            SELECT 1 FROM air_access_decision_history WHERE mobile_e164=air_customer_lifecycle.customer_id
-            AND new_status='APPROVED')""")
-        self.db.execute("""INSERT OR IGNORE INTO air_customer_subscription_history
-            (assignment_id,customer_id,plan_code,starts_at,expires_at,status,assigned_at)
-            SELECT lower(hex(randomblob(16))),customer_id,plan_code,starts_at,expires_at,status,updated_at
-            FROM air_customer_subscriptions""")
-        self.db.execute("""UPDATE air_customer_lifecycle SET first_plan_availed_at=(
-            SELECT MIN(assigned_at) FROM air_customer_subscription_history
-            WHERE customer_id=air_customer_lifecycle.customer_id)
-            WHERE first_plan_availed_at IS NULL AND EXISTS(
-            SELECT 1 FROM air_customer_subscription_history WHERE customer_id=air_customer_lifecycle.customer_id)""")
         self.db.executescript("""
             CREATE TRIGGER IF NOT EXISTS trg_air_access_decision_no_update
             BEFORE UPDATE ON air_access_decision_history BEGIN
@@ -146,6 +130,43 @@ class AccessStore:
             )
         """)
         self.db.commit()
+        self.db.execute("""CREATE TABLE IF NOT EXISTS air_auth_schema_migrations(
+            version TEXT PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+        # Serialize the one-time legacy backfill and re-check its marker inside the write lock.
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            migrated = self.db.execute(
+                "SELECT 1 FROM air_auth_schema_migrations WHERE version='customer_lifecycle_v1'"
+            ).fetchone()
+            if not migrated:
+                self.db.execute("""INSERT OR IGNORE INTO air_customer_lifecycle(customer_id,first_registered_at)
+                    SELECT mobile_e164,MIN(created_at) FROM air_access_requests GROUP BY mobile_e164""")
+                self.db.execute("""UPDATE air_customer_lifecycle SET first_approved_at=(
+                    SELECT MIN(decided_at) FROM air_access_decision_history
+                    WHERE mobile_e164=air_customer_lifecycle.customer_id AND new_status='APPROVED')
+                    WHERE first_approved_at IS NULL AND EXISTS(
+                    SELECT 1 FROM air_access_decision_history WHERE mobile_e164=air_customer_lifecycle.customer_id
+                    AND new_status='APPROVED')""")
+                self.db.execute("""UPDATE air_customer_lifecycle SET first_rejected_at=(
+                    SELECT MIN(decided_at) FROM air_access_decision_history
+                    WHERE mobile_e164=air_customer_lifecycle.customer_id AND new_status='REJECTED')
+                    WHERE first_rejected_at IS NULL AND EXISTS(
+                    SELECT 1 FROM air_access_decision_history WHERE mobile_e164=air_customer_lifecycle.customer_id
+                    AND new_status='REJECTED')""")
+                self.db.execute("""INSERT OR IGNORE INTO air_customer_subscription_history
+                    (assignment_id,customer_id,plan_code,starts_at,expires_at,status,assigned_at)
+                    SELECT lower(hex(randomblob(16))),customer_id,plan_code,starts_at,expires_at,status,updated_at
+                    FROM air_customer_subscriptions""")
+                self.db.execute("""UPDATE air_customer_lifecycle SET first_plan_availed_at=(
+                    SELECT MIN(assigned_at) FROM air_customer_subscription_history
+                    WHERE customer_id=air_customer_lifecycle.customer_id)
+                    WHERE first_plan_availed_at IS NULL AND EXISTS(
+                    SELECT 1 FROM air_customer_subscription_history WHERE customer_id=air_customer_lifecycle.customer_id)""")
+                self.db.execute("INSERT INTO air_auth_schema_migrations(version) VALUES('customer_lifecycle_v1')")
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
 
     @staticmethod
     def validate_mobile(mobile_e164: str) -> str:
