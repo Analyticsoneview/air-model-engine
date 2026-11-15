@@ -24,7 +24,7 @@ void main() {
         data = {'requests': []};
       } else if (path.endsWith('/access-decisions')) {
         data = {'decisions': []};
-      } else if (path == '/api/v1/admin/customers') {
+      } else if (path.endsWith('/admin/customers')) {
         data = {'customers': [{
           'customer_id': '+919876543210',
           'first_registered_at': '2026-11-15T09:00:00+05:30',
@@ -49,7 +49,7 @@ void main() {
           'registration_to_approval_pct': 71.43, 'registration_to_plan_pct': 57.14,
           'approval_to_plan_pct': 80.0,
         }]};
-      } else if (path == '/api/v1/admin/marketing/customers') {
+      } else if (path.endsWith('/admin/marketing/customers')) {
         data = {'segment_counts': {}};
       } else if (path.endsWith('/marketing/offers')) {
         data = {'offers': []};
