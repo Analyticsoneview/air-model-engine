@@ -290,6 +290,8 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
       _name.clear();
       _customerId.clear();
       _accountId.clear();
+      _strategy.text = 'ORB';
+      _notificationStrategy.text = 'AIR_QOC';
       _trigger = 'EVENT';
       _action = 'qoc.qualify';
       _mode = 'RESEARCH_ONLY';
