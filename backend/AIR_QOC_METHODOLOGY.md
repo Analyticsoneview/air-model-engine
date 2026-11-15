@@ -51,9 +51,15 @@ Any failed gate forces REJECT, even if the numeric score would otherwise be high
 
 The output includes the component breakdown, failed gates, underlying and premium changes, volume/OI deltas, OTM distance, spread, source timestamp and DTE. The endpoint reports counts over the full evaluated set and returns the top-ranked candidates (up to 100).
 
+## Historical replay
+
+The QOC screen includes a snapshot-based historical replay. It selects the first HIGH_CONVICTION or QUALIFIED entry per contract and IST session, then exits at the first observed snapshot at or below the illustrative 30% premium stop reference, or otherwise marks the position at the last available snapshot by 15:20 IST. It never carries a replayed position overnight. The report includes trade count, win rate, average and simple summed return, profit factor, best/worst trade, observed drawdown/upside excursions and +50/+100/+200/+300% milestone flags.
+
+This is not a tick-accurate backtest: only stored snapshots are available, and actual intrabar path, executable fills, slippage, brokerage, taxes and market impact are excluded. The 30% stop is a disclosed simulation assumption, not a validated or personalized stop. Results are not calibrated strategy expectancy or live performance.
+
 ## Risk and execution
 
-The UI displays an illustrative 30% premium stop reference and +50%, +100%, +200% and +300% premium milestones. These are arithmetic reference levels, not backtested expectancy, advice, guaranteed targets or automatic exits. Every decision remains manual. No order-placement API is called by this workflow.
+The UI displays an illustrative 30% premium stop reference and +50%, +100%, +200% and +300% premium milestones. These are arithmetic references, not advice or guaranteed targets. For intraday positions, the configured research convention is no overnight carry; assess milestones during the session, and at 15:20 IST close manually if premium remains sustained above +300%. Reaching +50%, +100% or +200% is not an automatic exit. This UI does not execute that rule or place orders; all decisions remain manual.
 
 ## Known limitations
 
