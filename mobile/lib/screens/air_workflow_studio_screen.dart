@@ -36,6 +36,8 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
   final _calendarDescription = TextEditingController();
   final _calendarYear = TextEditingController(text: DateTime.now().year.toString());
   final _calendarSource = TextEditingController(text: 'NSE official exchange circular');
+  final _calendarOpen = TextEditingController(text: '09:15');
+  final _calendarClose = TextEditingController(text: '15:30');
   final _filters = TextEditingController(
     text: '[{"field":"score","operator":"gte","value":80}]',
   );
@@ -125,6 +127,8 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
     _calendarDescription.dispose();
     _calendarYear.dispose();
     _calendarSource.dispose();
+    _calendarOpen.dispose();
+    _calendarClose.dispose();
     if (_ownsClient) _client.close();
     super.dispose();
   }
@@ -351,7 +355,9 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
         'session_date': _calendarDate.text.trim(),
         'status': _calendarStatus,
         'description': _calendarDescription.text.trim(),
-        'source': 'AIR_WORKFLOW_STUDIO',
+        'source': _calendarSource.text.trim(),
+        if (_calendarStatus == 'SPECIAL_SESSION') 'session_open': _calendarOpen.text.trim(),
+        if (_calendarStatus == 'SPECIAL_SESSION') 'session_close': _calendarClose.text.trim(),
       });
       _calendarDescription.clear();
       if (mounted) {
@@ -644,6 +650,11 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
         _field(_calendarDescription, 'Description', hint: 'Exchange holiday / special session'),
         _field(_calendarYear, 'Calendar year to verify'),
         _field(_calendarSource, 'Verified source (circular / official URL)'),
+        if (_calendarStatus == 'SPECIAL_SESSION') Row(children: [
+          Expanded(child: _field(_calendarOpen, 'Session opens (HH:MM)')),
+          const SizedBox(width: 8),
+          Expanded(child: _field(_calendarClose, 'Session closes (HH:MM)')),
+        ]),
         Text('Coverage: ${_calendarCoverage?['status'] ?? 'NOT VERIFIED'}',
             style: const TextStyle(fontWeight: FontWeight.w800)),
         SizedBox(width: double.infinity, child: OutlinedButton.icon(
