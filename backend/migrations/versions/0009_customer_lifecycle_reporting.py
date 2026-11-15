@@ -23,6 +23,7 @@ def upgrade() -> None:
         sa.Column("customer_id", sa.String(16), primary_key=True),
         sa.Column("first_registered_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("first_approved_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("first_rejected_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("first_plan_availed_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
@@ -60,6 +61,16 @@ def upgrade() -> None:
             SELECT mobile_e164, MIN(decided_at::timestamptz) AS first_approved_at
             FROM air_access_decision_history
             WHERE new_status='APPROVED'
+            GROUP BY mobile_e164
+        ) x WHERE x.mobile_e164=l.customer_id
+    """)
+    op.execute("""
+        UPDATE air_customer_lifecycle l
+        SET first_rejected_at = x.first_rejected_at
+        FROM (
+            SELECT mobile_e164, MIN(decided_at::timestamptz) AS first_rejected_at
+            FROM air_access_decision_history
+            WHERE new_status='REJECTED'
             GROUP BY mobile_e164
         ) x WHERE x.mobile_e164=l.customer_id
     """)
