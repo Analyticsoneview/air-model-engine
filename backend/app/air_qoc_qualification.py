@@ -238,11 +238,14 @@ def qualify_option_observations(
         item["classification"] not in {"HIGH_CONVICTION", "QUALIFIED"},
         -item["score"], item["underlying"], item["expiry"], item["strike"], item["option_type"],
     ))
-    results = results[:max(1, min(max_candidates, 500))]
+    evaluated_count = len(results)
     counts = {
         name: sum(1 for item in results if item["classification"] == name)
         for name in ("HIGH_CONVICTION", "QUALIFIED", "WATCH", "REJECT")
     }
+    results = results[:max(1, min(max_candidates, 500))]
+    for rank, signal in enumerate(results, start=1):
+        signal["rank"] = rank
     return {
         "methodology": "AIR QOC · underlying leads → premium/volume/OI confirm → liquidity and OTM gates",
         "mode": mode,
@@ -250,7 +253,8 @@ def qualify_option_observations(
         "as_of": current_time.isoformat(),
         "freshness_max_seconds": max_age,
         "observations_received": len(observations),
-        "contracts_evaluated": len(results),
+        "contracts_evaluated": evaluated_count,
+        "signals_returned": len(results),
         "counts": counts,
         "signals": results,
         "disclosure": (
