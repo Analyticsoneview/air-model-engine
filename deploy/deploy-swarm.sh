@@ -32,7 +32,7 @@ unset OVERRIDE_BACKEND_IMAGE OVERRIDE_PWA_IMAGE
 # Check every external secret declared by docker-stack.yml before image pulls or mutation.
 REQUIRED_SECRETS=(
   air_jwt_secret air_credential_key air_admin_api_key air_admin_mfa_key
-  air_postgres_password air_redis_password air_database_url air_redis_url air_rabbitmq_password air_rabbitmq_password
+  air_postgres_password air_redis_password air_database_url air_redis_url air_rabbitmq_password
   air_telegram_bot_token air_smtp_password
 )
 state="$(docker info --format '{{.Swarm.LocalNodeState}}')"
