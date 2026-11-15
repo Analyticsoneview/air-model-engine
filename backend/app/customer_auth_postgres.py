@@ -134,7 +134,7 @@ class PostgresAccessStore:
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         with self.engine.connect() as conn:
             rows = conn.execute(text("""SELECT decision_id,request_id,mobile_e164,previous_status,new_status,
-                reviewer_admin_id,reviewer_role,note,totp_counter,decided_at FROM air_access_decision_history""" +
+                reviewer_admin_id,reviewer_role,note,totp_counter,totp_verified_at,verification_reference,device_id,request_context,decided_at FROM air_access_decision_history""" +
                 where + " ORDER BY decided_at DESC,decision_id DESC"), params).mappings().all()
         return [dict(row) for row in rows]
 
@@ -287,7 +287,7 @@ class PostgresAccessStore:
                      WHEN BOOL_OR(r.status='BLOCKED') THEN 'BLOCKED' ELSE 'REJECTED' END AS access_status,
                 l.first_approved_at,l.first_rejected_at,l.first_plan_availed_at
                 FROM air_access_requests r LEFT JOIN air_customer_lifecycle l ON l.customer_id=r.mobile_e164
-                GROUP BY r.mobile_e164,l.first_approved_at,l.first_plan_availed_at
+                GROUP BY r.mobile_e164,l.first_approved_at,l.first_rejected_at,l.first_plan_availed_at
                 ORDER BY MAX(r.created_at) DESC""")).mappings().all()
             result = []
             needle = search.strip().lower()
