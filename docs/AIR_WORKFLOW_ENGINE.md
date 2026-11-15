@@ -2,7 +2,7 @@
 
 ## Decision record
 
-**Status:** Gate 8 in progress — Phases 1–5 merged; Phase 6 Workflow Studio in progress  
+**Status:** Gate 8 in progress — Phases 1–6 merged; Phase 7 reliability hardening in progress  
 **Runtime target:** self-hosted Docker Swarm on Linux  
 **Developer workstation:** Windows 10/11, with native tools or Docker Desktop  
 **Initial message transport:** RabbitMQ  
@@ -75,7 +75,7 @@ The initial engine will not call broker order-placement APIs. Broker execution r
 4. **Rule and strategy adapters:** ORB, QOC, model-ledger and portfolio snapshot events, customer-scoped matching and safe nested condition operators. (Merged in PR #52.)
 5. **Execution and notifications:** allowlisted research actions, durable step history/retries, Telegram alert routing and report-ready events. (Merged in PR #53.)
 6. **Workflow Studio:** admin builder, trigger/action selection, enable/pause controls, immutable version history, edit-as-new-version and run/step history. (In progress in PR #54.)
-7. **Hardening:** failure injection, restart/replay tests, load tests, permissions, exchange calendar, audit and production acceptance.
+7. **Hardening:** append-only workflow audit, failed-run replay pinned to immutable versions, recoverable terminal events, verified exchange calendar coverage, failure/restart tests, load tests and production acceptance. (In progress in Gate 8 Phase 7.)
 
 ## Initial workflow examples
 
@@ -111,4 +111,4 @@ Use `ALERT_NOTIFY` execution mode for the example above. The workflow is still r
 
 ## Current implementation boundary
 
-PRs #50–#53 are merged. The engine has PostgreSQL-backed event intake/outbox, RabbitMQ transport, time-trigger scheduler, durable run ledger, ORB/QOC/model-ledger/portfolio adapters, safe condition matching, allowlisted workflow execution, per-step recovery and customer-scoped Telegram notifications. PR #54 adds the administrator Workflow Studio and immutable workflow version history. Production trading-day schedules still require a verified NSE holiday calendar. No broker order execution is enabled.
+PRs #50–#53 are merged. The engine has PostgreSQL-backed event intake/outbox, RabbitMQ transport, time-trigger scheduler, durable run ledger, ORB/QOC/model-ledger/portfolio adapters, safe condition matching, allowlisted workflow execution, per-step recovery and customer-scoped Telegram notifications. PR #54 adds the administrator Workflow Studio and immutable workflow version history. Phase 7 adds append-only management audit, replay of failed runs against the original definition version, terminal run events with recovery, and an exchange calendar that fails closed unless that exchange/year is marked verified. NSE 2026 equity holidays are seeded from the official NSE calendar; 2027 and BSE remain unverified until their published calendars are loaded and verified. No broker order execution is enabled.
