@@ -291,12 +291,15 @@ class AccessStore:
                      json.dumps(request_context or {})))
                 if status in {"APPROVED", "REJECTED"}:
                     lifecycle_column = "first_approved_at" if status == "APPROVED" else "first_rejected_at"
+                    decision_at = self.db.execute(
+                        "SELECT reviewed_at FROM air_access_requests WHERE request_id=?", (request_id,)
+                    ).fetchone()[0] or verified_at.isoformat()
                     self.db.execute(f"""INSERT INTO air_customer_lifecycle
                         (customer_id,first_registered_at,{lifecycle_column}) VALUES(?,?,?)
                         ON CONFLICT(customer_id) DO UPDATE SET
                         {lifecycle_column}=COALESCE(air_customer_lifecycle.{lifecycle_column},excluded.{lifecycle_column}),
                         updated_at=CURRENT_TIMESTAMP""",
-                        (current["mobile_e164"], current["created_at"], verified_at.isoformat()))
+                        (current["mobile_e164"], current["created_at"], decision_at))
                 else:
                     self.db.execute("UPDATE air_device_sessions SET active=0 WHERE request_id=?", (request_id,))
         return cursor.rowcount > 0
