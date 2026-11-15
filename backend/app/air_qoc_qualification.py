@@ -91,6 +91,14 @@ def qualify_option_observations(
         breakdown: dict[str, int] = {}
 
         observed = _time(latest.get("observed_at"))
+        prior_observed = _time(previous.get("observed_at")) if previous else None
+        same_session_pair = (
+            observed is not None and prior_observed is not None
+            and observed.date() == current_time.date()
+            and prior_observed.date() == current_time.date()
+            and prior_observed < observed
+        )
+        previous_sample = previous if same_session_pair else None
         age_seconds = (current_time - observed).total_seconds() if observed else None
         fresh = (
             age_seconds is not None and 0 <= age_seconds <= max_age
@@ -102,11 +110,11 @@ def qualify_option_observations(
         else:
             failures.append("STALE_OR_WRONG_SESSION_DATA")
 
-        if previous is None:
-            failures.append("SECOND_OBSERVATION_REQUIRED")
+        if not same_session_pair:
+            failures.append("SECOND_SAME_SESSION_OBSERVATION_REQUIRED")
 
         spot = _num(latest.get("underlying_price"))
-        prior_spot = _num(previous.get("underlying_price")) if previous else None
+        prior_spot = _num(previous_sample.get("underlying_price")) if previous_sample else None
         spot_change = _pct_change(spot, prior_spot)
         expected_move = spot_change is not None and (
             (option_type == "CE" and spot_change >= 0.05)
@@ -120,7 +128,7 @@ def qualify_option_observations(
             failures.append("UNDERLYING_DIRECTION_NOT_CONFIRMED")
 
         premium = _num(latest.get("last_price"))
-        prior_premium = _num(previous.get("last_price")) if previous else None
+        prior_premium = _num(previous_sample.get("last_price")) if previous_sample else None
         premium_change = _pct_change(premium, prior_premium)
         if premium_change is not None and premium_change >= 2.0:
             premium_score = 20 if premium_change >= 10 else 15 if premium_change >= 5 else 10
@@ -130,7 +138,7 @@ def qualify_option_observations(
             failures.append("PREMIUM_NOT_ACCELERATING")
 
         volume = _int(latest.get("volume"))
-        prior_volume = _int(previous.get("volume")) if previous else None
+        prior_volume = _int(previous_sample.get("volume")) if previous_sample else None
         volume_delta = volume - prior_volume if volume is not None and prior_volume is not None else None
         if volume_delta is not None and volume_delta > 0:
             volume_score = 15 if volume_delta >= 500 else 10 if volume_delta >= 100 else 5
@@ -140,7 +148,7 @@ def qualify_option_observations(
             failures.append("VOLUME_NOT_INCREASING")
 
         oi = _int(latest.get("open_interest"))
-        prior_oi = _int(previous.get("open_interest")) if previous else None
+        prior_oi = _int(previous_sample.get("open_interest")) if previous_sample else None
         oi_delta = oi - prior_oi if oi is not None and prior_oi is not None else None
         if oi_delta is not None and oi_delta > 0:
             oi_score = 15 if oi_delta >= 500 else 10 if oi_delta >= 100 else 5
