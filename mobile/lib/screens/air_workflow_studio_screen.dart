@@ -374,7 +374,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
         const SizedBox(height: 14),
         _field(_name, 'Workflow name', hint: 'Example: Morning AIR QOC scan'),
         DropdownButtonFormField<String>(
-          value: _trigger,
+          initialValue: _trigger,
           decoration: const InputDecoration(labelText: 'Trigger type', border: OutlineInputBorder(), isDense: true),
           items: const [
             DropdownMenuItem(value: 'TIME', child: Text('Time based')),
@@ -394,7 +394,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
         if (_trigger == 'STRATEGY') _field(_strategy, 'Strategy name', hint: 'ORB'),
         if (_trigger == 'CONDITION') ...[
           DropdownButtonFormField<String>(
-            value: _match,
+            initialValue: _match,
             decoration: const InputDecoration(labelText: 'Condition matching', border: OutlineInputBorder(), isDense: true),
             items: const [
               DropdownMenuItem(value: 'ALL', child: Text('ALL conditions')),
@@ -409,7 +409,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
         if (_action.startsWith('qoc.'))
           _field(_accountId, 'Broker account ID (optional if supplied by trigger)', hint: 'Account ID linked to this customer'),
         DropdownButtonFormField<String>(
-          value: _action,
+          initialValue: _action,
           decoration: const InputDecoration(labelText: 'Workflow action', border: OutlineInputBorder(), isDense: true),
           items: const [
             DropdownMenuItem(value: 'qoc.qualify', child: Text('AIR QOC qualification')),
@@ -434,7 +434,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
             subtitle: const Text('Uses only the matching customer-owned destination.'),
           ),
         DropdownButtonFormField<String>(
-          value: _mode,
+          initialValue: _mode,
           decoration: const InputDecoration(labelText: 'Execution mode', border: OutlineInputBorder(), isDense: true),
           items: const [
             DropdownMenuItem(value: 'RESEARCH_ONLY', child: Text('Research only')),
