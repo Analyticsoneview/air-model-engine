@@ -76,6 +76,7 @@ The current \`docker-stack.yml\` requires all eleven external secrets:
 - \`air_redis_password\`
 - \`air_database_url\`
 - \`air_redis_url\`
+- \`air_rabbitmq_password\`
 - \`air_telegram_bot_token\`
 - \`air_smtp_password\`
 
