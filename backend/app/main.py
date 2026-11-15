@@ -1192,8 +1192,28 @@ async def admin_access_decisions(
 ) -> dict:
     if start_date and end_date and start_date > end_date:
         raise HTTPException(status_code=422, detail="start_date must be before or equal to end_date")
-    decisions = access_store.list_decisions(start_date, end_date)
-    return {"decisions": decisions, "count": len(decisions)}
+    from zoneinfo import ZoneInfo
+    ist = ZoneInfo("Asia/Kolkata")
+
+    def decision_day(value):
+        parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(ist).date().isoformat()
+
+    decisions = access_store.list_decisions()
+    decisions = [item for item in decisions
+                 if (not start_date or decision_day(item["decided_at"]) >= start_date)
+                 and (not end_date or decision_day(item["decided_at"]) <= end_date)]
+    for item in decisions:
+        try:
+            item["decided_at_ist"] = datetime.fromisoformat(str(item["decided_at"]).replace("Z", "+00:00"))
+            if item["decided_at_ist"].tzinfo is None:
+                item["decided_at_ist"] = item["decided_at_ist"].replace(tzinfo=timezone.utc)
+            item["decided_at_ist"] = item["decided_at_ist"].astimezone(ist).isoformat()
+        except (TypeError, ValueError):
+            item["decided_at_ist"] = None
+    return {"decisions": decisions, "count": len(decisions), "timezone": "Asia/Kolkata"}
 
 
 @app.get("/api/v1/operator/access-requests")
