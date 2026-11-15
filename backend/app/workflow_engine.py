@@ -227,6 +227,107 @@ class WorkflowStore:
         """)
         self.db.commit()
 
+    def _insert_audit(
+        self, workflow_id: str, version: int, actor_id: str,
+        action: str, payload: dict | None = None,
+    ) -> None:
+        self.db.execute(
+            """INSERT INTO air_workflow_audit
+               (audit_id,workflow_id,workflow_version,actor_id,action,payload_json,created_at)
+               VALUES(?,?,?,?,?,?,?)""",
+            (str(uuid4()), workflow_id, int(version), str(actor_id)[:128],
+             str(action)[:48], json.dumps(payload or {}, allow_nan=False), _now()),
+        )
+
+    def list_audit(self, *, workflow_id: str | None = None, limit: int = 100) -> list[dict]:
+        limit = max(1, min(int(limit), 500))
+        if workflow_id:
+            rows = self.db.execute(
+                "SELECT * FROM air_workflow_audit WHERE workflow_id=? ORDER BY created_at DESC LIMIT ?",
+                (workflow_id, limit),
+            ).fetchall()
+        else:
+            rows = self.db.execute(
+                "SELECT * FROM air_workflow_audit ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [{
+            "audit_id": row["audit_id"], "workflow_id": row["workflow_id"],
+            "workflow_version": row["workflow_version"], "actor_id": row["actor_id"],
+            "action": row["action"], "payload": json.loads(row["payload_json"]),
+            "created_at": row["created_at"],
+        } for row in rows]
+
+    def upsert_exchange_calendar_entry(
+        self, *, exchange_code: str, session_date: str, status: str,
+        description: str, updated_by: str, source: str = "ADMIN",
+        session_open: str | None = None, session_close: str | None = None,
+    ) -> dict:
+        exchange = str(exchange_code).strip().upper()
+        date_value = str(session_date).strip()
+        status_value = str(status).strip().upper()
+        actor = str(updated_by).strip()
+        try:
+            parsed_date = datetime.strptime(date_value, "%Y-%m-%d").date()
+        except ValueError as exc:
+            raise ValueError("session_date must use YYYY-MM-DD") from exc
+        if not 2 <= len(exchange) <= 8 or status_value not in {"HOLIDAY", "SPECIAL_SESSION", "TRADING_DAY"}:
+            raise ValueError("Invalid exchange code or calendar status")
+        if not actor or len(actor) > 128:
+            raise ValueError("updated_by must contain 1-128 characters")
+        for value, label in ((session_open, "session_open"), (session_close, "session_close")):
+            if value:
+                try:
+                    datetime.strptime(value, "%H:%M")
+                except ValueError as exc:
+                    raise ValueError(f"{label} must use HH:MM") from exc
+        now = _now()
+        with self.db:
+            self.db.execute(
+                """INSERT INTO air_exchange_calendar
+                   (exchange_code,session_date,status,description,session_open,session_close,
+                    source,updated_by,updated_at)
+                   VALUES(?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(exchange_code,session_date) DO UPDATE SET
+                     status=excluded.status,description=excluded.description,
+                     session_open=excluded.session_open,session_close=excluded.session_close,
+                     source=excluded.source,updated_by=excluded.updated_by,updated_at=excluded.updated_at""",
+                (exchange, parsed_date.isoformat(), status_value, str(description or "")[:240],
+                 session_open, session_close, str(source or "ADMIN")[:240], actor, now),
+            )
+        return {
+            "exchange_code": exchange, "session_date": parsed_date.isoformat(),
+            "status": status_value, "description": str(description or "")[:240],
+            "session_open": session_open, "session_close": session_close,
+            "source": str(source or "ADMIN")[:240], "updated_by": actor, "updated_at": now,
+        }
+
+    def list_exchange_calendar(
+        self, *, exchange_code: str, from_date: str | None = None,
+        to_date: str | None = None, limit: int = 500,
+    ) -> list[dict]:
+        exchange = str(exchange_code).strip().upper()
+        limit = max(1, min(int(limit), 1000))
+        clauses = ["exchange_code=?"]
+        params: list[Any] = [exchange]
+        if from_date:
+            clauses.append("session_date>=?")
+            params.append(str(from_date))
+        if to_date:
+            clauses.append("session_date<=?")
+            params.append(str(to_date))
+        params.append(limit)
+        query = "SELECT * FROM air_exchange_calendar WHERE " + " AND ".join(clauses)
+        query += " ORDER BY session_date LIMIT ?"
+        rows = self.db.execute(query, tuple(params)).fetchall()
+        return [{
+            "exchange_code": row["exchange_code"], "session_date": row["session_date"],
+            "status": row["status"], "description": row["description"],
+            "session_open": row["session_open"], "session_close": row["session_close"],
+            "source": row["source"], "updated_by": row["updated_by"],
+            "updated_at": row["updated_at"],
+        } for row in rows]
+
     def create_workflow(
         self, *, name: str, created_by: str, trigger_type: str,
         trigger_config: dict | None = None, workflow_spec: dict | None = None,
