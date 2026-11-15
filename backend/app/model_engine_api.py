@@ -1,6 +1,8 @@
 """Read-only Model Engine ledger API plus operator-only signal ingestion."""
 from __future__ import annotations
 
+import asyncio
+
 import os
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -25,6 +27,7 @@ from app.security import require_customer
 from app.telegram_notifications import notify_candidates, send_telegram_message
 from app.market_data.runtime import execution_policy
 from app.market_data.customer_runtime import get_customer_market_data_service, get_customer_market_data_status
+from app.workflow_events import emit_workflow_event
 
 router = APIRouter(prefix="/api/v1/model-engine", tags=["AIR Model Engine"])
 _ledger = ModelEngineLedger()
@@ -272,8 +275,23 @@ async def upsert_model_engine_signal(
         _ledger.upsert(customer_id, record)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    classification = record["classification"].upper()
+    await asyncio.to_thread(
+        emit_workflow_event,
+        event_type="research.signal.persisted", source="model-engine.ledger",
+        payload={
+            "customer_id": customer_id, "signal_id": record["signal_id"],
+            "classification": classification, "symbol": record["symbol"],
+            "instrument_type": record.get("instrument_type"),
+            "option_type": record.get("option_type"), "expiry": record.get("expiry"),
+            "strike": record.get("strike"), "score": record.get("score"),
+            "strategy": (record.get("evidence") or {}).get("strategy"),
+            "signal": record,
+        },
+        idempotency_key=f"model-signal:{customer_id}:{record['signal_id']}:{classification}",
+    )
     return {"status": "saved", "signal_id": record["signal_id"],
-            "classification": record["classification"].upper()}
+            "classification": classification}
 
 
 async def _expiry_scan_for_customer(customer_id: str, *, max_dte: int = 45,
