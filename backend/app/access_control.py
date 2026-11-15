@@ -71,12 +71,12 @@ class AccessStore:
                  WHERE d.mobile_e164=r.mobile_e164 AND d.new_status='APPROVED'),
                 (SELECT MIN(d.decided_at) FROM air_access_decision_history d
                  WHERE d.mobile_e164=r.mobile_e164 AND d.new_status='REJECTED'),
-                (SELECT MIN(s.updated_at) FROM air_customer_subscriptions s
+                (SELECT MIN(s.starts_at) FROM air_customer_subscriptions s
                  WHERE s.customer_id=r.mobile_e164)
             FROM air_access_requests r GROUP BY r.mobile_e164""")
         self.db.execute("""INSERT OR IGNORE INTO air_customer_subscription_history
             (assignment_id,customer_id,plan_code,starts_at,expires_at,assigned_at,assigned_by_admin_id)
-            SELECT lower(hex(randomblob(16))),customer_id,plan_code,starts_at,expires_at,updated_at,''
+            SELECT lower(hex(randomblob(16))),customer_id,plan_code,starts_at,expires_at,starts_at,''
             FROM air_customer_subscriptions""")
         self.db.execute("""CREATE TRIGGER IF NOT EXISTS trg_air_access_decisions_no_update
             BEFORE UPDATE ON air_access_decision_history BEGIN SELECT RAISE(ABORT,'AIR customer audit history is append-only'); END""")
