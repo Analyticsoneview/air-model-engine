@@ -233,6 +233,11 @@ def execute_workflow_run(store: WorkflowStore, run_id: str) -> dict[str, Any] | 
                 if attempts < max_attempts:
                     time.sleep(min(2 ** (attempts - 1), 8))
         else:
+            store.save_run_step(
+                run_id=run_id, step_key=step_key, step_index=index, action=action,
+                status="FAILED", input_data=params,
+                error="Retry budget exhausted while recovering workflow run", attempts=attempts,
+            )
             store.set_run_status(run_id, "FAILED", f"Step {step_key} exhausted {max_attempts} attempts")
             return {"run_id": run_id, "status": "FAILED", "failed_step": step_key}
     store.set_run_status(run_id, "SUCCEEDED")
