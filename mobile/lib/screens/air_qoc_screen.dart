@@ -23,6 +23,7 @@ class _AirQocScreenState extends State<AirQocScreen> {
   List<Map<String, dynamic>> _signals = [];
   String _qocMode = 'LIVE';
   String _qocScope = 'ALL';
+  bool _showRejected = false;
   Map<String, dynamic>? _qocSummary;
   String? _accountId;
   String? _expiry;
@@ -221,6 +222,9 @@ class _AirQocScreenState extends State<AirQocScreen> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final visibleSignals = _showRejected
+        ? _signals
+        : _signals.where((item) => item['classification'] != 'REJECT').toList();
     return Scaffold(
       appBar: AppBar(title: const Text('AIR QOC · OPTIONS DATA')),
       body: ListView(
@@ -386,7 +390,22 @@ class _AirQocScreenState extends State<AirQocScreen> {
             )),
             if (_signals.isNotEmpty) ...[
               const SizedBox(height: 8),
-              ..._signals.map((signal) {
+              Row(children: [
+                const Expanded(child: Text('RANKED QOC RESULTS',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900))),
+                TextButton(
+                  onPressed: () => setState(() => _showRejected = !_showRejected),
+                  child: Text(_showRejected ? 'HIDE REJECTS' : 'SHOW REJECTS'),
+                ),
+              ]),
+              if (visibleSignals.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Text('No contracts passed the current qualification gates. Rejected contracts: ${(_qocSummary?['counts'] as Map?)?['REJECT'] ?? 0}.',
+                      style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+                )
+              else
+              ...visibleSignals.map((signal) {
                 final classification = signal['classification']?.toString() ?? 'REJECT';
                 final accepted = classification == 'HIGH_CONVICTION' || classification == 'QUALIFIED';
                 final color = classification == 'HIGH_CONVICTION'
