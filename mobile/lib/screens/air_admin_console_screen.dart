@@ -63,6 +63,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
   List<Map<String, dynamic>> _offers = [];
   List<Map<String, dynamic>> _dailyReport = [];
   Map<String, dynamic> _segmentCounts = {};
+  Map<String, dynamic> _customerSummary = {};
 
   Uri _uri(String path) => Uri.parse('$_apiBase$path');
   Map<String, String> _headers({bool auth = true}) => {
@@ -183,6 +184,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
         _request('GET', dailyUri.toString()),
       ]);
       _customers = (growthResults[2]['customers'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
+      _customerSummary = Map<String,dynamic>.from(growthResults[2]['summary'] as Map? ?? {});
       _segmentCounts = Map<String,dynamic>.from(growthResults[0]['segment_counts'] as Map? ?? {});
       _offers = (growthResults[1]['offers'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
       _dailyReport = (growthResults[3]['daily'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
@@ -470,6 +472,18 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     );
   }
 
+  Widget _metricCard(String label, dynamic value) => SizedBox(
+    width: 155,
+    child: Card(child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(label, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: .4)),
+        const SizedBox(height: 6),
+        Text('${value ?? 0}', style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w900)),
+      ]),
+    )),
+  );
+
   Widget _customerRegistry() {
     final segments = const [
       ('ALL', 'All customers'),
@@ -486,6 +500,13 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
       const Text('CUSTOMER GROWTH · REGISTRY', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: .6)),
       const SizedBox(height: 5),
       const Text('One row per mobile identity. Customers with multiple devices are deduplicated. Promotional consent is customer-controlled; no consent is assumed.'),
+      const SizedBox(height: 10),
+      Wrap(spacing: 8, runSpacing: 8, children: [
+        _metricCard('NEW CUSTOMERS', _customerSummary['new_customers']),
+        _metricCard('EXISTING CUSTOMERS', _customerSummary['existing_customers']),
+        _metricCard('PENDING APPROVALS', _customerSummary['pending_approvals']),
+        _metricCard('NO PLAN AVAILED', _customerSummary['no_plan_availed']),
+      ]),
       const SizedBox(height: 12),
       Wrap(spacing: 8, runSpacing: 8, children: [
         for (final key in ['ALL','NEVER_SUBSCRIBED','EXPIRED','CANCELLED','INACTIVE','ACTIVE','PENDING_ACCESS','ELIGIBLE_FOR_PROMOTIONS','NOT_GRANTED','OPTED_OUT'])
@@ -552,6 +573,8 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
                 Text('New: ${day['new_registrations']} · Existing requests: ${day['existing_customer_requests']}'),
                 Text('Approved: ${day['approved']} · Rejected: ${day['rejected']} · Pending: ${day['pending']}'),
                 Text('First plans: ${day['first_time_plans_availed']} · Approved, no plan: ${day['approved_but_no_plan_availed']}'),
+                Text('Registration cohort: ${day['registration_cohort_approved']} approved · ${day['registration_cohort_plan_availed']} plans'),
+                Text('Conversion: registration → approval ${day['registration_to_approval_pct']}% · registration → plan ${day['registration_to_plan_pct']}% · approval → plan ${day['approval_to_plan_pct']}%'),
               ],
             ))),
         ],
