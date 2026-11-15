@@ -49,7 +49,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('AIR WORKFLOW STUDIO'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Morning QOC'), 350,
+        scrollable: find.byType(Scrollable).first);
     expect(find.text('Morning QOC'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('EXECUTION HISTORY'), 350,
+        scrollable: find.byType(Scrollable).first);
     expect(find.text('EXECUTION HISTORY'), findsOneWidget);
     expect(find.textContaining('SUCCEEDED'), findsOneWidget);
     expect(requests, hasLength(2));
@@ -87,6 +91,8 @@ void main() {
     await tester.enterText(find.byType(TextField).at(0), 'Morning QOC');
     await tester.enterText(find.byType(TextField).at(2), 'customer-123');
     await tester.enterText(find.byType(TextField).at(3), 'broker-account-1');
+    await tester.scrollUntilVisible(find.text('CREATE WORKFLOW'), 350,
+        scrollable: find.byType(Scrollable).first);
     await tester.tap(find.text('CREATE WORKFLOW'));
     await tester.pumpAndSettle();
 
