@@ -130,6 +130,11 @@ services:
       air-api:
         condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import pathlib,sys; sys.exit(0 if b'app.workflow_worker' in pathlib.Path('/proc/1/cmdline').read_bytes() else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
 
   air-pwa:
     build:
