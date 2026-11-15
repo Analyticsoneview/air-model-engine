@@ -290,7 +290,8 @@ class PortfolioRiskStore:
         gross = aggregate("gross_market_value")
         invested = aggregate("invested_value")
         pnl = aggregate("unrealized_pnl")
-        return_pct = round(pnl / invested * 100, 2) if pnl is not None and invested else None
+        complete_return_basis = bool(summaries) and all(s.get("unrealized_pnl") is not None and s.get("invested_value") not in (None, 0) for s in summaries)
+        return_pct = round(pnl / invested * 100, 2) if complete_return_basis and pnl is not None and invested else None
         positions = [row for account in accounts for row in account["positions"] + account["holdings"]]
         by_symbol: dict[str, float] = {}
         by_sector: dict[str, float] = {}
