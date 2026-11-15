@@ -66,7 +66,7 @@ def test_account_report_verification_and_history_use_postgres():
         with patch.object(AccountReporting, "_send_email",
                           side_effect=lambda recipient, subject, body, attachments=None: sent.append(body)):
             reports.request_verification(customer, "reports@example.com")
-        code_match = re.search(r"code is (\\d{6})", sent[0])
+        code_match = re.search(r"code is (\d{6})", sent[0])
         assert code_match
         verified = reports.confirm_verification(customer, code_match.group(1))
         assert verified["verified"] in (1, True)
