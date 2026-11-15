@@ -156,6 +156,18 @@ async def dhan_option_chain(account_id: str, body: DhanOptionChainRequest,
             underlying_price=data.get("last_price"), observed_at=observed_at,
             chain=data,
         )
+        await asyncio.to_thread(
+            emit_workflow_event,
+            event_type="qoc.snapshot.captured", source="air-qoc.dhan",
+            payload={
+                "customer_id": customer_id, "account_id": account_id, "provider": "dhan",
+                "underlying_scrip": body.underlying_scrip,
+                "underlying_segment": body.underlying_segment, "expiry": body.expiry,
+                "underlying_price": data.get("last_price"), "observed_at": observed_at,
+                "contracts_saved": saved,
+            },
+            idempotency_key=f"qoc-snapshot:{customer_id}:{account_id}:{body.underlying_scrip}:{body.expiry}:{observed_at}",
+        )
         return {
             "provider": "dhan", "account_id": account_id,
             "underlying_scrip": body.underlying_scrip,
