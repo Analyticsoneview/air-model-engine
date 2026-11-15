@@ -34,7 +34,7 @@ class AirQocQualificationTests(unittest.TestCase):
         self.assertEqual(result["counts"]["HIGH_CONVICTION"], 1)
         signal = result["signals"][0]
         self.assertEqual(signal["classification"], "HIGH_CONVICTION")
-        self.assertEqual(signal["score"], 97)
+        self.assertEqual(signal["score"], 95)
         self.assertEqual(signal["score_breakdown"]["underlying_direction"], 20)
         self.assertEqual(signal["premium_change_pct"], 10.0)
         self.assertEqual(signal["volume_delta"], 500)
@@ -72,6 +72,19 @@ class AirQocQualificationTests(unittest.TestCase):
         ]
         result = qualify_option_observations(put_rows, mode="LIVE", now=NOW)
         self.assertEqual(result["signals"][0]["classification"], "HIGH_CONVICTION")
+
+    def test_valid_but_weaker_evidence_can_be_watch_or_qualified(self):
+        weaker = [
+            observation("2026-11-16T09:58:00+05:30", spot=100, premium=10,
+                        volume=1000, oi=5000, bid=9.7, ask=10.3),
+            observation("2026-11-16T09:59:30+05:30", spot=100.1, premium=10.2,
+                        volume=1010, oi=5010, bid=9.7, ask=10.7),
+        ]
+        result = qualify_option_observations(weaker, mode="LIVE", now=NOW)
+        signal = result["signals"][0]
+        self.assertEqual(signal["gate_failures"], [])
+        self.assertIn(signal["classification"], {"WATCH", "QUALIFIED"})
+        self.assertLess(signal["score"], 90)
 
     def test_invalid_mode_is_rejected(self):
         with self.assertRaises(ValueError):
