@@ -134,6 +134,33 @@ class AirApiClient {
     ));
   }
 
+  Future<List<Map<String, dynamic>>> supportTickets() async {
+    final data = _decode(await _client.get(
+      Uri.parse('$baseUrl/api/v1/customer/support/tickets'),
+      headers: _headers,
+    ));
+    return (data['tickets'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>().toList(growable: false);
+  }
+
+  Future<Map<String, dynamic>> createSupportTicket({
+    required String subject, required String category, required String message,
+  }) async {
+    return _decode(await _client.post(
+      Uri.parse('$baseUrl/api/v1/customer/support/tickets'),
+      headers: _headers,
+      body: jsonEncode({'subject': subject, 'category': category, 'message': message}),
+    ));
+  }
+
+  Future<Map<String, dynamic>> replySupportTicket(String ticketId, String message) async {
+    return _decode(await _client.post(
+      Uri.parse('$baseUrl/api/v1/customer/support/tickets/${Uri.encodeComponent(ticketId)}/replies'),
+      headers: _headers,
+      body: jsonEncode({'message': message}),
+    ));
+  }
+
   Future<Map<String, dynamic>> me() async {
     return _decode(await _client.get(
       Uri.parse('$baseUrl/api/v1/auth/me'),
