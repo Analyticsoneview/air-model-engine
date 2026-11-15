@@ -46,7 +46,7 @@ class AccessStore:
         """)
         decision_columns = {row[1] for row in self.db.execute("PRAGMA table_info(air_access_decision_history)")}
         for name, definition in (
-            ("authenticator_verified_at", "TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP"),
+            ("authenticator_verified_at", "TEXT"),
             ("verification_reference", "TEXT NOT NULL DEFAULT ''"),
             ("request_context", "TEXT NOT NULL DEFAULT '{}'"),
         ):
@@ -64,20 +64,6 @@ class AccessStore:
             assignment_id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, plan_code TEXT NOT NULL,
             starts_at TEXT NOT NULL, expires_at TEXT NOT NULL, assigned_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             assigned_by_admin_id TEXT NOT NULL DEFAULT '')""")
-        self.db.execute("""INSERT OR IGNORE INTO air_customer_lifecycle
-            (customer_id,first_registered_at,first_approved_at,first_rejected_at,first_plan_availed_at)
-            SELECT r.mobile_e164,MIN(r.created_at),
-                (SELECT MIN(d.decided_at) FROM air_access_decision_history d
-                 WHERE d.mobile_e164=r.mobile_e164 AND d.new_status='APPROVED'),
-                (SELECT MIN(d.decided_at) FROM air_access_decision_history d
-                 WHERE d.mobile_e164=r.mobile_e164 AND d.new_status='REJECTED'),
-                (SELECT MIN(s.starts_at) FROM air_customer_subscriptions s
-                 WHERE s.customer_id=r.mobile_e164)
-            FROM air_access_requests r GROUP BY r.mobile_e164""")
-        self.db.execute("""INSERT OR IGNORE INTO air_customer_subscription_history
-            (assignment_id,customer_id,plan_code,starts_at,expires_at,assigned_at,assigned_by_admin_id)
-            SELECT lower(hex(randomblob(16))),customer_id,plan_code,starts_at,expires_at,starts_at,''
-            FROM air_customer_subscriptions""")
         self.db.execute("""CREATE TRIGGER IF NOT EXISTS trg_air_access_decisions_no_update
             BEFORE UPDATE ON air_access_decision_history BEGIN SELECT RAISE(ABORT,'AIR customer audit history is append-only'); END""")
         self.db.execute("""CREATE TRIGGER IF NOT EXISTS trg_air_access_decisions_no_delete
@@ -104,6 +90,20 @@ class AccessStore:
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        self.db.execute("""INSERT OR IGNORE INTO air_customer_lifecycle
+            (customer_id,first_registered_at,first_approved_at,first_rejected_at,first_plan_availed_at)
+            SELECT r.mobile_e164,MIN(r.created_at),
+                (SELECT MIN(d.decided_at) FROM air_access_decision_history d
+                 WHERE d.mobile_e164=r.mobile_e164 AND d.new_status='APPROVED'),
+                (SELECT MIN(d.decided_at) FROM air_access_decision_history d
+                 WHERE d.mobile_e164=r.mobile_e164 AND d.new_status='REJECTED'),
+                (SELECT MIN(s.starts_at) FROM air_customer_subscriptions s
+                 WHERE s.customer_id=r.mobile_e164)
+            FROM air_access_requests r GROUP BY r.mobile_e164""")
+        self.db.execute("""INSERT OR IGNORE INTO air_customer_subscription_history
+            (assignment_id,customer_id,plan_code,starts_at,expires_at,assigned_at,assigned_by_admin_id)
+            SELECT lower(hex(randomblob(16))),customer_id,plan_code,starts_at,expires_at,starts_at,''
+            FROM air_customer_subscriptions""")
         self.db.execute("""
             CREATE TABLE IF NOT EXISTS air_customer_marketing_preferences (
                 customer_id TEXT PRIMARY KEY,
