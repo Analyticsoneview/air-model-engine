@@ -165,11 +165,12 @@ class PostgresAccessStore:
                      "role": reviewer_role, "note": note[:500], "counter": int(totp_counter),
                      "verified": verified_at, "reference": verification_reference or f"totp-counter:{int(totp_counter)}",
                      "context": json.dumps(context, sort_keys=True)})
-                if status == "APPROVED":
-                    conn.execute(text("""UPDATE air_customer_lifecycle SET
-                        first_approved_at=COALESCE(first_approved_at,:approved),
+                if status in {"APPROVED", "REJECTED"}:
+                    lifecycle_column = "first_approved_at" if status == "APPROVED" else "first_rejected_at"
+                    conn.execute(text(f"""UPDATE air_customer_lifecycle SET
+                        {lifecycle_column}=COALESCE({lifecycle_column},:decision_at),
                         updated_at=CURRENT_TIMESTAMP::text WHERE customer_id=:customer"""),
-                        {"approved": verified_at, "customer": current.mobile_e164})
+                        {"decision_at": verified_at, "customer": current.mobile_e164})
                 if status != "APPROVED":
                     conn.execute(text("UPDATE air_device_sessions SET active=false WHERE request_id=:id"), {"id": request_id})
         return result.rowcount > 0
@@ -299,14 +300,14 @@ class PostgresAccessStore:
                     "promotional_consent": consent, "marketing_status": marketing_status,
                     "consent_updated_at": pref["consent_updated_at"] if pref else None,
                 }
-                lifecycle = conn.execute(text("""SELECT first_registered_at,first_approved_at,first_plan_availed_at
+                lifecycle = conn.execute(text("""SELECT first_registered_at,first_approved_at,first_rejected_at,first_plan_availed_at
                     FROM air_customer_lifecycle WHERE customer_id=:customer"""),
                     {"customer": customer_id}).mappings().first()
                 if lifecycle:
                     item.update(dict(lifecycle))
                 else:
                     item.update({"first_registered_at": row["registered_at"],
-                                 "first_approved_at": None, "first_plan_availed_at": None})
+                                 "first_approved_at": None, "first_rejected_at": None, "first_plan_availed_at": None})
                 if segment == "NEVER_SUBSCRIBED" and sub_status != "NEVER_SUBSCRIBED": continue
                 if segment == "EXPIRED" and sub_status != "EXPIRED": continue
                 if segment == "ACTIVE" and sub_status != "ACTIVE": continue
