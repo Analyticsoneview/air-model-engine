@@ -59,7 +59,7 @@ class DhanUnderlyingRequest(BaseModel):
 
 
 class DhanOptionChainRequest(DhanUnderlyingRequest):
-    expiry: str = Field(pattern=r"^\\d{4}-\\d{2}-\\d{2}$")
+    expiry: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
 
 
 class DhanExpiredOptionsRequest(BaseModel):
@@ -70,8 +70,8 @@ class DhanExpiredOptionsRequest(BaseModel):
     expiry_code: int = Field(ge=1, le=3)
     strike: str = Field(min_length=1, max_length=12)
     option_type: str = Field(pattern="^(CALL|PUT)$")
-    from_date: str = Field(pattern=r"^\\d{4}-\\d{2}-\\d{2}$")
-    to_date: str = Field(pattern=r"^\\d{4}-\\d{2}-\\d{2}$")
+    from_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    to_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     required_data: list[str] = Field(default_factory=lambda: [
         "open", "high", "low", "close", "iv", "volume", "strike", "oi", "spot"
     ])
