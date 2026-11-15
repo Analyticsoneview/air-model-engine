@@ -21,7 +21,7 @@ from app.security import require_customer
 from app.air_qoc_store import AirQocStore
 from app.air_qoc_qualification import qualify_option_observations, backtest_option_observations
 from app.air_qoc_universe import DETAILED_MASTER_URL, parse_dhan_instrument_master
-from app.workflow_events import emit_workflow_event
+from app.workflow_events import build_idempotency_key, emit_workflow_event
 from datetime import date, datetime, timezone
 
 router = APIRouter(prefix="/api/v1/air-qoc/dhan", tags=["AIR QOC - Dhan Data"])
@@ -166,7 +166,7 @@ async def dhan_option_chain(account_id: str, body: DhanOptionChainRequest,
                 "underlying_price": data.get("last_price"), "observed_at": observed_at,
                 "contracts_saved": saved,
             },
-            idempotency_key=f"qoc-snapshot:{customer_id}:{account_id}:{body.underlying_scrip}:{body.expiry}:{observed_at}",
+            idempotency_key=build_idempotency_key("qoc-snapshot", customer_id, account_id, body.underlying_scrip, body.expiry, observed_at),
         )
         return {
             "provider": "dhan", "account_id": account_id,
@@ -242,7 +242,7 @@ async def dhan_qoc_qualification(
                 "signals_returned": result.get("signals_returned", 0),
                 "latest_observed_at": latest_observed,
             },
-            idempotency_key=f"qoc-scan:{customer_id}:{account_id}:{mode.upper()}:{latest_observed}",
+            idempotency_key=build_idempotency_key("qoc-scan", customer_id, account_id, mode.upper(), latest_observed),
         )
         for signal in result.get("signals", []):
             if signal.get("classification") not in {"HIGH_CONVICTION", "QUALIFIED"}:
@@ -258,7 +258,7 @@ async def dhan_qoc_qualification(
                 emit_workflow_event,
                 event_type="qoc.candidate.qualified", source="air-qoc.dhan",
                 payload=payload,
-                idempotency_key=f"qoc-qualified:{customer_id}:{account_id}:{mode.upper()}:{identity}",
+                idempotency_key=build_idempotency_key("qoc-qualified", customer_id, account_id, mode.upper(), identity),
             )
         return result
     finally:
@@ -305,7 +305,7 @@ async def dhan_qoc_backtest(
                 "trade_count": result.get("trade_count", len(result.get("trades", []))),
                 "summary": result.get("summary", {}),
             },
-            idempotency_key=f"qoc-backtest:{customer_id}:{account_id}:{from_date}:{to_date}:{latest_observed}",
+            idempotency_key=build_idempotency_key("qoc-backtest", customer_id, account_id, from_date, to_date, latest_observed),
         )
         return result
     finally:
