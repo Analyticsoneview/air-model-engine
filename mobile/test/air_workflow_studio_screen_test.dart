@@ -24,6 +24,20 @@ void main() {
           }]
         }), 200);
       }
+      if (request.url.path.endsWith('/workflows/runtime')) {
+        return http.Response(jsonEncode({
+          'status': 'HEALTHY',
+          'workers': [{
+            'worker_id': 'air-worker-1', 'component': 'workflow-runtime',
+            'status': 'RUNNING', 'healthy': true, 'age_seconds': 4.2,
+            'details': {'rabbitmq_connected': true},
+          }],
+          'metrics': {
+            'outbox': {'pending': 2, 'failed': 0},
+            'runs': {'queued': 1, 'failed': 0},
+          },
+        }), 200);
+      }
       if (request.url.path.endsWith('/runs')) {
         return http.Response(jsonEncode({
           'runs': [{
@@ -49,6 +63,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('AIR WORKFLOW STUDIO'), findsOneWidget);
+    expect(find.text('WORKFLOW RUNTIME HEALTH'), findsOneWidget);
+    expect(find.text('HEALTHY'), findsOneWidget);
+    expect(find.text('Outbox pending: 2'), findsOneWidget);
     await tester.scrollUntilVisible(find.text('Morning QOC'), 350,
         scrollable: find.byType(Scrollable).first);
     expect(find.text('Morning QOC'), findsOneWidget);
@@ -56,7 +73,7 @@ void main() {
         scrollable: find.byType(Scrollable).first);
     expect(find.text('EXECUTION HISTORY'), findsOneWidget);
     expect(find.textContaining('SUCCEEDED'), findsOneWidget);
-    expect(requests, hasLength(3));
+    expect(requests, hasLength(4));
     expect(requests.every((request) =>
         request.headers['Authorization'] == 'Bearer test-token'), isTrue);
   });
