@@ -81,6 +81,9 @@ services:
       AIR_NSE_DB_PATH: /var/lib/air/nse_bhavcopy.sqlite3
       AIR_NSE_ARCHIVE_DIR: /var/lib/air/nse_archives
       AIR_NSE_BOOTSTRAP_ENABLED: "true"
+      AIR_TELEGRAM_BOT_TOKEN_FILE: /run/secrets/air_telegram_bot_token
+      AIR_TELEGRAM_CONFIG_DB_PATH: /var/lib/air/air_telegram_config.sqlite3
+      AIR_TELEGRAM_DEDUPE_DB_PATH: /var/lib/air/air_telegram_notifications.sqlite3
       AIR_QOC_SCHEDULER_ENABLED: "false"
       AIR_TELEGRAM_SCHEDULER_ENABLED: "false"
       AIR_ALLOW_CUSTOMER_SIGNUP: "false"
@@ -92,6 +95,7 @@ services:
       - air_admin_mfa_key
       - air_database_url
       - air_redis_url
+      - air_telegram_bot_token
     volumes:
       - air_data:/var/lib/air
     ports:
