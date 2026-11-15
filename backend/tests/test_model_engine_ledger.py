@@ -68,6 +68,18 @@ def test_invalid_classification_rejected():
     ledger.close()
 
 
+def test_same_signal_id_cannot_overwrite_another_customers_record():
+    ledger = ModelEngineLedger(":memory:")
+    ledger.upsert("customer-a", record())
+    ledger.upsert("customer-b", record(latest_price=999, classification="HOLD"))
+    a_rows = ledger.list_signals("customer-a")
+    b_rows = ledger.list_signals("customer-b")
+    assert len(a_rows) == 1
+    assert a_rows[0]["latest_price"] == 92
+    assert b_rows == []
+    ledger.close()
+
+
 def test_upsert_updates_existing_signal_without_duplicate():
     ledger = ModelEngineLedger(":memory:")
     ledger.upsert("customer-a", record())
