@@ -73,7 +73,7 @@ void main() {
     expect(find.text('12'), findsOneWidget);
     expect(find.text('INDEPENDENT LIFECYCLE DATE FILTERS'), findsOneWidget);
     expect(find.text('DAILY CONVERSION REPORT'), findsOneWidget);
-    expect(find.textContaining('2 customer(s) displayed'), findsNothing);
+    expect(find.textContaining('1 customer(s) displayed'), findsOneWidget);
     await tester.tap(find.textContaining('••••210'));
     await tester.pumpAndSettle();
     expect(find.textContaining('First registered: 2026-11-15T09:00:00+05:30'), findsOneWidget);
