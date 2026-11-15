@@ -90,7 +90,19 @@ def _format_message(strategy: str, row: dict[str, Any]) -> str:
                      or row.get("position_status") or "QUALIFIED").upper()
     score = row.get("qoc_score", row.get("score"))
 
-    if name == "RECOVERED":
+    if name == "AIR_QOC":
+        headline, status_label = "🧠 AIR QOC QUALIFIED CANDIDATE", raw_status.replace("_", " ")
+        disclaimer = "Evidence-backed research candidate. Confirm live price, liquidity and risk. AIR does not place orders."
+    elif name == "ORB":
+        headline, status_label = "📈 AIR ORB STRATEGY SIGNAL", str(row.get("status") or "SIGNAL").replace("_", " ")
+        disclaimer = "Live ORB signal only. This is not an order or a confirmed broker position."
+    elif name == "PORTFOLIO_RISK":
+        headline, status_label = "⚠️ AIR PORTFOLIO RISK ALERT", "REVIEW REQUIRED"
+        disclaimer = "Portfolio risk monitor alert. Review the underlying broker snapshot; no trades are placed."
+    elif name == "AIR_WORKFLOW":
+        headline, status_label = "🔔 AIR WORKFLOW ALERT", str(row.get("status") or "COMPLETED").replace("_", " ")
+        disclaimer = "Automated AIR research workflow notification. This is not a trade instruction."
+    elif name == "RECOVERED":
         headline, status_label = "👀 RECOVERED WATCH CANDIDATE", "WATCH ONLY"
         disclaimer = "Historical recovery model / watchlist only. This is NOT a live position or fresh buy instruction."
     elif name == "EXPIRYSCAN":
@@ -132,6 +144,8 @@ def _format_message(strategy: str, row: dict[str, Any]) -> str:
             lines.append(f"Underlying price: ₹{_fmt(underlying)}")
         if stop is not None:
             lines.append(f"🛑 Stop-loss: <b>₹{_fmt(stop)}</b>")
+        if row.get("range_high") is not None:
+            lines.append(f"Opening range high: <b>₹{_fmt(row.get('range_high'))}</b>")
         for index, target in enumerate(targets, 1):
             if target is not None:
                 lines.append(f"🎯 Target {index}: <b>₹{_fmt(target)}</b>")
@@ -152,6 +166,14 @@ def _format_message(strategy: str, row: dict[str, Any]) -> str:
         ("Bid", row.get("bid_price")), ("Ask", row.get("ask_price")),
         ("Bid/ask spread", f"{row.get('spread_pct')}%" if row.get("spread_pct") is not None else None),
     ]
+    risk_summary = row.get("summary") if isinstance(row.get("summary"), dict) else {}
+    metrics.extend([
+        ("Gross market value", risk_summary.get("gross_market_value")),
+        ("Net exposure", risk_summary.get("net_exposure")),
+        ("Unrealized P&L", risk_summary.get("unrealized_pnl")),
+        ("Top position concentration", risk_summary.get("concentration_top_position_pct")),
+        ("Data quality", risk_summary.get("data_quality")),
+    ])
     available = [(label, value) for label, value in metrics if value is not None]
     if available:
         lines += ["", "📊 <b>MARKET EVIDENCE</b>"]
