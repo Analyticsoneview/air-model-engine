@@ -21,6 +21,9 @@ async def test_customer_register_date_filters_and_daily_conversion_report(monkey
     store.review(first["request_id"], "APPROVED", "approved",
                  reviewer_admin_id="admin-1", reviewer_role="SUPER_ADMIN", totp_counter=70000001,
                  authenticator_verified_at=now.isoformat())
+    store.review(second["request_id"], "APPROVED", "approved second device",
+                 reviewer_admin_id="admin-1", reviewer_role="SUPER_ADMIN", totp_counter=70000002,
+                 authenticator_verified_at=(now + timedelta(seconds=1)).isoformat())
     store.assign_subscription(mobile, "MONTHLY", now.isoformat(),
                               (now + timedelta(days=30)).isoformat(), assigned_by_admin_id="admin-1")
 
