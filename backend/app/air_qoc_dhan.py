@@ -21,7 +21,7 @@ from app.security import require_customer
 from app.air_qoc_store import AirQocStore
 from app.air_qoc_qualification import qualify_option_observations, backtest_option_observations
 from app.air_qoc_universe import DETAILED_MASTER_URL, parse_dhan_instrument_master
-from app.workflow_events import build_idempotency_key, emit_workflow_event
+from app.workflow_events import build_idempotency_key, emit_workflow_event, emit_workflow_events
 from datetime import date, datetime, timezone
 
 router = APIRouter(prefix="/api/v1/air-qoc/dhan", tags=["AIR QOC - Dhan Data"])
@@ -232,18 +232,19 @@ async def dhan_qoc_qualification(
             (str(row.get("observed_at")) for row in rows if row.get("observed_at")),
             default="none",
         )
-        await asyncio.to_thread(
-            emit_workflow_event,
-            event_type="qoc.scan.completed", source="air-qoc.dhan",
-            payload={
+        events = [{
+            "event_type": "qoc.scan.completed", "source": "air-qoc.dhan",
+            "payload": {
                 "customer_id": customer_id, "account_id": account_id, "provider": "dhan",
                 "mode": mode.upper(), "counts": result.get("counts", {}),
                 "contracts_evaluated": result.get("contracts_evaluated", 0),
                 "signals_returned": result.get("signals_returned", 0),
                 "latest_observed_at": latest_observed,
             },
-            idempotency_key=build_idempotency_key("qoc-scan", customer_id, account_id, mode.upper(), latest_observed),
-        )
+            "idempotency_key": build_idempotency_key(
+                "qoc-scan", customer_id, account_id, mode.upper(), latest_observed,
+            ),
+        }]
         for signal in result.get("signals", []):
             if signal.get("classification") not in {"HIGH_CONVICTION", "QUALIFIED"}:
                 continue
@@ -254,12 +255,14 @@ async def dhan_qoc_qualification(
             identity = ":".join(str(signal.get(key) or "") for key in (
                 "underlying", "expiry", "strike", "option_type", "observed_at",
             ))
-            await asyncio.to_thread(
-                emit_workflow_event,
-                event_type="qoc.candidate.qualified", source="air-qoc.dhan",
-                payload=payload,
-                idempotency_key=build_idempotency_key("qoc-qualified", customer_id, account_id, mode.upper(), identity),
-            )
+            events.append({
+                "event_type": "qoc.candidate.qualified", "source": "air-qoc.dhan",
+                "payload": payload,
+                "idempotency_key": build_idempotency_key(
+                    "qoc-qualified", customer_id, account_id, mode.upper(), identity,
+                ),
+            })
+        await asyncio.to_thread(emit_workflow_events, events)
         return result
     finally:
         store.close()
