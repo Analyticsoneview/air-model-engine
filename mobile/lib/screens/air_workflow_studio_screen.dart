@@ -134,7 +134,6 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
         _request('GET', '/api/v1/admin/workflows?limit=200'),
         _request('GET', '/api/v1/admin/workflows/runs?limit=100'),
         _request('GET', '/api/v1/admin/workflows/calendar?exchange_code=$_calendarExchange&start_date=${DateTime.now().year}-01-01&end_date=${DateTime.now().year + 1}-12-31'),
-        _request('GET', '/api/v1/admin/workflows/runtime'),
       ]);
       _workflows = (results[0]['workflows'] as List? ?? [])
           .whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
@@ -142,7 +141,11 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
           .whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
       _calendarSessions = (results[2]['sessions'] as List? ?? [])
           .whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
-      _runtime = Map<String, dynamic>.from(results[3]);
+      try {
+        _runtime = await _request('GET', '/api/v1/admin/workflows/runtime');
+      } catch (_) {
+        _runtime = {'status': 'NOT_SEEN', 'workers': [], 'metrics': {}};
+      }
     } catch (e) {
       _error = e.toString();
     } finally {
