@@ -190,7 +190,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
       }
       return {
         'event_type': event,
-        'strategy': _notificationStrategy.text.trim().toUpperCase(),
+        'strategy': _strategy.text.trim().toUpperCase(),
         if (customer.isNotEmpty) 'customer_id': customer,
       };
     }
@@ -233,7 +233,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
           'id': 'notify',
           'action': 'notify.telegram',
           'params': {
-            'strategy': _strategy.text.trim().toUpperCase(),
+            'strategy': _notificationStrategy.text.trim().toUpperCase(),
             'source_step': 'research',
           },
         });
@@ -588,7 +588,10 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
               DropdownMenuItem(value: 'NSE', child: Text('NSE')),
               DropdownMenuItem(value: 'BSE', child: Text('BSE')),
             ],
-            onChanged: _busy ? null : (value) => setState(() => _calendarExchange = value ?? 'NSE'),
+            onChanged: _busy ? null : (value) {
+              setState(() => _calendarExchange = value ?? 'NSE');
+              _load();
+            },
           )),
           const SizedBox(width: 8),
           Expanded(child: DropdownButtonFormField<String>(
