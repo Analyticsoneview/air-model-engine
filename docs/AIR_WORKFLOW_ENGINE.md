@@ -73,8 +73,8 @@ The initial engine will not call broker order-placement APIs. Broker execution r
 2. **Transport:** RabbitMQ publisher/consumer, acknowledgements, retry/dead-letter policy and health checks. (Merged in PR #51.)
 3. **Scheduler and run ledger:** time triggers, durable run records, deduplication, misfire grace and startup recovery. (Merged in PR #51; exchange holiday calendar remains to be added.)
 4. **Rule and strategy adapters:** ORB, QOC, model-ledger and portfolio snapshot events, customer-scoped matching and safe nested condition operators. (In progress in Gate 8 Phase 4.)
-5. **Notifications and reports:** dashboard, mobile, Telegram/email adapters with per-customer authorization and deduplication.
-6. **Workflow Studio:** admin builder/templates, enable/pause controls, versioning and run history.
+5. **Execution and notifications:** allowlisted research actions, durable step history/retries, Telegram alert routing and report-ready events. (In progress in Gate 8 Phase 5.)
+6. **Workflow Studio:** admin builder/templates, enable/pause controls, versioning and run/step history.
 7. **Hardening:** failure injection, restart/replay tests, load tests, permissions, audit and production acceptance.
 
 ## Initial workflow examples
@@ -83,6 +83,31 @@ The initial engine will not call broker order-placement APIs. Broker execution r
 - **ORB alert:** ORB breakout event → underlying/volume confirmation from existing strategy service → optional QOC confirmation → alert only when configured.
 - **Portfolio risk:** portfolio snapshot event → evaluate concentration/exposure thresholds → create risk alert.
 - **Post-market:** exchange close trigger → request existing research/report services → publish report-ready event.
+
+## Workflow step action contract
+
+Workflow definitions may contain at most 20 ordered steps. Each step has a unique ID, an allowlisted action, JSON parameters, an optional earlier `source_step`, and 1–5 attempts. Supported actions are:
+
+- `qoc.qualify` — run the existing evidence-based QOC qualification over persisted observations for the event customer/account
+- `qoc.backtest` — run the existing QOC historical replay over persisted observations
+- `portfolio.overview` — read the customer-scoped portfolio/risk snapshot
+- `event.emit` — publish a follow-on event through the transactional outbox; a workflow-chain guard prevents loops
+- `notify.telegram` — route a result to the selected managed Telegram strategy destinations; requires `ALERT_NOTIFY` mode
+
+Step state, attempts, inputs, outputs and errors are persisted. Successful steps are skipped on recovery; failed steps use bounded retries. The worker exposes run/step history to administrators. No dynamic code, shell commands, broker order action, or arbitrary imports are allowed. Email delivery and richer report generation remain future extensions.
+
+Example workflow spec for a Dhan option-chain capture:
+
+```json
+{
+  "steps": [
+    {"id": "qualify", "action": "qoc.qualify", "params": {"mode": "LIVE"}},
+    {"id": "notify", "action": "notify.telegram", "params": {"strategy": "AIR_QOC", "source_step": "qualify"}}
+  ]
+}
+```
+
+Use `ALERT_NOTIFY` execution mode for the example above. The workflow is still research/notification only; it cannot place orders.
 
 ## Current implementation boundary
 

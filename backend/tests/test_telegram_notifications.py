@@ -156,5 +156,44 @@ class TelegramNotificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(FakeClient.sent[0][1]["chat_id"], "-1009876543210")
 
 
+    def test_air_qoc_orb_and_portfolio_risk_messages_are_explicitly_research_only(self):
+        qoc = telegram._format_message("AIR_QOC", {
+            "symbol": "NIFTY", "option_type": "CE", "strike": 25000,
+            "classification": "HIGH_CONVICTION", "score": 93,
+        })
+        orb = telegram._format_message("ORB", {
+            "symbol": "NIFTY", "status": "BREAKOUT", "entry_price": 25010,
+            "stop_loss": 24980, "range_high": 25000,
+        })
+        risk = telegram._format_message("PORTFOLIO_RISK", {
+            "summary": {"concentration_top_position_pct": 45, "data_quality": "COMPLETE"},
+        })
+        self.assertIn("AIR QOC QUALIFIED CANDIDATE", qoc)
+        self.assertIn("does not place orders", qoc)
+        self.assertIn("AIR ORB STRATEGY SIGNAL", orb)
+        self.assertIn("Opening range high", orb)
+        self.assertIn("AIR PORTFOLIO RISK ALERT", risk)
+        self.assertIn("45", risk)
+        self.assertIn("no trades are placed", risk)
+
+
+    def test_customer_scoped_notifications_do_not_fall_back_to_global_routes(self):
+        from app import telegram_destinations
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {
+            "AIR_TELEGRAM_CONFIG_DB_PATH": str(Path(folder) / "telegram-config.sqlite3"),
+        }, clear=False):
+            global_route = telegram_destinations.upsert_destination(
+                "Global AIR QOC", "-1001000000001", "GROUP", ["AIR_QOC"], True,
+            )
+            customer_route = telegram_destinations.upsert_destination(
+                "Customer AIR QOC", "-1001000000002", "GROUP", ["AIR_QOC"], True,
+                customer_id="customer-123",
+            )
+            self.assertEqual(telegram._chat_ids("AIR_QOC", "customer-123"),
+                             [customer_route["chat_id"]])
+            self.assertEqual(telegram._chat_ids("AIR_QOC", "customer-other"), [])
+            self.assertEqual(telegram._chat_ids("AIR_QOC", None), [global_route["chat_id"]])
+
+
 if __name__ == "__main__":
     unittest.main()

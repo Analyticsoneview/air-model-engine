@@ -11,7 +11,8 @@ def test_workflow_definition_defaults_to_disabled_research_only(tmp_path):
         workflow = store.create_workflow(
             name="NIFTY ORB monitor", created_by="admin-1", trigger_type="STRATEGY",
             trigger_config={"strategy": "ORB", "session": "09:18-09:23"},
-            workflow_spec={"steps": [{"type": "evaluate", "service": "orb"}]},
+            workflow_spec={"steps": [{"id": "evaluate", "action": "event.emit",
+                            "params": {"event_type": "workflow.orb.evaluated"}}]},
         )
         assert workflow["workflow_id"]
         assert workflow["trigger_type"] == "STRATEGY"

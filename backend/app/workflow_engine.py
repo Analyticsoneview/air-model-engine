@@ -18,6 +18,8 @@ from app.db_compat import PostgresConnection, read_database_url
 
 TRIGGER_TYPES = {"EVENT", "TIME", "STRATEGY", "CONDITION"}
 EXECUTION_MODES = {"RESEARCH_ONLY", "ALERT_NOTIFY"}
+WORKFLOW_ACTIONS = {"qoc.qualify", "qoc.backtest", "portfolio.overview", "notify.telegram", "event.emit"}
+TELEGRAM_STRATEGIES = {"RECOVERED", "EXPIRY78", "EXPIRYSCAN", "AIR_QOC", "ORB", "PORTFOLIO_RISK", "AIR_WORKFLOW"}
 
 
 def _now() -> str:
@@ -126,6 +128,7 @@ class WorkflowStore:
                 self.db.execute("SELECT 1 FROM air_workflow_events LIMIT 0")
                 self.db.execute("SELECT 1 FROM air_workflow_outbox LIMIT 0")
                 self.db.execute("SELECT 1 FROM air_workflow_runs LIMIT 0")
+                self.db.execute("SELECT 1 FROM air_workflow_run_steps LIMIT 0")
             except Exception as exc:
                 self.db.close()
                 raise RuntimeError("Workflow PostgreSQL schema is missing; apply Alembic migrations first") from exc
@@ -175,6 +178,16 @@ class WorkflowStore:
             );
             CREATE INDEX IF NOT EXISTS ix_air_workflow_runs_status_time
                 ON air_workflow_runs(status,started_at);
+            CREATE TABLE IF NOT EXISTS air_workflow_run_steps (
+                step_record_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, step_key TEXT NOT NULL,
+                step_index INTEGER NOT NULL, action TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('PENDING','RUNNING','SUCCEEDED','FAILED','SKIPPED')),
+                input_json TEXT NOT NULL DEFAULT '{}', output_json TEXT, error TEXT,
+                attempts INTEGER NOT NULL DEFAULT 0, started_at TEXT, completed_at TEXT,
+                UNIQUE(run_id,step_key)
+            );
+            CREATE INDEX IF NOT EXISTS ix_air_workflow_run_steps_order
+                ON air_workflow_run_steps(run_id,step_index);
         """)
         self.db.commit()
 
@@ -197,6 +210,37 @@ class WorkflowStore:
             raise ValueError("Unsupported workflow execution_mode")
         trigger_config = _json_object(trigger_config, "trigger_config")
         workflow_spec = _json_object(workflow_spec, "workflow_spec")
+        steps = workflow_spec.get("steps", [])
+        if not isinstance(steps, list) or len(steps) > 20:
+            raise ValueError("workflow_spec.steps must be an array containing at most 20 steps")
+        seen_step_ids: set[str] = set()
+        for step in steps:
+            if not isinstance(step, dict):
+                raise ValueError("Each workflow step must be an object")
+            step_id = str(step.get("id") or "").strip()
+            action = str(step.get("action") or "").strip().lower()
+            params = step.get("params", {})
+            if not step_id or len(step_id) > 64 or step_id in seen_step_ids:
+                raise ValueError("Workflow step IDs must be unique and contain 1-64 characters")
+            if action not in WORKFLOW_ACTIONS:
+                raise ValueError(f"Unsupported workflow action: {action or 'missing'}")
+            if not isinstance(params, dict):
+                raise ValueError(f"Workflow step {step_id} params must be an object")
+            attempts = step.get("max_attempts", 3)
+            if not isinstance(attempts, int) or not 1 <= attempts <= 5:
+                raise ValueError(f"Workflow step {step_id} max_attempts must be between 1 and 5")
+            if action == "notify.telegram" and execution_mode != "ALERT_NOTIFY":
+                raise ValueError("Telegram notification steps require ALERT_NOTIFY execution mode")
+            if action == "notify.telegram":
+                strategy = str(params.get("strategy") or "AIR_WORKFLOW").upper()
+                if strategy not in TELEGRAM_STRATEGIES:
+                    raise ValueError(f"Unsupported Telegram strategy route: {strategy}")
+            if action == "event.emit" and not str(params.get("event_type") or "").strip():
+                raise ValueError(f"Workflow step {step_id} event.emit requires params.event_type")
+            source_step = params.get("source_step")
+            if source_step and source_step not in seen_step_ids:
+                raise ValueError(f"Workflow step {step_id} source_step must reference an earlier step")
+            seen_step_ids.add(step_id)
         workflow_id, now = str(uuid4()), _now()
         with self.db:
             self.db.execute("""INSERT INTO air_workflow_definitions
@@ -348,6 +392,9 @@ class WorkflowStore:
         for definition in definitions:
             config = json.loads(definition["trigger_config_json"])
             trigger_type = definition["trigger_type"]
+            workflow_chain = payload.get("workflow_chain")
+            if isinstance(workflow_chain, list) and definition["workflow_id"] in workflow_chain:
+                continue
             scoped_customer = config.get("customer_id")
             if scoped_customer and str(payload.get("customer_id") or "") != str(scoped_customer):
                 continue
@@ -433,6 +480,123 @@ class WorkflowStore:
             "status": row["status"], "execution_mode": row["execution_mode"],
             "started_at": row["started_at"], "completed_at": row["completed_at"], "error": row["error"],
         } for row in rows]
+
+    def runnable_runs(self, limit: int = 20) -> list[str]:
+        rows = self.db.execute(
+            "SELECT run_id FROM air_workflow_runs WHERE status IN ('QUEUED','RUNNING') ORDER BY started_at LIMIT ?",
+            (max(1, min(int(limit), 100)),),
+        ).fetchall()
+        return [row["run_id"] for row in rows]
+
+    def run_context(self, run_id: str) -> dict | None:
+        row = self.db.execute(
+            """SELECT r.*,d.name,d.workflow_spec_json,d.trigger_config_json,e.payload_json
+               FROM air_workflow_runs r
+               JOIN air_workflow_definitions d
+                 ON d.workflow_id=r.workflow_id AND d.version=r.workflow_version
+               JOIN air_workflow_events e ON e.event_id=r.event_id
+               WHERE r.run_id=?""", (run_id,),
+        ).fetchone()
+        if not row:
+            return None
+        return {
+            "run_id": row["run_id"], "workflow_id": row["workflow_id"],
+            "workflow_version": row["workflow_version"], "event_id": row["event_id"],
+            "status": row["status"], "execution_mode": row["execution_mode"],
+            "workflow_name": row["name"], "workflow_spec": json.loads(row["workflow_spec_json"]),
+            "trigger_config": json.loads(row["trigger_config_json"]),
+            "event_payload": json.loads(row["payload_json"]),
+        }
+
+    def set_run_status(self, run_id: str, status: str, error: str | None = None) -> None:
+        status = str(status).upper()
+        if status not in {"QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"}:
+            raise ValueError("Unsupported workflow run status")
+        now = _now()
+        with self.db:
+            if status == "RUNNING":
+                self.db.execute(
+                    "UPDATE air_workflow_runs SET status=?,started_at=COALESCE(started_at,?),completed_at=NULL,error=NULL WHERE run_id=?",
+                    (status, now, run_id),
+                )
+            elif status in {"SUCCEEDED", "FAILED", "CANCELLED"}:
+                self.db.execute(
+                    "UPDATE air_workflow_runs SET status=?,completed_at=?,error=? WHERE run_id=?",
+                    (status, now, str(error)[:1000] if error else None, run_id),
+                )
+            else:
+                self.db.execute(
+                    "UPDATE air_workflow_runs SET status=?,error=? WHERE run_id=?",
+                    (status, str(error)[:1000] if error else None, run_id),
+                )
+
+    def get_run_step(self, run_id: str, step_key: str) -> dict | None:
+        row = self.db.execute(
+            "SELECT * FROM air_workflow_run_steps WHERE run_id=? AND step_key=?",
+            (run_id, step_key),
+        ).fetchone()
+        return self._decode_run_step(row) if row else None
+
+    def save_run_step(
+        self, *, run_id: str, step_key: str, step_index: int, action: str,
+        status: str, input_data: dict, output_data: dict | list | None = None,
+        error: str | None = None, attempts: int = 0,
+    ) -> dict:
+        status = str(status).upper()
+        if status not in {"PENDING", "RUNNING", "SUCCEEDED", "FAILED", "SKIPPED"}:
+            raise ValueError("Unsupported workflow step status")
+        now = _now()
+        input_json = json.dumps(input_data, allow_nan=False)
+        output_json = json.dumps(output_data, allow_nan=False) if output_data is not None else None
+        with self.db:
+            existing = self.get_run_step(run_id, step_key)
+            if existing:
+                if status == "RUNNING":
+                    self.db.execute(
+                        """UPDATE air_workflow_run_steps SET status=?,input_json=?,output_json=NULL,
+                           error=NULL,attempts=?,started_at=COALESCE(started_at,?),completed_at=NULL
+                           WHERE run_id=? AND step_key=?""",
+                        (status, input_json, attempts, now, run_id, step_key),
+                    )
+                else:
+                    completed = now if status in {"SUCCEEDED", "FAILED", "SKIPPED"} else None
+                    self.db.execute(
+                        """UPDATE air_workflow_run_steps SET status=?,input_json=?,output_json=?,
+                           error=?,attempts=?,completed_at=? WHERE run_id=? AND step_key=?""",
+                        (status, input_json, output_json, str(error)[:1000] if error else None,
+                         attempts, completed, run_id, step_key),
+                    )
+            else:
+                self.db.execute(
+                    """INSERT INTO air_workflow_run_steps
+                       (step_record_id,run_id,step_key,step_index,action,status,input_json,
+                        output_json,error,attempts,started_at,completed_at)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (str(uuid4()), run_id, step_key, step_index, action, status, input_json,
+                     output_json, str(error)[:1000] if error else None, attempts,
+                     now if status == "RUNNING" else None,
+                     now if status in {"SUCCEEDED", "FAILED", "SKIPPED"} else None),
+                )
+        return self.get_run_step(run_id, step_key)
+
+    @staticmethod
+    def _decode_run_step(row: Any) -> dict:
+        return {
+            "step_record_id": row["step_record_id"], "run_id": row["run_id"],
+            "step_key": row["step_key"], "step_index": row["step_index"],
+            "action": row["action"], "status": row["status"],
+            "input": json.loads(row["input_json"]),
+            "output": json.loads(row["output_json"]) if row["output_json"] else None,
+            "error": row["error"], "attempts": row["attempts"],
+            "started_at": row["started_at"], "completed_at": row["completed_at"],
+        }
+
+    def list_run_steps(self, run_id: str) -> list[dict]:
+        rows = self.db.execute(
+            "SELECT * FROM air_workflow_run_steps WHERE run_id=? ORDER BY step_index",
+            (run_id,),
+        ).fetchall()
+        return [self._decode_run_step(row) for row in rows]
 
     def close(self) -> None:
         self.db.close()

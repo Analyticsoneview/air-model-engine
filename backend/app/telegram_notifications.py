@@ -90,7 +90,19 @@ def _format_message(strategy: str, row: dict[str, Any]) -> str:
                      or row.get("position_status") or "QUALIFIED").upper()
     score = row.get("qoc_score", row.get("score"))
 
-    if name == "RECOVERED":
+    if name == "AIR_QOC":
+        headline, status_label = "🧠 AIR QOC QUALIFIED CANDIDATE", raw_status.replace("_", " ")
+        disclaimer = "Evidence-backed research candidate. Confirm live price, liquidity and risk. AIR does not place orders."
+    elif name == "ORB":
+        headline, status_label = "📈 AIR ORB STRATEGY SIGNAL", str(row.get("status") or "SIGNAL").replace("_", " ")
+        disclaimer = "Live ORB signal only. This is not an order or a confirmed broker position."
+    elif name == "PORTFOLIO_RISK":
+        headline, status_label = "⚠️ AIR PORTFOLIO RISK ALERT", "REVIEW REQUIRED"
+        disclaimer = "Portfolio risk monitor alert. Review the underlying broker snapshot; no trades are placed."
+    elif name == "AIR_WORKFLOW":
+        headline, status_label = "🔔 AIR WORKFLOW ALERT", str(row.get("status") or "COMPLETED").replace("_", " ")
+        disclaimer = "Automated AIR research workflow notification. This is not a trade instruction."
+    elif name == "RECOVERED":
         headline, status_label = "👀 RECOVERED WATCH CANDIDATE", "WATCH ONLY"
         disclaimer = "Historical recovery model / watchlist only. This is NOT a live position or fresh buy instruction."
     elif name == "EXPIRYSCAN":
@@ -132,6 +144,8 @@ def _format_message(strategy: str, row: dict[str, Any]) -> str:
             lines.append(f"Underlying price: ₹{_fmt(underlying)}")
         if stop is not None:
             lines.append(f"🛑 Stop-loss: <b>₹{_fmt(stop)}</b>")
+        if row.get("range_high") is not None:
+            lines.append(f"Opening range high: <b>₹{_fmt(row.get('range_high'))}</b>")
         for index, target in enumerate(targets, 1):
             if target is not None:
                 lines.append(f"🎯 Target {index}: <b>₹{_fmt(target)}</b>")
@@ -152,6 +166,14 @@ def _format_message(strategy: str, row: dict[str, Any]) -> str:
         ("Bid", row.get("bid_price")), ("Ask", row.get("ask_price")),
         ("Bid/ask spread", f"{row.get('spread_pct')}%" if row.get("spread_pct") is not None else None),
     ]
+    risk_summary = row.get("summary") if isinstance(row.get("summary"), dict) else {}
+    metrics.extend([
+        ("Gross market value", risk_summary.get("gross_market_value")),
+        ("Net exposure", risk_summary.get("net_exposure")),
+        ("Unrealized P&L", risk_summary.get("unrealized_pnl")),
+        ("Top position concentration", risk_summary.get("concentration_top_position_pct")),
+        ("Data quality", risk_summary.get("data_quality")),
+    ])
     available = [(label, value) for label, value in metrics if value is not None]
     if available:
         lines += ["", "📊 <b>MARKET EVIDENCE</b>"]
@@ -171,14 +193,17 @@ def _format_message(strategy: str, row: dict[str, Any]) -> str:
 
 
 
-def _chat_ids(strategy: str | None = None) -> list[str]:
+def _chat_ids(strategy: str | None = None, customer_id: str | None = None) -> list[str]:
     """Prefer persistent operator-managed routes; retain env IDs as legacy fallback."""
     from app.telegram_destinations import (
         destinations_for_strategy, has_managed_destinations, list_destinations,
     )
+    if customer_id:
+        # Never fall back to platform-wide/legacy routes for customer-owned data.
+        return destinations_for_strategy(strategy, customer_id) if strategy else []
     if has_managed_destinations():
         if strategy:
-            return destinations_for_strategy(strategy)
+            return destinations_for_strategy(strategy, None)
         return [row["chat_id"] for row in list_destinations() if row["enabled"]]
     return _settings()[1]
 
@@ -214,15 +239,17 @@ async def send_telegram_message(
 async def notify_candidates(strategy: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Notify once per candidate/status/destination; safe to call on repeated API polls."""
     token, _ = _settings()
-    chat_ids = _chat_ids(strategy)
-    if not token or not chat_ids or not rows:
-        return {"configured": bool(token and chat_ids), "attempted": 0, "sent": 0}
+    if not token or not rows:
+        return {"configured": bool(token), "attempted": 0, "sent": 0}
     attempted = sent = 0
     failures: list[dict[str, str]] = []
     async with httpx.AsyncClient(timeout=10) as client:
         for row in rows:
             event_key = _candidate_key(strategy, row)
             message = _format_message(strategy, row)
+            chat_ids = _chat_ids(strategy, str(row.get("customer_id") or "").strip() or None)
+            if not chat_ids:
+                continue
             for chat_id in chat_ids:
                 attempted += 1
                 db = _connect()
@@ -260,4 +287,4 @@ async def notify_candidates(strategy: str, rows: list[dict[str, Any]]) -> dict[s
                     failures.append({"chat_id": chat_id, "error": str(exc)[:240]})
                 finally:
                     db.close()
-    return {"configured": True, "attempted": attempted, "sent": sent, "failures": failures}
+    return {"configured": bool(token), "attempted": attempted, "sent": sent, "failures": failures}

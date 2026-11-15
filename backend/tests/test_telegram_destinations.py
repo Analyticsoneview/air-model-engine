@@ -69,5 +69,46 @@ class TelegramDestinationStoreTests(unittest.TestCase):
             self.assertEqual(destinations.destinations_for_strategy("EXPIRY78"), ["-1002222222222"])
 
 
+    def test_workflow_strategies_can_be_routed_independently(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {
+            "AIR_TELEGRAM_CONFIG_DB_PATH": str(Path(folder) / "telegram-config.sqlite3"),
+        }, clear=False):
+            qoc = destinations.upsert_destination(
+                "AIR QOC", "-1001111111111", "GROUP", ["AIR_QOC"], True,
+            )
+            orb = destinations.upsert_destination(
+                "ORB", "123456789", "PRIVATE", ["ORB"], True,
+            )
+            risk = destinations.upsert_destination(
+                "Portfolio risk", "-1002222222222", "GROUP", ["PORTFOLIO_RISK"], True,
+            )
+            self.assertEqual(destinations.destinations_for_strategy("AIR_QOC"), [qoc["chat_id"]])
+            self.assertEqual(destinations.destinations_for_strategy("ORB"), [orb["chat_id"]])
+            self.assertEqual(destinations.destinations_for_strategy("PORTFOLIO_RISK"), [risk["chat_id"]])
+
+
+    def test_customer_scoped_destination_never_matches_global_or_other_customer(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {
+            "AIR_TELEGRAM_CONFIG_DB_PATH": str(Path(folder) / "telegram-config.sqlite3"),
+        }, clear=False):
+            global_route = destinations.upsert_destination(
+                "Global", "-1001000000001", "GROUP", ["AIR_QOC"], True,
+            )
+            customer_a = destinations.upsert_destination(
+                "Customer A", "-1001000000002", "GROUP", ["AIR_QOC"], True,
+                customer_id="customer-a",
+            )
+            customer_b = destinations.upsert_destination(
+                "Customer B", "-1001000000003", "GROUP", ["AIR_QOC"], True,
+                customer_id="customer-b",
+            )
+            self.assertEqual(destinations.destinations_for_strategy("AIR_QOC", "customer-a"),
+                             [customer_a["chat_id"]])
+            self.assertEqual(destinations.destinations_for_strategy("AIR_QOC", "customer-b"),
+                             [customer_b["chat_id"]])
+            self.assertEqual(destinations.destinations_for_strategy("AIR_QOC", None),
+                             [global_route["chat_id"]])
+
+
 if __name__ == "__main__":
     unittest.main()
