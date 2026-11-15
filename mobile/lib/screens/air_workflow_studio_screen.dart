@@ -132,7 +132,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
       final results = await Future.wait([
         _request('GET', '/api/v1/admin/workflows?limit=200'),
         _request('GET', '/api/v1/admin/workflows/runs?limit=100'),
-        _request('GET', '/api/v1/admin/workflows/calendar?exchange_code=$_calendarExchange&start_date=2026-01-01&end_date=2027-12-31'),
+        _request('GET', '/api/v1/admin/workflows/calendar?exchange_code=$_calendarExchange&start_date=${DateTime.now().year}-01-01&end_date=${DateTime.now().year + 1}-12-31'),
       ]);
       _workflows = (results[0]['workflows'] as List? ?? [])
           .whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
@@ -433,10 +433,10 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
             DropdownMenuItem(value: 'NSE', child: Text('NSE')),
             DropdownMenuItem(value: 'BSE', child: Text('BSE')),
           ],
-          onChanged: _busy ? null : (value) => setState(() {
-            _calendarExchange = value ?? 'NSE';
+          onChanged: _busy ? null : (value) {
+            setState(() => _calendarExchange = value ?? 'NSE');
             _load();
-          }),
+          },
         ),
         const SizedBox(height: 10),
         _field(_calendarDate, 'Session date (YYYY-MM-DD)'),
@@ -620,12 +620,20 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
             leading: Icon(workflow['enabled'] == true ? Icons.play_circle_fill : Icons.pause_circle_outline,
                 color: workflow['enabled'] == true ? Colors.green : Colors.grey),
             trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-              IconButton(tooltip: 'Edit as new version',
-                onPressed: _busy ? null : () => _editWorkflow(workflow),
-                icon: const Icon(Icons.edit_outlined)),
-              IconButton(tooltip: 'Version history',
-                onPressed: _busy ? null : () => _showVersions(workflow),
-                icon: const Icon(Icons.history)),
+              PopupMenuButton<String>(
+                tooltip: 'Workflow actions',
+                enabled: !_busy,
+                onSelected: (action) {
+                  if (action == 'edit') _editWorkflow(workflow);
+                  if (action == 'versions') _showVersions(workflow);
+                  if (action == 'audit') _showAudit(workflow);
+                },
+                itemBuilder: (context) => const [
+                  PopupMenuItem(value: 'edit', child: Text('Edit as new version')),
+                  PopupMenuItem(value: 'versions', child: Text('Version history')),
+                  PopupMenuItem(value: 'audit', child: Text('Audit history')),
+                ],
+              ),
               Switch(value: workflow['enabled'] == true,
                 onChanged: _busy ? null : (value) => _toggleWorkflow(workflow, value)),
             ]),
