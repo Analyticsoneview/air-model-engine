@@ -49,7 +49,7 @@ cd /opt/air-model-engine
 sudo python3 backend/scripts/bootstrap_operator.py
 ```
 
-The helper records the operator's E.164 mobile number in AIR_OPERATOR_CUSTOMER_IDS. The operator must submit an access request from the AIR app. Approve the first device with the root-only admin key using deploy/air-admin-cli.sh. After the operator device is approved, use the in-app Admin tab to manage later customer requests.
+The helper records the operator's E.164 mobile number in AIR_OPERATOR_CUSTOMER_IDS. The operator must submit an access request from the AIR app. A Super Admin must sign in through the dedicated Administrator Sign In flow, open the Admin Console, review the pending request and approve or reject it using a fresh six-digit authenticator code. The operator-side access-request view is read-only; do not use the legacy admin-key CLI to mutate customer access.
 
 Mobile numbers are identifiers only. This no-OTP design does not prove phone ownership; approval must be based on a separate trusted process. Do not enable public signup.
 
@@ -123,29 +123,19 @@ The GitHub Actions workflow `.github/workflows/ios-pwa.yml` runs Flutter analysi
 
 ## 9. Customer mobile access and administrator approval
 
-Customers enter a mobile number in international E.164 format (for example `+14155550123`). No OTP, WhatsApp, SMS, email or password is used. The first request is tied to the app's device identifier and remains `PENDING` until approved.
+Customers enter a mobile number in international E.164 format (for example `+14155550123`). The first request is tied to the app's device identifier and remains `PENDING`; pending customers receive no dashboard or broker access.
 
-Use the administrator API key stored in the `air_admin_api_key` Docker secret:
+A Super Admin or authorized Research Admin reviews requests in the dedicated AIR Admin Console:
 
-```bash
-curl -H "X-AIR-ADMIN-KEY: $AIR_ADMIN_API_KEY" \
-  "https://api.example.com/api/v1/admin/access-requests?status=PENDING"
+1. Review the customer mobile number, request date, device details and current status.
+2. Choose Approve or Reject.
+3. Enter a fresh six-digit code from the administrator's authenticator app for that decision.
+4. The backend verifies the administrator's active account and role, TOTP freshness and one-time use before applying the decision.
+5. The decision history records the request, customer, administrator, role, decision and timestamp. A reused or stale code must be rejected.
 
-curl -X PUT -H "X-AIR-ADMIN-KEY: $AIR_ADMIN_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"status":"APPROVED","note":"Approved by AIR admin"}' \
-  "https://api.example.com/api/v1/admin/access-requests/<request_id>"
-```
+Do not use the legacy operator access-request view or the `deploy/air-admin-cli.sh` mutation commands to approve, reject or block customers. The operator view is read-only; customer access decisions must go through the TOTP-protected Admin Console.
 
-Set `status` to `REJECTED` or `BLOCKED` to deny access. Blocking or rejecting invalidates existing device sessions immediately. The mobile app securely stores its approved session and restores it on subsequent launches. Each new device requires its own approval.
-
-The mobile number is an identifier, not proof of ownership. Since customer identity verification is intentionally omitted, the administrator must make the access decision using the request details and any separate business process.
-
-
-## GitHub Actions deployment
-
-For automated image builds and gated SSH deployment from GitHub Actions, follow [GITHUB_DEPLOYMENT.md](./GITHUB_DEPLOYMENT.md). Production deployment is manual and restricted to workflow dispatch from `main`.
-
+Administrator approval does not verify ownership of the customer's mobile number and does not assign a subscription. Phone ownership verification by SMS is a separate capability and is not implemented until an SMS provider and credentials are configured. Do not enable public signup or represent a pending request as verified.
 
 ## 10. Account-wise P&L email reports
 

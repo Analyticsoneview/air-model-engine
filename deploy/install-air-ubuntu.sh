@@ -70,7 +70,7 @@ esac
 ASKPASS_EOF
   AIR_GH_USER="$GH_USER" AIR_GH_TOKEN="$GH_TOKEN" GIT_ASKPASS="$ASKPASS" \
     GIT_TERMINAL_PROMPT=0 git clone \
-      --branch "${AIR_INSTALL_REF:-feat/air-telegram-alerts}" \
+      --branch "${AIR_INSTALL_REF:-main}" \
       https://github.com/Analyticsoneview/air-model-engine.git "$REPO_DIR"
   rm -f "$ASKPASS"
   unset GH_TOKEN
@@ -80,7 +80,7 @@ else
     echo "Existing checkout has local changes. Commit or back them up before updating." >&2
     exit 1
   fi
-  INSTALL_REF="${AIR_INSTALL_REF:-feat/air-telegram-alerts}"
+  INSTALL_REF="${AIR_INSTALL_REF:-main}"
   git -C "$REPO_DIR" fetch origin "$INSTALL_REF"
   git -C "$REPO_DIR" checkout -B "$INSTALL_REF" "origin/$INSTALL_REF"
 fi
@@ -160,6 +160,8 @@ create_secret_if_missing air_redis_password "$REDIS_PASSWORD"
 create_secret_if_missing air_database_url "$DATABASE_URL"
 create_secret_if_missing air_redis_url "$REDIS_URL"
 create_secret_if_missing air_telegram_bot_token "$TELEGRAM_TOKEN"
+# The stack declares this secret even when SMTP delivery is disabled.
+create_secret_if_missing air_smtp_password "$(openssl rand -hex 32)"
 unset JWT_SECRET CREDENTIAL_KEY ADMIN_KEY ADMIN_MFA_KEY TELEGRAM_TOKEN PG_PASSWORD REDIS_PASSWORD DATABASE_URL REDIS_URL
 
 cat > "$ENV_FILE" <<ENV_EOF

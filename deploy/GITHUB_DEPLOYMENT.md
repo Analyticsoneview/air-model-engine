@@ -8,7 +8,7 @@ This repository uses GitHub Actions to test and build immutable Docker images, G
 - Pushes to \`main\` run verification and publish versioned images to GHCR.
 - A deployment happens only when an administrator manually starts **AIR Build and Deploy** from the Actions tab on \`main\` and sets \`deploy=true\`.
 - The deployment uses the exact commit SHA as the image tag, not the mutable \`latest\` tag.
-- The server-side script checks Swarm state, required secrets and service convergence before reporting success.
+- The server-side script checks required environment values, all ten Swarm secrets, rendered stack configuration, Swarm state and service health before reporting success.
 - The first deployment must be prepared and smoke-tested manually. Do not enable scheduled AIR market-data jobs until broker credentials, entitlements and permissions are verified.
 
 ## GitHub repository configuration
@@ -66,14 +66,20 @@ Do not set \`AIR_BACKEND_IMAGE\` or \`AIR_PWA_IMAGE\` in this file; the workflow
 
 ### Required Swarm secrets
 
-The current \`docker-stack.yml\` expects all four external secrets:
+The current \`docker-stack.yml\` requires all ten external secrets:
 
 - \`air_jwt_secret\`
 - \`air_credential_key\`
 - \`air_admin_api_key\`
+- \`air_admin_mfa_key\`
+- \`air_postgres_password\`
+- \`air_redis_password\`
+- \`air_database_url\`
+- \`air_redis_url\`
 - \`air_telegram_bot_token\`
+- \`air_smtp_password\`
 
-Follow [DOCKER_SWARM.md](./DOCKER_SWARM.md) for generation of the first three. Create the Telegram secret locally on the Swarm manager using the replacement BotFather token:
+The installer creates these secrets and preserves existing values on reruns. For manual provisioning, follow [DOCKER_SWARM.md](./DOCKER_SWARM.md), including the database/Redis URL secrets and administrator MFA key. If SMTP is not configured, create a random placeholder \`air_smtp_password\` secret; keep SMTP host, username and sender address empty so email delivery remains disabled. The deployment preflight checks all ten secret names without reading or printing their values. Create the Telegram secret locally on the Swarm manager using the replacement BotFather token:
 
 \`\`\`bash
 read -rsp "Telegram bot token: " AIR_TELEGRAM_BOT_TOKEN; echo
@@ -99,7 +105,8 @@ From a trusted network, verify:
 
 - API health endpoint: \`https://api.your-domain.example/health\`
 - PWA loads over HTTPS and can reach the configured API URL.
-- Operator login and access-control flows work.
+- Administrator sign-in and TOTP-gated customer approval/rejection work in the dedicated Admin Console. Each decision requires a fresh six-digit authenticator code and is audited. The legacy operator access-request view is read-only.
+- Customer mobile numbers are identifiers only: SMS/phone-ownership verification is not implemented. Do not treat administrator approval as proof of phone ownership.
 - A test record survives an API service restart (confirm persistent \`air_data\` volume).
 - Authenticated operator call \`POST /api/v1/model-engine/telegram/test\` reports two successful destinations and no failures; also visually confirm delivery in both private chat and the AIR group.
 - \`docker service ls\` shows \`air_air-api\` and \`air_air-pwa\` as \`1/1\`.
