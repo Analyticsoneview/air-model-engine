@@ -1250,6 +1250,11 @@ async def admin_customer_daily_report(
             "pending": pending,
             "first_time_plans_availed": first_plans,
             "approved_but_no_plan_availed": approved_no_plan,
+            "registration_cohort_approved": cohort_approved,
+            "registration_cohort_plan_availed": cohort_plans,
+            "registration_to_approval_pct": percent(cohort_approved, len(cohort)),
+            "registration_to_plan_pct": percent(cohort_plans, len(cohort)),
+            "approval_to_plan_pct": percent(cohort_plans, cohort_approved),
         })
         current += timedelta(days=1)
     return {"timezone": "Asia/Kolkata", "start_date": start_date, "end_date": end_date, "daily": output}
