@@ -68,23 +68,26 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('CUSTOMERS'));
     await tester.pumpAndSettle();
+    final verticalScroll = find.byWidgetPredicate(
+      (widget) => widget is Scrollable && widget.axisDirection == AxisDirection.down,
+    ).first;
 
     expect(find.text('NEW CUSTOMERS'), findsOneWidget);
     expect(find.text('7'), findsOneWidget);
     expect(find.text('EXISTING CUSTOMERS'), findsOneWidget);
     expect(find.text('12'), findsOneWidget);
-    await tester.scrollUntilVisible(find.text('INDEPENDENT LIFECYCLE DATE FILTERS'), 300, scrollable: find.byType(Scrollable).last);
+    await tester.scrollUntilVisible(find.text('INDEPENDENT LIFECYCLE DATE FILTERS'), 300, scrollable: verticalScroll);
     await tester.pumpAndSettle();
     await tester.tap(find.text('INDEPENDENT LIFECYCLE DATE FILTERS'));
     await tester.pumpAndSettle();
     expect(find.text('First registered date'), findsOneWidget);
-    await tester.scrollUntilVisible(find.text('DAILY CONVERSION REPORT'), 300, scrollable: find.byType(Scrollable).last);
+    await tester.scrollUntilVisible(find.text('DAILY CONVERSION REPORT'), 300, scrollable: verticalScroll);
     await tester.pumpAndSettle();
     await tester.tap(find.text('DAILY CONVERSION REPORT'));
     await tester.pumpAndSettle();
     expect(find.text('RUN REPORT'), findsOneWidget);
     expect(find.textContaining('1 customer(s) displayed'), findsOneWidget);
-    await tester.scrollUntilVisible(find.textContaining('••••210'), 300, scrollable: find.byType(Scrollable).last);
+    await tester.scrollUntilVisible(find.textContaining('••••210'), 300, scrollable: verticalScroll);
     await tester.pumpAndSettle();
     await tester.tap(find.textContaining('••••210'));
     await tester.pumpAndSettle();
