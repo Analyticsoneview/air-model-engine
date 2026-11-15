@@ -186,7 +186,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
       }
       return {
         'event_type': event,
-        'strategy': _notificationStrategy.text.trim().toUpperCase(),
+        'strategy': _strategy.text.trim().toUpperCase(),
         if (customer.isNotEmpty) 'customer_id': customer,
       };
     }
@@ -229,7 +229,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
           'id': 'notify',
           'action': 'notify.telegram',
           'params': {
-            'strategy': _strategy.text.trim().toUpperCase(),
+            'strategy': _notificationStrategy.text.trim().toUpperCase(),
             'source_step': 'research',
           },
         });
