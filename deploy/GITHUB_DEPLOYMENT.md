@@ -66,7 +66,7 @@ Do not set \`AIR_BACKEND_IMAGE\` or \`AIR_PWA_IMAGE\` in this file; the workflow
 
 ### Required Swarm secrets
 
-The current \`docker-stack.yml\` requires all ten external secrets:
+The current \`docker-stack.yml\` requires all eleven external secrets:
 
 - \`air_jwt_secret\`
 - \`air_credential_key\`
