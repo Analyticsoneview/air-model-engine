@@ -634,7 +634,7 @@ class WorkflowStore:
         if not event:
             raise ValueError("Workflow event does not exist")
         payload = json.loads(event["payload_json"])
-        replay = payload.get("_air_workflow_replay")
+        replay = payload.get("_air_workflow_replay") if event["source"] == "workflow.replay" else None
         if isinstance(replay, dict):
             definitions = self.db.execute(
                 """SELECT * FROM air_workflow_definition_versions
