@@ -1151,7 +1151,7 @@ async def admin_customer_daily_report(
 
     requests = [dict(row) for row in access_store.list_requests()]
     decisions = access_store.list_decisions()
-    customers = access_store.list_marketing_customers("ALL", limit=500)
+    customers = access_store.list_marketing_customers("ALL", limit=10000)
     first_registration = {}
     for row in requests:
         registered_day = report_day(row.get("first_registered_at") or row.get("created_at"))
@@ -1241,7 +1241,8 @@ async def admin_access_decisions(
 ) -> dict:
     if start_date and end_date and start_date > end_date:
         raise HTTPException(status_code=422, detail="start_date must be before or equal to end_date")
-    decisions = access_store.list_decisions(start_date, end_date)
+    decisions = access_store.list_decisions()
+    filtered_decisions = []
     for decision in decisions:
         for field in ("decided_at", "totp_verified_at"):
             value = decision.get(field)
@@ -1250,7 +1251,11 @@ async def admin_access_decisions(
                 if parsed.tzinfo is None:
                     parsed = parsed.replace(tzinfo=timezone.utc)
                 decision[field + "_ist"] = parsed.astimezone(ZoneInfo("Asia/Kolkata")).isoformat()
-    return {"decisions": decisions, "count": len(decisions), "timezone": "Asia/Kolkata"}
+        local_date = decision.get("decided_at_ist", "")[:10]
+        if (start_date and local_date < start_date) or (end_date and local_date > end_date):
+            continue
+        filtered_decisions.append(decision)
+    return {"decisions": filtered_decisions, "count": len(filtered_decisions), "timezone": "Asia/Kolkata"}
 
 
 @app.get("/api/v1/operator/access-requests")
