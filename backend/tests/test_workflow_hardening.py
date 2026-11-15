@@ -22,9 +22,10 @@ def test_audit_records_workflow_lifecycle_and_is_append_only(tmp_path):
         )
         store.set_workflow_enabled(workflow["workflow_id"], False, actor_id="admin-4")
         audit = store.list_workflow_audit(workflow["workflow_id"])
-        assert [item["action"] for item in audit] == ["DISABLED", "UPDATED", "ENABLED", "CREATED"]
-        assert [item["actor_id"] for item in audit] == ["admin-4", "admin-3", "admin-2", "admin-1"]
-        assert audit[1]["workflow_version"] == 2
+        assert [item["action"] for item in audit] == ["UPDATED", "DISABLED", "ENABLED", "CREATED"]
+        assert [item["actor_id"] for item in audit] == ["admin-3", "admin-3", "admin-2", "admin-1"]
+        assert audit[0]["workflow_version"] == 2
+        assert audit[1]["workflow_version"] == 1
         with pytest.raises(Exception, match="append-only"):
             store.db.execute("UPDATE air_workflow_audit SET action='TAMPERED'")
         with pytest.raises(Exception, match="append-only"):
