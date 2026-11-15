@@ -183,6 +183,53 @@ def _schedule_time_triggers(stop: threading.Event) -> None:
 
 
 
+def _execute_claim_with_heartbeat(store: WorkflowStore, claim: dict) -> dict | None:
+    """Keep a claimed run leased while a potentially long action is executing."""
+    stop_heartbeat = threading.Event()
+    lease_lost = threading.Event()
+    run_id = claim["run_id"]
+    claim_version = claim["claim_version"]
+
+    def maintain_lease() -> None:
+        heartbeat_store = None
+        try:
+            heartbeat_store = WorkflowStore()
+            while not stop_heartbeat.is_set():
+                try:
+                    renewed = heartbeat_store.renew_run_lease(
+                        run_id, WORKER_ID, claim_version, lease_seconds=60,
+                    )
+                    if not renewed:
+                        lease_lost.set()
+                        return
+                except Exception as exc:
+                    log.warning("Workflow run %s lease heartbeat retrying after %s",
+                                run_id, type(exc).__name__)
+                if stop_heartbeat.wait(15.0):
+                    return
+        except Exception as exc:
+            log.warning("Workflow run %s lease heartbeat unavailable (%s)",
+                        run_id, type(exc).__name__)
+        finally:
+            if heartbeat_store is not None:
+                heartbeat_store.close()
+
+    heartbeat = threading.Thread(
+        target=maintain_lease, name=f"workflow-lease-{run_id[:8]}", daemon=True,
+    )
+    heartbeat.start()
+    try:
+        result = execute_workflow_run(
+            store, run_id, worker_id=WORKER_ID, claim_version=claim_version,
+        )
+        if lease_lost.is_set():
+            raise RuntimeError("Workflow run lease was lost while executing")
+        return result
+    finally:
+        stop_heartbeat.set()
+        heartbeat.join(timeout=5.0)
+
+
 def _execute_runs(stop: threading.Event) -> None:
     store = None
     try:
@@ -199,10 +246,7 @@ def _execute_runs(stop: threading.Event) -> None:
                         )
                         continue
                     try:
-                        result = execute_workflow_run(
-                            store, claim["run_id"], worker_id=WORKER_ID,
-                            claim_version=claim["claim_version"],
-                        )
+                        result = _execute_claim_with_heartbeat(store, claim)
                         if result:
                             log.info("AIR workflow run %s finished with %s",
                                      claim["run_id"], result.get("status"))
