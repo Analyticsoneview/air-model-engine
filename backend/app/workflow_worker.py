@@ -190,19 +190,33 @@ def _execute_runs(stop: threading.Event) -> None:
             try:
                 if store is None:
                     store = WorkflowStore()
-                run_ids = store.runnable_runs(20)
-                for run_id in run_ids:
+                claims = store.claim_runnable_runs(WORKER_ID, 20, lease_seconds=60)
+                for claim in claims:
                     if stop.is_set():
-                        break
+                        store.release_run_claim(
+                            claim["run_id"], WORKER_ID, claim["claim_version"],
+                            "Worker shutting down before execution",
+                        )
+                        continue
                     try:
-                        result = execute_workflow_run(store, run_id)
+                        result = execute_workflow_run(
+                            store, claim["run_id"], worker_id=WORKER_ID,
+                            claim_version=claim["claim_version"],
+                        )
                         if result:
                             log.info("AIR workflow run %s finished with %s",
-                                     run_id, result.get("status"))
+                                     claim["run_id"], result.get("status"))
                     except Exception as exc:
                         log.exception("AIR workflow run %s executor iteration failed (%s)",
-                                      run_id, type(exc).__name__)
-                stop.wait(1.0 if run_ids else 2.0)
+                                      claim["run_id"], type(exc).__name__)
+                        try:
+                            store.release_run_claim(
+                                claim["run_id"], WORKER_ID, claim["claim_version"],
+                                f"{type(exc).__name__}: {str(exc)[:800]}",
+                            )
+                        except Exception:
+                            log.exception("Could not release workflow run claim %s", claim["run_id"])
+                stop.wait(1.0 if claims else 2.0)
             except Exception as exc:
                 log.warning("AIR workflow execution runtime will retry after %s", type(exc).__name__)
                 if store is not None:
