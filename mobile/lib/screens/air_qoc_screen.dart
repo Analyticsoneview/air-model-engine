@@ -25,6 +25,8 @@ class _AirQocScreenState extends State<AirQocScreen> {
   String _qocScope = 'ALL';
   bool _showRejected = false;
   Map<String, dynamic>? _qocSummary;
+  Map<String, dynamic>? _backtestSummary;
+  List<Map<String, dynamic>> _backtestTrades = [];
   String? _accountId;
   String? _expiry;
   String? _error;
@@ -171,6 +173,24 @@ class _AirQocScreenState extends State<AirQocScreen> {
           'Qualified ${(result['counts'] as Map?)?['QUALIFIED'] ?? 0} · '
           'Watch ${(result['counts'] as Map?)?['WATCH'] ?? 0} · '
           'Rejected ${(result['counts'] as Map?)?['REJECT'] ?? 0}';
+    });
+  });
+
+  Future<void> _runBacktest() => _run(() async {
+    final id = _accountId;
+    if (id == null) throw const AirApiException('Select a Dhan account first.');
+    final result = await _api.dhanQocBacktest(id);
+    if (!mounted) return;
+    final summary = result['summary'] as Map<String, dynamic>? ?? const {};
+    final trades = (result['trades'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>().toList(growable: false);
+    setState(() {
+      _backtestSummary = summary;
+      _backtestTrades = trades;
+      _status = 'AIR QOC historical replay · ${summary['trades'] ?? 0} trades · '
+          'Win rate ${summary['win_rate_pct'] ?? '—'}% · '
+          'Average ${summary['average_return_pct'] ?? '—'}% · '
+          'Simple total ${summary['total_simple_return_pct'] ?? '—'}%';
     });
   });
 
@@ -381,6 +401,12 @@ class _AirQocScreenState extends State<AirQocScreen> {
                   icon: const Icon(Icons.fact_check_outlined),
                   label: const Text('RUN AIR QOC QUALIFICATION'),
                 )),
+                const SizedBox(height: 6),
+                SizedBox(width: double.infinity, child: OutlinedButton.icon(
+                  onPressed: _loading ? null : _runBacktest,
+                  icon: const Icon(Icons.history_rounded),
+                  label: const Text('RUN HISTORICAL QOC REPLAY'),
+                )),
                 if (_qocSummary != null) ...[
                   const SizedBox(height: 8),
                   Text('${_qocSummary!['disclosure'] ?? ''}',
@@ -448,6 +474,40 @@ class _AirQocScreenState extends State<AirQocScreen> {
                 ));
               }),
             ],
+          ],
+          if (_backtestSummary != null) ...[
+            const SizedBox(height: 12),
+            Card(child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('HISTORICAL QOC REPLAY', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900)),
+                const SizedBox(height: 8),
+                Wrap(spacing: 14, runSpacing: 6, children: [
+                  Text('Trades ${_backtestSummary!['trades'] ?? 0}', style: const TextStyle(fontSize: 10)),
+                  Text('Win rate ${_backtestSummary!['win_rate_pct'] ?? '—'}%', style: const TextStyle(fontSize: 10)),
+                  Text('Average ${_backtestSummary!['average_return_pct'] ?? '—'}%', style: const TextStyle(fontSize: 10)),
+                  Text('Simple total ${_backtestSummary!['total_simple_return_pct'] ?? '—'}%', style: const TextStyle(fontSize: 10)),
+                  Text('Profit factor ${_backtestSummary!['profit_factor'] ?? '—'}', style: const TextStyle(fontSize: 10)),
+                ]),
+                const SizedBox(height: 8),
+                Text('Snapshot-based simulation only. Costs, slippage and actual fills are excluded; not live or calibrated performance.',
+                    style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant)),
+                if (_backtestTrades.isNotEmpty) ...[
+                  const Divider(height: 18),
+                  ..._backtestTrades.take(10).map((trade) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 5),
+                    child: Row(children: [
+                      Expanded(child: Text('${trade['signal_date']} · ${trade['underlying']} ${trade['option_type']} ${trade['strike']}',
+                          style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700))),
+                      Text('${trade['return_pct']}%', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900,
+                          color: (trade['return_pct'] as num? ?? 0) >= 0 ? const Color(0xFF168A61) : cs.error)),
+                    ]),
+                  )),
+                ] else
+                  Text('No qualified entries with a later same-session exit snapshot were found.',
+                      style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+              ]),
+            )),
           ],
           if (_loading) const Padding(
             padding: EdgeInsets.symmetric(vertical: 12),
