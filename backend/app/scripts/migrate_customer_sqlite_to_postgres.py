@@ -68,14 +68,14 @@ DATETIME_COLUMNS = {
 
 
 def _normalize(value, column, table=None):
-    if value is None:
-        return None
-    if column in BOOL_COLUMNS:
-        return bool(value)
     if column == "request_context":
         if isinstance(value, str):
             return json.loads(value or "{}")
         return value or {}
+    if value is None:
+        return None
+    if column in BOOL_COLUMNS:
+        return bool(value)
     if table in DATETIME_COLUMNS and column in DATETIME_COLUMNS[table]:
         parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
         if parsed.tzinfo is None:
