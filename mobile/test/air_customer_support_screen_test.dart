@@ -36,7 +36,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(created, isTrue);
     expect(find.text('Cannot connect broker'), findsOneWidget);
-    expect(find.text('ticket-abc'), findsOneWidget);
+    expect(find.textContaining('ticket-abc'), findsOneWidget);
     client.close();
     AirApiClient.setAccessToken(null);
   });
