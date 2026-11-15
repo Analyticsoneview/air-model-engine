@@ -5,6 +5,7 @@ Revises: 0008_customer_access_decisions
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import JSONB
 
 revision = "0009_customer_lifecycle_reporting"
 down_revision = "0008_customer_access_decisions"
@@ -16,7 +17,7 @@ def upgrade() -> None:
     op.add_column("air_access_decision_history", sa.Column("totp_verified_at", sa.DateTime(timezone=True), nullable=True))
     op.add_column("air_access_decision_history", sa.Column("verification_reference", sa.String(36), nullable=True))
     op.add_column("air_access_decision_history", sa.Column("device_id", sa.String(128), nullable=True))
-    op.add_column("air_access_decision_history", sa.Column("request_context", sa.JSON(), nullable=False, server_default=sa.text("'{}'::jsonb")))
+    op.add_column("air_access_decision_history", sa.Column("request_context", JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")))
 
     op.create_table(
         "air_customer_lifecycle",
