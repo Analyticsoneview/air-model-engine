@@ -688,8 +688,6 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
     ),
   );
 
-  @override
-
   Widget _runtimeCard() {
     final status = (_runtime['status'] ?? 'NOT_SEEN').toString();
     final healthy = status == 'HEALTHY';
@@ -747,6 +745,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
     );
   }
 
+  @override
   Widget build(BuildContext context) => RefreshIndicator(
     onRefresh: _load,
     child: ListView(
