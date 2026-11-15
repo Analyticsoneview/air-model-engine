@@ -10,7 +10,7 @@ from app.market_data.customer_runtime import get_customer_market_data_service, g
 from app.market_data.contracts import MarketInstrument
 from app.orb_strategy import OrbSignalEngine
 from app.subscription_access import require_strategy_access
-from app.workflow_events import emit_workflow_event
+from app.workflow_events import build_idempotency_key, emit_workflow_event
 
 router = APIRouter(prefix="/api/v1/orb", tags=["AIR ORB"])
 _engines: dict[str, OrbSignalEngine] = {}
@@ -44,7 +44,7 @@ async def _engine_for(customer_id: str) -> tuple[OrbSignalEngine, object]:
                     event_type="strategy.orb.signal.created",
                     source="orb.signal-engine",
                     payload=payload,
-                    idempotency_key=f"orb:{customer_id}:{signal['signal_id']}",
+                    idempotency_key=build_idempotency_key("orb", customer_id, signal["signal_id"]),
                 ))
             try:
                 loop.call_soon_threadsafe(schedule_publish)
