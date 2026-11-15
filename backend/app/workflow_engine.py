@@ -387,6 +387,9 @@ class WorkflowStore:
         for definition in definitions:
             config = json.loads(definition["trigger_config_json"])
             trigger_type = definition["trigger_type"]
+            workflow_chain = payload.get("workflow_chain")
+            if isinstance(workflow_chain, list) and definition["workflow_id"] in workflow_chain:
+                continue
             scoped_customer = config.get("customer_id")
             if scoped_customer and str(payload.get("customer_id") or "") != str(scoped_customer):
                 continue
