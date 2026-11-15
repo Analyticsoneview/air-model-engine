@@ -352,7 +352,7 @@ class AccessStore:
         allowed = {"ALL", "NEVER_SUBSCRIBED", "EXPIRED", "ACTIVE", "CANCELLED", "INACTIVE", "PENDING_ACCESS", "OPTED_OUT", "NOT_GRANTED"}
         if segment not in allowed:
             raise ValueError("Unsupported customer segment")
-        limit = max(1, min(int(limit), 500))
+        limit = max(1, min(int(limit), 10000))
         rows = self.db.execute("""
             SELECT r.mobile_e164 AS customer_id,
                    MIN(r.created_at) AS registered_at,
