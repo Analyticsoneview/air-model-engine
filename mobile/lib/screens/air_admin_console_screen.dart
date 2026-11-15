@@ -480,7 +480,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
             _reportMetric('Rejected', metrics['rejected']),
             _reportMetric('Pending', metrics['pending']),
             _reportMetric('First plans', metrics['first_time_plan_availed']),
-            _reportMetric('Approved · no plan', metrics['approved_but_no_plan_availed']),
+            _reportMetric('Approved · no plan (current)', metrics['approved_but_no_plan_availed']),
           ]),
           const SizedBox(height: 8),
           Text('Registration → approval: ${conversion['registration_to_approval_percent'] ?? '—'}%'),
@@ -512,7 +512,11 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
       const Text('One row per mobile identity. Customers with multiple devices are deduplicated. Promotional consent is customer-controlled; no consent is assumed.'),
       const SizedBox(height: 12),
       Wrap(spacing: 8, runSpacing: 8, children: [
-        for (final key in ['ALL','NEVER_SUBSCRIBED','EXPIRED','CANCELLED','INACTIVE','ACTIVE','PENDING_ACCESS','ELIGIBLE_FOR_PROMOTIONS','NOT_GRANTED','OPTED_OUT'])
+        Chip(label: Text('NEW CUSTOMERS · ${_customers.where((e) => e['customer_type'] == 'NEW').length}')),
+        Chip(label: Text('EXISTING CUSTOMERS · ${_customers.where((e) => e['customer_type'] == 'EXISTING').length}')),
+        Chip(label: Text('PENDING APPROVALS · ${_segmentCounts['PENDING_ACCESS'] ?? 0}')),
+        Chip(label: Text('NO PLAN AVAILED · ${_segmentCounts['NEVER_SUBSCRIBED'] ?? 0}')),
+        for (final key in ['ALL','EXPIRED','CANCELLED','INACTIVE','ACTIVE','ELIGIBLE_FOR_PROMOTIONS','NOT_GRANTED','OPTED_OUT'])
           Chip(label: Text('${key.replaceAll('_',' ')} · ${_segmentCounts[key] ?? 0}')),
       ]),
       const SizedBox(height: 12),
