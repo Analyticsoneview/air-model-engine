@@ -59,6 +59,16 @@ class AirQocQualificationTests(unittest.TestCase):
         result = qualify_option_observations(wrong, mode="LIVE", now=NOW)
         self.assertIn("UNDERLYING_DIRECTION_NOT_CONFIRMED", result["signals"][0]["gate_failures"])
 
+    def test_live_mode_rejects_snapshot_pairs_more_than_five_minutes_apart(self):
+        rows = [
+            observation("2026-11-16T09:50:00+05:30", spot=100, premium=10,
+                        volume=1000, oi=5000, bid=9.9, ask=10.1),
+            observation("2026-11-16T09:59:30+05:30", spot=101, premium=11,
+                        volume=1500, oi=5500, bid=10.9, ask=11.1),
+        ]
+        result = qualify_option_observations(rows, mode="LIVE", now=NOW)
+        self.assertIn("SNAPSHOT_PAIR_GAP_TOO_WIDE", result["signals"][0]["gate_failures"])
+
     def test_bad_spread_and_zero_quote_quantity_fail_liquidity_gate(self):
         bad = [dict(self.rows[0]), dict(self.rows[1], bid_price=8, ask_price=12, bid_quantity=0)]
         result = qualify_option_observations(bad, mode="LIVE", now=NOW)
