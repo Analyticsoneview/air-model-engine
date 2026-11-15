@@ -13,6 +13,7 @@ void main() {
   testWidgets('Admin console renders lifecycle summary and daily conversion report', (tester) async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(storage, (call) async => null);
+    final customerEndpointRequests = <Uri>[];
     final client = MockClient((request) async {
       final path = request.url.path;
       Map<String, dynamic> data = {};
@@ -24,7 +25,8 @@ void main() {
         data = {'requests': []};
       } else if (path.endsWith('/access-decisions')) {
         data = {'decisions': []};
-      } else if (path.endsWith('/admin/customers')) {
+      } else if (path.contains('/api/v1/admin/customers') && !path.contains('/marketing/')) {
+        customerEndpointRequests.add(request.url);
         data = {'customers': [{
           'customer_id': '+919876543210',
           'first_registered_at': '2026-11-15T09:00:00+05:30',
@@ -86,6 +88,8 @@ void main() {
     await tester.tap(find.text('DAILY CONVERSION REPORT'));
     await tester.pumpAndSettle();
     expect(find.text('RUN REPORT'), findsOneWidget);
+    expect(customerEndpointRequests, isNotEmpty,
+        reason: 'The admin customer-register endpoint must be requested by the console.');
     expect(find.textContaining('1 customer(s) displayed'), findsOneWidget);
     await tester.scrollUntilVisible(find.textContaining('••••210'), 300, scrollable: verticalScroll);
     await tester.pumpAndSettle();
