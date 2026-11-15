@@ -74,6 +74,14 @@ class AccessStore:
             BEFORE DELETE ON air_access_decision_history BEGIN
                 SELECT RAISE(ABORT, 'air_access_decision_history is append-only');
             END;
+            CREATE TRIGGER IF NOT EXISTS trg_air_subscription_history_no_update
+            BEFORE UPDATE ON air_customer_subscription_history BEGIN
+                SELECT RAISE(ABORT, 'air_customer_subscription_history is append-only');
+            END;
+            CREATE TRIGGER IF NOT EXISTS trg_air_subscription_history_no_delete
+            BEFORE DELETE ON air_customer_subscription_history BEGIN
+                SELECT RAISE(ABORT, 'air_customer_subscription_history is append-only');
+            END;
         """)
         self.db.commit()
         self.db.execute("""
