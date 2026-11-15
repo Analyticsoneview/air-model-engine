@@ -107,11 +107,18 @@ def test_time_trigger_is_timezone_aware_and_weekday_configured(tmp_path):
         workflow = store.create_workflow(
             name="QOC morning scan", created_by="admin", trigger_type="TIME",
             trigger_config={"timezone": "Asia/Kolkata", "hour": 9, "minute": 18,
-                            "days_of_week": [0, 1, 2, 3, 4], "misfire_grace_seconds": 30},
+                            "days_of_week": [0, 1, 2, 3, 4], "misfire_grace_seconds": 30, "customer_id": "customer-time"},
         )
         store.set_workflow_enabled(workflow["workflow_id"], True)
         due = store.due_time_workflows(datetime(2026, 11, 16, 3, 48, tzinfo=ZoneInfo("UTC")))
         assert [item["workflow_id"] for item in due] == [workflow["workflow_id"]]
+        assert due[0]["customer_id"] == "customer-time"
+        event = store.publish_event(
+            event_type="workflow.time.triggered", source="workflow.scheduler",
+            payload={"workflow_id": workflow["workflow_id"], "customer_id": "customer-time"},
+            idempotency_key="time-customer-scope",
+        )
+        assert len(store.process_event(event["event_id"])) == 1
         later = store.due_time_workflows(datetime(2026, 11, 16, 3, 49, tzinfo=ZoneInfo("UTC")))
         assert later == []
     finally:
