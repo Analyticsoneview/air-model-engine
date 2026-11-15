@@ -31,3 +31,7 @@ Every create, reply, status change, priority change and assignment appends an ac
 ## Persistence and rollout
 
 Alembic revision `0011_admin_support_center` adds ticket and event tables plus indexes and an immutable-event trigger. PostgreSQL is selected when AIR_CUSTOMER_DATABASE_URL or AIR_DATABASE_URL is configured. SQLite is retained only as the local development/test fallback. Apply `python -m alembic upgrade head` before starting an instance configured for PostgreSQL.
+
+## Mobile access
+
+Customers open AIR More → AIR Support to create a ticket, review ticket activity and reply. Administrators open the Support tab in the Admin Console to triage, assign and update tickets.
