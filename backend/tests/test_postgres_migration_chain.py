@@ -17,6 +17,7 @@ EXPECTED_CHAIN = [
     "0010_portfolio_risk_foundation",
     "0011_admin_support_center",
     "0012_workflow_engine_foundation",
+    "0013_workflow_run_ledger",
 ]
 
 
