@@ -169,14 +169,15 @@ class PostgresAccessStore:
                      "role": reviewer_role, "note": note[:500], "counter": int(totp_counter),
                      "verified_at": verified_at, "verification_reference": verification_reference,
                      "device": current.device_id, "context": json.dumps(request_context or {})})
-                if status == "APPROVED":
-                    conn.execute(text("""INSERT INTO air_customer_lifecycle
-                        (customer_id,first_registered_at,first_approved_at)
-                        VALUES(:customer,CAST(:registered AS timestamptz),:approved)
+                if status in {"APPROVED", "REJECTED"}:
+                    lifecycle_column = "first_approved_at" if status == "APPROVED" else "first_rejected_at"
+                    conn.execute(text(f"""INSERT INTO air_customer_lifecycle
+                        (customer_id,first_registered_at,{lifecycle_column})
+                        VALUES(:customer,CAST(:registered AS timestamptz),:decision_at)
                         ON CONFLICT(customer_id) DO UPDATE SET
-                        first_approved_at=COALESCE(air_customer_lifecycle.first_approved_at,EXCLUDED.first_approved_at),
+                        {lifecycle_column}=COALESCE(air_customer_lifecycle.{lifecycle_column},EXCLUDED.{lifecycle_column}),
                         updated_at=CURRENT_TIMESTAMP"""),
-                        {"customer": current.mobile_e164, "registered": current.created_at, "approved": verified_at})
+                        {"customer": current.mobile_e164, "registered": current.created_at, "decision_at": verified_at})
                 else:
                     conn.execute(text("UPDATE air_device_sessions SET active=false WHERE request_id=:id"), {"id": request_id})
         return result.rowcount > 0
@@ -284,7 +285,7 @@ class PostgresAccessStore:
                 CASE WHEN BOOL_OR(r.status='APPROVED') THEN 'APPROVED'
                      WHEN BOOL_OR(r.status='PENDING') THEN 'PENDING'
                      WHEN BOOL_OR(r.status='BLOCKED') THEN 'BLOCKED' ELSE 'REJECTED' END AS access_status,
-                l.first_approved_at,l.first_plan_availed_at
+                l.first_approved_at,l.first_rejected_at,l.first_plan_availed_at
                 FROM air_access_requests r LEFT JOIN air_customer_lifecycle l ON l.customer_id=r.mobile_e164
                 GROUP BY r.mobile_e164,l.first_approved_at,l.first_plan_availed_at
                 ORDER BY MAX(r.created_at) DESC""")).mappings().all()
@@ -305,7 +306,7 @@ class PostgresAccessStore:
                     "subscription_status": sub_status,
                     "plan_code": subscription["plan_code"] if subscription else None,
                     "subscription_expires_at": subscription["expires_at"] if subscription else None,
-                    "first_approved_at": row["first_approved_at"], "first_plan_availed_at": row["first_plan_availed_at"],
+                    "first_approved_at": row["first_approved_at"], "first_rejected_at": row["first_rejected_at"], "first_plan_availed_at": row["first_plan_availed_at"],
                     "first_registered_at": row["registered_at"],
                     "promotional_consent": consent, "marketing_status": marketing_status,
                     "consent_updated_at": pref["consent_updated_at"] if pref else None,
