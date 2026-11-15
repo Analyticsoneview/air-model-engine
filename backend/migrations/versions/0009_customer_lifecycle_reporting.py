@@ -55,25 +55,25 @@ def upgrade() -> None:
         FROM air_access_requests GROUP BY mobile_e164
         ON CONFLICT(customer_id) DO NOTHING
     """)
+    # Prefer complete decision history; fall back to the legacy current request row
+    # where only the latest reviewer timestamp was retained before revision 0008.
     op.execute("""
         UPDATE air_customer_lifecycle l
-        SET first_approved_at = x.first_approved_at
-        FROM (
-            SELECT mobile_e164, MIN(decided_at::timestamptz) AS first_approved_at
-            FROM air_access_decision_history
-            WHERE new_status='APPROVED'
-            GROUP BY mobile_e164
-        ) x WHERE x.mobile_e164=l.customer_id
+        SET first_approved_at = COALESCE(
+            (SELECT MIN(d.decided_at::timestamptz) FROM air_access_decision_history d
+             WHERE d.mobile_e164=l.customer_id AND d.new_status='APPROVED'),
+            (SELECT MIN(r.reviewed_at::timestamptz) FROM air_access_requests r
+             WHERE r.mobile_e164=l.customer_id AND r.status='APPROVED' AND r.reviewed_at IS NOT NULL)
+        )
     """)
     op.execute("""
         UPDATE air_customer_lifecycle l
-        SET first_rejected_at = x.first_rejected_at
-        FROM (
-            SELECT mobile_e164, MIN(decided_at::timestamptz) AS first_rejected_at
-            FROM air_access_decision_history
-            WHERE new_status='REJECTED'
-            GROUP BY mobile_e164
-        ) x WHERE x.mobile_e164=l.customer_id
+        SET first_rejected_at = COALESCE(
+            (SELECT MIN(d.decided_at::timestamptz) FROM air_access_decision_history d
+             WHERE d.mobile_e164=l.customer_id AND d.new_status='REJECTED'),
+            (SELECT MIN(r.reviewed_at::timestamptz) FROM air_access_requests r
+             WHERE r.mobile_e164=l.customer_id AND r.status='REJECTED' AND r.reviewed_at IS NOT NULL)
+        )
     """)
     op.execute("""
         INSERT INTO air_customer_subscription_history
