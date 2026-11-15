@@ -50,12 +50,12 @@ The installer creates a single-node Docker Swarm deployment. It is not a multi-n
 On a fresh Ubuntu server, first clone the private repository. Git prompts for your GitHub username and a fine-grained token with read-only Contents permission; do not put the token in the command or remote URL:
 
 ~~~bash
-git clone --branch feat/air-telegram-alerts https://github.com/Analyticsoneview/air-model-engine.git
+git clone --branch main https://github.com/Analyticsoneview/air-model-engine.git
 cd air-model-engine
-sudo bash deploy/install-air-ubuntu.sh
+sudo env AIR_INSTALL_REF=main bash deploy/install-air-ubuntu.sh
 ~~~
 
-The installer detects and updates this clean checkout. Once PR #7 is merged, use the main branch instead. If you already have a clean checkout, the installer can also clone into /opt/air-model-engine when run from a copied script outside the repository.
+The installer detects and updates this clean checkout. Use the reviewed `main` branch for installation. If you already have a clean checkout, the installer can also clone into /opt/air-model-engine when run from a copied script outside the repository.
 
 The installer:
 1. Installs Docker Engine and initializes single-node Swarm if needed.
@@ -68,7 +68,7 @@ The installer:
 8. Deploys the API, PWA and Caddy reverse proxy.
 9. Waits for all three Swarm services to converge to one replica.
 
-The default installer branch is feat/air-telegram-alerts while its pull request is awaiting verification. After the reviewed pull request is merged and you have cloned main, run `sudo env AIR_INSTALL_REF=main bash deploy/install-air-ubuntu.sh` to install from main. Do not deploy an unreviewed branch as a production release.
+The installer defaults to the checked-out branch unless `AIR_INSTALL_REF` is supplied. For production, explicitly set `AIR_INSTALL_REF=main` and use only a reviewed commit on `main`. Do not deploy an unreviewed feature branch as a production release.
 
 ## DNS and TLS
 
@@ -105,11 +105,11 @@ Because OTP/phone verification was intentionally omitted, the mobile number is n
 
 ## GitHub Actions self-hosted runner
 
-For PR #7 backend and Android verification, use the cross-platform one-command utility in the repository root. It supports Windows 10/11 x64 and common systemd-based Linux distributions (Ubuntu, Debian, Fedora, RHEL, Rocky Linux and AlmaLinux). Follow [SELF_HOSTED_RUNNER.md](SELF_HOSTED_RUNNER.md).
+For repository CI verification on a trusted Windows 10/11 x64 or supported systemd-based Linux PC, use the cross-platform one-command utility in the repository root. Follow [SELF_HOSTED_RUNNER.md](SELF_HOSTED_RUNNER.md).
 
-The utility uses GitHub CLI browser authentication, requests a short-lived runner registration token directly from GitHub, registers the PC, sets `AIR_CI_RUNNER_LABELS`, waits for the runner to become Online, then dispatches and watches the backend and Android workflows. It does not set `AIR_RUNNER_LABELS`; Linux-only Docker/PWA workflows remain on their separately configured Linux runner.
+The utility uses GitHub CLI browser authentication, requests a short-lived runner registration token directly from GitHub, registers the PC, sets `AIR_CI_RUNNER_LABELS`, and waits for the runner to become Online before dispatching and watching the workflows configured for that runner. Linux-only Docker/PWA workflows use their separately configured Linux runner.
 
-The runner is a privileged CI machine. Do not route untrusted pull requests to it. PR #7 remains unmerged until backend tests, Flutter analysis/tests and the Android ARM64 build pass on the current PR head.
+The runner is a privileged CI machine. Do not route untrusted pull requests to it. Require backend tests, Flutter analysis/tests and the relevant platform build to pass on the exact commit under review before merging.
 
 ## Android customer APK
 
