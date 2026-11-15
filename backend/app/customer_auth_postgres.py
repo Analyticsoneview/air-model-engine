@@ -200,7 +200,7 @@ class PostgresAccessStore:
                 {"sid": session_id}).first()
         return bool(row and row.active and row.status == "APPROVED")
 
-    def assign_subscription(self, customer_id: str, plan_code: str, starts_at: str, expires_at: str):
+    def assign_subscription(self, customer_id: str, plan_code: str, starts_at: str, expires_at: str, assigned_by_admin_id: str | None = None):
         plan = plan_code.upper()
         if plan not in _PLANS:
             raise ValueError("Unsupported AIR subscription plan")
@@ -220,10 +220,10 @@ class PostgresAccessStore:
                  "expires": expires.isoformat()})
             assigned_at = datetime.now(timezone.utc)
             conn.execute(text("""INSERT INTO air_customer_subscription_history
-                (assignment_id,customer_id,plan_code,starts_at,expires_at,status,assigned_at)
-                VALUES(:id,:customer,:plan,:starts,:expires,'ACTIVE',:assigned_at)"""),
+                (assignment_id,customer_id,plan_code,starts_at,expires_at,status,assigned_by_admin_id,assigned_at)
+                VALUES(:id,:customer,:plan,:starts,:expires,'ACTIVE',:admin,:assigned_at)"""),
                 {"id": str(uuid4()), "customer": customer_id, "plan": plan,
-                 "starts": starts, "expires": expires, "assigned_at": assigned_at})
+                 "starts": starts, "expires": expires, "admin": assigned_by_admin_id, "assigned_at": assigned_at})
             conn.execute(text("""INSERT INTO air_customer_lifecycle
                 (customer_id,first_registered_at,first_plan_availed_at)
                 SELECT :customer,MIN(created_at::timestamptz),:assigned_at
