@@ -71,7 +71,7 @@ class AccessStore:
                  WHERE d.mobile_e164=r.mobile_e164 AND d.new_status='APPROVED'),
                 (SELECT MIN(d.decided_at) FROM air_access_decision_history d
                  WHERE d.mobile_e164=r.mobile_e164 AND d.new_status='REJECTED'),
-                (SELECT MIN(s.starts_at) FROM air_customer_subscriptions s
+                (SELECT MIN(s.updated_at) FROM air_customer_subscriptions s
                  WHERE s.customer_id=r.mobile_e164)
             FROM air_access_requests r GROUP BY r.mobile_e164""")
         self.db.execute("""INSERT OR IGNORE INTO air_customer_subscription_history
@@ -207,7 +207,7 @@ class AccessStore:
         if end_date: clauses.append("date(decided_at)<=date(?)"); params.append(end_date)
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         rows = self.db.execute("""SELECT decision_id,request_id,mobile_e164,previous_status,new_status,
-            reviewer_admin_id,reviewer_role,note,totp_counter,decided_at FROM air_access_decision_history""" +
+            reviewer_admin_id,reviewer_role,note,totp_counter,authenticator_verified_at,verification_reference,request_context,decided_at FROM air_access_decision_history""" +
             where + " ORDER BY decided_at DESC,decision_id DESC", params).fetchall()
         return [dict(row) for row in rows]
 
@@ -305,7 +305,7 @@ class AccessStore:
                                          (customer_id,)).fetchone()[0] or starts.isoformat()
             self.db.execute("""INSERT INTO air_customer_lifecycle
                 (customer_id,first_registered_at,first_plan_availed_at)
-                VALUES(?,?,?) ON CONFLICT(customer_id) DO UPDATE SET
+                VALUES(?,?,CURRENT_TIMESTAMP) ON CONFLICT(customer_id) DO UPDATE SET
                 first_plan_availed_at=COALESCE(first_plan_availed_at,excluded.first_plan_availed_at),
                 updated_at=CURRENT_TIMESTAMP""", (customer_id, registered, starts.isoformat()))
 
@@ -383,8 +383,9 @@ class AccessStore:
                 FROM air_customer_lifecycle WHERE customer_id=?""", (customer_id,)).fetchone()
             if lifecycle:
                 item.update(dict(lifecycle))
+                item["first_access_request_at"] = lifecycle["first_registered_at"]
             else:
-                item.update({"first_registered_at": row["registered_at"],
+                item.update({"first_registered_at": row["registered_at"], "first_access_request_at": row["registered_at"],
                              "first_approved_at": None, "first_rejected_at": None, "first_plan_availed_at": None})
             if needle and needle not in customer_id.lower():
                 continue
