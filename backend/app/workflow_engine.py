@@ -17,7 +17,7 @@ from uuid import uuid4
 from app.db_compat import PostgresConnection, read_database_url
 
 TRIGGER_TYPES = {"EVENT", "TIME", "STRATEGY", "CONDITION"}
-EXECUTION_MODES = {"RESEARCH_ONLY", "ALERT_NOTIFY", "AUTHORIZED_EXECUTION"}
+EXECUTION_MODES = {"RESEARCH_ONLY", "ALERT_NOTIFY"}
 
 
 def _now() -> str:
