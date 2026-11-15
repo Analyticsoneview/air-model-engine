@@ -8,10 +8,12 @@ from __future__ import annotations
 import json
 import logging
 import os
+import socket
 import threading
 import time
 from pathlib import Path
 from urllib.parse import quote
+from datetime import datetime, timezone
 
 import pika
 
@@ -23,6 +25,9 @@ EXCHANGE = "air.events"
 QUEUE = "air.workflow.dispatch"
 DEAD_EXCHANGE = "air.events.dead"
 DEAD_QUEUE = "air.workflow.dead"
+WORKER_ID = f"{socket.gethostname()}:{os.getpid()}"
+WORKER_STARTED_AT = datetime.now(timezone.utc).isoformat()
+_CONSUMER_CONNECTED = False
 
 
 def _rabbit_url() -> str:
@@ -198,6 +203,7 @@ def _execute_runs(stop: threading.Event) -> None:
 
 
 def _consume(stop: threading.Event) -> None:
+    global _CONSUMER_CONNECTED
     while not stop.is_set():
         connection = None
         store = None
@@ -205,6 +211,7 @@ def _consume(stop: threading.Event) -> None:
             connection = _connection()
             channel = connection.channel()
             _declare(channel)
+            _CONSUMER_CONNECTED = True
             channel.basic_qos(prefetch_count=20)
             store = WorkflowStore()
 
@@ -225,13 +232,47 @@ def _consume(stop: threading.Event) -> None:
             while not stop.is_set() and connection.is_open:
                 connection.process_data_events(time_limit=1)
         except Exception as exc:
+            _CONSUMER_CONNECTED = False
             log.warning("AIR workflow consumer reconnecting after %s", type(exc).__name__)
             stop.wait(3.0)
         finally:
+            _CONSUMER_CONNECTED = False
             if store:
                 store.close()
             if connection and connection.is_open:
                 connection.close()
+
+
+def _record_heartbeat(status: str, details: dict) -> None:
+    store = WorkflowStore()
+    try:
+        store.record_worker_heartbeat(
+            worker_id=WORKER_ID, component="workflow-runtime", status=status,
+            details=details, started_at=WORKER_STARTED_AT,
+        )
+    finally:
+        store.close()
+
+
+def _heartbeat_loop(stop: threading.Event, components: list[threading.Thread]) -> None:
+    while not stop.is_set():
+        live = {thread.name: thread.is_alive() for thread in components}
+        connected = bool(_CONSUMER_CONNECTED)
+        healthy = connected and all(live.values())
+        status = "RUNNING" if healthy else "DEGRADED"
+        try:
+            _record_heartbeat(status, {
+                "rabbitmq_connected": connected,
+                "components": live,
+                "pid": os.getpid(),
+            })
+        except Exception as exc:
+            log.warning("Could not persist workflow worker heartbeat (%s)", type(exc).__name__)
+        stop.wait(10.0)
+    try:
+        _record_heartbeat("STOPPING", {"pid": os.getpid(), "rabbitmq_connected": bool(_CONSUMER_CONNECTED)})
+    except Exception as exc:
+        log.warning("Could not persist workflow worker shutdown heartbeat (%s)", type(exc).__name__)
 
 
 def main() -> None:
@@ -246,6 +287,11 @@ def main() -> None:
     publisher.start()
     scheduler.start()
     executor.start()
+    heartbeat = threading.Thread(
+        target=_heartbeat_loop, args=(stop, [publisher, scheduler, executor]),
+        name="workflow-heartbeat", daemon=True,
+    )
+    heartbeat.start()
     log.info("AIR workflow runtime starting (RabbitMQ transport; no order execution)")
     try:
         _consume(stop)
@@ -256,6 +302,7 @@ def main() -> None:
         publisher.join(timeout=5)
         scheduler.join(timeout=5)
         executor.join(timeout=5)
+        heartbeat.join(timeout=5)
 
 
 if __name__ == "__main__":
