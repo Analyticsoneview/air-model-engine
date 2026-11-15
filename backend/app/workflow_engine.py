@@ -1,8 +1,7 @@
-"""AIR workflow-engine foundation: validated contracts and durable event intake.
+"""AIR workflow engine persistence: definitions, events, outbox, runs and operations.
 
-The first phase deliberately persists events before dispatch. A transactional outbox
-allows RabbitMQ (recommended transport) to be added without losing events between a
-database commit and broker publish. No workflow action or broker order is executed here.
+PostgreSQL is the production system of record. SQLite remains the local/test path.
+The transactional outbox decouples durable event acceptance from RabbitMQ delivery.
 """
 from __future__ import annotations
 
