@@ -113,6 +113,7 @@ def test_workflow_executor_retries_failed_step_with_bounded_attempts(tmp_path, m
     ({"steps": [{"id": "notify", "action": "notify.telegram", "params": {}}]}, "RESEARCH_ONLY"),
     ({"steps": [{"id": "a", "action": "event.emit", "params": {"event_type": "x"}},
                 {"id": "b", "action": "event.emit", "params": {"event_type": "y", "source_step": "missing"}}]}, "RESEARCH_ONLY"),
+    ({"steps": [{"id": "notify", "action": "notify.telegram", "params": {"strategy": "UNSAFE_ROUTE"}}]}, "ALERT_NOTIFY"),
 ])
 def test_workflow_rejects_unsafe_or_invalid_step_definitions(tmp_path, spec, mode):
     store = WorkflowStore(str(tmp_path / "invalid.sqlite3"))
