@@ -328,12 +328,58 @@ class WorkflowStore:
                 (exchange, parsed_date.isoformat(), status_value, str(description or "")[:240],
                  session_open, session_close, str(source or "ADMIN")[:240], actor, now),
             )
+            self.db.execute(
+                """UPDATE air_exchange_calendar_coverage SET status='INCOMPLETE',
+                   verified_by=?,verified_at=? WHERE exchange_code=? AND calendar_year=?""",
+                (actor, now, exchange, parsed_date.year),
+            )
         return {
             "exchange_code": exchange, "session_date": parsed_date.isoformat(),
             "status": status_value, "description": str(description or "")[:240],
             "session_open": session_open, "session_close": session_close,
             "source": str(source or "ADMIN")[:240], "updated_by": actor, "updated_at": now,
         }
+
+    def get_exchange_calendar_coverage(self, exchange_code: str, calendar_year: int) -> dict | None:
+        row = self.db.execute(
+            "SELECT * FROM air_exchange_calendar_coverage WHERE exchange_code=? AND calendar_year=?",
+            (str(exchange_code).strip().upper(), int(calendar_year)),
+        ).fetchone()
+        if not row:
+            return None
+        return {
+            "exchange_code": row["exchange_code"], "calendar_year": row["calendar_year"],
+            "status": row["status"], "source": row["source"],
+            "verified_by": row["verified_by"], "verified_at": row["verified_at"],
+        }
+
+    def set_exchange_calendar_coverage(
+        self, *, exchange_code: str, calendar_year: int, status: str,
+        source: str, verified_by: str,
+    ) -> dict:
+        exchange = str(exchange_code).strip().upper()
+        year = int(calendar_year)
+        status_value = str(status).strip().upper()
+        actor = str(verified_by).strip()
+        source_value = str(source).strip()
+        if not 2 <= len(exchange) <= 8 or not 2000 <= year <= 2100:
+            raise ValueError("Invalid exchange code or calendar year")
+        if status_value not in {"VERIFIED", "INCOMPLETE"}:
+            raise ValueError("Coverage status must be VERIFIED or INCOMPLETE")
+        if not actor or len(actor) > 128 or not source_value or len(source_value) > 240:
+            raise ValueError("Verification actor and source are required")
+        now = _now()
+        with self.db:
+            self.db.execute(
+                """INSERT INTO air_exchange_calendar_coverage
+                   (exchange_code,calendar_year,status,source,verified_by,verified_at)
+                   VALUES(?,?,?,?,?,?)
+                   ON CONFLICT(exchange_code,calendar_year) DO UPDATE SET
+                     status=excluded.status,source=excluded.source,
+                     verified_by=excluded.verified_by,verified_at=excluded.verified_at""",
+                (exchange, year, status_value, source_value, actor, now),
+            )
+        return self.get_exchange_calendar_coverage(exchange, year)
 
     def list_exchange_calendar(
         self, *, exchange_code: str, from_date: str | None = None,
@@ -792,6 +838,12 @@ class WorkflowStore:
             exchange = str(config.get("exchange") or "").strip().upper()
             calendar_status = None
             if exchange:
+                coverage = self.db.execute(
+                    "SELECT status FROM air_exchange_calendar_coverage WHERE exchange_code=? AND calendar_year=?",
+                    (exchange, local.year),
+                ).fetchone()
+                if not coverage or coverage["status"] != "VERIFIED":
+                    continue
                 calendar_row = self.db.execute(
                     "SELECT status FROM air_exchange_calendar WHERE exchange_code=? AND session_date=?",
                     (exchange, local.date().isoformat()),
