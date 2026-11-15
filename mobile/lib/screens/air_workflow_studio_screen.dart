@@ -52,6 +52,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
   List<Map<String, dynamic>> _workflows = [];
   List<Map<String, dynamic>> _runs = [];
   List<Map<String, dynamic>> _calendarSessions = [];
+  Map<String, dynamic> _runtime = {};
   final Map<String, List<Map<String, dynamic>>> _steps = {};
   final Set<String> _expandedRuns = {};
 
@@ -140,6 +141,11 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
           .whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
       _calendarSessions = (results[2]['sessions'] as List? ?? [])
           .whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+      try {
+        _runtime = await _request('GET', '/api/v1/admin/workflows/runtime');
+      } catch (_) {
+        _runtime = {'status': 'NOT_SEEN', 'workers': [], 'metrics': {}};
+      }
     } catch (e) {
       _error = e.toString();
     } finally {
@@ -682,6 +688,63 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
     ),
   );
 
+  Widget _runtimeCard() {
+    final status = (_runtime['status'] ?? 'NOT_SEEN').toString();
+    final healthy = status == 'HEALTHY';
+    final workers = (_runtime['workers'] as List? ?? [])
+        .whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+    final metrics = _runtime['metrics'] is Map
+        ? Map<String, dynamic>.from(_runtime['metrics'] as Map)
+        : <String, dynamic>{};
+    final outbox = metrics['outbox'] is Map
+        ? Map<String, dynamic>.from(metrics['outbox'] as Map)
+        : <String, dynamic>{};
+    final runs = metrics['runs'] is Map
+        ? Map<String, dynamic>.from(metrics['runs'] as Map)
+        : <String, dynamic>{};
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            const Expanded(child: Text('WORKFLOW RUNTIME HEALTH',
+                style: TextStyle(fontWeight: FontWeight.w800))),
+            Text(status, style: TextStyle(
+              fontWeight: FontWeight.w800,
+              color: healthy ? Colors.green : Theme.of(context).colorScheme.error,
+            )),
+          ]),
+          const SizedBox(height: 8),
+          Wrap(spacing: 16, runSpacing: 8, children: [
+            Text('Outbox pending: ${outbox['pending'] ?? 0}'),
+            Text('Outbox failed: ${outbox['failed'] ?? 0}'),
+            Text('Runs queued: ${runs['queued'] ?? 0}'),
+            Text('Runs failed: ${runs['failed'] ?? 0}'),
+          ]),
+          const SizedBox(height: 8),
+          if (workers.isEmpty)
+            const Text('No workflow worker heartbeat has been received yet.')
+          else
+            for (final worker in workers)
+              ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(
+                  worker['healthy'] == true ? Icons.check_circle : Icons.warning_amber_rounded,
+                  color: worker['healthy'] == true ? Colors.green : Theme.of(context).colorScheme.error,
+                ),
+                title: Text('${worker['component'] ?? 'worker'} · ${worker['status'] ?? 'UNKNOWN'}'),
+                subtitle: Text(
+                  '${worker['worker_id'] ?? ''} · last seen ${worker['age_seconds'] ?? 'unknown'}s ago'
+                  '${worker['details'] is Map && worker['details']['rabbitmq_connected'] == true ? ' · RabbitMQ connected' : ''}',
+                ),
+              ),
+          const Text('Health is based on a worker heartbeat received within 45 seconds.'),
+        ]),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => RefreshIndicator(
     onRefresh: _load,
@@ -696,6 +759,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
         ),
+        _runtimeCard(),
         _builder(),
         _workflowList(),
         _calendarCard(),
