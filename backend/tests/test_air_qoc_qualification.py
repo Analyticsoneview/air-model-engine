@@ -48,7 +48,7 @@ class AirQocQualificationTests(unittest.TestCase):
         result = qualify_option_observations(self.rows[:1], mode="LIVE", now=NOW)
         signal = result["signals"][0]
         self.assertEqual(signal["classification"], "REJECT")
-        self.assertIn("SECOND_OBSERVATION_REQUIRED", signal["gate_failures"])
+        self.assertIn("SECOND_SAME_SESSION_OBSERVATION_REQUIRED", signal["gate_failures"])
         self.assertIn("UNDERLYING_DIRECTION_NOT_CONFIRMED", signal["gate_failures"])
 
     def test_stale_and_wrong_direction_data_are_rejected(self):
@@ -85,6 +85,16 @@ class AirQocQualificationTests(unittest.TestCase):
         self.assertEqual(signal["gate_failures"], [])
         self.assertIn(signal["classification"], {"WATCH", "QUALIFIED"})
         self.assertLess(signal["score"], 90)
+
+    def test_prior_day_snapshot_cannot_confirm_current_session_signal(self):
+        rows = [
+            dict(self.rows[0], observed_at="2026-11-13T15:20:00+05:30"),
+            dict(self.rows[1], observed_at="2026-11-16T09:59:30+05:30"),
+        ]
+        result = qualify_option_observations(rows, mode="LIVE", now=NOW)
+        signal = result["signals"][0]
+        self.assertEqual(signal["classification"], "REJECT")
+        self.assertIn("SECOND_SAME_SESSION_OBSERVATION_REQUIRED", signal["gate_failures"])
 
     def test_invalid_mode_is_rejected(self):
         with self.assertRaises(ValueError):
