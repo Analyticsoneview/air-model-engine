@@ -131,3 +131,16 @@ def test_outbox_retry_is_bounded_and_success_can_be_recorded(tmp_path):
         assert row["status"] == "PUBLISHED"
     finally:
         store.close()
+
+
+def test_outbox_becomes_failed_after_retry_limit(tmp_path):
+    store = WorkflowStore(str(tmp_path / "workflow.sqlite3"))
+    try:
+        event = store.publish_event(event_type="retry.event", source="test", idempotency_key="retry-final")
+        item = store.pending_outbox()[0]
+        store.mark_outbox_failed(item["outbox_id"], 11, "repeated failure")
+        row = store.db.execute("SELECT status,attempts FROM air_workflow_outbox WHERE event_id=?", (event["event_id"],)).fetchone()
+        assert row["status"] == "FAILED"
+        assert row["attempts"] == 12
+    finally:
+        store.close()
