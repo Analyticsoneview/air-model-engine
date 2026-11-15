@@ -120,6 +120,6 @@ PRs #50–#54 are merged. The engine has PostgreSQL-backed event intake/outbox, 
 - Audit rows are append-only: SQLite update/delete triggers and PostgreSQL mutation-rejection triggers prevent alteration through ordinary application SQL.
 - Administrators can inspect audit records at `GET /api/v1/admin/workflows/audit` (optional `workflow_id` filter).
 - NSE/BSE calendar dates are managed through `GET /api/v1/admin/workflows/calendar` and `PUT /api/v1/admin/workflows/calendar/{exchange_code}/{session_date}`.
-- Calendar statuses are `HOLIDAY`, `TRADING_DAY` and `SPECIAL_SESSION`. Special sessions require explicit open/close times.
+- Calendar statuses are `HOLIDAY`, `TRADING_DAY` and `SPECIAL_SESSION`. Special sessions require explicit open/close times and scheduled triggers are bounded to those hours. Regular TRADING_DAY entries only establish that the exchange is open on that date; time triggers may also run after market close for post-market reporting.
 - Time workflows with `trigger_config.exchange_code` only run when that date is explicitly marked as a trading day or special session; missing dates and holidays are skipped. This deliberately fails closed and does not invent an exchange holiday list.
 - The application does not auto-import a holiday calendar. Operators must load and verify the official exchange schedule for each year and update special-session notices before enabling exchange-scoped schedules.
