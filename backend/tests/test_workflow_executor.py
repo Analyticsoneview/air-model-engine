@@ -218,7 +218,17 @@ def test_executor_recovers_missing_terminal_event_after_publish_outage(tmp_path,
 def test_terminal_event_does_not_retrigger_the_originating_workflow(tmp_path):
     store = WorkflowStore(str(tmp_path / "terminal-chain.sqlite3"))
     try:
-        workflow, run = _queued_run(store, {"steps": []})
+        workflow = store.create_workflow(
+            name="Terminal loop guard", created_by="admin", trigger_type="EVENT",
+            trigger_config={"event_types": ["workflow.executor.trigger", "workflow.run.completed"]},
+            workflow_spec={"steps": []},
+        )
+        store.set_workflow_enabled(workflow["workflow_id"], True)
+        trigger = store.publish_event(
+            event_type="workflow.executor.trigger", source="test", payload={},
+            idempotency_key="terminal-loop-trigger",
+        )
+        run = store.process_event(trigger["event_id"])[0]
         executor.execute_workflow_run(store, run["run_id"])
         event = store.db.execute(
             "SELECT event_id,payload_json FROM air_workflow_events WHERE event_type=?",
