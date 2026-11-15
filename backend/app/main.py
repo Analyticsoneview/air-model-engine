@@ -42,6 +42,7 @@ from app.telegram_notifications import send_telegram_message
 from app.account_reporting import AccountReporting
 from app import telegram_destinations
 from app.nse_bhavcopy import (nse_data_status, nse_data_rows, start_nse_data_jobs, stop_nse_data_jobs, trigger_nse_bootstrap)
+from app.market_intelligence import build_market_intelligence_pulse
 from app.security import create_access_token, create_admin_access_token, hash_password, require_customer, require_admin, verify_password
 from app.persistence import get_persistence_runtime
 
@@ -667,6 +668,12 @@ async def health() -> dict:
     if failures:
         raise HTTPException(status_code=503, detail={"status": "degraded", "dependencies": dependencies})
     return {"status": "ok", "service": "air-model-engine-api", "dependencies": dependencies}
+
+@app.get("/api/v1/customer/market-intelligence/pulse")
+async def customer_market_intelligence_pulse(customer_id: str = Depends(require_customer)) -> dict:
+    """Return verified NSE EOD breadth; live indices/sectors remain unavailable until sourced."""
+    return build_market_intelligence_pulse()
+
 
 @app.get("/api/v1/nse-data/status")
 async def nse_bhavcopy_status(customer_id: str = Depends(require_customer)) -> dict:

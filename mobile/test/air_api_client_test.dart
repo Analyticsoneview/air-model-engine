@@ -73,6 +73,28 @@ void main() {
       AirApiClient.setAccessToken(null);
     });
 
+    test('market intelligence pulse calls the authenticated customer endpoint', () async {
+      final client = AirApiClient(
+        baseUrl: 'https://air.example',
+        client: MockClient((request) async {
+          expect(request.url.path, '/api/v1/customer/market-intelligence/pulse');
+          expect(request.headers['Authorization'], 'Bearer pulse-token');
+          return http.Response(jsonEncode({
+            'data_type': 'EOD',
+            'breadth': {'status': 'available', 'advances': 12, 'declines': 8},
+          }), 200);
+        }),
+      );
+      AirApiClient.setAccessToken('pulse-token');
+
+      final result = await client.marketIntelligencePulse();
+
+      expect(result['data_type'], 'EOD');
+      expect((result['breadth'] as Map)['advances'], 12);
+      client.dispose();
+      AirApiClient.setAccessToken(null);
+    });
+
     test('status check does not require a token', () async {
       final client = AirApiClient(
         baseUrl: 'https://air.example',
