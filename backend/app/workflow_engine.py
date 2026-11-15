@@ -874,7 +874,14 @@ class WorkflowStore:
 
     def runnable_runs(self, limit: int = 20) -> list[str]:
         rows = self.db.execute(
-            "SELECT run_id FROM air_workflow_runs WHERE status IN ('QUEUED','RUNNING') ORDER BY started_at LIMIT ?",
+            """SELECT r.run_id FROM air_workflow_runs r
+               WHERE r.status IN ('QUEUED','RUNNING')
+                  OR (r.status IN ('SUCCEEDED','FAILED','CANCELLED') AND NOT EXISTS (
+                      SELECT 1 FROM air_workflow_events e
+                      WHERE e.idempotency_key =
+                        'workflow-terminal:' || r.run_id || ':' || lower(r.status)
+                  ))
+               ORDER BY COALESCE(r.started_at,r.completed_at) LIMIT ?""",
             (max(1, min(int(limit), 100)),),
         ).fetchall()
         return [row["run_id"] for row in rows]
