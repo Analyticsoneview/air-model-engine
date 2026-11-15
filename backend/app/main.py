@@ -41,6 +41,7 @@ from app.air_telegram_scheduler import start_telegram_scheduler, stop_telegram_s
 from app.telegram_notifications import send_telegram_message
 from app.account_reporting import AccountReporting
 from app.portfolio_risk import PortfolioRiskStore, build_portfolio_snapshot
+from app.support_center import SupportStore
 from app import telegram_destinations
 from app.nse_bhavcopy import (nse_data_status, nse_data_rows, start_nse_data_jobs, stop_nse_data_jobs, trigger_nse_bootstrap)
 from app.market_intelligence import build_market_intelligence_pulse
@@ -75,6 +76,7 @@ _upstox_oauth_states: dict[tuple[str, str], str] = {}
 _fyers_oauth_states: dict[tuple[str, str], str] = {}
 account_reporting = AccountReporting()
 portfolio_risk = PortfolioRiskStore()
+support_store = SupportStore()
 _report_scheduler_task: asyncio.Task | None = None
 
 
@@ -953,6 +955,103 @@ class AdminStatusRequest(BaseModel):
 
 class AdminRoleRequest(BaseModel):
     role: str = Field(pattern="^(SUPER_ADMIN|ADMIN|RESEARCH_ADMIN)$")
+
+
+class SupportTicketCreate(BaseModel):
+    subject: str = Field(min_length=5, max_length=120)
+    category: str = Field(pattern="^(ACCOUNT|BILLING|BROKER|TECHNICAL|GENERAL)$")
+    message: str = Field(min_length=10, max_length=5000)
+
+
+class SupportTicketReply(BaseModel):
+    message: str = Field(min_length=10, max_length=5000)
+
+
+class SupportTicketAdminUpdate(BaseModel):
+    message: str = Field(default="", max_length=5000)
+    status: str | None = Field(default=None, pattern="^(OPEN|IN_PROGRESS|WAITING_CUSTOMER|RESOLVED|CLOSED)$")
+    priority: str | None = Field(default=None, pattern="^(LOW|NORMAL|HIGH|URGENT)$")
+    assigned_admin_id: str | None = Field(default=None, max_length=128)
+
+
+
+
+def _support_customer_identity(customer_id: str) -> str:
+    return access_store.mobile_for_request_id(customer_id) or customer_id
+
+
+@app.post("/api/v1/customer/support/tickets", status_code=201)
+async def create_customer_support_ticket(
+    body: SupportTicketCreate,
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    try:
+        ticket = support_store.create(_support_customer_identity(customer_id),
+                                      body.subject, body.category, body.message)
+        return {"ticket": ticket}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/customer/support/tickets")
+async def list_customer_support_tickets(
+    limit: int = Query(default=100, ge=1, le=200),
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    return {"tickets": support_store.list_customer(_support_customer_identity(customer_id), limit)}
+
+
+@app.get("/api/v1/customer/support/tickets/{ticket_id}")
+async def get_customer_support_ticket(
+    ticket_id: str,
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    ticket = support_store.get_customer_ticket(_support_customer_identity(customer_id), ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Support ticket not found")
+    return {"ticket": ticket}
+
+
+@app.post("/api/v1/customer/support/tickets/{ticket_id}/replies")
+async def reply_customer_support_ticket(
+    ticket_id: str,
+    body: SupportTicketReply,
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    try:
+        ticket = support_store.customer_reply(_support_customer_identity(customer_id), ticket_id, body.message)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Support ticket not found")
+    return {"ticket": ticket}
+
+
+@app.get("/api/v1/admin/support/tickets")
+async def admin_support_ticket_queue(
+    status: str | None = Query(default=None, pattern="^(OPEN|IN_PROGRESS|WAITING_CUSTOMER|RESOLVED|CLOSED)$"),
+    limit: int = Query(default=200, ge=1, le=500),
+    admin: dict = Depends(require_admin_management),
+) -> dict:
+    return {"tickets": support_store.list_admin(status, limit)}
+
+
+@app.put("/api/v1/admin/support/tickets/{ticket_id}")
+async def admin_update_support_ticket(
+    ticket_id: str,
+    body: SupportTicketAdminUpdate,
+    admin: dict = Depends(require_admin_management),
+) -> dict:
+    try:
+        ticket = support_store.admin_update(
+            ticket_id, admin["admin_id"], body.message, body.status,
+            body.priority, body.assigned_admin_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Support ticket not found")
+    return {"ticket": ticket}
 
 
 @app.post("/api/v1/admin/auth/login")
