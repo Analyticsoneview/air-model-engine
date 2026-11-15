@@ -1094,13 +1094,17 @@ async def admin_customer_register(
     all_customers = access_store.list_marketing_customers("ALL", limit=10000)
     as_of_date = as_of_date or datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
 
-    def local_day(value):
+    def local_datetime(value):
         if not value:
             return None
         parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(ZoneInfo("Asia/Kolkata")).date().isoformat()
+        return parsed.astimezone(ZoneInfo("Asia/Kolkata"))
+
+    def local_day(value):
+        converted = local_datetime(value)
+        return converted.date().isoformat() if converted else None
 
     summary = {
         "new_customers": sum(1 for item in all_customers if local_day(item.get("first_registered_at") or item.get("registered_at")) == as_of_date),
@@ -1114,6 +1118,10 @@ async def admin_customer_register(
         item = dict(raw)
         item["first_registered_at"] = item.get("first_registered_at") or item.get("registered_at")
         item["first_access_request_at"] = item["first_registered_at"]
+        for field in ("first_registered_at", "first_access_request_at", "first_approved_at",
+                      "first_rejected_at", "first_plan_availed_at", "subscription_expires_at"):
+            converted = local_datetime(item.get(field))
+            item[field + "_ist"] = converted.isoformat() if converted else None
         registered_day = local_day(item.get("first_registered_at"))
         approved_day = local_day(item.get("first_approved_at"))
         rejected_day = local_day(item.get("first_rejected_at"))
