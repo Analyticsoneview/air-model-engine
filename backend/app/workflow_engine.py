@@ -742,9 +742,9 @@ class WorkflowStore:
                     if session["status"] == "SPECIAL_SESSION":
                         if not session["session_open"] or not session["session_close"] or not (session["session_open"] <= scheduled_hhmm <= session["session_close"]):
                             continue
-                    elif session["status"] == "TRADING_DAY" and session["session_open"] and session["session_close"]:
-                        if not (session["session_open"] <= scheduled_hhmm <= session["session_close"]):
-                            continue
+                    # TRADING_DAY means the exchange is open on this date. Do not
+                    # constrain the trigger clock: post-market reports are valid too.
+                    # SPECIAL_SESSION remains bounded by its explicit session hours.
                 due.append({
                     "workflow_id": row["workflow_id"], "name": row["name"],
                     "customer_id": config.get("customer_id"),
