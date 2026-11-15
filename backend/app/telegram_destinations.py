@@ -42,11 +42,15 @@ def _connect() -> sqlite3.Connection:
             chat_id TEXT NOT NULL UNIQUE,
             destination_type TEXT NOT NULL CHECK(destination_type IN ('PRIVATE','GROUP')),
             strategies_json TEXT NOT NULL,
+            customer_id TEXT,
             enabled INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    columns = {row[1] for row in db.execute("PRAGMA table_info(telegram_destinations)")}
+    if "customer_id" not in columns:
+        db.execute("ALTER TABLE telegram_destinations ADD COLUMN customer_id TEXT")
     db.execute("""
         CREATE TABLE IF NOT EXISTS telegram_destination_state (
             singleton_id INTEGER PRIMARY KEY CHECK(singleton_id=1),
@@ -86,7 +90,7 @@ def _serialize(row: sqlite3.Row) -> dict[str, Any]:
         "id": row["id"], "name": row["name"], "chat_id": row["chat_id"],
         "destination_type": row["destination_type"],
         "strategies": json.loads(row["strategies_json"]),
-        "enabled": bool(row["enabled"]), "created_at": row["created_at"],
+        "enabled": bool(row["enabled"]), "customer_id": row["customer_id"], "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
 
@@ -110,20 +114,22 @@ def has_managed_destinations() -> bool:
         return bool(row and row["managed_mode"])
 
 
-def destinations_for_strategy(strategy: str) -> list[str]:
+def destinations_for_strategy(strategy: str, customer_id: str | None = None) -> list[str]:
     strategy = strategy.upper()
     with _database() as db:
         rows = db.execute(
-            "SELECT chat_id, strategies_json FROM telegram_destinations WHERE enabled=1"
+            "SELECT chat_id, strategies_json, customer_id FROM telegram_destinations WHERE enabled=1"
         ).fetchall()
     return [
         row["chat_id"] for row in rows
         if strategy in json.loads(row["strategies_json"])
+        and (str(row["customer_id"] or "") == str(customer_id or ""))
     ]
 
 
 def upsert_destination(name: str, chat_id: str, destination_type: str,
-                       strategies: list[str], enabled: bool = True) -> dict[str, Any]:
+                       strategies: list[str], enabled: bool = True,
+                       customer_id: str | None = None) -> dict[str, Any]:
     name, chat_id, destination_type, strategies = _validate(
         name, chat_id, destination_type, strategies
     )
@@ -133,15 +139,16 @@ def upsert_destination(name: str, chat_id: str, destination_type: str,
         )
         db.execute("""
             INSERT INTO telegram_destinations
-                (name, chat_id, destination_type, strategies_json, enabled)
-            VALUES (?, ?, ?, ?, ?)
+                (name, chat_id, destination_type, strategies_json, customer_id, enabled)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(chat_id) DO UPDATE SET
                 name=excluded.name,
                 destination_type=excluded.destination_type,
                 strategies_json=excluded.strategies_json,
+                customer_id=excluded.customer_id,
                 enabled=excluded.enabled,
                 updated_at=CURRENT_TIMESTAMP
-        """, (name, chat_id, destination_type, json.dumps(strategies), int(enabled)))
+        """, (name, chat_id, destination_type, json.dumps(strategies), customer_id.strip() if customer_id else None, int(enabled)))
         row = db.execute(
             "SELECT * FROM telegram_destinations WHERE chat_id=?", (chat_id,)
         ).fetchone()
@@ -160,10 +167,10 @@ def update_destination(destination_id: int, *, name: str, chat_id: str,
         )
         db.execute("""
             UPDATE telegram_destinations SET name=?, chat_id=?, destination_type=?,
-                strategies_json=?, enabled=?, updated_at=CURRENT_TIMESTAMP
+                strategies_json=?, customer_id=?, enabled=?, updated_at=CURRENT_TIMESTAMP
             WHERE id=?
         """, (name, chat_id, destination_type, json.dumps(strategies),
-              int(enabled), destination_id))
+              customer_id.strip() if customer_id else None, int(enabled), destination_id))
         row = db.execute(
             "SELECT * FROM telegram_destinations WHERE id=?", (destination_id,)
         ).fetchone()
