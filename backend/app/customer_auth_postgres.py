@@ -135,7 +135,7 @@ class PostgresAccessStore:
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         with self.engine.connect() as conn:
             rows = conn.execute(text("""SELECT decision_id,request_id,mobile_e164,previous_status,new_status,
-                reviewer_admin_id,reviewer_role,note,totp_counter,decided_at FROM air_access_decision_history""" +
+                reviewer_admin_id,reviewer_role,note,totp_counter,authenticator_verified_at,verification_reference,request_context,decided_at FROM air_access_decision_history""" +
                 where + " ORDER BY decided_at DESC,decision_id DESC"), params).mappings().all()
         return [dict(row) for row in rows]
 
@@ -219,7 +219,7 @@ class PostgresAccessStore:
                  "admin": assigned_by_admin_id})
             conn.execute(text("""INSERT INTO air_customer_lifecycle
                 (customer_id,first_registered_at,first_plan_availed_at,updated_at)
-                SELECT :customer, COALESCE(MIN(created_at),:starts), :starts, CURRENT_TIMESTAMP::text
+                SELECT :customer, COALESCE(MIN(created_at),:starts), CURRENT_TIMESTAMP::text, CURRENT_TIMESTAMP::text
                   FROM air_access_requests WHERE mobile_e164=:customer
                 ON CONFLICT(customer_id) DO UPDATE SET
                 first_plan_availed_at=COALESCE(air_customer_lifecycle.first_plan_availed_at,EXCLUDED.first_plan_availed_at),
@@ -305,8 +305,9 @@ class PostgresAccessStore:
                     {"customer": customer_id}).mappings().first()
                 if lifecycle:
                     item.update(dict(lifecycle))
+                    item["first_access_request_at"] = lifecycle["first_registered_at"]
                 else:
-                    item.update({"first_registered_at": row["registered_at"],
+                    item.update({"first_registered_at": row["registered_at"], "first_access_request_at": row["registered_at"],
                                  "first_approved_at": None, "first_rejected_at": None, "first_plan_availed_at": None})
                 if segment == "NEVER_SUBSCRIBED" and sub_status != "NEVER_SUBSCRIBED": continue
                 if segment == "EXPIRED" and sub_status != "EXPIRED": continue
