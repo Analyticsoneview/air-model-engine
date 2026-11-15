@@ -6,7 +6,7 @@ a usable two-sided quote before it can be qualified.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import Any
 
@@ -79,7 +79,7 @@ def qualify_option_observations(
 
     results: list[dict[str, Any]] = []
     for (underlying, expiry, strike_text, option_type), samples in grouped.items():
-        samples.sort(key=lambda item: str(item.get("observed_at") or ""), reverse=True)
+        samples.sort(key=lambda item: _time(item.get("observed_at")) or datetime.min.replace(tzinfo=IST), reverse=True)
         latest = samples[0]
         previous = next(
             (item for item in samples[1:]
