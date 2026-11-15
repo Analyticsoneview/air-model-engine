@@ -1050,7 +1050,7 @@ async def admin_customer_register(
     limit: int = Query(default=200, ge=1, le=500),
     admin: dict = Depends(require_admin),
 ) -> dict:
-    ranges = ((registered_from, registered_to, "registration"), (approved_from, approved_to, "approval"),
+    ranges = ((registered_from, registered_to, "registration"), (approved_from, approved_to, "approval"),\n              (rejected_from, rejected_to, "rejection"),
               (plan_from, plan_to, "plan"), (expiry_from, expiry_to, "expiry"))
     for start, end, label in ranges:
         if start and end and start > end:
@@ -1070,7 +1070,7 @@ async def admin_customer_register(
         item["first_registered_at"] = item.get("first_registered_at") or item.get("registered_at")
         registered_day = local_day(item.get("first_registered_at"))
         approved_day = local_day(item.get("first_approved_at"))
-        plan_day = local_day(item.get("first_plan_availed_at"))
+        rejected_day = local_day(item.get("first_rejected_at"))\n        plan_day = local_day(item.get("first_plan_availed_at"))
         expiry_day = local_day(item.get("subscription_expires_at"))
         item["customer_type"] = ("NEW" if registered_day == as_of_date else
                                  "EXISTING" if registered_day and registered_day < as_of_date else
@@ -1119,13 +1119,13 @@ async def admin_customer_daily_report(
     while current <= last:
         day = current.isoformat()
         registered = {mobile for mobile, registered_day in first_registration.items() if registered_day == day}
-        existing_requests = sum(1 for row in requests if str(row.get("created_at", ""))[:10] == day
+        existing_requests = sum(1 for row in requests if report_day(row.get("created_at")) == day
                                 and first_registration.get(row["mobile_e164"], day) < day)
-        day_decisions = [d for d in decisions if str(d.get("decided_at", ""))[:10] == day]
+        day_decisions = [d for d in decisions if report_day(d.get("decided_at")) == day]
         approved = sum(1 for d in day_decisions if d["new_status"] == "APPROVED")
         rejected = sum(1 for d in day_decisions if d["new_status"] == "REJECTED")
         pending = sum(1 for row in requests if row["status"] == "PENDING"
-                      and str(row.get("created_at", ""))[:10] == day)
+                      and report_day(row.get("created_at")) == day)
         first_plans = sum(1 for plan_day in first_plan_days.values() if plan_day == day)
         approved_no_plan = sum(1 for item in customers
                                if item["access_status"] == "APPROVED"
