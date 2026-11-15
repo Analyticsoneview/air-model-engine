@@ -95,3 +95,24 @@ def test_exchange_calendar_time_trigger_fails_closed_for_unlisted_and_holiday_da
         assert store.due_time_workflows(monday) == []
     finally:
         store.close()
+
+
+def test_exchange_calendar_allows_post_market_schedule_on_trading_days(tmp_path):
+    store = WorkflowStore(str(tmp_path / "exchange-postmarket.sqlite3"))
+    try:
+        store.set_exchange_calendar_day(
+            exchange_code="NSE", session_date="2026-11-16", status="TRADING_DAY",
+            session_open="09:15", session_close="15:30", updated_by="admin",
+        )
+        workflow = store.create_workflow(
+            name="NSE post-market report", created_by="admin", trigger_type="TIME",
+            trigger_config={"timezone": "Asia/Kolkata", "hour": 15, "minute": 38,
+                            "days_of_week": [0, 1, 2, 3, 4], "misfire_grace_seconds": 60,
+                            "exchange_code": "NSE"},
+        )
+        store.set_workflow_enabled(workflow["workflow_id"], True)
+        after_close = datetime(2026, 11, 16, 10, 8, tzinfo=ZoneInfo("UTC"))
+        assert [row["workflow_id"] for row in store.due_time_workflows(after_close)] == [workflow["workflow_id"]]
+    finally:
+        store.close()
+
