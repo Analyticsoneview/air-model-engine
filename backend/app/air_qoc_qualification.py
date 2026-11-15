@@ -64,7 +64,10 @@ def qualify_option_observations(
     mode = mode.upper()
     if mode not in MODE_MAX_AGE_SECONDS:
         raise ValueError("mode must be LIVE, POSITIONAL or POST_MARKET")
-    current_time = (now or datetime.now(IST)).astimezone(IST)
+    reference_time = now or datetime.now(IST)
+    if reference_time.tzinfo is None:
+        reference_time = reference_time.replace(tzinfo=IST)
+    current_time = reference_time.astimezone(IST)
     max_age = MODE_MAX_AGE_SECONDS[mode]
 
     grouped: dict[tuple[str, str, str, str], list[dict[str, Any]]] = {}
