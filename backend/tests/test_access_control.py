@@ -82,6 +82,27 @@ class AccessStoreTests(unittest.TestCase):
                     "2026-01-01T00:00:00+00:00", "2027-01-01T00:00:00+00:00")
             store.close()
 
+    def test_legacy_reviewed_at_backfills_first_approval_without_decision_rows(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = str(Path(temp) / "legacy-auth.sqlite3")
+            legacy = sqlite3.connect(path)
+            legacy.execute("""CREATE TABLE air_access_requests(
+                request_id TEXT PRIMARY KEY,mobile_e164 TEXT NOT NULL,device_id TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'PENDING',created_at TEXT NOT NULL,
+                reviewed_at TEXT,reviewer_note TEXT,UNIQUE(mobile_e164,device_id))""")
+            legacy.execute("INSERT INTO air_access_requests VALUES(?,?,?,?,?,?,?)",
+                ("legacy-request", "+919876543296", "legacy-device-0001", "APPROVED",
+                 "2026-01-01 00:00:00", "2026-01-02 00:00:00", "legacy review"))
+            legacy.commit()
+            legacy.close()
+
+            store = AccessStore(path)
+            customer = store.list_marketing_customers(search="+919876543296")[0]
+            self.assertEqual(customer["first_registered_at"], "2026-01-01 00:00:00")
+            self.assertEqual(customer["first_approved_at"], "2026-01-02 00:00:00")
+            self.assertEqual(store.decision_history("legacy-request"), [])
+            store.close()
+
     def test_customer_lifecycle_dates_and_append_only_audit(self):
         with tempfile.TemporaryDirectory() as temp:
             store = AccessStore(str(Path(temp) / "auth.sqlite3"))
