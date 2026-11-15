@@ -140,6 +140,8 @@ void main() {
         scrollable: find.byType(Scrollable).first);
     final popup = find.byType(PopupMenuButton<String>);
     expect(popup, findsOneWidget);
+    await tester.ensureVisible(popup);
+    await tester.pumpAndSettle();
     await tester.tap(popup);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Audit history'));
@@ -176,7 +178,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).at(2), 'ORB_MORNING');
     await tester.enterText(find.byType(TextField).at(3), 'customer-123');
-    await tester.tap(find.text('CREATE WORKFLOW'));
+    final createButton = find.text('CREATE WORKFLOW');
+    await tester.ensureVisible(createButton);
+    await tester.pumpAndSettle();
+    await tester.tap(createButton);
     await tester.pumpAndSettle();
     expect(created, hasLength(1));
     expect(created.single['trigger_type'], 'STRATEGY');
