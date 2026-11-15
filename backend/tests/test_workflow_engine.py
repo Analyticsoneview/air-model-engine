@@ -107,7 +107,7 @@ def test_time_trigger_is_timezone_aware_and_weekday_configured(tmp_path):
         workflow = store.create_workflow(
             name="QOC morning scan", created_by="admin", trigger_type="TIME",
             trigger_config={"timezone": "Asia/Kolkata", "hour": 9, "minute": 18,
-                            "days_of_week": [0, 1, 2, 3, 4]},
+                            "days_of_week": [0, 1, 2, 3, 4], "misfire_grace_seconds": 30},
         )
         store.set_workflow_enabled(workflow["workflow_id"], True)
         due = store.due_time_workflows(datetime(2026, 11, 16, 3, 48, tzinfo=ZoneInfo("UTC")))
