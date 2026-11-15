@@ -1040,6 +1040,8 @@ async def admin_customer_register(
     registered_to: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     approved_from: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     approved_to: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    rejected_from: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    rejected_to: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     plan_from: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     plan_to: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     expiry_from: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
@@ -1050,13 +1052,19 @@ async def admin_customer_register(
     limit: int = Query(default=200, ge=1, le=500),
     admin: dict = Depends(require_admin),
 ) -> dict:
-    ranges = ((registered_from, registered_to, "registration"), (approved_from, approved_to, "approval"),\n              (rejected_from, rejected_to, "rejection"),
-              (plan_from, plan_to, "plan"), (expiry_from, expiry_to, "expiry"))
-    for start, end, label in ranges:
-        if start and end and start > end:
+    ranges = (
+        (registered_from, registered_to, "registration"),
+        (approved_from, approved_to, "approval"),
+        (rejected_from, rejected_to, "rejection"),
+        (plan_from, plan_to, "plan"),
+        (expiry_from, expiry_to, "expiry"),
+    )
+    for start_date, end_date, label in ranges:
+        if start_date and end_date and start_date > end_date:
             raise HTTPException(status_code=422, detail=f"{label} start date must be before or equal to end date")
     customers = access_store.list_marketing_customers(segment, search, limit)
     as_of_date = as_of_date or datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
+
     def local_day(value):
         if not value:
             return None
@@ -1064,29 +1072,44 @@ async def admin_customer_register(
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=timezone.utc)
         return parsed.astimezone(ZoneInfo("Asia/Kolkata")).date().isoformat()
+
     filtered = []
     for raw in customers:
         item = dict(raw)
         item["first_registered_at"] = item.get("first_registered_at") or item.get("registered_at")
         registered_day = local_day(item.get("first_registered_at"))
         approved_day = local_day(item.get("first_approved_at"))
-        rejected_day = local_day(item.get("first_rejected_at"))\n        plan_day = local_day(item.get("first_plan_availed_at"))
+        rejected_day = local_day(item.get("first_rejected_at"))
+        plan_day = local_day(item.get("first_plan_availed_at"))
         expiry_day = local_day(item.get("subscription_expires_at"))
-        item["customer_type"] = ("NEW" if registered_day == as_of_date else
-                                 "EXISTING" if registered_day and registered_day < as_of_date else
-                                 "NOT_YET_REGISTERED")
+        item["customer_type"] = (
+            "NEW" if registered_day == as_of_date else
+            "EXISTING" if registered_day and registered_day < as_of_date else
+            "NOT_YET_REGISTERED"
+        )
         if item["subscription_status"] == "NEVER_SUBSCRIBED":
             item["subscription_status"] = "NO_PLAN_AVAILED"
-        checks = ((registered_day, registered_from, registered_to),
-                  (approved_day, approved_from, approved_to),
-                  (plan_day, plan_from, plan_to), (expiry_day, expiry_from, expiry_to))
-        if all((not start or (day is not None and day >= start)) and
-               (not end or (day is not None and day <= end)) for day, start, end in checks):
+        checks = (
+            (registered_day, registered_from, registered_to),
+            (approved_day, approved_from, approved_to),
+            (rejected_day, rejected_from, rejected_to),
+            (plan_day, plan_from, plan_to),
+            (expiry_day, expiry_from, expiry_to),
+        )
+        if all((not lower or (day is not None and day >= lower)) and
+               (not upper or (day is not None and day <= upper))
+               for day, lower, upper in checks):
             filtered.append(item)
-    return {"customers": filtered, "count": len(filtered), "segment": segment,
-            "as_of_date": as_of_date, "date_filters": {
-                "registered": [registered_from, registered_to], "approved": [approved_from, approved_to],
-                "first_plan_availed": [plan_from, plan_to], "subscription_expiry": [expiry_from, expiry_to]}}
+    return {
+        "customers": filtered, "count": len(filtered), "segment": segment, "as_of_date": as_of_date,
+        "date_filters": {
+            "registered": [registered_from, registered_to],
+            "approved": [approved_from, approved_to],
+            "rejected": [rejected_from, rejected_to],
+            "first_plan_availed": [plan_from, plan_to],
+            "subscription_expiry": [expiry_from, expiry_to],
+        },
+    }
 
 
 @app.get("/api/v1/admin/customer-reports/daily")
@@ -1101,41 +1124,62 @@ async def admin_customer_daily_report(
     first, last = date.fromisoformat(start_date), date.fromisoformat(end_date)
     if (last - first).days > 366:
         raise HTTPException(status_code=422, detail="Daily report range cannot exceed 366 days")
+
+    def report_day(value):
+        if not value:
+            return None
+        parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(ZoneInfo("Asia/Kolkata")).date().isoformat()
+
     requests = [dict(row) for row in access_store.list_requests()]
     decisions = access_store.list_decisions()
     customers = access_store.list_marketing_customers("ALL", limit=500)
     first_registration = {}
     for row in requests:
-        day = local_day = str(row.get("first_registered_at") or row.get("created_at"))[:10]
+        registered_day = report_day(row.get("first_registered_at") or row.get("created_at"))
         mobile = row["mobile_e164"]
-        first_registration[mobile] = min(first_registration.get(mobile, day), day)
-    first_plan_days = {}
-    for item in customers:
-        value = item.get("first_plan_availed_at") or item.get("subscription_starts_at")
-        if value:
-            first_plan_days[item["customer_id"]] = str(value)[:10]
+        if registered_day:
+            first_registration[mobile] = min(first_registration.get(mobile, registered_day), registered_day)
+
     output = []
     current = first
     while current <= last:
         day = current.isoformat()
         registered = {mobile for mobile, registered_day in first_registration.items() if registered_day == day}
-        existing_requests = sum(1 for row in requests if report_day(row.get("created_at")) == day
-                                and first_registration.get(row["mobile_e164"], day) < day)
-        day_decisions = [d for d in decisions if report_day(d.get("decided_at")) == day]
-        approved = sum(1 for d in day_decisions if d["new_status"] == "APPROVED")
-        rejected = sum(1 for d in day_decisions if d["new_status"] == "REJECTED")
-        pending = sum(1 for row in requests if row["status"] == "PENDING"
-                      and report_day(row.get("created_at")) == day)
-        first_plans = sum(1 for plan_day in first_plan_days.values() if plan_day == day)
-        approved_no_plan = sum(1 for item in customers
-                               if item["access_status"] == "APPROVED"
-                               and not item.get("first_plan_availed_at")
-                               and str(item.get("first_registered_at") or item.get("registered_at", ""))[:10] <= day)
-        output.append({"date": day, "new_registrations": len(registered),
-                       "existing_customer_requests": existing_requests, "approved": approved,
-                       "rejected": rejected, "pending": pending,
-                       "first_time_plans_availed": first_plans,
-                       "approved_but_no_plan_availed": approved_no_plan})
+        existing_requests = sum(
+            1 for row in requests
+            if report_day(row.get("created_at")) == day
+            and first_registration.get(row["mobile_e164"], day) < day
+        )
+        day_decisions = [decision for decision in decisions if report_day(decision.get("decided_at")) == day]
+        approved = sum(1 for decision in day_decisions if decision["new_status"] == "APPROVED")
+        rejected = sum(1 for decision in day_decisions if decision["new_status"] == "REJECTED")
+        pending = sum(
+            1 for row in requests
+            if row["status"] == "PENDING" and report_day(row.get("created_at")) == day
+        )
+        first_plans = sum(
+            1 for item in customers if report_day(item.get("first_plan_availed_at")) == day
+        )
+        approved_no_plan = sum(
+            1 for item in customers
+            if item["access_status"] == "APPROVED"
+            and report_day(item.get("first_approved_at")) is not None
+            and report_day(item.get("first_approved_at")) <= day
+            and (not item.get("first_plan_availed_at") or report_day(item.get("first_plan_availed_at")) > day)
+        )
+        output.append({
+            "date": day,
+            "new_registrations": len(registered),
+            "existing_customer_requests": existing_requests,
+            "approved": approved,
+            "rejected": rejected,
+            "pending": pending,
+            "first_time_plans_availed": first_plans,
+            "approved_but_no_plan_availed": approved_no_plan,
+        })
         current += timedelta(days=1)
     return {"timezone": "Asia/Kolkata", "start_date": start_date, "end_date": end_date, "daily": output}
 
