@@ -56,6 +56,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
   String _offerPlan = 'MONTHLY';
   List<Map<String, dynamic>> _admins = [];
   List<Map<String, dynamic>> _audit = [];
+  List<Map<String, dynamic>> _customerDecisions = [];
   List<Map<String, dynamic>> _requests = [];
   List<Map<String, dynamic>> _customers = [];
   List<Map<String, dynamic>> _offers = [];
@@ -147,10 +148,12 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
       _request('GET', requestPath),
       if (_role == 'SUPER_ADMIN') _request('GET', '/api/v1/admin/users') else Future.value(<String,dynamic>{'admins': []}),
       if (_role == 'SUPER_ADMIN') _request('GET', '/api/v1/admin/audit?limit=100') else Future.value(<String,dynamic>{'events': []}),
+      _request('GET', '/api/v1/admin/access-decisions'),
     ]);
     _requests = (requestResults[0]['requests'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
     _admins = (requestResults[1]['admins'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
     _audit = (requestResults[2]['events'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
+    _customerDecisions = (requestResults[3]['decisions'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
     if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') {
       final asOfDate = _customerAsOfDate.text.trim();
       final registerParams = <String, String>{
