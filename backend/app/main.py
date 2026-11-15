@@ -746,6 +746,12 @@ async def assign_customer_subscription(
     durations = {"DAILY": 1, "MONTHLY": 30, "SIX_MONTHS": 180, "YEARLY": 365}
     starts = datetime.now(timezone.utc)
     expires = starts + timedelta(days=durations[body.plan_code])
+    customers = access_store.list_marketing_customers("ALL", search=body.customer_id, limit=500)
+    customer = next((item for item in customers if item["customer_id"] == body.customer_id), None)
+    if customer is None:
+        raise HTTPException(status_code=404, detail="Registered customer not found")
+    if customer["access_status"] != "APPROVED":
+        raise HTTPException(status_code=409, detail="Customer access must be approved before assigning a plan")
     access_store.assign_subscription(
         body.customer_id, body.plan_code, starts.isoformat(), expires.isoformat(),
         assigned_by_admin_id=admin["admin_id"]
@@ -1032,7 +1038,16 @@ async def review_access_request(request_id: str, body: AccessReview, request: Re
 
 @app.get("/api/v1/admin/access-requests/{request_id}/history")
 async def access_request_history(request_id: str, admin: dict = Depends(require_admin)) -> dict:
-    return {"request_id": request_id, "decisions": [dict(row) for row in access_store.decision_history(request_id)]}
+    decisions = [dict(row) for row in access_store.decision_history(request_id)]
+    for decision in decisions:
+        for field in ("decided_at", "totp_verified_at"):
+            value = decision.get(field)
+            if value:
+                parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                decision[field + "_ist"] = parsed.astimezone(ZoneInfo("Asia/Kolkata")).isoformat()
+    return {"request_id": request_id, "decisions": decisions, "timezone": "Asia/Kolkata"}
 
 
 @app.get("/api/v1/admin/customers")
@@ -1194,7 +1209,15 @@ async def admin_access_decisions(
     if start_date and end_date and start_date > end_date:
         raise HTTPException(status_code=422, detail="start_date must be before or equal to end_date")
     decisions = access_store.list_decisions(start_date, end_date)
-    return {"decisions": decisions, "count": len(decisions)}
+    for decision in decisions:
+        for field in ("decided_at", "totp_verified_at"):
+            value = decision.get(field)
+            if value:
+                parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                decision[field + "_ist"] = parsed.astimezone(ZoneInfo("Asia/Kolkata")).isoformat()
+    return {"decisions": decisions, "count": len(decisions), "timezone": "Asia/Kolkata"}
 
 
 @app.get("/api/v1/operator/access-requests")
