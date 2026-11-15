@@ -84,7 +84,9 @@ def test_duplicate_delivery_is_idempotent(tmp_path):
         second = store.process_event(event_id)
         channel.basic_ack(delivery_tag=method.delivery_tag)
         assert len(first) == 1
-        assert second == []
+        assert len(second) == 1
+        assert second[0]["run_id"] == first[0]["run_id"]
+        assert second[0]["duplicate"] is True
         assert len(store.list_runs()) == 1
     finally:
         if connection and connection.is_open:
@@ -140,16 +142,22 @@ def test_poison_message_reaches_dead_letter_queue_after_delivery_limit():
             properties=pika.BasicProperties(delivery_mode=2, message_id=event_id),
             mandatory=True,
         )
-        # Quorum queues increment delivery count on requeue and dead-letter
-        # messages that exceed their configured x-delivery-limit.
-        for _ in range(12):
-            method, _, _ = channel.basic_get(queue=QUEUE, auto_ack=False)
-            if method is None:
-                break
-            channel.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
-        else:
-            pytest.fail("Poison message remained in dispatch queue after bounded retries")
+        deliveries = []
+
+        def reject_poison(ch, method, properties, body):
+            deliveries.append(method.delivery_tag)
+            # Exercise the same consumer-side negative acknowledgement path.
+            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
+
+        tag = channel.basic_consume(queue=QUEUE, on_message_callback=reject_poison, auto_ack=False)
         import time
+        for _ in range(50):
+            connection.process_data_events(time_limit=0.1)
+            if len(deliveries) >= 8:
+                break
+        channel.basic_cancel(tag)
+        assert len(deliveries) >= 5, "Expected repeated consumer deliveries before dead-lettering"
+
         dead = None
         for _ in range(30):
             dead, _, body = channel.basic_get(queue=DEAD_QUEUE, auto_ack=False)
