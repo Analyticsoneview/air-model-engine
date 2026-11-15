@@ -66,6 +66,25 @@ def _declare(channel) -> None:
     channel.queue_bind(queue=QUEUE, exchange=EXCHANGE, routing_key="#")
 
 
+
+def _publish_batch(store: WorkflowStore, channel, items: list[dict]) -> None:
+    """Publish confirmed persistent messages, then mark their outbox rows complete."""
+    for item in items:
+        body = json.dumps(item, separators=(",", ":"), allow_nan=False).encode("utf-8")
+        confirmed = channel.basic_publish(
+            exchange=EXCHANGE, routing_key=item["event_type"], body=body,
+            properties=pika.BasicProperties(
+                delivery_mode=2, content_type="application/json",
+                message_id=item["event_id"], correlation_id=item.get("correlation_id"),
+                type=item["event_type"],
+            ),
+            mandatory=True,
+        )
+        if confirmed is False:
+            raise RuntimeError("RabbitMQ did not confirm event publication")
+        store.mark_outbox_published(item["outbox_id"])
+
+
 def _publish_outbox(stop: threading.Event) -> None:
     store = WorkflowStore()
     try:
@@ -80,20 +99,7 @@ def _publish_outbox(stop: threading.Event) -> None:
                 channel = connection.channel()
                 _declare(channel)
                 channel.confirm_delivery()
-                for item in items:
-                    body = json.dumps(item, separators=(",", ":"), allow_nan=False).encode("utf-8")
-                    confirmed = channel.basic_publish(
-                        exchange=EXCHANGE, routing_key=item["event_type"], body=body,
-                        properties=pika.BasicProperties(
-                            delivery_mode=2, content_type="application/json",
-                            message_id=item["event_id"], correlation_id=item.get("correlation_id"),
-                            type=item["event_type"],
-                        ),
-                        mandatory=True,
-                    )
-                    if confirmed is False:
-                        raise RuntimeError("RabbitMQ did not confirm event publication")
-                    store.mark_outbox_published(item["outbox_id"])
+                _publish_batch(store, channel, items)
             except Exception as exc:  # broker outage must not stop the API or worker
                 log.warning("Workflow outbox publish deferred: %s", type(exc).__name__)
                 for item in items:
