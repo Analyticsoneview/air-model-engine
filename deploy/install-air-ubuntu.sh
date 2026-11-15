@@ -193,28 +193,23 @@ docker build \
   -f deploy/pwa.Dockerfile \
   -t air-model-engine-pwa:lab .
 
-echo "== AIR: deploying Docker Swarm stack =="
-set -a
-. "$ENV_FILE"
-set +a
-docker stack deploy -c docker-stack.yml air
+echo "== AIR: applying validated Docker Swarm deployment =="
+# Reuse the same secret/configuration preflight and API/PWA health checks as
+# subsequent GitHub-driven deployments, but keep the images built locally.
+AIR_SKIP_IMAGE_PULL=true bash deploy/deploy-swarm.sh
 
-echo "== AIR: waiting for Swarm services =="
-for service in air_air-api air_air-pwa air_air-caddy; do
-  ready=0
-  replicas=""
-  for attempt in $(seq 1 48); do
-    replicas="$(docker service ls --filter "name=${service}" --format '{{.Replicas}}' | head -n1)"
-    if [[ "$replicas" == "1/1" ]]; then ready=1; break; fi
-    sleep 5
-  done
-  if [[ "$ready" -ne 1 ]]; then
-    echo "Service did not converge: ${service} (${replicas:-not found})" >&2
-    docker service ps "$service" --no-trunc || true
-    exit 1
-  fi
+# Caddy has no container healthcheck in the stack; verify its replica separately.
+caddy_ready=0
+for attempt in $(seq 1 48); do
+  caddy_replicas="$(docker service ls --filter "name=air_air-caddy" --format '{{.Replicas}}' | head -n1)"
+  if [[ "$caddy_replicas" == "1/1" ]]; then caddy_ready=1; break; fi
+  sleep 5
 done
-
+if [[ "$caddy_ready" -ne 1 ]]; then
+  echo "Caddy service did not converge (${caddy_replicas:-not found})." >&2
+  docker service ps air_air-caddy --no-trunc || true
+  exit 1
+fi
 echo
 echo "AIR stack deployed. Check DNS and TLS issuance before customer use:"
 echo "  App: https://${APP_DOMAIN}"
@@ -222,7 +217,7 @@ echo "  API: https://${API_DOMAIN}/health"
 echo
 echo "Admin API key is stored root-only at: ${ADMIN_KEY_FILE}"
 echo "First operator device must submit an AIR access request in the app."
-echo "Approve it with: sudo bash deploy/air-admin-cli.sh approve <REQUEST_ID>"
-echo "Then use the in-app Admin tab to review subsequent customer requests."
+echo "A Super Admin must approve it in the dedicated Admin Console using a fresh authenticator code."
+echo "The operator access-request view is read-only; do not use the legacy admin CLI to mutate access."
 echo "Telegram polling and QOC capture remain disabled until separately configured."
 echo "This installer does not enable live broker orders."
