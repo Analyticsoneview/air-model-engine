@@ -130,6 +130,8 @@ class WorkflowStore:
                 self.db.execute("SELECT 1 FROM air_workflow_runs LIMIT 0")
                 self.db.execute("SELECT 1 FROM air_workflow_run_steps LIMIT 0")
                 self.db.execute("SELECT 1 FROM air_workflow_definition_versions LIMIT 0")
+                self.db.execute("SELECT 1 FROM air_workflow_audit LIMIT 0")
+                self.db.execute("SELECT 1 FROM air_exchange_calendar LIMIT 0")
             except Exception as exc:
                 self.db.close()
                 raise RuntimeError("Workflow PostgreSQL schema is missing; apply Alembic migrations first") from exc
@@ -150,7 +152,7 @@ class WorkflowStore:
                 trigger_type TEXT NOT NULL CHECK(trigger_type IN ('EVENT','TIME','STRATEGY','CONDITION')),
                 trigger_config_json TEXT NOT NULL DEFAULT '{}', workflow_spec_json TEXT NOT NULL DEFAULT '{}',
                 execution_mode TEXT NOT NULL DEFAULT 'RESEARCH_ONLY'
-                    CHECK(execution_mode IN ('RESEARCH_ONLY','ALERT_NOTIFY','AUTHORIZED_EXECUTION')),
+                    CHECK(execution_mode IN ('RESEARCH_ONLY','ALERT_NOTIFY')),
                 version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1), enabled INTEGER NOT NULL DEFAULT 0,
                 created_by TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
             );
@@ -205,8 +207,126 @@ class WorkflowStore:
             );
             CREATE INDEX IF NOT EXISTS ix_air_workflow_run_steps_order
                 ON air_workflow_run_steps(run_id,step_index);
+            CREATE TABLE IF NOT EXISTS air_workflow_audit (
+                audit_id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL,
+                workflow_version INTEGER NOT NULL, actor_id TEXT NOT NULL,
+                action TEXT NOT NULL, payload_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS ix_air_workflow_audit_workflow_time
+                ON air_workflow_audit(workflow_id,created_at);
+            CREATE TABLE IF NOT EXISTS air_exchange_calendar (
+                exchange_code TEXT NOT NULL, session_date TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('HOLIDAY','SPECIAL_SESSION','TRADING_DAY')),
+                description TEXT NOT NULL DEFAULT '', session_open TEXT, session_close TEXT,
+                source TEXT NOT NULL DEFAULT 'ADMIN', updated_by TEXT NOT NULL,
+                updated_at TEXT NOT NULL, PRIMARY KEY(exchange_code,session_date)
+            );
+            CREATE INDEX IF NOT EXISTS ix_air_exchange_calendar_date
+                ON air_exchange_calendar(session_date,exchange_code);
         """)
         self.db.commit()
+
+    def _insert_audit(
+        self, workflow_id: str, version: int, actor_id: str,
+        action: str, payload: dict | None = None,
+    ) -> None:
+        self.db.execute(
+            """INSERT INTO air_workflow_audit
+               (audit_id,workflow_id,workflow_version,actor_id,action,payload_json,created_at)
+               VALUES(?,?,?,?,?,?,?)""",
+            (str(uuid4()), workflow_id, int(version), str(actor_id)[:128],
+             str(action)[:48], json.dumps(payload or {}, allow_nan=False), _now()),
+        )
+
+    def list_audit(self, *, workflow_id: str | None = None, limit: int = 100) -> list[dict]:
+        limit = max(1, min(int(limit), 500))
+        if workflow_id:
+            rows = self.db.execute(
+                "SELECT * FROM air_workflow_audit WHERE workflow_id=? ORDER BY created_at DESC LIMIT ?",
+                (workflow_id, limit),
+            ).fetchall()
+        else:
+            rows = self.db.execute(
+                "SELECT * FROM air_workflow_audit ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [{
+            "audit_id": row["audit_id"], "workflow_id": row["workflow_id"],
+            "workflow_version": row["workflow_version"], "actor_id": row["actor_id"],
+            "action": row["action"], "payload": json.loads(row["payload_json"]),
+            "created_at": row["created_at"],
+        } for row in rows]
+
+    def upsert_exchange_calendar_entry(
+        self, *, exchange_code: str, session_date: str, status: str,
+        description: str, updated_by: str, source: str = "ADMIN",
+        session_open: str | None = None, session_close: str | None = None,
+    ) -> dict:
+        exchange = str(exchange_code).strip().upper()
+        date_value = str(session_date).strip()
+        status_value = str(status).strip().upper()
+        actor = str(updated_by).strip()
+        try:
+            parsed_date = datetime.strptime(date_value, "%Y-%m-%d").date()
+        except ValueError as exc:
+            raise ValueError("session_date must use YYYY-MM-DD") from exc
+        if not 2 <= len(exchange) <= 8 or status_value not in {"HOLIDAY", "SPECIAL_SESSION", "TRADING_DAY"}:
+            raise ValueError("Invalid exchange code or calendar status")
+        if not actor or len(actor) > 128:
+            raise ValueError("updated_by must contain 1-128 characters")
+        for value, label in ((session_open, "session_open"), (session_close, "session_close")):
+            if value:
+                try:
+                    datetime.strptime(value, "%H:%M")
+                except ValueError as exc:
+                    raise ValueError(f"{label} must use HH:MM") from exc
+        now = _now()
+        with self.db:
+            self.db.execute(
+                """INSERT INTO air_exchange_calendar
+                   (exchange_code,session_date,status,description,session_open,session_close,
+                    source,updated_by,updated_at)
+                   VALUES(?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(exchange_code,session_date) DO UPDATE SET
+                     status=excluded.status,description=excluded.description,
+                     session_open=excluded.session_open,session_close=excluded.session_close,
+                     source=excluded.source,updated_by=excluded.updated_by,updated_at=excluded.updated_at""",
+                (exchange, parsed_date.isoformat(), status_value, str(description or "")[:240],
+                 session_open, session_close, str(source or "ADMIN")[:240], actor, now),
+            )
+        return {
+            "exchange_code": exchange, "session_date": parsed_date.isoformat(),
+            "status": status_value, "description": str(description or "")[:240],
+            "session_open": session_open, "session_close": session_close,
+            "source": str(source or "ADMIN")[:240], "updated_by": actor, "updated_at": now,
+        }
+
+    def list_exchange_calendar(
+        self, *, exchange_code: str, from_date: str | None = None,
+        to_date: str | None = None, limit: int = 500,
+    ) -> list[dict]:
+        exchange = str(exchange_code).strip().upper()
+        limit = max(1, min(int(limit), 1000))
+        clauses = ["exchange_code=?"]
+        params: list[Any] = [exchange]
+        if from_date:
+            clauses.append("session_date>=?")
+            params.append(str(from_date))
+        if to_date:
+            clauses.append("session_date<=?")
+            params.append(str(to_date))
+        params.append(limit)
+        query = "SELECT * FROM air_exchange_calendar WHERE " + " AND ".join(clauses)
+        query += " ORDER BY session_date LIMIT ?"
+        rows = self.db.execute(query, tuple(params)).fetchall()
+        return [{
+            "exchange_code": row["exchange_code"], "session_date": row["session_date"],
+            "status": row["status"], "description": row["description"],
+            "session_open": row["session_open"], "session_close": row["session_close"],
+            "source": row["source"], "updated_by": row["updated_by"],
+            "updated_at": row["updated_at"],
+        } for row in rows]
 
     def create_workflow(
         self, *, name: str, created_by: str, trigger_type: str,
@@ -276,6 +396,10 @@ class WorkflowStore:
                 json.dumps(trigger_config, allow_nan=False), json.dumps(workflow_spec, allow_nan=False),
                 execution_mode, created_by, now,
             ))
+            self._insert_audit(
+                workflow_id, 1, created_by, "WORKFLOW_CREATED",
+                {"trigger_type": trigger_type, "execution_mode": execution_mode},
+            )
         return self.get_workflow(workflow_id)
 
     def get_workflow(self, workflow_id: str) -> dict | None:
@@ -439,14 +563,29 @@ class WorkflowStore:
                  json.dumps(trigger_config, allow_nan=False),
                  json.dumps(workflow_spec, allow_nan=False), execution_mode, updated_by, now),
             )
+            self._insert_audit(
+                workflow_id, version, updated_by, "WORKFLOW_VERSION_CREATED",
+                {"previous_version": current["version"], "trigger_type": trigger_type,
+                 "execution_mode": execution_mode},
+            )
         return self.get_workflow(workflow_id)
 
-    def set_workflow_enabled(self, workflow_id: str, enabled: bool) -> dict | None:
+    def set_workflow_enabled(
+        self, workflow_id: str, enabled: bool, actor_id: str = "system",
+    ) -> dict | None:
+        current = self.get_workflow(workflow_id)
+        if current is None:
+            return None
         now = _now()
         with self.db:
             self.db.execute(
                 "UPDATE air_workflow_definitions SET enabled=?,updated_at=? WHERE workflow_id=?",
                 (bool(enabled), now, workflow_id),
+            )
+            self._insert_audit(
+                workflow_id, current["version"], actor_id,
+                "WORKFLOW_ENABLED" if enabled else "WORKFLOW_PAUSED",
+                {"enabled": bool(enabled)},
             )
         return self.get_workflow(workflow_id)
 
@@ -495,16 +634,24 @@ class WorkflowStore:
         if not event:
             raise ValueError("Workflow event does not exist")
         payload = json.loads(event["payload_json"])
-        definitions = self.db.execute(
-            "SELECT * FROM air_workflow_definitions WHERE enabled=? ORDER BY created_at",
-            (True,),
-        ).fetchall()
+        replay = payload.get("_air_workflow_replay") if event["source"] == "workflow.replay" else None
+        if isinstance(replay, dict):
+            definitions = self.db.execute(
+                """SELECT * FROM air_workflow_definition_versions
+                   WHERE workflow_id=? AND version=?""",
+                (str(replay.get("workflow_id") or ""), int(replay.get("workflow_version") or 0)),
+            ).fetchall()
+        else:
+            definitions = self.db.execute(
+                "SELECT * FROM air_workflow_definitions WHERE enabled=? ORDER BY created_at",
+                (True,),
+            ).fetchall()
         created = []
         for definition in definitions:
             config = json.loads(definition["trigger_config_json"])
             trigger_type = definition["trigger_type"]
             workflow_chain = payload.get("workflow_chain")
-            if isinstance(workflow_chain, list) and definition["workflow_id"] in workflow_chain:
+            if not isinstance(replay, dict) and isinstance(workflow_chain, list) and definition["workflow_id"] in workflow_chain:
                 continue
             scoped_customer = config.get("customer_id")
             if scoped_customer and str(payload.get("customer_id") or "") != str(scoped_customer):
@@ -547,6 +694,43 @@ class WorkflowStore:
                 })
         return created
 
+    def replay_run(self, run_id: str, requested_by: str) -> dict:
+        actor = str(requested_by).strip()
+        if not actor or len(actor) > 128:
+            raise ValueError("requested_by must contain 1-128 characters")
+        row = self.db.execute(
+            """SELECT r.status,r.workflow_id,r.workflow_version,e.event_type,
+                      e.payload_json,e.correlation_id
+               FROM air_workflow_runs r
+               JOIN air_workflow_events e ON e.event_id=r.event_id
+               WHERE r.run_id=?""", (run_id,),
+        ).fetchone()
+        if not row:
+            raise ValueError("Workflow run does not exist")
+        if row["status"] != "FAILED":
+            raise ValueError("Only failed workflow runs can be replayed")
+        payload = json.loads(row["payload_json"])
+        payload["_air_workflow_replay"] = {
+            "workflow_id": row["workflow_id"],
+            "workflow_version": row["workflow_version"],
+            "original_run_id": run_id,
+            "requested_by": actor,
+        }
+        replay_event = self.publish_event(
+            event_type=row["event_type"], source="workflow.replay",
+            payload=payload,
+            idempotency_key=f"workflow-replay:{run_id}:{uuid4()}",
+            correlation_id=row["correlation_id"],
+        )
+        runs = self.process_event(replay_event["event_id"])
+        with self.db:
+            self._insert_audit(
+                row["workflow_id"], row["workflow_version"], actor,
+                "WORKFLOW_RUN_REPLAYED",
+                {"original_run_id": run_id, "replay_event_id": replay_event["event_id"]},
+            )
+        return {"event_id": replay_event["event_id"], "runs": runs}
+
     def due_time_workflows(self, now: datetime | None = None) -> list[dict]:
         current = now or datetime.now(timezone.utc)
         rows = self.db.execute(
@@ -572,10 +756,21 @@ class WorkflowStore:
                 raise ValueError(f"Invalid time trigger configuration for workflow {row['workflow_id']}")
             scheduled = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
             lateness = (local - scheduled).total_seconds()
-            if local.weekday() in days and 0 <= lateness <= grace:
+            exchange = str(config.get("exchange") or "").strip().upper()
+            calendar_status = None
+            if exchange:
+                calendar_row = self.db.execute(
+                    "SELECT status FROM air_exchange_calendar WHERE exchange_code=? AND session_date=?",
+                    (exchange, local.date().isoformat()),
+                ).fetchone()
+                calendar_status = calendar_row["status"] if calendar_row else None
+            is_exchange_holiday = calendar_status == "HOLIDAY"
+            explicit_session = calendar_status in {"SPECIAL_SESSION", "TRADING_DAY"}
+            is_scheduled_day = local.weekday() in days or explicit_session
+            if not is_exchange_holiday and is_scheduled_day and 0 <= lateness <= grace:
                 due.append({
                     "workflow_id": row["workflow_id"], "name": row["name"],
-                    "customer_id": config.get("customer_id"),
+                    "customer_id": config.get("customer_id"), "exchange": exchange or None,
                     "local_time": scheduled.isoformat(), "scheduled_key": scheduled.strftime("%Y%m%d%H%M"),
                 })
         return due
