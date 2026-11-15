@@ -207,7 +207,8 @@ class AccessStore:
             device_id,request_context,decided_at
             FROM air_access_decision_history WHERE request_id=? ORDER BY decided_at,decision_id""",
             (request_id,)).fetchall()
-        return [dict(row) for row in rows]
+        import json
+        return [{**dict(row), "request_context": json.loads(row["request_context"] or "{}")} for row in rows]
 
     def list_decisions(self, start_date: str | None = None, end_date: str | None = None):
         clauses, params = [], []
@@ -217,7 +218,8 @@ class AccessStore:
         rows = self.db.execute("""SELECT decision_id,request_id,mobile_e164,previous_status,new_status,
             reviewer_admin_id,reviewer_role,note,totp_counter,totp_verified_at,verification_reference,device_id,request_context,decided_at FROM air_access_decision_history""" +
             where + " ORDER BY decided_at DESC,decision_id DESC", params).fetchall()
-        return [dict(row) for row in rows]
+        import json
+        return [{**dict(row), "request_context": json.loads(row["request_context"] or "{}")} for row in rows]
 
     def review(self, request_id: str, status: str, note: str = "", reviewer_admin_id: str = "",
                reviewer_role: str = "", totp_counter: int = -1, verification_reference: str | None = None,
