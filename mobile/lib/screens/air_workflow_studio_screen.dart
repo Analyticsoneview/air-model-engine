@@ -32,6 +32,8 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
   final _hour = TextEditingController(text: '09');
   final _minute = TextEditingController(text: '18');
   final _params = TextEditingController(text: '{"mode":"LIVE","max_candidates":20}');
+  final _calendarDate = TextEditingController(text: DateTime.now().toIso8601String().substring(0, 10));
+  final _calendarDescription = TextEditingController();
   final _filters = TextEditingController(
     text: '[{"field":"score","operator":"gte","value":80}]',
   );
@@ -39,12 +41,17 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
   String _action = 'qoc.qualify';
   String _mode = 'RESEARCH_ONLY';
   String _match = 'ALL';
+  String _exchange = 'NSE';
+  String _calendarExchange = 'NSE';
+  String _calendarStatus = 'HOLIDAY';
   String? _editingWorkflowId;
   bool _notifyAfter = false;
   bool _busy = false;
   String? _error;
   List<Map<String, dynamic>> _workflows = [];
   List<Map<String, dynamic>> _runs = [];
+  List<Map<String, dynamic>> _calendarEntries = [];
+  List<Map<String, dynamic>> _auditEntries = [];
   final Map<String, List<Map<String, dynamic>>> _steps = {};
   final Set<String> _expandedRuns = {};
 
@@ -111,6 +118,8 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
     _minute.dispose();
     _params.dispose();
     _filters.dispose();
+    _calendarDate.dispose();
+    _calendarDescription.dispose();
     if (_ownsClient) _client.close();
     super.dispose();
   }
@@ -119,13 +128,21 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
     if (!mounted) return;
     setState(() { _busy = true; _error = null; });
     try {
+      final fromDate = '${DateTime.now().year - 1}-01-01';
+      final toDate = '${DateTime.now().year + 2}-12-31';
       final results = await Future.wait([
         _request('GET', '/api/v1/admin/workflows?limit=200'),
         _request('GET', '/api/v1/admin/workflows/runs?limit=100'),
+        _request('GET', '/api/v1/admin/workflows/calendar?exchange=$_calendarExchange&from_date=$fromDate&to_date=$toDate&limit=500'),
+        _request('GET', '/api/v1/admin/workflows/audit?limit=100'),
       ]);
       _workflows = (results[0]['workflows'] as List? ?? [])
           .whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
       _runs = (results[1]['runs'] as List? ?? [])
+          .whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+      _calendarEntries = (results[2]['entries'] as List? ?? [])
+          .whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+      _auditEntries = (results[3]['audit'] as List? ?? [])
           .whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
     } catch (e) {
       _error = e.toString();
@@ -146,6 +163,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
       }
       return {
         'timezone': 'Asia/Kolkata',
+        if (_exchange != 'NONE') 'exchange': _exchange,
         'hour': hour,
         'minute': minute,
         'days_of_week': [0, 1, 2, 3, 4],
@@ -275,6 +293,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
       _hour.text = (triggerConfig['hour'] ?? 9).toString().padLeft(2, '0');
       _minute.text = (triggerConfig['minute'] ?? 18).toString().padLeft(2, '0');
       _match = triggerConfig['match']?.toString() ?? 'ALL';
+      _exchange = triggerConfig['exchange']?.toString() ?? 'NSE';
       _filters.text = jsonEncode(triggerConfig['filters'] ?? []);
       _action = first['action']?.toString() ?? 'qoc.qualify';
       _params.text = const JsonEncoder.withIndent('  ').convert(firstParams);
@@ -293,6 +312,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
       _strategy.text = 'ORB';
       _notificationStrategy.text = 'AIR_QOC';
       _trigger = 'EVENT';
+      _exchange = 'NSE';
       _action = 'qoc.qualify';
       _mode = 'RESEARCH_ONLY';
       _notifyAfter = false;
@@ -307,6 +327,52 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
     try {
       await _request('POST',
           '/api/v1/admin/workflows/$id/enabled?enabled=$enabled');
+      await _load();
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _saveCalendarEntry() async {
+    setState(() { _busy = true; _error = null; });
+    try {
+      await _request('PUT', '/api/v1/admin/workflows/calendar', body: {
+        'exchange_code': _calendarExchange,
+        'session_date': _calendarDate.text.trim(),
+        'status': _calendarStatus,
+        'description': _calendarDescription.text.trim(),
+        'source': 'AIR_WORKFLOW_STUDIO',
+      });
+      _calendarDescription.clear();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Exchange calendar entry saved.')),
+        );
+      }
+      await _load();
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _replayRun(String runId) async {
+    setState(() { _busy = true; _error = null; });
+    try {
+      final result = await _request(
+        'POST', '/api/v1/admin/workflows/runs/${Uri.encodeComponent(runId)}/replay',
+      );
+      final runs = result['runs'] as List? ?? [];
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(runs.isEmpty
+              ? 'Replay event queued; inspect its event and run history.'
+              : 'Replay queued for the original workflow version.'),
+        ));
+      }
       await _load();
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
@@ -385,11 +451,24 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
           onChanged: _busy ? null : (value) => setState(() => _trigger = value ?? 'EVENT'),
         ),
         const SizedBox(height: 10),
-        if (_trigger == 'TIME') Row(children: [
+        if (_trigger == 'TIME') ...[
+          DropdownButtonFormField<String>(
+            initialValue: _exchange,
+            decoration: const InputDecoration(labelText: 'Exchange calendar', border: OutlineInputBorder(), isDense: true),
+            items: const [
+              DropdownMenuItem(value: 'NSE', child: Text('NSE trading calendar')),
+              DropdownMenuItem(value: 'BSE', child: Text('BSE trading calendar')),
+              DropdownMenuItem(value: 'NONE', child: Text('Weekdays only (no exchange calendar)')),
+            ],
+            onChanged: _busy ? null : (value) => setState(() => _exchange = value ?? 'NSE'),
+          ),
+          const SizedBox(height: 10),
+          Row(children: [
           Expanded(child: _field(_hour, 'Hour (IST)', hint: '09')),
           const SizedBox(width: 8),
           Expanded(child: _field(_minute, 'Minute', hint: '18')),
-        ]),
+          ]),
+        ],
         if (_trigger != 'TIME') _field(_eventType, 'Event type', hint: 'qoc.candidate.qualified'),
         if (_trigger == 'STRATEGY') _field(_strategy, 'Strategy name', hint: 'ORB'),
         if (_trigger == 'CONDITION') ...[
@@ -493,6 +572,77 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
     ),
   );
 
+  Widget _calendarCard() => Card(
+    child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('EXCHANGE TRADING CALENDAR', style: TextStyle(fontWeight: FontWeight.w900)),
+        const SizedBox(height: 5),
+        const Text('Maintain verified exchange holidays and special sessions. Time triggers using NSE/BSE skip dates marked HOLIDAY.'),
+        const SizedBox(height: 10),
+        Row(children: [
+          Expanded(child: DropdownButtonFormField<String>(
+            initialValue: _calendarExchange,
+            decoration: const InputDecoration(labelText: 'Exchange', border: OutlineInputBorder(), isDense: true),
+            items: const [
+              DropdownMenuItem(value: 'NSE', child: Text('NSE')),
+              DropdownMenuItem(value: 'BSE', child: Text('BSE')),
+            ],
+            onChanged: _busy ? null : (value) => setState(() => _calendarExchange = value ?? 'NSE'),
+          )),
+          const SizedBox(width: 8),
+          Expanded(child: DropdownButtonFormField<String>(
+            initialValue: _calendarStatus,
+            decoration: const InputDecoration(labelText: 'Session status', border: OutlineInputBorder(), isDense: true),
+            items: const [
+              DropdownMenuItem(value: 'HOLIDAY', child: Text('Holiday')),
+              DropdownMenuItem(value: 'SPECIAL_SESSION', child: Text('Special session')),
+              DropdownMenuItem(value: 'TRADING_DAY', child: Text('Trading day override')),
+            ],
+            onChanged: _busy ? null : (value) => setState(() => _calendarStatus = value ?? 'HOLIDAY'),
+          )),
+        ]),
+        const SizedBox(height: 10),
+        _field(_calendarDate, 'Session date (YYYY-MM-DD)'),
+        _field(_calendarDescription, 'Description', hint: 'Exchange holiday / special session'),
+        SizedBox(width: double.infinity, child: OutlinedButton.icon(
+          onPressed: _busy ? null : _saveCalendarEntry,
+          icon: const Icon(Icons.event_available),
+          label: const Text('SAVE CALENDAR ENTRY'),
+        )),
+        if (_calendarEntries.isEmpty)
+          const Text('No calendar entries loaded for this exchange and date range.'),
+        for (final entry in _calendarEntries.take(30))
+          ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(entry['status'] == 'HOLIDAY' ? Icons.event_busy : Icons.event_available),
+            title: Text('${entry['session_date']} · ${entry['status']}'),
+            subtitle: Text(entry['description']?.toString() ?? ''),
+          ),
+      ]),
+    ),
+  );
+
+  Widget _auditCard() => Card(
+    child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('WORKFLOW MANAGEMENT AUDIT', style: TextStyle(fontWeight: FontWeight.w900)),
+        const SizedBox(height: 6),
+        if (_auditEntries.isEmpty) const Text('No workflow management audit events recorded yet.'),
+        for (final item in _auditEntries.take(20))
+          ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.verified_user_outlined),
+            title: Text(item['action']?.toString() ?? 'AUDIT'),
+            subtitle: Text('v${item['workflow_version']} · ${item['actor_id']} · ${item['created_at']}'),
+          ),
+      ]),
+    ),
+  );
+
   Widget _runHistory() => Card(
     child: Padding(
       padding: const EdgeInsets.all(12),
@@ -506,6 +656,10 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
             title: Text('${run['status']} · ${run['execution_mode']}',
                 style: const TextStyle(fontWeight: FontWeight.w800)),
             subtitle: Text('${run['run_id']}\n${run['started_at'] ?? ''}'),
+            trailing: run['status'] == 'FAILED' ? TextButton.icon(
+              onPressed: _busy ? null : () => _replayRun(run['run_id'].toString()),
+              icon: const Icon(Icons.replay), label: const Text('REPLAY'),
+            ) : null,
             onExpansionChanged: (expanded) {
               final id = run['run_id'].toString();
               if (expanded && !_expandedRuns.contains(id)) {
@@ -550,6 +704,8 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
         _builder(),
         _workflowList(),
         _runHistory(),
+        _calendarCard(),
+        _auditCard(),
         if (_busy) const LinearProgressIndicator(),
       ],
     ),
