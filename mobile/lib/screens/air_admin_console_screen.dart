@@ -7,7 +7,10 @@ import 'package:http/http.dart' as http;
 import '../services/air_api_client.dart';
 
 class AirAdminConsoleScreen extends StatefulWidget {
-  const AirAdminConsoleScreen({super.key});
+  const AirAdminConsoleScreen({super.key, this.httpClient});
+
+  @visibleForTesting
+  final http.Client? httpClient;
 
   @override
   State<AirAdminConsoleScreen> createState() => _AirAdminConsoleScreenState();
@@ -16,7 +19,7 @@ class AirAdminConsoleScreen extends StatefulWidget {
 class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
   static const _storage = FlutterSecureStorage();
   late final String _apiBase = AirApiClient.configuredBaseUrl ?? 'http://127.0.0.1:8000';
-  final _client = http.Client();
+  late final http.Client _client = widget.httpClient ?? http.Client();
   final _email = TextEditingController();
   final _password = TextEditingController();
   final _totp = TextEditingController();
