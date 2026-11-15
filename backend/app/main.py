@@ -627,7 +627,8 @@ class TelegramDestinationInput(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     chat_id: str = Field(min_length=1, max_length=24)
     destination_type: str = Field(pattern="^(PRIVATE|GROUP)$")
-    strategies: list[str] = Field(min_length=1, max_length=3)
+    strategies: list[str] = Field(min_length=1, max_length=7)
+    customer_id: str | None = Field(default=None, max_length=128)
     enabled: bool = True
 
 
@@ -2521,7 +2522,7 @@ async def operator_list_telegram_destinations(
         "destinations": rows,
         "bot_configured": bool(token),
         "legacy_env_fallback": not telegram_destinations.has_managed_destinations(),
-        "supported_strategies": ["RECOVERED", "EXPIRY78", "EXPIRYSCAN"],
+        "supported_strategies": ["RECOVERED", "EXPIRY78", "EXPIRYSCAN", "AIR_QOC", "ORB", "PORTFOLIO_RISK", "AIR_WORKFLOW"],
     }
 
 
@@ -2532,7 +2533,7 @@ async def operator_add_telegram_destination(
 ) -> dict:
     try:
         row = telegram_destinations.upsert_destination(
-            body.name, body.chat_id, body.destination_type, body.strategies, body.enabled
+            body.name, body.chat_id, body.destination_type, body.strategies, body.enabled, body.customer_id
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -2552,7 +2553,7 @@ async def operator_update_telegram_destination(
         row = telegram_destinations.update_destination(
             destination_id, name=body.name, chat_id=body.chat_id,
             destination_type=body.destination_type, strategies=body.strategies,
-            enabled=body.enabled,
+            enabled=body.enabled, customer_id=body.customer_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
