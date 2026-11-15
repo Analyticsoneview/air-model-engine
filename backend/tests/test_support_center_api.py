@@ -16,8 +16,8 @@ def support_client():
         "admin_id": "support-admin-1", "role": "ADMIN", "email": "admin@example.test",
         "session_id": "test-session", "must_change_password": False,
     }
-    with TestClient(app) as client:
-        yield client
+    client = TestClient(app)
+    yield client
     app.dependency_overrides.clear()
     main.support_store.close()
     main.support_store = original
@@ -66,3 +66,12 @@ def test_customer_cannot_read_another_customers_ticket(support_client):
     support_client.app.dependency_overrides[require_customer] = lambda: "+919876543211"
     response = support_client.get(f"/api/v1/customer/support/tickets/{ticket['ticket_id']}")
     assert response.status_code == 404
+
+
+def test_research_admin_cannot_access_support_queue(support_client):
+    support_client.app.dependency_overrides[require_admin] = lambda: {
+        "admin_id": "research-1", "role": "RESEARCH_ADMIN", "email": "research@example.test",
+        "session_id": "research-session", "must_change_password": False,
+    }
+    response = support_client.get("/api/v1/admin/support/tickets")
+    assert response.status_code == 403
