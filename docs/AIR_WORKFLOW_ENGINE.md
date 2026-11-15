@@ -2,7 +2,7 @@
 
 ## Decision record
 
-**Status:** Gate 8 Phases 1–7 merged; Gate 9 runtime observability in progress  
+**Status:** Gate 8 complete; Gate 9 workflow runtime observability in progress  
 **Runtime target:** self-hosted Docker Swarm on Linux  
 **Developer workstation:** Windows 10/11, with native tools or Docker Desktop  
 **Initial message transport:** RabbitMQ  
@@ -123,3 +123,13 @@ PRs #50–#55 are merged. The engine has PostgreSQL-backed event intake/outbox, 
 - Calendar statuses are `HOLIDAY`, `TRADING_DAY` and `SPECIAL_SESSION`. Special sessions require explicit open/close times and scheduled triggers are bounded to those hours. Regular TRADING_DAY entries only establish that the exchange is open on that date; time triggers may also run after market close for post-market reporting.
 - Time workflows with `trigger_config.exchange_code` only run when that date is explicitly marked as a trading day or special session; missing dates and holidays are skipped. This deliberately fails closed and does not invent an exchange holiday list.
 - The application does not auto-import a holiday calendar. Operators must load and verify the official exchange schedule for each year and update special-session notices before enabling exchange-scoped schedules.
+
+
+## Gate 9 — Runtime observability
+
+- The workflow worker writes a PostgreSQL/SQLite-compatible heartbeat containing its process identity, RabbitMQ connection state and executor/scheduler/publisher thread liveness.
+- Administrator endpoint: `GET /api/v1/admin/workflows/runtime`. Heartbeats older than 45 seconds are treated as unhealthy.
+- Runtime counters expose pending/published/failed outbox rows and queued/running/succeeded/failed workflow runs and steps.
+- Workflow Studio displays worker health, RabbitMQ connectivity and queue/run counters.
+- Migration `0017_workflow_runtime_heartbeat` adds the durable worker heartbeat table.
+- This is operational visibility, not a replacement for host-level monitoring, RabbitMQ queue metrics, alert delivery or production smoke tests.
