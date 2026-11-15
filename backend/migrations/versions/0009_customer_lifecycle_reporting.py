@@ -56,6 +56,14 @@ def upgrade() -> None:
         ON CONFLICT(customer_id) DO NOTHING
     """)
     op.execute("""
+        INSERT INTO air_customer_subscription_history
+            (assignment_id,customer_id,plan_code,starts_at,expires_at,assigned_at,assigned_by_admin_id)
+        SELECT md5(customer_id || starts_at || expires_at),customer_id,plan_code,starts_at,expires_at,
+               COALESCE(updated_at,CURRENT_TIMESTAMP::text),''
+          FROM air_customer_subscriptions
+        ON CONFLICT(assignment_id) DO NOTHING
+    """)
+    op.execute("""
         CREATE FUNCTION air_reject_customer_audit_mutation() RETURNS trigger AS $$
         BEGIN
             RAISE EXCEPTION 'AIR customer audit history is append-only';
