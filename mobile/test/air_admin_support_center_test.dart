@@ -64,6 +64,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('IN PROGRESS').last);
     await tester.pumpAndSettle();
+    await tester.tap(find.text('SAVE UPDATE'));
+    await tester.pumpAndSettle();
     expect(updates, hasLength(1));
     expect(jsonDecode(updates.single.body)['status'], 'IN_PROGRESS');
 
