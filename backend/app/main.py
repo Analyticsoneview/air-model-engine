@@ -1064,7 +1064,7 @@ async def admin_customer_register(
     as_of_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     segment: str = Query(default="ALL", pattern="^(ALL|NEVER_SUBSCRIBED|EXPIRED|ACTIVE|CANCELLED|INACTIVE|PENDING_ACCESS|OPTED_OUT|NOT_GRANTED)$"),
     search: str = Query(default="", max_length=100),
-    limit: int = Query(default=200, ge=1, le=500),
+    limit: int = Query(default=200, ge=1, le=5000),
     admin: dict = Depends(require_admin),
 ) -> dict:
     if admin.get("role") not in {"SUPER_ADMIN", "ADMIN"}:
