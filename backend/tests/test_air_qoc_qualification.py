@@ -2,7 +2,7 @@ import unittest
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from app.air_qoc_qualification import qualify_option_observations
+from app.air_qoc_qualification import backtest_option_observations, qualify_option_observations
 
 IST = ZoneInfo("Asia/Kolkata")
 NOW = datetime(2026, 11, 16, 10, 0, tzinfo=IST)
@@ -95,6 +95,40 @@ class AirQocQualificationTests(unittest.TestCase):
         signal = result["signals"][0]
         self.assertEqual(signal["classification"], "REJECT")
         self.assertIn("SECOND_SAME_SESSION_OBSERVATION_REQUIRED", signal["gate_failures"])
+
+    def test_intraday_backtest_exits_at_session_cutoff_without_overnight_carry(self):
+        rows = [
+            dict(self.rows[0]),
+            dict(self.rows[1]),
+            observation("2026-11-16T10:01:00+05:30", spot=101.2, premium=12,
+                        volume=1800, oi=5800, bid=11.9, ask=12.1),
+            observation("2026-11-16T15:15:00+05:30", spot=101.5, premium=12.5,
+                        volume=2200, oi=6000, bid=12.4, ask=12.6),
+            observation("2026-11-17T09:20:00+05:30", spot=102, premium=13,
+                        volume=2500, oi=6200, bid=12.9, ask=13.1),
+        ]
+        result = backtest_option_observations(rows)
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["summary"]["trades"], 1)
+        trade = result["trades"][0]
+        self.assertEqual(trade["exit_reason"], "SESSION_CUTOFF")
+        self.assertEqual(trade["exit_time"], "2026-11-16T15:15:00+05:30")
+        self.assertAlmostEqual(trade["return_pct"], 13.64, places=2)
+
+    def test_intraday_backtest_uses_first_observed_stop_breach(self):
+        rows = [
+            dict(self.rows[0]),
+            dict(self.rows[1]),
+            observation("2026-11-16T10:01:00+05:30", spot=100.8, premium=7,
+                        volume=1800, oi=5800, bid=6.9, ask=7.1),
+            observation("2026-11-16T15:15:00+05:30", spot=101.5, premium=12.5,
+                        volume=2200, oi=6000, bid=12.4, ask=12.6),
+        ]
+        result = backtest_option_observations(rows)
+        trade = result["trades"][0]
+        self.assertEqual(trade["exit_reason"], "STOP_LOSS_OBSERVED")
+        self.assertEqual(trade["exit_premium"], 7.0)
+        self.assertLess(trade["return_pct"], -30)
 
     def test_invalid_mode_is_rejected(self):
         with self.assertRaises(ValueError):
