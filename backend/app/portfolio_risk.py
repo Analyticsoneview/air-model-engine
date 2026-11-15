@@ -58,7 +58,7 @@ def _normalize_instrument(row: dict, kind: str) -> dict:
     invested = _number(_first(row, ("invested_value", "cost_value", "buy_value", "costValue")))
     if invested is None and quantity is not None and average is not None:
         invested = abs(quantity) * average
-    market_value = explicit_value
+    market_value = abs(explicit_value) if explicit_value is not None else None
     if market_value is None and quantity is not None and ltp is not None:
         market_value = abs(quantity) * ltp
     pnl = _number(_first(row, ("unrealizedProfit", "unrealized_pnl", "pnl", "profit", "pl", "mtm")))
@@ -138,6 +138,7 @@ def build_portfolio_snapshot(payload: dict, broker: str, account_id: str) -> dic
     if gross is None: missing.append("market_value")
     if invested is None: missing.append("invested_value")
     if explicit_equity is None: missing.append("account_equity")
+    if capital is None: missing.append("capital_base")
     if not any(x.get("sector") for x in instruments): missing.append("sector_classification")
     if pnl is None: missing.append("pnl")
     return {
@@ -204,6 +205,14 @@ class PortfolioRiskStore:
                 snapshot["captured_at"], json.dumps(snapshot["summary"], default=str),
                 json.dumps(snapshot["positions"], default=str), json.dumps(snapshot["holdings"], default=str),
             ))
+            self.db.execute("""DELETE FROM air_portfolio_snapshots WHERE snapshot_id IN (
+                SELECT snapshot_id FROM (
+                    SELECT snapshot_id, ROW_NUMBER() OVER (
+                        PARTITION BY broker,account_id ORDER BY captured_at DESC,created_at DESC
+                    ) AS row_num
+                    FROM air_portfolio_snapshots WHERE customer_id=?
+                ) ranked WHERE row_num > 500
+            )""", (customer_id,))
         return snapshot_id
 
     def _decode(self, row: Any) -> dict:
@@ -217,7 +226,7 @@ class PortfolioRiskStore:
 
     def latest(self, customer_id: str) -> list[dict]:
         rows = self.db.execute("""SELECT * FROM air_portfolio_snapshots
-            WHERE customer_id=? ORDER BY captured_at DESC,created_at DESC""", (customer_id,)).fetchall()
+            WHERE customer_id=? ORDER BY captured_at DESC,created_at DESC LIMIT 5000""", (customer_id,)).fetchall()
         latest_by_account = {}
         for row in rows:
             key = (row["broker"], row["account_id"])
@@ -302,6 +311,8 @@ class PortfolioRiskStore:
         drawdowns = list(drawdown_by_account.values())
         max_drawdown = max(drawdowns) if drawdowns else None
         all_equity_known = bool(summaries) and all(s.get("account_equity") is not None for s in summaries)
+        all_capital_known = bool(summaries) and all(s.get("capital_base") is not None for s in summaries)
+        capital = aggregate("capital_base") if all_capital_known else None
         return {
             "accounts": accounts,
             "account_count": len(accounts),
@@ -315,6 +326,8 @@ class PortfolioRiskStore:
                 "realized_pnl": aggregate("realized_pnl"),
                 "day_pnl": aggregate("day_pnl"),
                 "account_equity": aggregate("account_equity") if all_equity_known else None,
+                "capital_base": capital,
+                "leverage_on_known_capital": round(gross / capital, 3) if gross is not None and capital else None,
                 "return_pct_on_observed_invested_value": return_pct,
                 "max_drawdown_pct": max_drawdown,
                 "drawdown_status": "AVAILABLE" if max_drawdown is not None else "INSUFFICIENT_EQUITY_HISTORY",
