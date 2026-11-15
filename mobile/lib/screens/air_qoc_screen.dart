@@ -159,7 +159,7 @@ class _AirQocScreenState extends State<AirQocScreen> {
       id,
       mode: _qocMode,
       underlyingScrip: _qocScope == 'SELECTED'
-          ? _selectedUnderlying?['security_id']?.toString() : null,
+          ? _selectedUnderlying == null ? null : _selectedUnderlying!['security_id'].toString() : null,
       expiry: _qocScope == 'SELECTED' ? _expiry : null,
     );
     if (!mounted) return;
