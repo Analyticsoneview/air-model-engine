@@ -102,6 +102,12 @@ def require_air_admin(x_air_admin_key: str | None = Header(default=None)) -> Non
         raise HTTPException(status_code=403, detail="AIR administrator approval is required")
 
 
+def require_admin_management(admin: dict = Depends(require_admin)) -> dict:
+    if admin["role"] not in {"SUPER_ADMIN", "ADMIN"}:
+        raise HTTPException(status_code=403, detail="Administrator management permission is required")
+    return admin
+
+
 def _market_adapter_for(operator_id: str, provider: str, account_id: str, hub=None):
     """Build a verified broker adapter from operator-owned encrypted credentials."""
     credentials = get_vault().get(operator_id, provider, account_id)
@@ -1094,12 +1100,6 @@ async def admin_me(admin: dict = Depends(require_admin)) -> dict:
 async def admin_logout(admin: dict = Depends(require_admin)) -> dict:
     get_admin_auth_store().revoke(admin["session_id"])
     return {"status": "signed_out"}
-
-
-def require_admin_management(admin: dict = Depends(require_admin)) -> dict:
-    if admin["role"] not in {"SUPER_ADMIN", "ADMIN"}:
-        raise HTTPException(status_code=403, detail="Administrator management permission is required")
-    return admin
 
 
 
