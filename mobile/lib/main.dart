@@ -372,23 +372,6 @@ class AirDashboard extends StatelessWidget {
   }
 }
 
-class _CompactIndexCard extends StatelessWidget {
-  const _CompactIndexCard({required this.name, required this.panel, required this.muted});
-  final String name;
-  final Color panel, muted;
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(11),
-    decoration: BoxDecoration(color: panel, borderRadius: BorderRadius.circular(14), border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: .3))),
-    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: muted)),
-      const SizedBox(height: 8),
-      const Text('—', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
-      Text('No feed', style: TextStyle(fontSize: 9, color: muted)),
-    ]),
-  );
-}
-
 class _DashboardAction extends StatelessWidget {
   const _DashboardAction({required this.icon, required this.title, required this.subtitle, required this.color, required this.onTap});
   final IconData icon;
