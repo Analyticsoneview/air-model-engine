@@ -55,7 +55,11 @@ class AccessStore:
         self.db.execute("CREATE INDEX IF NOT EXISTS ix_air_access_decisions_request ON air_access_decision_history(request_id, decided_at)")
         self.db.execute("""CREATE TABLE IF NOT EXISTS air_customer_lifecycle(
             customer_id TEXT PRIMARY KEY, first_registered_at TEXT NOT NULL,
-            first_approved_at TEXT, first_plan_availed_at TEXT, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+            first_approved_at TEXT, first_rejected_at TEXT, first_plan_availed_at TEXT,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+        lifecycle_columns = {row[1] for row in self.db.execute("PRAGMA table_info(air_customer_lifecycle)")}
+        if "first_rejected_at" not in lifecycle_columns:
+            self.db.execute("ALTER TABLE air_customer_lifecycle ADD COLUMN first_rejected_at TEXT")
         self.db.execute("""CREATE TABLE IF NOT EXISTS air_customer_subscription_history(
             assignment_id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, plan_code TEXT NOT NULL,
             starts_at TEXT NOT NULL, expires_at TEXT NOT NULL, assigned_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -218,9 +222,10 @@ class AccessStore:
                     (str(uuid4()), request_id, current["mobile_e164"], current["status"], status,
                      reviewer_admin_id, reviewer_role, note[:500], int(totp_counter), verified_at,
                      verification_reference or f"totp-counter:{int(totp_counter)}", json.dumps(context, sort_keys=True)))
-                if status == "APPROVED":
-                    self.db.execute("""UPDATE air_customer_lifecycle SET
-                        first_approved_at=COALESCE(first_approved_at,?),updated_at=CURRENT_TIMESTAMP
+                if status in {"APPROVED", "REJECTED"}:
+                    lifecycle_column = "first_approved_at" if status == "APPROVED" else "first_rejected_at"
+                    self.db.execute(f"""UPDATE air_customer_lifecycle SET
+                        {lifecycle_column}=COALESCE({lifecycle_column},?),updated_at=CURRENT_TIMESTAMP
                         WHERE customer_id=?""", (verified_at, current["mobile_e164"]))
                 if status != "APPROVED":
                     self.db.execute("UPDATE air_device_sessions SET active=0 WHERE request_id=?", (request_id,))
@@ -360,13 +365,13 @@ class AccessStore:
                 "marketing_status": "OPTED_IN" if consent else ("OPTED_OUT" if pref else "NOT_GRANTED"),
                 "consent_updated_at": pref["consent_updated_at"] if pref else None,
             }
-            lifecycle = self.db.execute("""SELECT first_registered_at,first_approved_at,first_plan_availed_at
+            lifecycle = self.db.execute("""SELECT first_registered_at,first_approved_at,first_rejected_at,first_plan_availed_at
                 FROM air_customer_lifecycle WHERE customer_id=?""", (customer_id,)).fetchone()
             if lifecycle:
                 item.update(dict(lifecycle))
             else:
                 item.update({"first_registered_at": row["registered_at"],
-                             "first_approved_at": None, "first_plan_availed_at": None})
+                             "first_approved_at": None, "first_rejected_at": None, "first_plan_availed_at": None})
             if needle and needle not in customer_id.lower():
                 continue
             if segment == "NEVER_SUBSCRIBED" and subscription_status != "NEVER_SUBSCRIBED":
