@@ -145,7 +145,7 @@ def _schedule_time_triggers(stop: threading.Event) -> None:
                         event_type="workflow.time.triggered", source="workflow.scheduler",
                         payload={"workflow_id": item["workflow_id"], "workflow_name": item["name"],
                                  "customer_id": item.get("customer_id"),
-                                 "scheduled_local_time": item["local_time"]},
+                                 "scheduled_local_time": item["local_time"], "exchange": item.get("exchange")},
                         idempotency_key=f"time:{item['workflow_id']}:{item['scheduled_key']}",
                     )
             except Exception as exc:
