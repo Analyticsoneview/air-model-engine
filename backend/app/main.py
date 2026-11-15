@@ -48,7 +48,7 @@ from app.nse_bhavcopy import (nse_data_status, nse_data_rows, start_nse_data_job
 from app.market_intelligence import build_market_intelligence_pulse
 from app.security import create_access_token, create_admin_access_token, hash_password, require_customer, require_admin, verify_password
 from app.persistence import get_persistence_runtime
-from app.workflow_events import emit_workflow_event
+from app.workflow_events import build_idempotency_key, emit_workflow_event
 
 app = FastAPI(title="AIR Model Engine API", version="0.3.0",
               description="Self-hosted AIR authentication, broker account and market-data gateway.")
@@ -326,7 +326,7 @@ async def refresh_customer_portfolio(customer_id: str = Depends(require_customer
                     "account_id": account.account_id, "snapshot_id": snapshot["snapshot_id"],
                     "captured_at": snapshot["captured_at"], "summary": snapshot["summary"],
                 },
-                idempotency_key=f"portfolio:{owner_id}:{account.broker}:{account.account_id}:{snapshot['captured_at']}",
+                idempotency_key=build_idempotency_key("portfolio", owner_id, account.broker, account.account_id, snapshot["captured_at"]),
             )
         except Exception as exc:
             failures.append({
