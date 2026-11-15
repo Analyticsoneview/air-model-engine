@@ -339,7 +339,7 @@ class AccessStore:
         allowed = {"ALL", "NEVER_SUBSCRIBED", "EXPIRED", "ACTIVE", "CANCELLED", "INACTIVE", "PENDING_ACCESS", "OPTED_OUT", "NOT_GRANTED"}
         if segment not in allowed:
             raise ValueError("Unsupported customer segment")
-        limit = max(1, min(int(limit), 500))
+        limit = max(1, min(int(limit), 5000))
         rows = self.db.execute("""
             SELECT r.mobile_e164 AS customer_id,
                    MIN(r.created_at) AS registered_at,
@@ -444,7 +444,7 @@ class AccessStore:
         return {"customer_id": customer_id, "promotional_consent": bool(enabled)}
 
     def marketing_segment_counts(self):
-        customers = self.list_marketing_customers("ALL", limit=500)
+        customers = self.list_marketing_customers("ALL", limit=5000)
         counts = {
             "ALL": len(customers),
             "NEVER_SUBSCRIBED": 0,
