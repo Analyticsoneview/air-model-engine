@@ -31,7 +31,7 @@ Missing fields are returned as null and listed in missing_fields; no missing cap
 
 ## Signal ledger storage and tenant boundary
 
-The existing model-signal ledger now supports PostgreSQL via AIR_MODEL_LEDGER_DATABASE_URL, AIR_CUSTOMER_DATABASE_URL or AIR_DATABASE_URL; SQLite remains available for local tests/development. PostgreSQL schema is provisioned by Alembic. A signal ID collision from another customer cannot overwrite the original customer's row; tenant ownership is enforced in the upsert conflict clause.
+The existing model-signal ledger now supports PostgreSQL via AIR_CUSTOMER_DATABASE_URL or AIR_DATABASE_URL; SQLite remains available for local tests/development. PostgreSQL schema is provisioned by Alembic. A signal ID collision from another customer cannot overwrite the original customer's row; tenant ownership is enforced in the upsert conflict clause.
 
 ## Operational limitations
 
