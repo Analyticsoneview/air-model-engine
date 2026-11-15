@@ -39,8 +39,6 @@ class _AirMarketPulseCardState extends State<AirMarketPulseCard> {
     }
   }
 
-  String _value(dynamic value) => value is num ? value.toString() : '—';
-
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
