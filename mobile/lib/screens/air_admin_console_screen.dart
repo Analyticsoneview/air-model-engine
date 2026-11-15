@@ -57,6 +57,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
   String _offerPlan = 'MONTHLY';
   List<Map<String, dynamic>> _admins = [];
   List<Map<String, dynamic>> _audit = [];
+  List<Map<String, dynamic>> _accessDecisions = [];
   List<Map<String, dynamic>> _requests = [];
   List<Map<String, dynamic>> _customers = [];
   List<Map<String, dynamic>> _offers = [];
@@ -148,10 +149,12 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
       _request('GET', requestPath),
       if (_role == 'SUPER_ADMIN') _request('GET', '/api/v1/admin/users') else Future.value(<String,dynamic>{'admins': []}),
       if (_role == 'SUPER_ADMIN') _request('GET', '/api/v1/admin/audit?limit=100') else Future.value(<String,dynamic>{'events': []}),
+      _request('GET', '/api/v1/admin/access-decisions'),
     ]);
     _requests = (requestResults[0]['requests'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
     _admins = (requestResults[1]['admins'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
     _audit = (requestResults[2]['events'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
+    _accessDecisions = (requestResults[3]['decisions'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
     if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') {
       final asOfDate = _customerAsOfDate.text.trim();
       final customerFilters = <String, String>{
@@ -785,6 +788,31 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
   }
 
   Widget _auditView() => ListView(padding: const EdgeInsets.all(16), children: [
+    const Text('CUSTOMER ACCESS DECISION HISTORY', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: .5)),
+    const SizedBox(height: 6),
+    const Text('Append-only approval, rejection and block decisions. Decision and TOTP verification timestamps are displayed in IST.'),
+    if (_accessDecisions.isEmpty) const Padding(padding: EdgeInsets.all(12), child: Text('No customer access decisions recorded yet.')),
+    for (final decision in _accessDecisions)
+      Card(child: ExpansionTile(
+        title: Text('${decision['mobile_e164'] ?? 'Unknown customer'} · ${decision['new_status'] ?? ''}',
+            style: const TextStyle(fontWeight: FontWeight.w800)),
+        subtitle: Text('${decision['decided_at_ist'] ?? decision['decided_at'] ?? '—'} · ${decision['reviewer_role'] ?? ''}'),
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+        children: [
+          Align(alignment: Alignment.centerLeft, child: Text('Request: ${decision['request_id'] ?? '—'}')),
+          Align(alignment: Alignment.centerLeft, child: Text('Device: ${decision['device_id'] ?? '—'}')),
+          Align(alignment: Alignment.centerLeft, child: Text('Status: ${decision['previous_status'] ?? '—'} → ${decision['new_status'] ?? '—'}')),
+          Align(alignment: Alignment.centerLeft, child: Text('Administrator: ${decision['reviewer_admin_id'] ?? '—'}')),
+          Align(alignment: Alignment.centerLeft, child: Text('Decision time (IST): ${decision['decided_at_ist'] ?? '—'}')),
+          Align(alignment: Alignment.centerLeft, child: Text('TOTP verified (IST): ${decision['totp_verified_at_ist'] ?? '—'}')),
+          Align(alignment: Alignment.centerLeft, child: Text('Verification reference: ${decision['verification_reference'] ?? '—'}')),
+          Align(alignment: Alignment.centerLeft, child: Text('TOTP counter: ${decision['totp_counter'] ?? '—'}')),
+          Align(alignment: Alignment.centerLeft, child: Text('Admin note: ${decision['note'] ?? '—'}')),
+          Align(alignment: Alignment.centerLeft, child: Text('Request context: ${decision['request_context'] ?? '—'}')),
+        ],
+      )),
+    const Divider(height: 28),
+    const Text('ADMINISTRATOR AUDIT', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: .5)),
     for (final e in _audit) Card(child: ListTile(title: Text(e['action']?.toString() ?? ''), subtitle: Text('${e['created_at']} · target ${e['target_admin_id'] ?? '—'}'))),
   ]);
 }
