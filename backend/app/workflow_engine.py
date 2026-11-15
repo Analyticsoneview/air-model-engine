@@ -468,6 +468,9 @@ class WorkflowStore:
                  json.dumps(trigger_config, allow_nan=False),
                  json.dumps(workflow_spec, allow_nan=False), execution_mode, updated_by, now),
             )
+            if bool(current["enabled"]):
+                self._append_audit(workflow_id, int(current["version"]), updated_by,
+                                   "DISABLED", {"reason": "definition_changed"})
             self._append_audit(workflow_id, version, updated_by, "UPDATED",
                                {"name": name, "trigger_type": trigger_type, "execution_mode": execution_mode})
         return self.get_workflow(workflow_id)
