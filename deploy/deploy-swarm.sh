@@ -56,9 +56,13 @@ fi
 echo "Validating rendered Docker Swarm stack..."
 docker stack config --compose-file docker-stack.yml >/dev/null
 
-echo "Pulling immutable AIR images..."
-docker pull "$AIR_BACKEND_IMAGE"
-docker pull "$AIR_PWA_IMAGE"
+if [[ "${AIR_SKIP_IMAGE_PULL:-false}" == "true" ]]; then
+  echo "Using locally built AIR images; image pulls are disabled for first-time installation."
+else
+  echo "Pulling immutable AIR images..."
+  docker pull "$AIR_BACKEND_IMAGE"
+  docker pull "$AIR_PWA_IMAGE"
+fi
 
 echo "Applying Docker Swarm stack '$STACK_NAME'..."
 docker stack deploy --with-registry-auth --prune -c docker-stack.yml "$STACK_NAME"
