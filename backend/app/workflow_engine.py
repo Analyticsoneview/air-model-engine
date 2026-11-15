@@ -711,10 +711,21 @@ class WorkflowStore:
                 raise ValueError(f"Invalid time trigger configuration for workflow {row['workflow_id']}")
             scheduled = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
             lateness = (local - scheduled).total_seconds()
-            if local.weekday() in days and 0 <= lateness <= grace:
+            exchange = str(config.get("exchange") or "").strip().upper()
+            calendar_status = None
+            if exchange:
+                calendar_row = self.db.execute(
+                    "SELECT status FROM air_exchange_calendar WHERE exchange_code=? AND session_date=?",
+                    (exchange, local.date().isoformat()),
+                ).fetchone()
+                calendar_status = calendar_row["status"] if calendar_row else None
+            is_exchange_holiday = calendar_status == "HOLIDAY"
+            explicit_session = calendar_status in {"SPECIAL_SESSION", "TRADING_DAY"}
+            is_scheduled_day = local.weekday() in days or explicit_session
+            if not is_exchange_holiday and is_scheduled_day and 0 <= lateness <= grace:
                 due.append({
                     "workflow_id": row["workflow_id"], "name": row["name"],
-                    "customer_id": config.get("customer_id"),
+                    "customer_id": config.get("customer_id"), "exchange": exchange or None,
                     "local_time": scheduled.isoformat(), "scheduled_key": scheduled.strftime("%Y%m%d%H%M"),
                 })
         return due
