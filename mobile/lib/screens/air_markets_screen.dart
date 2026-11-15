@@ -215,7 +215,7 @@ class _MarketStatusCard extends StatelessWidget {
         const SizedBox(height: 7),
         Text(data['status']?.toString() ?? 'UNKNOWN', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900)),
         const SizedBox(height: 3),
-        Text('${data['imported_sessions'] ?? data['sessions_ready'] ?? 0} sessions · ${data['records'] ?? data['record_count'] ?? 0} records',
+        Text('${data['sessions'] ?? 0} sessions · ${data['records'] ?? 0} records',
           style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
       ]),
     ));
