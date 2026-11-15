@@ -307,7 +307,7 @@ class AccessStore:
                 (customer_id,first_registered_at,first_plan_availed_at)
                 VALUES(?,?,CURRENT_TIMESTAMP) ON CONFLICT(customer_id) DO UPDATE SET
                 first_plan_availed_at=COALESCE(first_plan_availed_at,excluded.first_plan_availed_at),
-                updated_at=CURRENT_TIMESTAMP""", (customer_id, registered, starts.isoformat()))
+                updated_at=CURRENT_TIMESTAMP""", (customer_id, registered))
 
     def get_subscription(self, customer_id: str):
         row = self.db.execute(
