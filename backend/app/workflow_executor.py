@@ -37,6 +37,27 @@ def _step_input(params: dict, outputs: dict[str, dict]) -> dict:
     return outputs[source_step]
 
 
+def _owned_qoc_account(context: dict, params: dict) -> tuple[str, str]:
+    customer_id = _customer_id(context)
+    event_payload = context.get("event_payload") or {}
+    event_account_id = str(event_payload.get("account_id") or "").strip()
+    account_id = str(params.get("account_id") or event_account_id).strip()
+    provider = str(params.get("provider") or event_payload.get("provider") or "dhan").lower()
+    if not account_id:
+        raise WorkflowStepError("QOC actions require account_id in params or event")
+    if event_account_id and account_id != event_account_id:
+        raise WorkflowStepError("QOC action account_id must match the triggering customer event")
+    from app.brokers.customer_accounts import CustomerAccountDirectory
+    directory = CustomerAccountDirectory()
+    try:
+        owned = directory.list_for_customer(customer_id)
+    finally:
+        directory.close()
+    if not any(row.account_id == account_id and row.broker.lower() == provider for row in owned):
+        raise WorkflowStepError("Customer does not own the selected QOC broker account")
+    return account_id, provider
+
+
 def _execute_action(
     store: WorkflowStore, context: dict, step: dict, outputs: dict[str, dict],
 ) -> dict[str, Any]:
@@ -49,14 +70,12 @@ def _execute_action(
         from app.air_qoc_store import AirQocStore
         from app.air_qoc_qualification import qualify_option_observations
 
-        account_id = str(params.get("account_id") or event_payload.get("account_id") or "")
-        if not account_id:
-            raise WorkflowStepError("qoc.qualify requires account_id in params or event")
+        account_id, provider = _owned_qoc_account(context, params)
         qoc_store = AirQocStore()
         try:
             observations = qoc_store.qualification_history(
                 account_id=account_id,
-                provider=str(params.get("provider") or event_payload.get("provider") or "dhan"),
+                provider=provider,
                 underlying_scrip=params.get("underlying_scrip"),
                 expiry=params.get("expiry"),
                 limit=max(2, min(int(params.get("limit", 10000)), 20000)),
@@ -79,9 +98,7 @@ def _execute_action(
         from app.air_qoc_store import AirQocStore
         from app.air_qoc_qualification import backtest_option_observations
 
-        account_id = str(params.get("account_id") or event_payload.get("account_id") or "")
-        if not account_id:
-            raise WorkflowStepError("qoc.backtest requires account_id in params or event")
+        account_id, provider = _owned_qoc_account(context, params)
         qoc_store = AirQocStore()
         try:
             observations = qoc_store.qualification_history(
@@ -158,6 +175,12 @@ def _execute_action(
         from app.telegram_notifications import notify_candidates
 
         strategy = str(params.get("strategy") or "AIR_WORKFLOW").upper()
+        if strategy == "PORTFOLIO_RISK":
+            raise WorkflowStepError("Portfolio risk alerts require customer-specific notification destinations")
+        if source_output and ("accounts" in source_output or "positions" in source_output or "holdings" in source_output):
+            raise WorkflowStepError("Private portfolio detail cannot be sent to global Telegram destinations")
+        if event_payload.get("broker") and event_payload.get("account_id") and event_payload.get("summary"):
+            raise WorkflowStepError("Customer portfolio snapshots cannot be sent to global Telegram destinations")
         if params.get("source_step") and strategy == "AIR_QOC":
             rows = source_output.get("signals", []) if isinstance(source_output, dict) else []
             if not rows:
