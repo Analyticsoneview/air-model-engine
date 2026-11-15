@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from app.db_compat import PostgresConnection, read_database_url
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -19,74 +20,81 @@ STATUSES = {"NEW", "HOLD", "WAIT", "RE-ENTRY", "SL", "TARGETS", "EXPIRED", "EXPI
 
 class ModelEngineLedger:
     def __init__(self, db_path: str | None = None):
-        self.db_path = db_path or os.getenv("AIR_MODEL_LEDGER_DB_PATH", "data/air_model_ledger.sqlite3")
-        if self.db_path != ":memory:":
-            Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30)
-        self.db.row_factory = sqlite3.Row
-        self.db.execute("PRAGMA journal_mode=WAL")
-        self.db.execute("PRAGMA busy_timeout=30000")
-        self.db.execute("""
-            CREATE TABLE IF NOT EXISTS model_signals (
-                signal_id TEXT PRIMARY KEY,
-                customer_id TEXT NOT NULL,
-                classification TEXT NOT NULL CHECK(classification IN
-                    ('NEW','HOLD','WAIT','RE-ENTRY','SL','TARGETS','EXPIRED','EXPIRYSCAN')),
-                signal_date TEXT NOT NULL,
-                entry_date TEXT,
-                symbol TEXT NOT NULL,
-                instrument_type TEXT,
-                option_type TEXT,
-                expiry TEXT,
-                strike REAL,
-                entry_price REAL,
-                latest_price REAL,
-                stop_loss REAL,
-                target_1 REAL,
-                target_2 REAL,
-                target_3 REAL,
-                lot_size INTEGER,
-                quantity INTEGER,
-                score REAL,
-                pnl REAL,
-                pnl_pct REAL,
-                shelf_life_days INTEGER,
-                valid_until TEXT,
-                exit_date TEXT,
-                exit_price REAL,
-                achieved_target TEXT,
-                reason TEXT,
-                evidence_json TEXT NOT NULL DEFAULT '{}',
-                updated_at TEXT NOT NULL
-            )
-        """)
-        # Existing customer databases were created before WAIT was a persisted
-        # lifecycle state. Rebuild only when the old CHECK constraint is present.
-        schema_row = self.db.execute(
-            "SELECT sql FROM sqlite_master WHERE type='table' AND name='model_signals'"
-        ).fetchone()
-        schema_sql = schema_row["sql"] if schema_row else ""
-        if "'WAIT'" not in schema_sql:
-            updated_schema = schema_sql.replace(
-                "CREATE TABLE model_signals",
-                "CREATE TABLE model_signals_new",
-                1,
-            ).replace(
-                "('NEW','HOLD','RE-ENTRY','SL','TARGETS','EXPIRED','EXPIRYSCAN')",
-                "('NEW','HOLD','WAIT','RE-ENTRY','SL','TARGETS','EXPIRED','EXPIRYSCAN')",
-            )
-            if updated_schema == schema_sql:
-                raise RuntimeError("Unable to safely migrate model_signals lifecycle CHECK constraint")
-            self.db.execute("ALTER TABLE model_signals RENAME TO model_signals_legacy")
-            self.db.execute(updated_schema)
-            self.db.execute("INSERT INTO model_signals_new SELECT * FROM model_signals_legacy")
-            self.db.execute("DROP TABLE model_signals_legacy")
-            self.db.execute("ALTER TABLE model_signals_new RENAME TO model_signals")
-        self.db.execute("""
-            CREATE INDEX IF NOT EXISTS idx_model_signals_customer_status
-            ON model_signals(customer_id, classification, signal_date DESC)
-        """)
-        self.db.commit()
+        database_url = read_database_url("AIR_MODEL_LEDGER_DATABASE_URL") or read_database_url("AIR_CUSTOMER_DATABASE_URL")
+        self._is_postgres = database_url is not None
+        if self._is_postgres:
+            self.db_path = None
+            self.db = PostgresConnection(database_url)
+            try:
+                self.db.execute("SELECT 1 FROM model_signals LIMIT 0")
+            except Exception as exc:
+                self.db.close()
+                raise RuntimeError("PostgreSQL model signal schema is missing; apply Alembic migrations first") from exc
+        else:
+            self.db_path = db_path or os.getenv("AIR_MODEL_LEDGER_DB_PATH", "data/air_model_ledger.sqlite3")
+            if self.db_path != ":memory:":
+                Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+            self.db = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30)
+            self.db.row_factory = sqlite3.Row
+            self.db.execute("PRAGMA journal_mode=WAL")
+            self.db.execute("PRAGMA busy_timeout=30000")
+            self.db.execute("""
+                CREATE TABLE IF NOT EXISTS model_signals (
+                    signal_id TEXT PRIMARY KEY,
+                    customer_id TEXT NOT NULL,
+                    classification TEXT NOT NULL CHECK(classification IN
+                        ('NEW','HOLD','WAIT','RE-ENTRY','SL','TARGETS','EXPIRED','EXPIRYSCAN')),
+                    signal_date TEXT NOT NULL,
+                    entry_date TEXT,
+                    symbol TEXT NOT NULL,
+                    instrument_type TEXT,
+                    option_type TEXT,
+                    expiry TEXT,
+                    strike REAL,
+                    entry_price REAL,
+                    latest_price REAL,
+                    stop_loss REAL,
+                    target_1 REAL,
+                    target_2 REAL,
+                    target_3 REAL,
+                    lot_size INTEGER,
+                    quantity INTEGER,
+                    score REAL,
+                    pnl REAL,
+                    pnl_pct REAL,
+                    shelf_life_days INTEGER,
+                    valid_until TEXT,
+                    exit_date TEXT,
+                    exit_price REAL,
+                    achieved_target TEXT,
+                    reason TEXT,
+                    evidence_json TEXT NOT NULL DEFAULT '{}',
+                    updated_at TEXT NOT NULL
+                )
+            """)
+            schema_row = self.db.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='model_signals'"
+            ).fetchone()
+            schema_sql = schema_row["sql"] if schema_row else ""
+            if "'WAIT'" not in schema_sql:
+                updated_schema = schema_sql.replace(
+                    "CREATE TABLE model_signals", "CREATE TABLE model_signals_new", 1
+                ).replace(
+                    "('NEW','HOLD','RE-ENTRY','SL','TARGETS','EXPIRED','EXPIRYSCAN')",
+                    "('NEW','HOLD','WAIT','RE-ENTRY','SL','TARGETS','EXPIRED','EXPIRYSCAN')",
+                )
+                if updated_schema == schema_sql:
+                    raise RuntimeError("Unable to safely migrate model_signals lifecycle CHECK constraint")
+                self.db.execute("ALTER TABLE model_signals RENAME TO model_signals_legacy")
+                self.db.execute(updated_schema)
+                self.db.execute("INSERT INTO model_signals_new SELECT * FROM model_signals_legacy")
+                self.db.execute("DROP TABLE model_signals_legacy")
+                self.db.execute("ALTER TABLE model_signals_new RENAME TO model_signals")
+            self.db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_model_signals_customer_status
+                ON model_signals(customer_id, classification, signal_date DESC)
+            """)
+            self.db.commit()
 
     def upsert(self, customer_id: str, record: dict[str, Any]) -> None:
         status = str(record.get("classification", "")).upper()
@@ -129,7 +137,7 @@ class ModelEngineLedger:
         with self.db:
             self.db.execute(
                 f"INSERT INTO model_signals ({','.join(columns)}) VALUES ({placeholders}) "
-                f"ON CONFLICT(signal_id) DO UPDATE SET {updates}",
+                f"ON CONFLICT(signal_id) DO UPDATE SET {updates} WHERE model_signals.customer_id=excluded.customer_id",
                 [signal_id, customer_id, *values],
             )
 
