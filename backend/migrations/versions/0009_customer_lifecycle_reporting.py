@@ -14,7 +14,7 @@ depends_on = None
 
 def upgrade() -> None:
     op.add_column("air_access_decision_history",
-        sa.Column("authenticator_verified_at", sa.Text(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP::text")))
+        sa.Column("authenticator_verified_at", sa.Text(), nullable=True))
     op.add_column("air_access_decision_history",
         sa.Column("verification_reference", sa.String(120), nullable=False, server_default=""))
     op.add_column("air_access_decision_history",
