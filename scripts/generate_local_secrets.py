@@ -42,7 +42,9 @@ values = {
 }
 for name, value in values.items():
     write(name, value)
+# Optional secret: blank means Telegram notifications remain disabled until configured.
+write("telegram_bot_token", read("telegram_bot_token"))
 missing = [name for name in values if not (ROOT / name).is_file() or not read(name)]
 if missing:
     raise SystemExit("Failed to create required AIR secrets: " + ", ".join(missing))
-print("All 9 required AIR local secrets are present; existing non-empty secrets were preserved.")
+print("All 9 required AIR local secrets and the optional Telegram token file are present; existing non-empty secrets were preserved.")
