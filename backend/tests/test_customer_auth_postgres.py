@@ -143,6 +143,14 @@ def test_lifecycle_dates_subscription_history_and_immutable_decision_audit(custo
         with customer_store.engine.begin() as conn:
             conn.execute(text("""UPDATE air_access_decision_history SET note='tampered'
                 WHERE request_id=:request"""), {"request": first["request_id"]})
+    with pytest.raises(Exception):
+        with customer_store.engine.begin() as conn:
+            conn.execute(text("""UPDATE air_customer_subscription_history SET plan_code='DAILY'
+                WHERE customer_id='+919876543299'"""))
+    with pytest.raises(Exception):
+        with customer_store.engine.begin() as conn:
+            conn.execute(text("""DELETE FROM air_customer_subscription_history
+                WHERE customer_id='+919876543299'"""))
 
 
 def test_offer_requires_approval_and_can_be_revoked(customer_store):
