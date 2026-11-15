@@ -1075,9 +1075,21 @@ async def admin_customer_register(
         (plan_from, plan_to, "plan"),
         (expiry_from, expiry_to, "expiry"),
     )
+    from datetime import date
     for start_date, end_date, label in ranges:
+        for candidate in (start_date, end_date):
+            if candidate:
+                try:
+                    date.fromisoformat(candidate)
+                except ValueError as exc:
+                    raise HTTPException(status_code=422, detail=f"{label} dates must be valid calendar dates") from exc
         if start_date and end_date and start_date > end_date:
             raise HTTPException(status_code=422, detail=f"{label} start date must be before or equal to end date")
+    if as_of_date:
+        try:
+            date.fromisoformat(as_of_date)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="as_of_date must be a valid calendar date") from exc
     customers = access_store.list_marketing_customers(segment, search, limit)
     all_customers = access_store.list_marketing_customers("ALL", limit=10000)
     as_of_date = as_of_date or datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
@@ -1145,7 +1157,10 @@ async def admin_customer_daily_report(
     from datetime import date, timedelta
     if start_date > end_date:
         raise HTTPException(status_code=422, detail="start_date must be before or equal to end_date")
-    first, last = date.fromisoformat(start_date), date.fromisoformat(end_date)
+    try:
+        first, last = date.fromisoformat(start_date), date.fromisoformat(end_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="start_date and end_date must be valid calendar dates") from exc
     if (last - first).days > 366:
         raise HTTPException(status_code=422, detail="Daily report range cannot exceed 366 days")
 
