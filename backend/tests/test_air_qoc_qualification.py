@@ -76,9 +76,9 @@ class AirQocQualificationTests(unittest.TestCase):
     def test_valid_but_weaker_evidence_can_be_watch_or_qualified(self):
         weaker = [
             observation("2026-11-16T09:58:00+05:30", spot=100, premium=10,
-                        volume=1000, oi=5000, bid=9.7, ask=10.3),
-            observation("2026-11-16T09:59:30+05:30", spot=100.1, premium=10.2,
-                        volume=1010, oi=5010, bid=9.7, ask=10.7),
+                        volume=1000, oi=5000, bid=9.8, ask=10.2),
+            observation("2026-11-16T09:59:30+05:30", spot=100.5, premium=10.5,
+                        volume=1100, oi=5100, bid=10.2, ask=10.6),
         ]
         result = qualify_option_observations(weaker, mode="LIVE", now=NOW)
         signal = result["signals"][0]
