@@ -25,6 +25,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
   late final bool _ownsClient = widget.httpClient == null;
   final _name = TextEditingController();
   final _customerId = TextEditingController();
+  final _accountId = TextEditingController();
   final _eventType = TextEditingController(text: 'qoc.candidate.qualified');
   final _strategy = TextEditingController(text: 'ORB');
   final _notificationStrategy = TextEditingController(text: 'AIR_QOC');
@@ -102,6 +103,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
   void dispose() {
     _name.dispose();
     _customerId.dispose();
+    _accountId.dispose();
     _eventType.dispose();
     _strategy.dispose();
     _notificationStrategy.dispose();
@@ -192,6 +194,14 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
         throw const FormatException('Action parameters must be a JSON object.');
       }
       final params = Map<String, dynamic>.from(paramsValue);
+      final customerScopedAction = _action.startsWith('qoc.') ||
+          _action == 'portfolio.overview' || _action == 'notify.telegram' || _notifyAfter;
+      if (customerScopedAction && _customerId.text.trim().isEmpty) {
+        throw const FormatException('Customer ID is required for customer-owned research and notification actions.');
+      }
+      if (_accountId.text.trim().isNotEmpty && _action.startsWith('qoc.')) {
+        params['account_id'] = _accountId.text.trim();
+      }
       final steps = <Map<String, dynamic>>[
         {'id': 'research', 'action': _action, 'params': params},
       ];
@@ -261,6 +271,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
       _strategy.text = (triggerConfig['strategy'] ?? 'ORB').toString();
       _notificationStrategy.text = (notifyParams['strategy'] ?? firstParams['strategy'] ?? 'AIR_QOC').toString();
       _customerId.text = triggerConfig['customer_id']?.toString() ?? '';
+      _accountId.text = firstParams['account_id']?.toString() ?? '';
       _hour.text = (triggerConfig['hour'] ?? 9).toString().padLeft(2, '0');
       _minute.text = (triggerConfig['minute'] ?? 18).toString().padLeft(2, '0');
       _match = triggerConfig['match']?.toString() ?? 'ALL';
@@ -278,6 +289,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
       _editingWorkflowId = null;
       _name.clear();
       _customerId.clear();
+      _accountId.clear();
       _trigger = 'EVENT';
       _action = 'qoc.qualify';
       _mode = 'RESEARCH_ONLY';
@@ -391,7 +403,9 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
           const SizedBox(height: 10),
           _field(_filters, 'Condition filters (JSON)', maxLines: 4),
         ],
-        _field(_customerId, 'Customer ID (optional scope)', hint: 'Customer UUID'),
+        _field(_customerId, 'Customer ID', hint: 'Required for customer-owned actions'),
+        if (_action.startsWith('qoc.'))
+          _field(_accountId, 'Broker account ID (optional if supplied by trigger)', hint: 'Account ID linked to this customer'),
         DropdownButtonFormField<String>(
           value: _action,
           decoration: const InputDecoration(labelText: 'Workflow action', border: OutlineInputBorder(), isDense: true),
