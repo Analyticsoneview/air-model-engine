@@ -85,7 +85,7 @@ void main() {
     expect(find.text('2026-11-15'), findsAtLeastNWidgets(1));
     expect(find.textContaining('New: 7 · Existing requests: 2'), findsOneWidget);
     expect(find.textContaining('First plans: 4 · Approved, no plan: 2'), findsOneWidget);
-    await client.close();
+    client.close();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(storage, null);
   });
