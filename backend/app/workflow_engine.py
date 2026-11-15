@@ -396,6 +396,10 @@ class WorkflowStore:
                 json.dumps(trigger_config, allow_nan=False), json.dumps(workflow_spec, allow_nan=False),
                 execution_mode, created_by, now,
             ))
+            self._insert_audit(
+                workflow_id, 1, created_by, "WORKFLOW_CREATED",
+                {"trigger_type": trigger_type, "execution_mode": execution_mode},
+            )
         return self.get_workflow(workflow_id)
 
     def get_workflow(self, workflow_id: str) -> dict | None:
@@ -559,14 +563,29 @@ class WorkflowStore:
                  json.dumps(trigger_config, allow_nan=False),
                  json.dumps(workflow_spec, allow_nan=False), execution_mode, updated_by, now),
             )
+            self._insert_audit(
+                workflow_id, version, updated_by, "WORKFLOW_VERSION_CREATED",
+                {"previous_version": current["version"], "trigger_type": trigger_type,
+                 "execution_mode": execution_mode},
+            )
         return self.get_workflow(workflow_id)
 
-    def set_workflow_enabled(self, workflow_id: str, enabled: bool) -> dict | None:
+    def set_workflow_enabled(
+        self, workflow_id: str, enabled: bool, actor_id: str = "system",
+    ) -> dict | None:
+        current = self.get_workflow(workflow_id)
+        if current is None:
+            return None
         now = _now()
         with self.db:
             self.db.execute(
                 "UPDATE air_workflow_definitions SET enabled=?,updated_at=? WHERE workflow_id=?",
                 (bool(enabled), now, workflow_id),
+            )
+            self._insert_audit(
+                workflow_id, current["version"], actor_id,
+                "WORKFLOW_ENABLED" if enabled else "WORKFLOW_PAUSED",
+                {"enabled": bool(enabled)},
             )
         return self.get_workflow(workflow_id)
 
