@@ -178,7 +178,7 @@ class AccessStore:
 
     def decision_history(self, request_id: str):
         rows = self.db.execute("""SELECT decision_id,request_id,mobile_e164,previous_status,new_status,
-            reviewer_admin_id,reviewer_role,note,totp_counter,decided_at
+            reviewer_admin_id,reviewer_role,note,totp_counter,authenticator_verified_at,verification_reference,request_context,decided_at
             FROM air_access_decision_history WHERE request_id=? ORDER BY decided_at,decision_id""",
             (request_id,)).fetchall()
         return [dict(row) for row in rows]
