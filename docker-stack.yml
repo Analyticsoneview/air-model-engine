@@ -78,6 +78,7 @@ services:
     environment:
       AIR_DATABASE_URL_FILE: /run/secrets/air_database_url
       AIR_CUSTOMER_DATABASE_URL_FILE: /run/secrets/air_database_url
+      AIR_ACCOUNT_DATABASE_URL_FILE: /run/secrets/air_database_url
       AIR_QOC_DATABASE_URL_FILE: /run/secrets/air_database_url
       AIR_TELEGRAM_BOT_TOKEN_FILE: /run/secrets/air_telegram_bot_token
       AIR_TELEGRAM_CONFIG_DB_PATH: /var/lib/air/air_telegram_config.sqlite3
