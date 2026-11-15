@@ -25,6 +25,7 @@ def upgrade() -> None:
         sa.Column("customer_id", sa.String(16), primary_key=True),
         sa.Column("first_registered_at", sa.Text(), nullable=False),
         sa.Column("first_approved_at", sa.Text(), nullable=True),
+        sa.Column("first_rejected_at", sa.Text(), nullable=True),
         sa.Column("first_plan_availed_at", sa.Text(), nullable=True),
         sa.Column("updated_at", sa.Text(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP::text")),
     )
