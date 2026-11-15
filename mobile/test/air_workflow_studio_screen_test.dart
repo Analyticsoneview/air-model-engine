@@ -136,6 +136,8 @@ void main() {
       )),
     ));
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Morning QOC'), 350,
+        scrollable: find.byType(Scrollable).first);
     final popup = find.byType(PopupMenuButton<String>);
     expect(popup, findsOneWidget);
     await tester.tap(popup);
