@@ -73,7 +73,7 @@ account_directory = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "d
 _credential_vault: CredentialVault | None = None
 _upstox_oauth_states: dict[tuple[str, str], str] = {}
 _fyers_oauth_states: dict[tuple[str, str], str] = {}
-account_reporting = AccountReporting(os.getenv('AIR_REPORT_DB_PATH', 'data/air_account_reports.sqlite3'))
+account_reporting = AccountReporting(os.getenv('AIR_REPORT_DB_PATH'))
 portfolio_risk = PortfolioRiskStore()
 _report_scheduler_task: asyncio.Task | None = None
 
