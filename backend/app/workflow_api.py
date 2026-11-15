@@ -1,6 +1,8 @@
 """Administrator API for AIR workflow definitions, events and run history."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -113,6 +115,36 @@ async def set_workflow_enabled(workflow_id: str, enabled: bool, admin: dict = De
         if workflow is None:
             raise HTTPException(status_code=404, detail="Workflow not found")
         return workflow
+    finally:
+        store.close()
+
+
+
+@router.get("/runtime")
+async def workflow_runtime_status(admin: dict = Depends(require_admin)):
+    store = WorkflowStore()
+    try:
+        now = datetime.now(timezone.utc)
+        workers = []
+        for worker in store.list_worker_heartbeats(100):
+            try:
+                seen = datetime.fromisoformat(worker["last_seen"].replace("Z", "+00:00"))
+                age = max(0.0, (now - seen).total_seconds())
+            except (TypeError, ValueError):
+                age = None
+            live = age is not None and age <= 45 and worker["status"] == "RUNNING"
+            workers.append({
+                **worker, "age_seconds": round(age, 1) if age is not None else None,
+                "healthy": live,
+            })
+        healthy = any(item["healthy"] for item in workers)
+        status = "HEALTHY" if healthy else "DEGRADED" if workers else "NOT_SEEN"
+        return {
+            "status": status,
+            "heartbeat_stale_after_seconds": 45,
+            "workers": workers,
+            "metrics": store.runtime_metrics(),
+        }
     finally:
         store.close()
 
