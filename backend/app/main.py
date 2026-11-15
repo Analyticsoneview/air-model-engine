@@ -1046,7 +1046,20 @@ async def review_access_request(request_id: str, body: AccessReview, admin: dict
 
 @app.get("/api/v1/admin/access-requests/{request_id}/history")
 async def access_request_history(request_id: str, admin: dict = Depends(require_admin)) -> dict:
-    return {"request_id": request_id, "decisions": [dict(row) for row in access_store.decision_history(request_id)]}
+    from zoneinfo import ZoneInfo
+    ist = ZoneInfo("Asia/Kolkata")
+    decisions = [dict(row) for row in access_store.decision_history(request_id)]
+    for item in decisions:
+        for field in ("decided_at", "authenticator_verified_at"):
+            value = item.get(field)
+            if value is None:
+                item[field + "_ist"] = None
+                continue
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            item[field + "_ist"] = parsed.astimezone(ist).isoformat()
+    return {"request_id": request_id, "decisions": decisions, "timezone": "Asia/Kolkata"}
 
 
 @app.get("/api/v1/admin/customers")
@@ -1230,6 +1243,17 @@ async def admin_access_decisions(
             item["decided_at_ist"] = item["decided_at_ist"].astimezone(ist).isoformat()
         except (TypeError, ValueError):
             item["decided_at_ist"] = None
+        try:
+            verified = item.get("authenticator_verified_at")
+            if verified:
+                verified_at = datetime.fromisoformat(str(verified).replace("Z", "+00:00"))
+                if verified_at.tzinfo is None:
+                    verified_at = verified_at.replace(tzinfo=timezone.utc)
+                item["authenticator_verified_at_ist"] = verified_at.astimezone(ist).isoformat()
+            else:
+                item["authenticator_verified_at_ist"] = None
+        except (TypeError, ValueError):
+            item["authenticator_verified_at_ist"] = None
     return {"decisions": decisions, "count": len(decisions), "timezone": "Asia/Kolkata"}
 
 
