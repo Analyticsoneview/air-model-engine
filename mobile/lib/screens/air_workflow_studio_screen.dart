@@ -34,6 +34,8 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
   final _params = TextEditingController(text: '{"mode":"LIVE","max_candidates":20}');
   final _calendarDate = TextEditingController(text: DateTime.now().toIso8601String().substring(0, 10));
   final _calendarDescription = TextEditingController();
+  final _calendarYear = TextEditingController(text: DateTime.now().year.toString());
+  final _calendarSource = TextEditingController(text: 'NSE official exchange circular');
   final _filters = TextEditingController(
     text: '[{"field":"score","operator":"gte","value":80}]',
   );
@@ -52,6 +54,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
   List<Map<String, dynamic>> _runs = [];
   List<Map<String, dynamic>> _calendarEntries = [];
   List<Map<String, dynamic>> _auditEntries = [];
+  Map<String, dynamic>? _calendarCoverage;
   final Map<String, List<Map<String, dynamic>>> _steps = {};
   final Set<String> _expandedRuns = {};
 
@@ -120,6 +123,8 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
     _filters.dispose();
     _calendarDate.dispose();
     _calendarDescription.dispose();
+    _calendarYear.dispose();
+    _calendarSource.dispose();
     if (_ownsClient) _client.close();
     super.dispose();
   }
@@ -135,6 +140,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
         _request('GET', '/api/v1/admin/workflows/runs?limit=100'),
         _request('GET', '/api/v1/admin/workflows/calendar?exchange=$_calendarExchange&from_date=$fromDate&to_date=$toDate&limit=500'),
         _request('GET', '/api/v1/admin/workflows/audit?limit=100'),
+        _request('GET', '/api/v1/admin/workflows/calendar/coverage?exchange=$_calendarExchange&calendar_year=${_calendarYear.text.trim()}'),
       ]);
       _workflows = (results[0]['workflows'] as List? ?? [])
           .whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
@@ -144,6 +150,8 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
           .whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
       _auditEntries = (results[3]['audit'] as List? ?? [])
           .whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+      _calendarCoverage = results[4]['coverage'] is Map
+          ? Map<String, dynamic>.from(results[4]['coverage'] as Map) : null;
     } catch (e) {
       _error = e.toString();
     } finally {
@@ -349,6 +357,32 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Exchange calendar entry saved.')),
+        );
+      }
+      await _load();
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _verifyCalendarCoverage() async {
+    setState(() { _busy = true; _error = null; });
+    try {
+      final year = int.tryParse(_calendarYear.text.trim());
+      if (year == null || year < 2000 || year > 2100) {
+        throw const FormatException('Enter a valid calendar year.');
+      }
+      await _request('PUT', '/api/v1/admin/workflows/calendar/coverage', body: {
+        'exchange_code': _calendarExchange,
+        'calendar_year': year,
+        'status': 'VERIFIED',
+        'source': _calendarSource.text.trim(),
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Exchange calendar coverage marked verified.')),
         );
       }
       await _load();
@@ -608,6 +642,15 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
         const SizedBox(height: 10),
         _field(_calendarDate, 'Session date (YYYY-MM-DD)'),
         _field(_calendarDescription, 'Description', hint: 'Exchange holiday / special session'),
+        _field(_calendarYear, 'Calendar year to verify'),
+        _field(_calendarSource, 'Verified source (circular / official URL)'),
+        Text('Coverage: ${_calendarCoverage?['status'] ?? 'NOT VERIFIED'}',
+            style: const TextStyle(fontWeight: FontWeight.w800)),
+        SizedBox(width: double.infinity, child: OutlinedButton.icon(
+          onPressed: _busy ? null : _verifyCalendarCoverage,
+          icon: const Icon(Icons.verified),
+          label: const Text('MARK YEAR VERIFIED'),
+        )),
         SizedBox(width: double.infinity, child: OutlinedButton.icon(
           onPressed: _busy ? null : _saveCalendarEntry,
           icon: const Icon(Icons.event_available),
