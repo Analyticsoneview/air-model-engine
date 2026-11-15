@@ -130,6 +130,8 @@ class WorkflowStore:
                 self.db.execute("SELECT 1 FROM air_workflow_runs LIMIT 0")
                 self.db.execute("SELECT 1 FROM air_workflow_run_steps LIMIT 0")
                 self.db.execute("SELECT 1 FROM air_workflow_definition_versions LIMIT 0")
+                self.db.execute("SELECT 1 FROM air_workflow_audit LIMIT 0")
+                self.db.execute("SELECT 1 FROM air_exchange_calendar LIMIT 0")
             except Exception as exc:
                 self.db.close()
                 raise RuntimeError("Workflow PostgreSQL schema is missing; apply Alembic migrations first") from exc
@@ -205,6 +207,31 @@ class WorkflowStore:
             );
             CREATE INDEX IF NOT EXISTS ix_air_workflow_run_steps_order
                 ON air_workflow_run_steps(run_id,step_index);
+            CREATE TABLE IF NOT EXISTS air_workflow_audit (
+                audit_id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL,
+                workflow_version INTEGER NOT NULL, actor_id TEXT NOT NULL,
+                action TEXT NOT NULL, payload_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS ix_air_workflow_audit_workflow_time
+                ON air_workflow_audit(workflow_id,created_at);
+            CREATE TRIGGER IF NOT EXISTS trg_air_workflow_audit_no_update
+                BEFORE UPDATE ON air_workflow_audit BEGIN
+                    SELECT RAISE(ABORT, 'AIR workflow audit is append-only');
+                END;
+            CREATE TRIGGER IF NOT EXISTS trg_air_workflow_audit_no_delete
+                BEFORE DELETE ON air_workflow_audit BEGIN
+                    SELECT RAISE(ABORT, 'AIR workflow audit is append-only');
+                END;
+            CREATE TABLE IF NOT EXISTS air_exchange_calendar (
+                exchange_code TEXT NOT NULL, session_date TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('HOLIDAY','SPECIAL_SESSION','TRADING_DAY')),
+                description TEXT NOT NULL DEFAULT '', session_open TEXT, session_close TEXT,
+                source TEXT NOT NULL DEFAULT 'ADMIN', updated_by TEXT NOT NULL,
+                updated_at TEXT NOT NULL, PRIMARY KEY(exchange_code,session_date)
+            );
+            CREATE INDEX IF NOT EXISTS ix_air_exchange_calendar_date
+                ON air_exchange_calendar(session_date,exchange_code);
         """)
         self.db.commit()
 
@@ -276,6 +303,8 @@ class WorkflowStore:
                 json.dumps(trigger_config, allow_nan=False), json.dumps(workflow_spec, allow_nan=False),
                 execution_mode, created_by, now,
             ))
+            self._append_audit(workflow_id, 1, created_by, "CREATED",
+                               {"name": name, "trigger_type": trigger_type, "execution_mode": execution_mode})
         return self.get_workflow(workflow_id)
 
     def get_workflow(self, workflow_id: str) -> dict | None:
@@ -439,16 +468,143 @@ class WorkflowStore:
                  json.dumps(trigger_config, allow_nan=False),
                  json.dumps(workflow_spec, allow_nan=False), execution_mode, updated_by, now),
             )
+            self._append_audit(workflow_id, version, updated_by, "UPDATED",
+                               {"name": name, "trigger_type": trigger_type, "execution_mode": execution_mode})
         return self.get_workflow(workflow_id)
 
-    def set_workflow_enabled(self, workflow_id: str, enabled: bool) -> dict | None:
+
+    def set_workflow_enabled(self, workflow_id: str, enabled: bool, actor_id: str = "system") -> dict | None:
+        current = self.get_workflow(workflow_id)
+        if current is None:
+            return None
+        enabled = bool(enabled)
         now = _now()
         with self.db:
             self.db.execute(
                 "UPDATE air_workflow_definitions SET enabled=?,updated_at=? WHERE workflow_id=?",
-                (bool(enabled), now, workflow_id),
+                (enabled, now, workflow_id),
             )
+            if bool(current["enabled"]) != enabled:
+                self._append_audit(workflow_id, int(current["version"]), actor_id,
+                                   "ENABLED" if enabled else "DISABLED", {})
         return self.get_workflow(workflow_id)
+
+    def _append_audit(self, workflow_id: str, version: int, actor_id: str,
+                      action: str, payload: dict | None = None) -> None:
+        self.db.execute(
+            """INSERT INTO air_workflow_audit
+               (audit_id,workflow_id,workflow_version,actor_id,action,payload_json,created_at)
+               VALUES(?,?,?,?,?,?,?)""",
+            (str(uuid4()), str(workflow_id), int(version), str(actor_id)[:128],
+             str(action)[:48], json.dumps(_json_object(payload, "audit payload"), allow_nan=False), _now()),
+        )
+
+    def list_workflow_audit(self, workflow_id: str | None = None, limit: int = 100) -> list[dict]:
+        limit = max(1, min(int(limit), 500))
+        if workflow_id:
+            rows = self.db.execute(
+                "SELECT * FROM air_workflow_audit WHERE workflow_id=? ORDER BY created_at DESC,audit_id DESC LIMIT ?",
+                (workflow_id, limit),
+            ).fetchall()
+        else:
+            rows = self.db.execute(
+                "SELECT * FROM air_workflow_audit ORDER BY created_at DESC,audit_id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [{
+            "audit_id": row["audit_id"], "workflow_id": row["workflow_id"],
+            "workflow_version": row["workflow_version"], "actor_id": row["actor_id"],
+            "action": row["action"], "payload": json.loads(row["payload_json"]),
+            "created_at": row["created_at"],
+        } for row in rows]
+
+    @staticmethod
+    def _validate_exchange_calendar_day(exchange_code: str, session_date: str, status: str,
+                                        session_open: str | None, session_close: str | None) -> tuple[str, str, str]:
+        from datetime import date, time
+        exchange_code = str(exchange_code).strip().upper()
+        status = str(status).strip().upper()
+        if exchange_code not in {"NSE", "BSE"}:
+            raise ValueError("exchange_code must be NSE or BSE")
+        try:
+            parsed_date = date.fromisoformat(str(session_date))
+        except ValueError as exc:
+            raise ValueError("session_date must use YYYY-MM-DD") from exc
+        if parsed_date.isoformat() != str(session_date):
+            raise ValueError("session_date must use YYYY-MM-DD")
+        if status not in {"HOLIDAY", "SPECIAL_SESSION", "TRADING_DAY"}:
+            raise ValueError("status must be HOLIDAY, SPECIAL_SESSION or TRADING_DAY")
+        def valid_time(value: str | None) -> bool:
+            if value is None:
+                return False
+            try:
+                return time.fromisoformat(value).strftime("%H:%M") == value
+            except ValueError:
+                return False
+        if status == "SPECIAL_SESSION":
+            if not valid_time(session_open) or not valid_time(session_close) or session_open >= session_close:
+                raise ValueError("SPECIAL_SESSION requires valid session_open and session_close (HH:MM)")
+        elif session_open is not None or session_close is not None:
+            if not valid_time(session_open) or not valid_time(session_close) or session_open >= session_close:
+                raise ValueError("session_open and session_close must both be valid HH:MM values")
+        return exchange_code, parsed_date.isoformat(), status
+
+    def set_exchange_calendar_day(self, *, exchange_code: str, session_date: str, status: str,
+                                  updated_by: str, description: str = "", session_open: str | None = None,
+                                  session_close: str | None = None, source: str = "ADMIN") -> dict:
+        exchange_code, session_date, status = self._validate_exchange_calendar_day(
+            exchange_code, session_date, status, session_open, session_close)
+        updated_by = str(updated_by).strip()
+        if not updated_by or len(updated_by) > 128:
+            raise ValueError("updated_by must contain 1-128 characters")
+        if len(str(description)) > 240 or len(str(source)) > 240:
+            raise ValueError("description and source must be at most 240 characters")
+        now = _now()
+        with self.db:
+            self.db.execute(
+                """INSERT INTO air_exchange_calendar
+                   (exchange_code,session_date,status,description,session_open,session_close,source,updated_by,updated_at)
+                   VALUES(?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(exchange_code,session_date) DO UPDATE SET
+                     status=excluded.status,description=excluded.description,
+                     session_open=excluded.session_open,session_close=excluded.session_close,
+                     source=excluded.source,updated_by=excluded.updated_by,updated_at=excluded.updated_at""",
+                (exchange_code, session_date, status, str(description), session_open, session_close,
+                 str(source), updated_by, now),
+            )
+            self._append_audit(f"exchange-calendar:{exchange_code}:{session_date}", 1, updated_by,
+                               "EXCHANGE_CALENDAR_SET", {"exchange_code": exchange_code,
+                               "session_date": session_date, "status": status, "source": source})
+        return self.get_exchange_calendar_day(exchange_code, session_date)
+
+    def get_exchange_calendar_day(self, exchange_code: str, session_date: str) -> dict | None:
+        row = self.db.execute(
+            "SELECT * FROM air_exchange_calendar WHERE exchange_code=? AND session_date=?",
+            (str(exchange_code).upper(), str(session_date)),
+        ).fetchone()
+        return self._decode_exchange_calendar(row) if row else None
+
+    @staticmethod
+    def _decode_exchange_calendar(row: Any) -> dict:
+        return {key: row[key] for key in ("exchange_code", "session_date", "status", "description",
+                "session_open", "session_close", "source", "updated_by", "updated_at")}
+
+    def list_exchange_calendar(self, exchange_code: str, start_date: str, end_date: str) -> list[dict]:
+        exchange_code = str(exchange_code).strip().upper()
+        if exchange_code not in {"NSE", "BSE"}:
+            raise ValueError("exchange_code must be NSE or BSE")
+        try:
+            start = datetime.fromisoformat(start_date).date().isoformat()
+            end = datetime.fromisoformat(end_date).date().isoformat()
+        except ValueError as exc:
+            raise ValueError("Calendar range must use YYYY-MM-DD") from exc
+        if start > end:
+            raise ValueError("start_date must not be after end_date")
+        rows = self.db.execute(
+            "SELECT * FROM air_exchange_calendar WHERE exchange_code=? AND session_date>=? AND session_date<=? ORDER BY session_date",
+            (exchange_code, start, end),
+        ).fetchall()
+        return [self._decode_exchange_calendar(row) for row in rows]
 
     def pending_outbox(self, limit: int = 50) -> list[dict]:
         limit = max(1, min(int(limit), 500))
@@ -573,6 +729,19 @@ class WorkflowStore:
             scheduled = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
             lateness = (local - scheduled).total_seconds()
             if local.weekday() in days and 0 <= lateness <= grace:
+                exchange_code = str(config.get("exchange_code") or "").strip().upper()
+                if exchange_code:
+                    session = self.get_exchange_calendar_day(exchange_code, local.date().isoformat())
+                    # Explicit exchange calendars fail closed: an unlisted date is not tradable.
+                    if not session or session["status"] == "HOLIDAY":
+                        continue
+                    scheduled_hhmm = scheduled.strftime("%H:%M")
+                    if session["status"] == "SPECIAL_SESSION":
+                        if not session["session_open"] or not session["session_close"] or not (session["session_open"] <= scheduled_hhmm <= session["session_close"]):
+                            continue
+                    elif session["status"] == "TRADING_DAY" and session["session_open"] and session["session_close"]:
+                        if not (session["session_open"] <= scheduled_hhmm <= session["session_close"]):
+                            continue
                 due.append({
                     "workflow_id": row["workflow_id"], "name": row["name"],
                     "customer_id": config.get("customer_id"),
