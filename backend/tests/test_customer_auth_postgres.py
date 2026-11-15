@@ -139,10 +139,10 @@ def test_lifecycle_dates_subscription_history_and_immutable_decision_audit(custo
     with customer_store.engine.connect() as conn:
         assert conn.execute(text("""SELECT COUNT(*) FROM air_customer_subscription_history
             WHERE customer_id='+919876543299'""")).scalar_one() == 2
-        with pytest.raises(Exception):
-            with conn.begin():
-                conn.execute(text("""UPDATE air_access_decision_history SET note='tampered'
-                    WHERE request_id=:request"""), {"request": first["request_id"]})
+    with pytest.raises(Exception):
+        with customer_store.engine.begin() as conn:
+            conn.execute(text("""UPDATE air_access_decision_history SET note='tampered'
+                WHERE request_id=:request"""), {"request": first["request_id"]})
 
 
 def test_offer_requires_approval_and_can_be_revoked(customer_store):
