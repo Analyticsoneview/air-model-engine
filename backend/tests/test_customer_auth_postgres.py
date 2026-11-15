@@ -42,8 +42,8 @@ def _clear_database(url):
     engine = create_engine(url)
     try:
         with engine.begin() as conn:
-            for table in TABLES:
-                conn.execute(text(f"DELETE FROM {table}"))
+            # TRUNCATE bypasses row-level append-only audit triggers in this disposable test database.
+            conn.execute(text("TRUNCATE TABLE " + ", ".join(TABLES) + " RESTART IDENTITY CASCADE"))
     finally:
         engine.dispose()
 
