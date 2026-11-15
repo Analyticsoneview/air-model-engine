@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-_ALLOWED_STRATEGIES = {"RECOVERED", "EXPIRY78", "EXPIRYSCAN"}
+_ALLOWED_STRATEGIES = {"RECOVERED", "EXPIRY78", "EXPIRYSCAN", "AIR_QOC", "ORB", "PORTFOLIO_RISK", "AIR_WORKFLOW"}
 _CHAT_ID = re.compile(r"^-?\d{1,20}$")
 
 
