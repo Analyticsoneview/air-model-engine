@@ -54,7 +54,7 @@ class AccessStore:
                 self.db.execute(f"ALTER TABLE air_access_decision_history ADD COLUMN {name} {declaration}")
         self.db.execute("""CREATE TABLE IF NOT EXISTS air_customer_lifecycle(
             customer_id TEXT PRIMARY KEY, first_registered_at TEXT NOT NULL,
-            first_approved_at TEXT, first_plan_availed_at TEXT,
+            first_approved_at TEXT, first_rejected_at TEXT, first_plan_availed_at TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
         self.db.execute("""CREATE TABLE IF NOT EXISTS air_customer_subscription_history(
@@ -241,11 +241,12 @@ class AccessStore:
                      reviewer_admin_id, reviewer_role, note[:500], int(totp_counter),
                      verified_at.isoformat(), verification_reference, current["device_id"],
                      json.dumps(request_context or {})))
-                if status == "APPROVED":
-                    self.db.execute("""INSERT INTO air_customer_lifecycle
-                        (customer_id,first_registered_at,first_approved_at) VALUES(?,?,?)
+                if status in {"APPROVED", "REJECTED"}:
+                    lifecycle_column = "first_approved_at" if status == "APPROVED" else "first_rejected_at"
+                    self.db.execute(f"""INSERT INTO air_customer_lifecycle
+                        (customer_id,first_registered_at,{lifecycle_column}) VALUES(?,?,?)
                         ON CONFLICT(customer_id) DO UPDATE SET
-                        first_approved_at=COALESCE(air_customer_lifecycle.first_approved_at,excluded.first_approved_at),
+                        {lifecycle_column}=COALESCE(air_customer_lifecycle.{lifecycle_column},excluded.{lifecycle_column}),
                         updated_at=CURRENT_TIMESTAMP""",
                         (current["mobile_e164"], current["created_at"], verified_at.isoformat()))
                 else:
@@ -360,7 +361,7 @@ class AccessStore:
                      WHEN SUM(CASE WHEN r.status='BLOCKED' THEN 1 ELSE 0 END)>0 THEN 'BLOCKED'
                      ELSE 'REJECTED'
                    END AS access_status,
-                   l.first_approved_at,l.first_plan_availed_at
+                   l.first_approved_at,l.first_rejected_at,l.first_plan_availed_at
               FROM air_access_requests r LEFT JOIN air_customer_lifecycle l ON l.customer_id=r.mobile_e164
              GROUP BY r.mobile_e164,l.first_approved_at,l.first_plan_availed_at
              ORDER BY MAX(r.created_at) DESC
