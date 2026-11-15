@@ -49,7 +49,7 @@ AIR_SMTP_PORT=587
     docker compose -f compose.local.yml up -d --build
     if ($LASTEXITCODE -ne 0) { docker compose -f compose.local.yml logs --tail 100; throw "AIR startup failed. Review the logs above." }
 
-    $services = @("postgres", "redis", "air-api", "air-pwa")
+    $services = @("postgres", "redis", "rabbitmq", "air-api", "air-workflow-worker", "air-pwa")
     $ready = $false
     for ($i=0; $i -lt 36; $i++) {
         $allHealthy = $true
@@ -71,7 +71,7 @@ AIR_SMTP_PORT=587
     if (!$ready) {
         docker compose -f compose.local.yml ps
         docker compose -f compose.local.yml logs --tail 100
-        throw "PostgreSQL, Redis, AIR API and PWA did not all become healthy. Do not use the app until the reported issue is fixed."
+        throw "PostgreSQL, Redis, RabbitMQ, AIR API, workflow worker and PWA did not all become healthy. Do not use the app until the reported issue is fixed."
     }
     Write-Host "PostgreSQL, Redis, FastAPI and PWA are healthy." -ForegroundColor Green
     docker compose -f compose.local.yml ps
