@@ -315,6 +315,7 @@ def test_exchange_holiday_suppresses_time_trigger_and_special_session_overrides_
         store.upsert_exchange_calendar_entry(
             exchange_code="NSE", session_date="2026-11-16", status="SPECIAL_SESSION",
             description="Special trading session", updated_by="admin",
+            session_open="09:15", session_close="15:30",
         )
         store.set_exchange_calendar_coverage(
             exchange_code="NSE", calendar_year=2026, status="VERIFIED",
