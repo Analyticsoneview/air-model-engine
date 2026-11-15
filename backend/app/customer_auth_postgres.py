@@ -270,7 +270,7 @@ class PostgresAccessStore:
         segment = segment.upper()
         if segment not in _SEGMENTS:
             raise ValueError("Unsupported customer segment")
-        limit = max(1, min(int(limit), 500))
+        limit = max(1, min(int(limit), 5000))
         with self.engine.connect() as conn:
             rows = conn.execute(text("""SELECT r.mobile_e164 AS customer_id,
                 MIN(r.created_at) AS registered_at,MAX(r.created_at) AS last_device_request_at,
@@ -349,7 +349,7 @@ class PostgresAccessStore:
         return {"customer_id": customer_id, "promotional_consent": bool(enabled)}
 
     def marketing_segment_counts(self):
-        customers = self.list_marketing_customers("ALL", limit=500)
+        customers = self.list_marketing_customers("ALL", limit=5000)
         counts = {"ALL": len(customers), "NEVER_SUBSCRIBED": 0, "EXPIRED": 0,
                   "ACTIVE": 0, "CANCELLED": 0, "INACTIVE": 0, "PENDING": 0,
                   "PENDING_ACCESS": 0, "OPTED_OUT": 0, "NOT_GRANTED": 0,
