@@ -54,6 +54,7 @@ class WorkflowStore:
                 self.db.execute("SELECT 1 FROM air_workflow_definitions LIMIT 0")
                 self.db.execute("SELECT 1 FROM air_workflow_events LIMIT 0")
                 self.db.execute("SELECT 1 FROM air_workflow_outbox LIMIT 0")
+                self.db.execute("SELECT 1 FROM air_workflow_runs LIMIT 0")
             except Exception as exc:
                 self.db.close()
                 raise RuntimeError("Workflow PostgreSQL schema is missing; apply Alembic migrations first") from exc
@@ -95,6 +96,14 @@ class WorkflowStore:
             );
             CREATE INDEX IF NOT EXISTS ix_air_workflow_outbox_pending
                 ON air_workflow_outbox(status,available_at);
+            CREATE TABLE IF NOT EXISTS air_workflow_runs (
+                run_id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL, workflow_version INTEGER NOT NULL,
+                event_id TEXT NOT NULL, status TEXT NOT NULL, execution_mode TEXT NOT NULL,
+                started_at TEXT NOT NULL, completed_at TEXT, error TEXT,
+                UNIQUE(workflow_id,workflow_version,event_id)
+            );
+            CREATE INDEX IF NOT EXISTS ix_air_workflow_runs_status_time
+                ON air_workflow_runs(status,started_at);
         """)
         self.db.commit()
 
@@ -204,6 +213,147 @@ class WorkflowStore:
             "idempotency_key": row["idempotency_key"], "correlation_id": row["correlation_id"],
             "created_at": row["created_at"], "duplicate": duplicate,
         }
+
+
+    def set_workflow_enabled(self, workflow_id: str, enabled: bool) -> dict | None:
+        now = _now()
+        with self.db:
+            self.db.execute(
+                "UPDATE air_workflow_definitions SET enabled=?,updated_at=? WHERE workflow_id=?",
+                (bool(enabled), now, workflow_id),
+            )
+        return self.get_workflow(workflow_id)
+
+    def pending_outbox(self, limit: int = 50) -> list[dict]:
+        limit = max(1, min(int(limit), 500))
+        rows = self.db.execute(
+            """SELECT o.outbox_id,o.event_id,o.attempts,e.event_type,e.source,e.occurred_at,
+                      e.payload_json,e.idempotency_key,e.correlation_id
+               FROM air_workflow_outbox o JOIN air_workflow_events e ON e.event_id=o.event_id
+               WHERE o.status='PENDING' AND o.available_at<=?
+               ORDER BY o.available_at LIMIT ?""", (_now(), limit),
+        ).fetchall()
+        return [{
+            "outbox_id": row["outbox_id"], "event_id": row["event_id"],
+            "attempts": row["attempts"], "event_type": row["event_type"],
+            "source": row["source"], "occurred_at": row["occurred_at"],
+            "payload": json.loads(row["payload_json"]),
+            "idempotency_key": row["idempotency_key"], "correlation_id": row["correlation_id"],
+        } for row in rows]
+
+    def mark_outbox_published(self, outbox_id: str) -> None:
+        with self.db:
+            self.db.execute(
+                "UPDATE air_workflow_outbox SET status='PUBLISHED',published_at=?,last_error=NULL WHERE outbox_id=?",
+                (_now(), outbox_id),
+            )
+
+    def mark_outbox_failed(self, outbox_id: str, attempts: int, error: str, max_attempts: int = 12) -> None:
+        next_attempt = max(1, int(attempts) + 1)
+        delay = min(300, 2 ** min(next_attempt, 8))
+        status = "FAILED" if next_attempt >= max_attempts else "PENDING"
+        available = datetime.fromtimestamp(
+            datetime.now(timezone.utc).timestamp() + delay, timezone.utc
+        ).isoformat()
+        with self.db:
+            self.db.execute(
+                """UPDATE air_workflow_outbox SET status=?,attempts=?,available_at=?,last_error=?
+                   WHERE outbox_id=?""",
+                (status, next_attempt, available, str(error)[:500], outbox_id),
+            )
+
+    def process_event(self, event_id: str) -> list[dict]:
+        event = self.db.execute(
+            "SELECT * FROM air_workflow_events WHERE event_id=?", (event_id,)
+        ).fetchone()
+        if not event:
+            raise ValueError("Workflow event does not exist")
+        payload = json.loads(event["payload_json"])
+        definitions = self.db.execute(
+            "SELECT * FROM air_workflow_definitions WHERE enabled=? ORDER BY created_at",
+            (True,),
+        ).fetchall()
+        created = []
+        for definition in definitions:
+            config = json.loads(definition["trigger_config_json"])
+            trigger_type = definition["trigger_type"]
+            if trigger_type == "TIME":
+                matched = payload.get("workflow_id") == definition["workflow_id"]
+            else:
+                event_types = config.get("event_types")
+                if not isinstance(event_types, list):
+                    event_types = [config.get("event_type")] if config.get("event_type") else []
+                matched = event["event_type"] in event_types
+            if not matched:
+                continue
+            run_id = str(uuid4())
+            now = _now()
+            with self.db:
+                self.db.execute(
+                    """INSERT INTO air_workflow_runs
+                       (run_id,workflow_id,workflow_version,event_id,status,execution_mode,
+                        started_at,completed_at,error)
+                       VALUES(?,?,?,?,?,?,?,?,?)
+                       ON CONFLICT(workflow_id,workflow_version,event_id) DO NOTHING""",
+                    (run_id, definition["workflow_id"], definition["version"], event_id,
+                     "QUEUED", definition["execution_mode"], now, None, None),
+                )
+            row = self.db.execute(
+                """SELECT * FROM air_workflow_runs
+                   WHERE workflow_id=? AND workflow_version=? AND event_id=?""",
+                (definition["workflow_id"], definition["version"], event_id),
+            ).fetchone()
+            if row:
+                created.append({
+                    "run_id": row["run_id"], "workflow_id": row["workflow_id"],
+                    "workflow_version": row["workflow_version"], "event_id": row["event_id"],
+                    "status": row["status"], "duplicate": row["run_id"] != run_id,
+                })
+        return created
+
+    def due_time_workflows(self, now: datetime | None = None) -> list[dict]:
+        current = now or datetime.now(timezone.utc)
+        rows = self.db.execute(
+            "SELECT * FROM air_workflow_definitions WHERE enabled=? AND trigger_type='TIME'",
+            (True,),
+        ).fetchall()
+        due = []
+        for row in rows:
+            config = json.loads(row["trigger_config_json"])
+            timezone_name = str(config.get("timezone", "Asia/Kolkata"))
+            try:
+                from zoneinfo import ZoneInfo
+                local = current.astimezone(ZoneInfo(timezone_name))
+                hour, minute = int(config["hour"]), int(config["minute"])
+                days = config.get("days_of_week", [0, 1, 2, 3, 4])
+                if not isinstance(days, list):
+                    raise ValueError("days_of_week must be an array")
+                days = {int(day) for day in days}
+                grace = int(config.get("misfire_grace_seconds", 300))
+            except (KeyError, TypeError, ValueError, KeyError) as exc:
+                raise ValueError(f"Invalid time trigger configuration for workflow {row['workflow_id']}") from exc
+            if not 0 <= hour <= 23 or not 0 <= minute <= 59 or any(day < 0 or day > 6 for day in days) or not 0 <= grace <= 86400:
+                raise ValueError(f"Invalid time trigger configuration for workflow {row['workflow_id']}")
+            scheduled = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            lateness = (local - scheduled).total_seconds()
+            if local.weekday() in days and 0 <= lateness <= grace:
+                due.append({
+                    "workflow_id": row["workflow_id"], "name": row["name"],
+                    "local_time": scheduled.isoformat(), "scheduled_key": scheduled.strftime("%Y%m%d%H%M"),
+                })
+        return due
+
+    def list_runs(self, limit: int = 100) -> list[dict]:
+        rows = self.db.execute(
+            "SELECT * FROM air_workflow_runs ORDER BY started_at DESC LIMIT ?",
+            (max(1, min(int(limit), 500)),),
+        ).fetchall()
+        return [{
+            "run_id": row["run_id"], "workflow_id": row["workflow_id"],
+            "workflow_version": row["workflow_version"], "event_id": row["event_id"],
+            "status": row["status"], "execution_mode": row["execution_mode"],
+            "started_at": row["started_at"], "completed_at": row["completed_at"], "error": row["error"],
+        } for row in rows]
 
     def close(self) -> None:
         self.db.close()

@@ -27,7 +27,7 @@ fi
 
 echo "Building and starting AIR API + PWA..."
 docker compose -f compose.local.yml up -d --build
-services=(postgres redis air-api air-pwa)
+services=(postgres redis rabbitmq air-api air-workflow-worker air-pwa)
 all_healthy=false
 for attempt in $(seq 1 36); do
   all_healthy=true
@@ -50,7 +50,7 @@ if [[ "$all_healthy" != true ]]; then
   echo "PostgreSQL, Redis, AIR API and PWA did not all become healthy. Do not use the app until the reported issue is fixed." >&2
   exit 1
 fi
-echo "PostgreSQL, Redis, FastAPI and PWA are healthy."
+echo "PostgreSQL, Redis, RabbitMQ, FastAPI, workflow worker and PWA are healthy."
 docker compose -f compose.local.yml ps
 if command -v open >/dev/null 2>&1; then open http://localhost:8080
 elif command -v xdg-open >/dev/null 2>&1; then xdg-open http://localhost:8080
