@@ -162,7 +162,13 @@ class AccessStore:
                    (request_id,mobile_e164,device_id,status) VALUES(?,?,?,'PENDING')""",
                 (str(uuid4()), mobile, device),
             )
-        return self.get_request(mobile, device)
+        row = self.get_request(mobile, device)
+        with self.db:
+            self.db.execute("""INSERT INTO air_customer_lifecycle(customer_id,first_registered_at)
+                VALUES(?,?) ON CONFLICT(customer_id) DO UPDATE SET
+                first_registered_at=MIN(air_customer_lifecycle.first_registered_at,excluded.first_registered_at),
+                updated_at=CURRENT_TIMESTAMP""", (mobile, row["created_at"]))
+        return row
 
     def get_request(self, mobile_e164: str, device_id: str):
         return self.db.execute(
@@ -194,7 +200,8 @@ class AccessStore:
 
     def decision_history(self, request_id: str):
         rows = self.db.execute("""SELECT decision_id,request_id,mobile_e164,previous_status,new_status,
-            reviewer_admin_id,reviewer_role,note,totp_counter,decided_at
+            reviewer_admin_id,reviewer_role,note,totp_counter,totp_verified_at,verification_reference,
+            device_id,request_context,decided_at
             FROM air_access_decision_history WHERE request_id=? ORDER BY decided_at,decision_id""",
             (request_id,)).fetchall()
         return [dict(row) for row in rows]
