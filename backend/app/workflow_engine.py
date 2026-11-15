@@ -132,6 +132,7 @@ class WorkflowStore:
                 self.db.execute("SELECT 1 FROM air_workflow_definition_versions LIMIT 0")
                 self.db.execute("SELECT 1 FROM air_workflow_audit LIMIT 0")
                 self.db.execute("SELECT 1 FROM air_exchange_calendar LIMIT 0")
+                self.db.execute("SELECT 1 FROM air_workflow_worker_heartbeats LIMIT 0")
             except Exception as exc:
                 self.db.close()
                 raise RuntimeError("Workflow PostgreSQL schema is missing; apply Alembic migrations first") from exc
@@ -232,6 +233,14 @@ class WorkflowStore:
             );
             CREATE INDEX IF NOT EXISTS ix_air_exchange_calendar_date
                 ON air_exchange_calendar(session_date,exchange_code);
+            CREATE TABLE IF NOT EXISTS air_workflow_worker_heartbeats (
+                worker_id TEXT NOT NULL, component TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('STARTING','RUNNING','DEGRADED','STOPPING')),
+                details_json TEXT NOT NULL DEFAULT '{}', started_at TEXT NOT NULL,
+                last_seen TEXT NOT NULL, PRIMARY KEY(worker_id,component)
+            );
+            CREATE INDEX IF NOT EXISTS ix_air_workflow_worker_heartbeat_seen
+                ON air_workflow_worker_heartbeats(last_seen);
         """)
         self.db.commit()
 
@@ -880,6 +889,65 @@ class WorkflowStore:
             (run_id,),
         ).fetchall()
         return [self._decode_run_step(row) for row in rows]
+
+
+    def record_worker_heartbeat(
+        self, *, worker_id: str, component: str, status: str,
+        details: dict | None = None, started_at: str | None = None,
+    ) -> None:
+        status = str(status).upper()
+        if status not in {"STARTING", "RUNNING", "DEGRADED", "STOPPING"}:
+            raise ValueError("Unsupported workflow worker status")
+        worker_id = str(worker_id).strip()
+        component = str(component).strip()
+        if not worker_id or len(worker_id) > 160 or not component or len(component) > 64:
+            raise ValueError("Worker ID and component are required and must fit their limits")
+        now = _now()
+        details_json = json.dumps(details or {}, allow_nan=False)
+        with self.db:
+            self.db.execute(
+                """INSERT INTO air_workflow_worker_heartbeats
+                   (worker_id,component,status,details_json,started_at,last_seen)
+                   VALUES(?,?,?,?,?,?)
+                   ON CONFLICT(worker_id,component) DO UPDATE SET
+                     status=excluded.status,details_json=excluded.details_json,
+                     last_seen=excluded.last_seen""",
+                (worker_id, component, status, details_json, started_at or now, now),
+            )
+
+    def list_worker_heartbeats(self, limit: int = 100) -> list[dict]:
+        rows = self.db.execute(
+            """SELECT worker_id,component,status,details_json,started_at,last_seen
+               FROM air_workflow_worker_heartbeats
+               ORDER BY last_seen DESC LIMIT ?""",
+            (max(1, min(int(limit), 500)),),
+        ).fetchall()
+        return [{
+            "worker_id": row["worker_id"], "component": row["component"],
+            "status": row["status"], "details": json.loads(row["details_json"]),
+            "started_at": row["started_at"], "last_seen": row["last_seen"],
+        } for row in rows]
+
+    def runtime_metrics(self) -> dict:
+        def counts(table: str) -> dict[str, int]:
+            rows = self.db.execute(
+                f"SELECT status,COUNT(*) AS total FROM {table} GROUP BY status"
+            ).fetchall()
+            return {str(row["status"]): int(row["total"]) for row in rows}
+        outbox = counts("air_workflow_outbox")
+        runs = counts("air_workflow_runs")
+        steps = counts("air_workflow_run_steps")
+        return {
+            "outbox": {"pending": outbox.get("PENDING", 0),
+                       "published": outbox.get("PUBLISHED", 0),
+                       "failed": outbox.get("FAILED", 0)},
+            "runs": {"queued": runs.get("QUEUED", 0), "running": runs.get("RUNNING", 0),
+                     "succeeded": runs.get("SUCCEEDED", 0), "failed": runs.get("FAILED", 0),
+                     "cancelled": runs.get("CANCELLED", 0)},
+            "steps": {"pending": steps.get("PENDING", 0), "running": steps.get("RUNNING", 0),
+                      "succeeded": steps.get("SUCCEEDED", 0), "failed": steps.get("FAILED", 0),
+                      "skipped": steps.get("SKIPPED", 0)},
+        }
 
     def close(self) -> None:
         self.db.close()
