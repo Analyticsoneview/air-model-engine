@@ -747,7 +747,8 @@ async def assign_customer_subscription(
     starts = datetime.now(timezone.utc)
     expires = starts + timedelta(days=durations[body.plan_code])
     access_store.assign_subscription(
-        body.customer_id, body.plan_code, starts.isoformat(), expires.isoformat()
+        body.customer_id, body.plan_code, starts.isoformat(), expires.isoformat(),
+        assigned_by_admin_id=admin["admin_id"]
     )
     return {"customer_id": body.customer_id, "plan_code": body.plan_code,
             "starts_at": starts.isoformat(), "expires_at": expires.isoformat(), "status": "ACTIVE"}
