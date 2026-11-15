@@ -84,7 +84,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('RUN REPORT'), findsOneWidget);
     expect(find.textContaining('1 customer(s) displayed'), findsOneWidget);
-    await tester.ensureVisible(find.textContaining('••••210'));
+    await tester.scrollUntilVisible(find.textContaining('••••210'), 300, scrollable: find.byType(Scrollable).last);
     await tester.pumpAndSettle();
     await tester.tap(find.textContaining('••••210'));
     await tester.pumpAndSettle();
