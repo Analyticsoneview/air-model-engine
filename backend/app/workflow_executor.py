@@ -241,14 +241,14 @@ def execute_workflow_run(
             assert_claim()
             store.save_run_step(
                 run_id=run_id, step_key=step_key, step_index=index, action=action,
-                status="RUNNING", input_data=params, attempts=attempts,
+                status="RUNNING", input_data=params, attempts=attempts, worker_id=worker_id, claim_version=claim_version,
             )
             try:
                 output = _execute_action(store, context, step, outputs)
                 assert_claim()
                 store.save_run_step(
                     run_id=run_id, step_key=step_key, step_index=index, action=action,
-                    status="SUCCEEDED", input_data=params, output_data=output, attempts=attempts,
+                    status="SUCCEEDED", input_data=params, output_data=output, attempts=attempts, worker_id=worker_id, claim_version=claim_version,
                 )
                 outputs[step_key] = output
                 break
@@ -258,15 +258,17 @@ def execute_workflow_run(
                 store.save_run_step(
                     run_id=run_id, step_key=step_key, step_index=index, action=action,
                     status="FAILED", input_data=params,
-                    error=f"{type(exc).__name__}: {str(exc)[:800]}", attempts=attempts,
+                    error=f"{type(exc).__name__}: {str(exc)[:800]}", attempts=attempts, worker_id=worker_id, claim_version=claim_version,
                 )
                 if attempts < max_attempts:
                     time.sleep(min(2 ** (attempts - 1), 8))
         else:
+            assert_claim()
             store.save_run_step(
                 run_id=run_id, step_key=step_key, step_index=index, action=action,
                 status="FAILED", input_data=params,
-                error="Retry budget exhausted while recovering workflow run", attempts=attempts,
+                error="Retry budget exhausted while recovering workflow run", attempts=attempts, worker_id=worker_id, claim_version=claim_version,
+                worker_id=worker_id, claim_version=claim_version,
             )
             store.set_run_status(
                 run_id, "FAILED", f"Step {step_key} exhausted {max_attempts} attempts",
