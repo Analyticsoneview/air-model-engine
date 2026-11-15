@@ -19,6 +19,7 @@ from app.db_compat import PostgresConnection, read_database_url
 TRIGGER_TYPES = {"EVENT", "TIME", "STRATEGY", "CONDITION"}
 EXECUTION_MODES = {"RESEARCH_ONLY", "ALERT_NOTIFY"}
 WORKFLOW_ACTIONS = {"qoc.qualify", "qoc.backtest", "portfolio.overview", "notify.telegram", "event.emit"}
+TELEGRAM_STRATEGIES = {"RECOVERED", "EXPIRY78", "EXPIRYSCAN", "AIR_QOC", "ORB", "PORTFOLIO_RISK", "AIR_WORKFLOW"}
 
 
 def _now() -> str:
@@ -230,6 +231,10 @@ class WorkflowStore:
                 raise ValueError(f"Workflow step {step_id} max_attempts must be between 1 and 5")
             if action == "notify.telegram" and execution_mode != "ALERT_NOTIFY":
                 raise ValueError("Telegram notification steps require ALERT_NOTIFY execution mode")
+            if action == "notify.telegram":
+                strategy = str(params.get("strategy") or "AIR_WORKFLOW").upper()
+                if strategy not in TELEGRAM_STRATEGIES:
+                    raise ValueError(f"Unsupported Telegram strategy route: {strategy}")
             if action == "event.emit" and not str(params.get("event_type") or "").strip():
                 raise ValueError(f"Workflow step {step_id} event.emit requires params.event_type")
             source_step = params.get("source_step")
