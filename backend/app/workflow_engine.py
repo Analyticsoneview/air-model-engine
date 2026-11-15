@@ -835,7 +835,9 @@ class WorkflowStore:
                 raise ValueError(f"Invalid time trigger configuration for workflow {row['workflow_id']}")
             scheduled = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
             lateness = (local - scheduled).total_seconds()
-            exchange = str(config.get("exchange") or "").strip().upper()
+            exchange = str(config.get("exchange") or "NSE").strip().upper()
+            if exchange == "NONE":
+                exchange = ""
             calendar_status = None
             if exchange:
                 coverage = self.db.execute(
