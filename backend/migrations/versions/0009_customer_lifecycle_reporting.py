@@ -49,7 +49,7 @@ def upgrade() -> None:
                  WHERE d.mobile_e164=r.mobile_e164 AND d.new_status='APPROVED'),
                (SELECT MIN(d.decided_at) FROM air_access_decision_history d
                  WHERE d.mobile_e164=r.mobile_e164 AND d.new_status='REJECTED'),
-               (SELECT MIN(s.starts_at) FROM air_customer_subscriptions s
+               (SELECT MIN(s.updated_at) FROM air_customer_subscriptions s
                  WHERE s.customer_id=r.mobile_e164)
           FROM air_access_requests r
          GROUP BY r.mobile_e164
