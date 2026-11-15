@@ -1073,6 +1073,8 @@ async def admin_customer_register(
     for label, start, end in date_pairs:
         if start and end and start > end:
             raise HTTPException(status_code=422, detail=f"{label}_from must be before or equal to {label}_to")
+    from zoneinfo import ZoneInfo
+    classification_date = as_of_date or datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
     customers = access_store.list_marketing_customers(segment, search, limit)
     filtered = []
     filters = (
@@ -1085,8 +1087,8 @@ async def admin_customer_register(
     for source in customers:
         item = dict(source)
         item["customer_type"] = (
-            "NEW" if not as_of_date or str(item["registered_at"])[:10] == as_of_date
-            else "EXISTING" if str(item["registered_at"])[:10] < as_of_date
+            "NEW" if str(item["registered_at"])[:10] == classification_date
+            else "EXISTING" if str(item["registered_at"])[:10] < classification_date
             else "NOT_YET_REGISTERED"
         )
         if item["subscription_status"] == "NEVER_SUBSCRIBED":
@@ -1096,7 +1098,7 @@ async def admin_customer_register(
                for field, start, end in filters):
             filtered.append(item)
     return {"customers": filtered, "count": len(filtered), "segment": segment,
-            "as_of_date": as_of_date,
+            "as_of_date": classification_date,
             "date_filters": {label: {"from": start, "to": end} for label, start, end in date_pairs}}
 
 
