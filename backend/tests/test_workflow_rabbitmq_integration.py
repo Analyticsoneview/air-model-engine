@@ -5,7 +5,7 @@ import pika
 import pytest
 
 from app.workflow_engine import WorkflowStore
-from app.workflow_worker import DEAD_QUEUE, QUEUE, _connection, _declare, _publish_batch
+from app.workflow_worker import DEAD_QUEUE, QUEUE, EXCHANGE, _connection, _declare, _publish_batch
 
 
 pytestmark = pytest.mark.skipif(
@@ -54,3 +54,111 @@ def test_outbox_publish_and_rabbitmq_delivery_create_durable_run(tmp_path, monke
         if connection and connection.is_open:
             connection.close()
         store.close()
+
+
+def test_duplicate_delivery_is_idempotent(tmp_path):
+    store = WorkflowStore(str(tmp_path / "duplicate.sqlite3"))
+    connection = None
+    try:
+        workflow = store.create_workflow(
+            name="Duplicate delivery", created_by="ci", trigger_type="EVENT",
+            trigger_config={"event_type": "integration.duplicate.event"},
+        )
+        store.set_workflow_enabled(workflow["workflow_id"], True)
+        event = store.publish_event(
+            event_type="integration.duplicate.event", source="ci",
+            payload={"case": "duplicate"}, idempotency_key="rabbitmq-duplicate",
+        )
+        connection = _connection()
+        channel = connection.channel()
+        _declare(channel)
+        channel.queue_purge(queue=QUEUE)
+        channel.queue_purge(queue=DEAD_QUEUE)
+        channel.confirm_delivery()
+        _publish_batch(store, channel, store.pending_outbox())
+        method, _, body = channel.basic_get(queue=QUEUE, auto_ack=False)
+        assert method is not None
+        event_id = json.loads(body)["event_id"]
+        assert event_id == event["event_id"]
+        first = store.process_event(event_id)
+        second = store.process_event(event_id)
+        channel.basic_ack(delivery_tag=method.delivery_tag)
+        assert len(first) == 1
+        assert second == []
+        assert len(store.list_runs()) == 1
+    finally:
+        if connection and connection.is_open:
+            connection.close()
+        store.close()
+
+
+def test_unacked_message_redelivered_after_consumer_disconnect():
+    first = _connection()
+    second = None
+    try:
+        channel = first.channel()
+        _declare(channel)
+        channel.queue_purge(queue=QUEUE)
+        channel.queue_purge(queue=DEAD_QUEUE)
+        channel.confirm_delivery()
+        event_id = "integration-disconnect-redelivery"
+        channel.basic_publish(
+            exchange=EXCHANGE, routing_key="integration.recovery",
+            body=json.dumps({"event_id": event_id}).encode(),
+            properties=pika.BasicProperties(delivery_mode=2, message_id=event_id),
+            mandatory=True,
+        )
+        method, _, _ = channel.basic_get(queue=QUEUE, auto_ack=False)
+        assert method is not None
+        first.close()  # Simulate loss of consumer before acknowledgement.
+        second = _connection()
+        recovered = second.channel()
+        _declare(recovered)
+        method, _, body = recovered.basic_get(queue=QUEUE, auto_ack=False)
+        assert method is not None
+        assert json.loads(body)["event_id"] == event_id
+        recovered.basic_ack(delivery_tag=method.delivery_tag)
+    finally:
+        if first.is_open:
+            first.close()
+        if second and second.is_open:
+            second.close()
+
+
+def test_poison_message_reaches_dead_letter_queue_after_delivery_limit():
+    connection = _connection()
+    try:
+        channel = connection.channel()
+        _declare(channel)
+        channel.queue_purge(queue=QUEUE)
+        channel.queue_purge(queue=DEAD_QUEUE)
+        channel.confirm_delivery()
+        event_id = "integration-poison-message"
+        channel.basic_publish(
+            exchange=EXCHANGE, routing_key="integration.poison",
+            body=b'{"event_id":"integration-poison-message","invalid":true}',
+            properties=pika.BasicProperties(delivery_mode=2, message_id=event_id),
+            mandatory=True,
+        )
+        # Quorum queues increment delivery count on requeue and dead-letter
+        # messages that exceed their configured x-delivery-limit.
+        for _ in range(12):
+            method, _, _ = channel.basic_get(queue=QUEUE, auto_ack=False)
+            if method is None:
+                break
+            channel.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
+        else:
+            pytest.fail("Poison message remained in dispatch queue after bounded retries")
+        import time
+        dead = None
+        for _ in range(30):
+            dead, _, body = channel.basic_get(queue=DEAD_QUEUE, auto_ack=False)
+            if dead is not None:
+                break
+            time.sleep(0.1)
+        assert dead is not None, "Expected poison message in durable dead-letter queue"
+        assert json.loads(body)["event_id"] == event_id
+        channel.basic_ack(delivery_tag=dead.delivery_tag)
+    finally:
+        if connection.is_open:
+            connection.close()
