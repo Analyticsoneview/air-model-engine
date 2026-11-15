@@ -82,6 +82,11 @@ services:
       AIR_RABBITMQ_USER: air
       AIR_RABBITMQ_PASSWORD_FILE: /run/secrets/air_rabbitmq_password
       AIR_WORKFLOW_LOG_LEVEL: INFO
+    healthcheck:
+      test: ["CMD", "python", "-c", "import pathlib,sys; sys.exit(0 if b'app.workflow_worker' in pathlib.Path('/proc/1/cmdline').read_bytes() else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
     secrets:
       - air_database_url
       - air_rabbitmq_password
@@ -92,7 +97,6 @@ services:
       restart_policy:
         condition: on-failure
         delay: 5s
-        max_attempts: 10
       resources:
         reservations:
           cpus: "0.1"
