@@ -277,7 +277,7 @@ class PostgresAccessStore:
         segment = segment.upper()
         if segment not in _SEGMENTS:
             raise ValueError("Unsupported customer segment")
-        limit = max(1, min(int(limit), 500))
+        limit = max(1, min(int(limit), 10000))
         with self.engine.connect() as conn:
             rows = conn.execute(text("""SELECT r.mobile_e164 AS customer_id,
                 MIN(r.created_at) AS registered_at,MAX(r.created_at) AS last_device_request_at,
