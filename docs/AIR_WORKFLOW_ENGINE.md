@@ -41,10 +41,11 @@ Do not add a broker dependency to API startup or make the API unavailable when R
 - `strategy.orb.signal.created` — emitted by the existing live ORB engine when a new signal is formed
 - `qoc.snapshot.captured`, `qoc.scan.completed`, `qoc.candidate.qualified`, `qoc.backtest.completed` — emitted by the evidence-based Dhan QOC endpoints
 - `research.signal.persisted` — emitted when the operator Model Engine ledger stores a signal
+- `workflow.run.completed`, `workflow.run.failed` — emitted after terminal workflow state; the worker retries missing terminal events after a restart
 - `portfolio.snapshot.updated` — emitted after a customer-owned read-only broker snapshot is persisted
 - `market.session.opened`, `market.session.closed`, `market.instrument.updated`, `market.data.stale`, `report.ready` — reserved contracts for later adapters
 
-A workflow may set `trigger_config.customer_id` to match only that customer's events. Unscoped definitions match across customers and should be reserved for platform-level administrator workflows.
+A workflow may set `trigger_config.customer_id` to match only that customer's events. Unscoped definitions match across customers and should be reserved for platform-level administrator workflows. Time triggers default to the NSE calendar; the explicit `exchange: "NONE"` option is for generic weekday schedules. An exchange/year must be marked `VERIFIED` before its time triggers run.
 
 Each event carries a stable event ID, type, source, UTC occurrence timestamp, JSON payload, idempotency key and optional correlation ID. CONDITION triggers evaluate a safe allowlist of nested JSON field operators (eq, neq, gt, gte, lt, lte, in, not_in, contains, exists) with ALL/ANY grouping; arbitrary expressions and code are never evaluated. For example: `{"event_type":"portfolio.snapshot.updated","customer_id":"customer-123","filters":[{"field":"summary.concentration_top_position_pct","operator":"gte","value":40}]}`. Exchange-session schedules currently support weekdays and configurable misfire grace; a verified NSE holiday calendar is still required before production trading-day schedules are enabled.
 
