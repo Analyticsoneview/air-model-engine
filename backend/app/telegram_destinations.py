@@ -157,7 +157,7 @@ def upsert_destination(name: str, chat_id: str, destination_type: str,
 
 def update_destination(destination_id: int, *, name: str, chat_id: str,
                        destination_type: str, strategies: list[str],
-                       enabled: bool) -> dict[str, Any] | None:
+                       enabled: bool, customer_id: str | None = None) -> dict[str, Any] | None:
     name, chat_id, destination_type, strategies = _validate(
         name, chat_id, destination_type, strategies
     )
