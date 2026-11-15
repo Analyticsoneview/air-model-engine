@@ -22,6 +22,7 @@ class _AirQocScreenState extends State<AirQocScreen> {
   List<Map<String, dynamic>> _rows = [];
   List<Map<String, dynamic>> _signals = [];
   String _qocMode = 'LIVE';
+  String _qocScope = 'ALL';
   Map<String, dynamic>? _qocSummary;
   String? _accountId;
   String? _expiry;
@@ -154,8 +155,9 @@ class _AirQocScreenState extends State<AirQocScreen> {
     final result = await _api.dhanQocQualification(
       id,
       mode: _qocMode,
-      underlyingScrip: _selectedUnderlying?['security_id']?.toString(),
-      expiry: _expiry,
+      underlyingScrip: _qocScope == 'SELECTED'
+          ? _selectedUnderlying?['security_id']?.toString() : null,
+      expiry: _qocScope == 'SELECTED' ? _expiry : null,
     );
     if (!mounted) return;
     final values = (result['signals'] as List<dynamic>? ?? const [])
@@ -341,6 +343,20 @@ class _AirQocScreenState extends State<AirQocScreen> {
                 Text('Scores are calculated from two distinct same-session snapshots. Missing or stale evidence is rejected; one snapshot never creates a signal.',
                     style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
                 const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  initialValue: _qocScope,
+                  decoration: const InputDecoration(labelText: 'Universe scope', border: OutlineInputBorder()),
+                  items: const [
+                    DropdownMenuItem(value: 'ALL', child: Text('All stored NSE F&O underlyings')),
+                    DropdownMenuItem(value: 'SELECTED', child: Text('Selected underlying / expiry')),
+                  ],
+                  onChanged: _loading ? null : (value) => setState(() {
+                    _qocScope = value ?? 'ALL';
+                    _signals = [];
+                    _qocSummary = null;
+                  }),
+                ),
+                const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
                   initialValue: _qocMode,
                   decoration: const InputDecoration(labelText: 'Research workflow', border: OutlineInputBorder()),
