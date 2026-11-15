@@ -743,6 +743,12 @@ async def assign_customer_subscription(
 ) -> dict:
     if admin.get("role") not in {"SUPER_ADMIN", "ADMIN"}:
         raise HTTPException(status_code=403, detail="Administrator management permission is required")
+    known_customer = any(
+        row["customer_id"] == body.customer_id
+        for row in access_store.list_marketing_customers("ALL", limit=5000)
+    )
+    if not known_customer:
+        raise HTTPException(status_code=404, detail="Registered customer mobile identity was not found")
     durations = {"DAILY": 1, "MONTHLY": 30, "SIX_MONTHS": 180, "YEARLY": 365}
     starts = datetime.now(timezone.utc)
     expires = starts + timedelta(days=durations[body.plan_code])
@@ -1147,7 +1153,7 @@ async def admin_customer_daily_report(
         except (TypeError, ValueError):
             return str(value)[:10]
 
-    customers = [dict(item) for item in access_store.list_marketing_customers("ALL", limit=500)]
+    customers = [dict(item) for item in access_store.list_marketing_customers("ALL", limit=5000)]
     requests = [dict(item) for item in access_store.list_requests()]
     decisions = access_store.list_decisions()
     daily_requests = [item for item in requests if ist_day(item.get("created_at")) == day]
