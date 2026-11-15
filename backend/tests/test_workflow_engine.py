@@ -234,3 +234,60 @@ def test_strategy_trigger_can_match_strategy_name(tmp_path):
         assert len(store.process_event(match["event_id"])) == 1
     finally:
         store.close()
+
+
+def test_workflow_updates_create_immutable_versions_and_preserve_queued_run_context(tmp_path):
+    store = WorkflowStore(str(tmp_path / "workflow-versions.sqlite3"))
+    try:
+        workflow = store.create_workflow(
+            name="Versioned QOC", created_by="admin", trigger_type="EVENT",
+            trigger_config={"event_type": "qoc.candidate.qualified", "customer_id": "customer-1"},
+            workflow_spec={"steps": [{"id": "notify", "action": "event.emit",
+                                     "params": {"event_type": "qoc.review.v1"}}]},
+        )
+        store.set_workflow_enabled(workflow["workflow_id"], True)
+        event = store.publish_event(
+            event_type="qoc.candidate.qualified", source="qoc",
+            payload={"customer_id": "customer-1", "score": 91},
+            idempotency_key="version-test-event",
+        )
+        run = store.process_event(event["event_id"])[0]
+        updated = store.update_workflow(
+            workflow["workflow_id"], name="Versioned QOC revised", description="Version 2",
+            trigger_type="STRATEGY",
+            trigger_config={"event_type": "strategy.orb.signal.created",
+                            "strategy": "ORB", "customer_id": "customer-1"},
+            workflow_spec={"steps": [{"id": "notify", "action": "event.emit",
+                                     "params": {"event_type": "qoc.review.v2"}}]},
+            execution_mode="RESEARCH_ONLY", updated_by="admin",
+        )
+        assert updated["version"] == 2
+        assert updated["enabled"] is False
+        versions = store.list_workflow_versions(workflow["workflow_id"])
+        assert [item["version"] for item in versions] == [2, 1]
+        context = store.run_context(run["run_id"])
+        assert context["workflow_version"] == 1
+        assert context["workflow_name"] == "Versioned QOC"
+        assert context["workflow_spec"]["steps"][0]["params"]["event_type"] == "qoc.review.v1"
+    finally:
+        store.close()
+
+
+def test_workflow_update_rejects_unsafe_actions_without_creating_new_version(tmp_path):
+    store = WorkflowStore(str(tmp_path / "workflow-version-invalid.sqlite3"))
+    try:
+        workflow = store.create_workflow(
+            name="Versioned", created_by="admin", trigger_type="EVENT",
+            trigger_config={"event_type": "test"},
+            workflow_spec={"steps": []},
+        )
+        with pytest.raises(ValueError):
+            store.update_workflow(
+                workflow["workflow_id"], name="Invalid", description="",
+                trigger_type="EVENT", trigger_config={"event_type": "test"},
+                workflow_spec={"steps": [{"id": "shell", "action": "shell.exec", "params": {}}]},
+                execution_mode="RESEARCH_ONLY", updated_by="admin",
+            )
+        assert len(store.list_workflow_versions(workflow["workflow_id"])) == 1
+    finally:
+        store.close()
