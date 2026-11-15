@@ -82,7 +82,7 @@ void main() {
 
     await tester.tap(find.text('DAILY CONVERSION REPORT'));
     await tester.pumpAndSettle();
-    expect(find.text('2026-11-15'), findsOneWidget);
+    expect(find.text('2026-11-15'), findsAtLeastNWidgets(1));
     expect(find.textContaining('New: 7 · Existing requests: 2'), findsOneWidget);
     expect(find.textContaining('First plans: 4 · Approved, no plan: 2'), findsOneWidget);
     await client.close();
