@@ -234,6 +234,13 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
           Text('RETURN: ${metric('return_pct_on_observed_invested_value', suffix: '%')}  •  MAX DRAWDOWN: ${metric('max_drawdown_pct', suffix: '%')}',
             style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
           const SizedBox(height: 5),
+          Text('TOP POSITION CONCENTRATION: ${metric('concentration_top_position_pct', suffix: '%')}',
+            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
+          ...((summary['sector_exposure'] as List<dynamic>? ?? const [])
+              .whereType<Map<String, dynamic>>().take(4).map((sector) => Text(
+                'SECTOR ${sector['sector']}: ₹${sector['market_value']} • ${sector['exposure_pct'] ?? '—'}%',
+                style: const TextStyle(fontSize: 9)))),
+          const SizedBox(height: 5),
           Text(summary['risk_note']?.toString() ??
               'Returns and drawdown require verified capital/equity history. Missing values are not estimated.',
               style: const TextStyle(fontSize: 9)),
