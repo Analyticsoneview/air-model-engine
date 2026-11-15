@@ -201,11 +201,41 @@ def _execute_action(
     raise WorkflowStepError(f"Unsupported workflow action: {action}")
 
 
+def _publish_terminal_event(
+    store: WorkflowStore, context: dict, status: str,
+    failed_step: str | None = None, error: str | None = None,
+) -> None:
+    workflow_id = context["workflow_id"]
+    chain = list((context.get("event_payload") or {}).get("workflow_chain") or [])
+    if workflow_id not in chain:
+        chain.append(workflow_id)
+    event_type = "workflow.run.completed" if status == "SUCCEEDED" else "workflow.run.failed"
+    try:
+        store.publish_event(
+            event_type=event_type, source="workflow.executor",
+            payload={
+                "customer_id": (context.get("event_payload") or {}).get("customer_id"),
+                "workflow_id": workflow_id, "workflow_version": context["workflow_version"],
+                "workflow_run_id": context["run_id"], "status": status,
+                "failed_step": failed_step, "error": str(error)[:800] if error else None,
+                "workflow_chain": chain[:20],
+            },
+            idempotency_key=f"workflow-terminal:{context['run_id']}:{status.lower()}",
+            correlation_id=context.get("event_id"),
+        )
+    except Exception as exc:
+        # The worker's runnable_runs query retries this event until its idempotency key exists.
+        log.exception("Could not publish terminal event for workflow run %s (%s)",
+                      context["run_id"], type(exc).__name__)
+
+
 def execute_workflow_run(store: WorkflowStore, run_id: str) -> dict[str, Any] | None:
     context = store.run_context(run_id)
     if not context:
         return None
     if context["status"] in {"SUCCEEDED", "FAILED", "CANCELLED"}:
+        if context["status"] in {"SUCCEEDED", "FAILED"}:
+            _publish_terminal_event(store, context, context["status"])
         return {"run_id": run_id, "status": context["status"]}
     store.set_run_status(run_id, "RUNNING")
     steps = context["workflow_spec"].get("steps", [])
@@ -250,7 +280,10 @@ def execute_workflow_run(store: WorkflowStore, run_id: str) -> dict[str, Any] | 
                 status="FAILED", input_data=params,
                 error="Retry budget exhausted while recovering workflow run", attempts=attempts,
             )
-            store.set_run_status(run_id, "FAILED", f"Step {step_key} exhausted {max_attempts} attempts")
+            failure = f"Step {step_key} exhausted {max_attempts} attempts"
+            store.set_run_status(run_id, "FAILED", failure)
+            _publish_terminal_event(store, context, "FAILED", failed_step=step_key, error=failure)
             return {"run_id": run_id, "status": "FAILED", "failed_step": step_key}
     store.set_run_status(run_id, "SUCCEEDED")
+    _publish_terminal_event(store, context, "SUCCEEDED")
     return {"run_id": run_id, "status": "SUCCEEDED", "steps": len(steps)}
