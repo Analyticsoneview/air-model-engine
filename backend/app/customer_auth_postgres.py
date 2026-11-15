@@ -76,6 +76,12 @@ class PostgresAccessStore:
                 created_at,reviewed_at,reviewer_note FROM air_access_requests
                 WHERE mobile_e164=:mobile AND device_id=:device"""),
                 {"mobile": mobile, "device": device}).mappings().one()
+            conn.execute(text("""INSERT INTO air_customer_lifecycle(customer_id,first_registered_at)
+                VALUES(:customer,CAST(:registered AS timestamptz))
+                ON CONFLICT(customer_id) DO UPDATE SET
+                first_registered_at=LEAST(air_customer_lifecycle.first_registered_at,EXCLUDED.first_registered_at),
+                updated_at=CURRENT_TIMESTAMP"""),
+                {"customer": mobile, "registered": row["created_at"]})
         return dict(row)
 
     def get_request(self, mobile_e164: str, device_id: str):
@@ -116,7 +122,8 @@ class PostgresAccessStore:
     def decision_history(self, request_id: str):
         with self.engine.connect() as conn:
             rows = conn.execute(text("""SELECT decision_id,request_id,mobile_e164,previous_status,new_status,
-                reviewer_admin_id,reviewer_role,note,totp_counter,decided_at FROM air_access_decision_history
+                reviewer_admin_id,reviewer_role,note,totp_counter,totp_verified_at,verification_reference,
+                device_id,request_context,decided_at FROM air_access_decision_history
                 WHERE request_id=:id ORDER BY decided_at,decision_id"""), {"id": request_id}).mappings().all()
         return [dict(row) for row in rows]
 
