@@ -69,5 +69,23 @@ class TelegramDestinationStoreTests(unittest.TestCase):
             self.assertEqual(destinations.destinations_for_strategy("EXPIRY78"), ["-1002222222222"])
 
 
+    def test_workflow_strategies_can_be_routed_independently(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {
+            "AIR_TELEGRAM_CONFIG_DB_PATH": str(Path(folder) / "telegram-config.sqlite3"),
+        }, clear=False):
+            qoc = destinations.upsert_destination(
+                "AIR QOC", "-1001111111111", "GROUP", ["AIR_QOC"], True,
+            )
+            orb = destinations.upsert_destination(
+                "ORB", "123456789", "PRIVATE", ["ORB"], True,
+            )
+            risk = destinations.upsert_destination(
+                "Portfolio risk", "-1002222222222", "GROUP", ["PORTFOLIO_RISK"], True,
+            )
+            self.assertEqual(destinations.destinations_for_strategy("AIR_QOC"), [qoc["chat_id"]])
+            self.assertEqual(destinations.destinations_for_strategy("ORB"), [orb["chat_id"]])
+            self.assertEqual(destinations.destinations_for_strategy("PORTFOLIO_RISK"), [risk["chat_id"]])
+
+
 if __name__ == "__main__":
     unittest.main()
