@@ -82,6 +82,17 @@ async def list_workflow_runs(limit: int = 100, admin: dict = Depends(require_adm
         store.close()
 
 
+
+@router.get("/runs/{run_id}/steps")
+async def list_workflow_run_steps(run_id: str, admin: dict = Depends(require_admin)):
+    store = WorkflowStore()
+    try:
+        if store.run_context(run_id) is None:
+            raise HTTPException(status_code=404, detail="Workflow run not found")
+        return {"run_id": run_id, "steps": store.list_run_steps(run_id)}
+    finally:
+        store.close()
+
 @router.post("/events")
 async def publish_workflow_event(body: EventCreate, admin: dict = Depends(require_admin)):
     _management_admin(admin)
