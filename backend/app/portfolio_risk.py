@@ -111,7 +111,7 @@ def build_portfolio_snapshot(payload: dict, broker: str, account_id: str) -> dic
     if explicit_day is None and day_values:
         explicit_day = round(sum(day_values), 2)
     profile = payload.get("profile") if isinstance(payload.get("profile"), dict) else {}
-    explicit_equity = _number(_first(payload, ("net_liquidation", "netLiquidation", "equity", "account_value")))
+    explicit_equity = _number(_first(payload, ("account_equity", "net_liquidation", "netLiquidation", "equity", "account_value")))
     if explicit_equity is None:
         explicit_equity = _number(_first(profile, ("net_liquidation", "netLiquidation", "equity", "account_value", "netWorth")))
     capital = _number(_first(payload, ("capital_base", "opening_balance", "available_capital")))
