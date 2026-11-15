@@ -200,6 +200,9 @@ def _execute_claim_with_heartbeat(store: WorkflowStore, claim: dict) -> dict | N
                         run_id, WORKER_ID, claim_version, lease_seconds=60,
                     )
                     if not renewed:
+                        current = heartbeat_store.run_context(run_id)
+                        if current and current.get("status") in {"SUCCEEDED", "FAILED", "CANCELLED"}:
+                            return
                         lease_lost.set()
                         return
                 except Exception as exc:
