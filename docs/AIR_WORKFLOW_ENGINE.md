@@ -63,7 +63,7 @@ Workflow runs need idempotency keys, bounded retries with backoff, timeout handl
 
 - `RESEARCH_ONLY`: compute, evaluate and publish research records. Default.
 - `ALERT_NOTIFY`: research plus configured user notifications.
-- `AUTHORIZED_EXECUTION`: reserved for a future separately approved capability. It must require explicit permissions, risk checks, a kill switch and an auditable authorization path.
+- `AUTHORIZED_EXECUTION`: reserved and currently rejected by the API until a separately approved execution capability exists. It must later require explicit permissions, risk checks, a kill switch and an auditable authorization path.
 
 The initial engine will not call broker order-placement APIs. Broker execution remains disabled independently of workflow configuration.
 
