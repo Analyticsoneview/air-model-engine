@@ -44,6 +44,7 @@ def test_expired_run_lease_is_recovered_with_new_fencing_version(tmp_path):
             "UPDATE air_workflow_runs SET lease_expires_at='2000-01-01T00:00:00+00:00' WHERE run_id=?",
             (run_id,),
         )
+        store.db.commit()
         second = store.claim_runnable_runs("worker-new", 1, 60)[0]
         assert second["claim_version"] == first["claim_version"] + 1
         assert second["worker_id"] == "worker-new"
