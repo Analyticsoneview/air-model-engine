@@ -223,14 +223,24 @@ class PortfolioRiskStore:
         rows = self.db.execute("""SELECT broker,account_id,captured_at,summary_json
             FROM air_portfolio_snapshots WHERE customer_id=?
             ORDER BY broker,account_id,captured_at""", (customer_id,)).fetchall()
-        equity_series: dict[tuple[str, str], list[float]] = {}
+        equity_series: dict[tuple[str, str], list[tuple[datetime, float]]] = {}
         for row in rows:
             summary = json.loads(row["summary_json"])
             equity = _number(summary.get("account_equity"))
-            if equity is not None and equity > 0:
-                equity_series.setdefault((row["broker"], row["account_id"]), []).append(equity)
+            if equity is None or equity <= 0:
+                continue
+            try:
+                captured = datetime.fromisoformat(row["captured_at"])
+                if captured.tzinfo is None:
+                    captured = captured.replace(tzinfo=timezone.utc)
+                captured = captured.astimezone(timezone.utc)
+            except ValueError:
+                continue
+            equity_series.setdefault((row["broker"], row["account_id"]), []).append((captured, equity))
         result = {}
-        for key, values in equity_series.items():
+        for key, observations in equity_series.items():
+            observations.sort(key=lambda item: item[0])
+            values = [item[1] for item in observations]
             if len(values) < 2:
                 continue
             peak = values[0]
