@@ -75,21 +75,36 @@ def _declare(channel) -> None:
 
 
 def _publish_batch(store: WorkflowStore, channel, items: list[dict]) -> None:
-    """Publish confirmed persistent messages, then mark their outbox rows complete."""
+    """Publish each outbox row independently so a partial batch cannot poison prior rows.
+
+    Publisher confirms make each successful message durable at RabbitMQ before its
+    outbox row is marked published. If a later publish fails, only that row is
+    scheduled for retry; earlier confirmed rows remain PUBLISHED. A crash between
+    broker confirmation and the database update can still redeliver, so consumers
+    must continue to rely on the event/run uniqueness constraints.
+    """
     for item in items:
-        body = json.dumps(item, separators=(",", ":"), allow_nan=False).encode("utf-8")
-        confirmed = channel.basic_publish(
-            exchange=EXCHANGE, routing_key=item["event_type"], body=body,
-            properties=pika.BasicProperties(
-                delivery_mode=2, content_type="application/json",
-                message_id=item["event_id"], correlation_id=item.get("correlation_id"),
-                type=item["event_type"],
-            ),
-            mandatory=True,
-        )
-        if confirmed is False:
-            raise RuntimeError("RabbitMQ did not confirm event publication")
-        store.mark_outbox_published(item["outbox_id"])
+        try:
+            body = json.dumps(item, separators=(",", ":"), allow_nan=False).encode("utf-8")
+            confirmed = channel.basic_publish(
+                exchange=EXCHANGE, routing_key=item["event_type"], body=body,
+                properties=pika.BasicProperties(
+                    delivery_mode=2, content_type="application/json",
+                    message_id=item["event_id"], correlation_id=item.get("correlation_id"),
+                    type=item["event_type"],
+                ),
+                mandatory=True,
+            )
+            if confirmed is False:
+                raise RuntimeError("RabbitMQ did not confirm event publication")
+            store.mark_outbox_published(item["outbox_id"])
+        except Exception as exc:
+            # Do not reset already-confirmed rows to PENDING when a later item
+            # fails. The stable event ID and database uniqueness make any
+            # unavoidable confirm/commit redelivery safe.
+            store.mark_outbox_failed(item["outbox_id"], item.get("attempts", 0), type(exc).__name__)
+            log.warning("Workflow outbox item %s deferred after %s",
+                        item.get("outbox_id"), type(exc).__name__)
 
 
 def _publish_outbox(stop: threading.Event) -> None:
