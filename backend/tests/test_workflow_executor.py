@@ -126,3 +126,34 @@ def test_workflow_rejects_unsafe_or_invalid_step_definitions(tmp_path, spec, mod
             )
     finally:
         store.close()
+
+
+def test_telegram_action_uses_alert_mode_and_source_step_rows(tmp_path, monkeypatch):
+    import asyncio
+    from app import telegram_notifications
+
+    store = WorkflowStore(str(tmp_path / "telegram-action.sqlite3"))
+    sent = {}
+
+    async def fake_notify(strategy, rows):
+        sent["strategy"] = strategy
+        sent["rows"] = rows
+        return {"configured": True, "attempted": len(rows), "sent": len(rows), "failures": []}
+
+    monkeypatch.setattr(telegram_notifications, "notify_candidates", fake_notify)
+    try:
+        context = {
+            "run_id": "run-1", "workflow_id": "workflow-1",
+            "execution_mode": "ALERT_NOTIFY",
+            "event_payload": {"customer_id": "customer-1"},
+        }
+        step = {"id": "notify", "action": "notify.telegram",
+                "params": {"strategy": "AIR_QOC", "source_step": "scan"}}
+        outputs = {"scan": {"signals": [{"symbol": "NIFTY", "classification": "QUALIFIED"}]}}
+        result = executor._execute_action(store, context, step, outputs)
+        assert result["sent"] == 1
+        assert sent["strategy"] == "AIR_QOC"
+        assert sent["rows"][0]["customer_id"] == "customer-1"
+        assert sent["rows"][0]["signal_id"] == "run-1:notify:0"
+    finally:
+        store.close()
