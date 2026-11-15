@@ -22,7 +22,15 @@ def test_support_tickets_and_activity_use_postgres_with_customer_isolation():
         updated = store.admin_update(ticket_id, "admin-postgres-test", "Please sign out and back in.",
                                      status="WAITING_CUSTOMER", priority="HIGH")
         assert updated["status"] == "WAITING_CUSTOMER"
-        assert len(updated["events"]) == 3
-        assert store.get_customer_ticket(customer_a, ticket_id)["events"][-1]["event_type"] == "ADMIN_REPLY"
+        events = updated["events"]
+        # Creating a ticket, changing status, changing priority and replying
+        # are four distinct audited actions; none may be silently collapsed.
+        assert [event["event_type"] for event in events] == [
+            "TICKET_CREATED", "STATUS_CHANGED", "PRIORITY_CHANGED", "ADMIN_REPLY"
+        ]
+        assert events[1]["metadata"] == {"from": "OPEN", "to": "WAITING_CUSTOMER"}
+        assert events[2]["metadata"] == {"from": "NORMAL", "to": "HIGH"}
+        assert events[-1]["message"] == "Please sign out and back in."
+        assert store.get_customer_ticket(customer_a, ticket_id)["events"] == events
     finally:
         store.close()
