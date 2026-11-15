@@ -158,9 +158,19 @@ def _execute_action(
         from app.telegram_notifications import notify_candidates
 
         strategy = str(params.get("strategy") or "AIR_WORKFLOW").upper()
-        rows = source_output.get("signals") if isinstance(source_output, dict) else None
-        if not rows:
-            rows = [source_output] if source_output else [event_payload]
+        if params.get("source_step") and strategy == "AIR_QOC":
+            rows = source_output.get("signals", []) if isinstance(source_output, dict) else []
+            if not rows:
+                return {"strategy": strategy, "configured": True,
+                        "attempted": 0, "sent": 0, "reason": "no qualified candidates"}
+        elif params.get("source_step") and strategy == "ORB":
+            rows = source_output.get("signals", []) if isinstance(source_output, dict) else []
+            if not rows and source_output:
+                rows = [source_output]
+        elif params.get("source_step"):
+            rows = [source_output] if source_output else []
+        else:
+            rows = [event_payload]
         normalized = []
         for index, row in enumerate(rows):
             if not isinstance(row, dict):
