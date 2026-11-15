@@ -178,17 +178,17 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byWidgetPredicate((widget) =>
-          widget is TextField && widget.decoration.labelText == 'Workflow name'),
+          widget is TextField && widget.decoration?.labelText == 'Workflow name'),
       'Morning ORB',
     );
     await tester.enterText(
       find.byWidgetPredicate((widget) =>
-          widget is TextField && widget.decoration.labelText == 'Strategy name'),
+          widget is TextField && widget.decoration?.labelText == 'Strategy name'),
       'ORB_MORNING',
     );
     await tester.enterText(
       find.byWidgetPredicate((widget) =>
-          widget is TextField && widget.decoration.labelText == 'Customer ID'),
+          widget is TextField && widget.decoration?.labelText == 'Customer ID'),
       'customer-123',
     );
     final createButton = find.text('CREATE WORKFLOW');
