@@ -2,7 +2,7 @@
 
 ## Decision record
 
-**Status:** Gate 8 in progress — Phases 1–5 merged; Phase 6 Workflow Studio in progress  
+**Status:** Gate 8 Phases 1–6 merged; Phase 7 hardening in progress  
 **Runtime target:** self-hosted Docker Swarm on Linux  
 **Developer workstation:** Windows 10/11, with native tools or Docker Desktop  
 **Initial message transport:** RabbitMQ  
@@ -74,8 +74,8 @@ The initial engine will not call broker order-placement APIs. Broker execution r
 3. **Scheduler and run ledger:** time triggers, durable run records, deduplication, misfire grace and startup recovery. (Merged in PR #51; exchange holiday calendar remains to be added.)
 4. **Rule and strategy adapters:** ORB, QOC, model-ledger and portfolio snapshot events, customer-scoped matching and safe nested condition operators. (Merged in PR #52.)
 5. **Execution and notifications:** allowlisted research actions, durable step history/retries, Telegram alert routing and report-ready events. (Merged in PR #53.)
-6. **Workflow Studio:** admin builder, trigger/action selection, enable/pause controls, immutable version history, edit-as-new-version and run/step history. (In progress in PR #54.)
-7. **Hardening:** failure injection, restart/replay tests, load tests, permissions, exchange calendar, audit and production acceptance.
+6. **Workflow Studio:** admin builder, trigger/action selection, enable/pause controls, immutable version history, edit-as-new-version and run/step history. (Merged in PR #54.)
+7. **Hardening:** append-only audit trail, exchange calendar administration and fail-closed trading-day scheduling are implemented in the current hardening branch; failure injection, restart/replay/load tests and production acceptance remain.
 
 ## Initial workflow examples
 
@@ -111,4 +111,15 @@ Use `ALERT_NOTIFY` execution mode for the example above. The workflow is still r
 
 ## Current implementation boundary
 
-PRs #50–#53 are merged. The engine has PostgreSQL-backed event intake/outbox, RabbitMQ transport, time-trigger scheduler, durable run ledger, ORB/QOC/model-ledger/portfolio adapters, safe condition matching, allowlisted workflow execution, per-step recovery and customer-scoped Telegram notifications. PR #54 adds the administrator Workflow Studio and immutable workflow version history. Production trading-day schedules still require a verified NSE holiday calendar. No broker order execution is enabled.
+PRs #50–#54 are merged. The engine has PostgreSQL-backed event intake/outbox, RabbitMQ transport, time-trigger scheduler, durable run ledger, ORB/QOC/model-ledger/portfolio adapters, safe condition matching, allowlisted workflow execution, per-step recovery, customer-scoped Telegram notifications and the administrator Workflow Studio. The hardening branch adds immutable audit records and an exchange calendar API; a configured exchange calendar is fail-closed until a date is explicitly marked as a trading day or special session. The calendar must be populated from verified official NSE/BSE notices before production trading-day schedules are enabled. No broker order execution is enabled.
+
+
+## Audit and exchange calendar hardening
+
+- Workflow creation, definition edits, activation and pause/resume create actor-attributed audit entries.
+- Audit rows are append-only: SQLite update/delete triggers and PostgreSQL mutation-rejection triggers prevent alteration through ordinary application SQL.
+- Administrators can inspect audit records at `GET /api/v1/admin/workflows/audit` (optional `workflow_id` filter).
+- NSE/BSE calendar dates are managed through `GET /api/v1/admin/workflows/calendar` and `PUT /api/v1/admin/workflows/calendar/{exchange_code}/{session_date}`.
+- Calendar statuses are `HOLIDAY`, `TRADING_DAY` and `SPECIAL_SESSION`. Special sessions require explicit open/close times and scheduled triggers are bounded to those hours. Regular TRADING_DAY entries only establish that the exchange is open on that date; time triggers may also run after market close for post-market reporting.
+- Time workflows with `trigger_config.exchange_code` only run when that date is explicitly marked as a trading day or special session; missing dates and holidays are skipped. This deliberately fails closed and does not invent an exchange holiday list.
+- The application does not auto-import a holiday calendar. Operators must load and verify the official exchange schedule for each year and update special-session notices before enabling exchange-scoped schedules.

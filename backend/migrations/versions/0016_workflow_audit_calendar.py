@@ -1,6 +1,6 @@
 """Workflow audit trail and exchange trading calendar.
 
-Revision ID: 0016_workflow_audit_exchange_calendar
+Revision ID: 0016_workflow_audit_calendar
 Revises: 0015_workflow_def_versions
 """
 from alembic import op
@@ -16,7 +16,7 @@ def upgrade() -> None:
     op.create_table(
         "air_workflow_audit",
         sa.Column("audit_id", sa.String(36), primary_key=True),
-        sa.Column("workflow_id", sa.String(36), nullable=False),
+        sa.Column("workflow_id", sa.String(128), nullable=False),
         sa.Column("workflow_version", sa.Integer(), nullable=False),
         sa.Column("actor_id", sa.String(128), nullable=False),
         sa.Column("action", sa.String(48), nullable=False),
@@ -43,6 +43,24 @@ def upgrade() -> None:
         sa.CheckConstraint("status IN ('HOLIDAY','SPECIAL_SESSION','TRADING_DAY')",
                            name="ck_air_exchange_calendar_status"),
     )
+    op.execute("""
+        CREATE OR REPLACE FUNCTION air_workflow_audit_reject_mutation()
+        RETURNS trigger LANGUAGE plpgsql AS $body$
+        BEGIN
+            RAISE EXCEPTION 'AIR workflow audit is append-only';
+        END;
+        $body$
+    """)
+    op.execute("""
+        CREATE TRIGGER trg_air_workflow_audit_no_update
+        BEFORE UPDATE ON air_workflow_audit
+        FOR EACH ROW EXECUTE FUNCTION air_workflow_audit_reject_mutation()
+    """)
+    op.execute("""
+        CREATE TRIGGER trg_air_workflow_audit_no_delete
+        BEFORE DELETE ON air_workflow_audit
+        FOR EACH ROW EXECUTE FUNCTION air_workflow_audit_reject_mutation()
+    """)
     op.create_index(
         "ix_air_exchange_calendar_date",
         "air_exchange_calendar", ["session_date", "exchange_code"],
@@ -50,6 +68,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.execute("DROP TRIGGER IF EXISTS trg_air_workflow_audit_no_update ON air_workflow_audit")
+    op.execute("DROP TRIGGER IF EXISTS trg_air_workflow_audit_no_delete ON air_workflow_audit")
+    op.execute("DROP FUNCTION IF EXISTS air_workflow_audit_reject_mutation()")
     op.drop_index("ix_air_exchange_calendar_date", table_name="air_exchange_calendar")
     op.drop_table("air_exchange_calendar")
     op.drop_index("ix_air_workflow_audit_workflow_time", table_name="air_workflow_audit")
