@@ -88,23 +88,23 @@ void main() {
     await tester.tap(find.text('DAILY CONVERSION REPORT'));
     await tester.pumpAndSettle();
     expect(find.text('RUN REPORT'), findsOneWidget);
+    expect(find.text('2026-11-15'), findsAtLeastNWidgets(1));
+    expect(find.textContaining('New: 7 · Existing requests: 2'), findsOneWidget);
+    expect(find.textContaining('First plans: 4 · Approved, no plan: 2'), findsOneWidget);
+    await tester.tap(find.text('DAILY CONVERSION REPORT'));
+    await tester.pumpAndSettle();
+
     expect(customerEndpointRequests, isNotEmpty,
         reason: 'The admin customer-register endpoint must be requested by the console.');
-    await tester.scrollUntilVisible(
-      find.textContaining('1 customer(s) displayed'), 300, scrollable: verticalScroll);
-    await tester.pumpAndSettle();
-    expect(find.textContaining('1 customer(s) displayed'), findsOneWidget);
     await tester.scrollUntilVisible(find.textContaining('••••210'), 300, scrollable: verticalScroll);
     await tester.pumpAndSettle();
+    expect(find.textContaining('1 customer(s) displayed'), findsOneWidget);
     await tester.tap(find.textContaining('••••210'));
     await tester.pumpAndSettle();
     expect(find.textContaining('First registered: 2026-11-15T09:00:00+05:30'), findsOneWidget);
     expect(find.textContaining('First approved: 2026-11-15T09:10:00+05:30'), findsOneWidget);
     expect(find.textContaining('First plan availed: 2026-11-15T09:20:00+05:30'), findsOneWidget);
 
-    expect(find.text('2026-11-15'), findsAtLeastNWidgets(1));
-    expect(find.textContaining('New: 7 · Existing requests: 2'), findsOneWidget);
-    expect(find.textContaining('First plans: 4 · Approved, no plan: 2'), findsOneWidget);
     client.close();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(storage, null);
