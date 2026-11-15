@@ -30,6 +30,22 @@ services:
       retries: 10
     restart: unless-stopped
 
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: air
+      RABBITMQ_DEFAULT_PASS_FILE: /run/secrets/rabbitmq_password
+    secrets:
+      - rabbitmq_password
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   air-api:
     build:
       context: ./backend
@@ -91,6 +107,30 @@ services:
       retries: 5
       start_period: 30s
 
+  air-workflow-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: air-model-engine-api:local
+    command: ["python", "-m", "app.workflow_worker"]
+    environment:
+      AIR_DATABASE_URL_FILE: /run/secrets/air_database_url
+      AIR_CUSTOMER_DATABASE_URL_FILE: /run/secrets/air_database_url
+      AIR_RABBITMQ_HOST: rabbitmq
+      AIR_RABBITMQ_USER: air
+      AIR_RABBITMQ_PASSWORD_FILE: /run/secrets/rabbitmq_password
+    secrets:
+      - air_database_url
+      - rabbitmq_password
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      air-api:
+        condition: service_healthy
+    restart: unless-stopped
+
   air-pwa:
     build:
       context: .
@@ -122,8 +162,11 @@ secrets:
     file: ./.air-secrets/database_url
   air_redis_url:
     file: ./.air-secrets/redis_url
+  rabbitmq_password:
+    file: ./.air-secrets/rabbitmq_password
 
 volumes:
   air_data:
   postgres_data:
   redis_data:
+  rabbitmq_data:
