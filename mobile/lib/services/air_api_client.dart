@@ -490,6 +490,13 @@ class AirApiClient {
     ));
   }
 
+  Future<Map<String, dynamic>> marketIntelligencePulse() async {
+    return _decode(await _client.get(
+      Uri.parse('\$baseUrl/api/v1/customer/market-intelligence/pulse'),
+      headers: _headers,
+    ));
+  }
+
   Future<Map<String, dynamic>> nseDataStatus() async {
     return _decode(await _client.get(
       Uri.parse('$baseUrl/api/v1/nse-data/status'),
