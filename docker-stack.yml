@@ -48,6 +48,62 @@ services:
         constraints:
           - node.role == manager
 
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: air
+      RABBITMQ_DEFAULT_PASS_FILE: /run/secrets/air_rabbitmq_password
+    secrets:
+      - air_rabbitmq_password
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - air_private
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.role == manager
+
+  air-workflow-worker:
+    image: ${AIR_BACKEND_IMAGE:-air-model-engine-api:lab}
+    command: ["python", "-m", "app.workflow_worker"]
+    environment:
+      AIR_DATABASE_URL_FILE: /run/secrets/air_database_url
+      AIR_CUSTOMER_DATABASE_URL_FILE: /run/secrets/air_database_url
+      AIR_RABBITMQ_HOST: rabbitmq
+      AIR_RABBITMQ_USER: air
+      AIR_RABBITMQ_PASSWORD_FILE: /run/secrets/air_rabbitmq_password
+      AIR_WORKFLOW_LOG_LEVEL: INFO
+    secrets:
+      - air_database_url
+      - air_rabbitmq_password
+    networks:
+      - air_private
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 10
+      resources:
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+        limits:
+          cpus: "0.5"
+          memory: 256M
+      placement:
+        constraints:
+          - node.role == manager
+
   air-api:
     image: ${AIR_BACKEND_IMAGE:-air-model-engine-api:lab}
     environment:
@@ -227,6 +283,7 @@ volumes:
   postgres_data:
     driver: local
   redis_data:
+  rabbitmq_data:
     driver: local
   air_data:
     driver: local
@@ -251,6 +308,8 @@ secrets:
   air_database_url:
     external: true
   air_redis_url:
+    external: true
+  air_rabbitmq_password:
     external: true
   air_telegram_bot_token:
     external: true
