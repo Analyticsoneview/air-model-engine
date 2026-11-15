@@ -26,6 +26,17 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
   final _requestSearch = TextEditingController();
   final _customerSearch = TextEditingController();
   final _customerAsOfDate = TextEditingController(text: DateTime.now().toIso8601String().substring(0, 10));
+  final _reportDate = TextEditingController(text: DateTime.now().toIso8601String().substring(0, 10));
+  final _registeredFrom = TextEditingController();
+  final _registeredTo = TextEditingController();
+  final _approvedFrom = TextEditingController();
+  final _approvedTo = TextEditingController();
+  final _rejectedFrom = TextEditingController();
+  final _rejectedTo = TextEditingController();
+  final _planFrom = TextEditingController();
+  final _planTo = TextEditingController();
+  final _expiryFrom = TextEditingController();
+  final _expiryTo = TextEditingController();
   final _offerName = TextEditingController();
   final _offerCode = TextEditingController();
   final _offerDiscount = TextEditingController(text: '10');
@@ -49,6 +60,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
   List<Map<String, dynamic>> _customers = [];
   List<Map<String, dynamic>> _offers = [];
   Map<String, dynamic> _segmentCounts = {};
+  Map<String, dynamic> _dailyCustomerReport = {};
 
   Uri _uri(String path) => Uri.parse('$_apiBase$path');
   Map<String, String> _headers({bool auth = true}) => {
@@ -141,14 +153,34 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     _audit = (requestResults[2]['events'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
     if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') {
       final asOfDate = _customerAsOfDate.text.trim();
+      final registerParams = <String, String>{
+        'as_of_date': asOfDate,
+        'segment': _customerSegment == 'ELIGIBLE_FOR_PROMOTIONS' ? 'ALL' : _customerSegment,
+        'search': _customerSearch.text.trim(),
+        'limit': '500',
+        if (_registeredFrom.text.trim().isNotEmpty) 'registered_from': _registeredFrom.text.trim(),
+        if (_registeredTo.text.trim().isNotEmpty) 'registered_to': _registeredTo.text.trim(),
+        if (_approvedFrom.text.trim().isNotEmpty) 'approved_from': _approvedFrom.text.trim(),
+        if (_approvedTo.text.trim().isNotEmpty) 'approved_to': _approvedTo.text.trim(),
+        if (_rejectedFrom.text.trim().isNotEmpty) 'rejected_from': _rejectedFrom.text.trim(),
+        if (_rejectedTo.text.trim().isNotEmpty) 'rejected_to': _rejectedTo.text.trim(),
+        if (_planFrom.text.trim().isNotEmpty) 'plan_availed_from': _planFrom.text.trim(),
+        if (_planTo.text.trim().isNotEmpty) 'plan_availed_to': _planTo.text.trim(),
+        if (_expiryFrom.text.trim().isNotEmpty) 'expires_from': _expiryFrom.text.trim(),
+        if (_expiryTo.text.trim().isNotEmpty) 'expires_to': _expiryTo.text.trim(),
+      };
+      final registerUri = Uri(path: '/api/v1/admin/customers', queryParameters: registerParams);
+      final reportDate = _reportDate.text.trim();
       final growthResults = await Future.wait([
         _request('GET', '/api/v1/admin/marketing/customers?segment=$_customerSegment&search=${Uri.encodeQueryComponent(_customerSearch.text.trim())}&limit=500'),
         _request('GET', '/api/v1/admin/marketing/offers'),
-        _request('GET', '/api/v1/admin/customers?as_of_date=$asOfDate&segment=${_customerSegment == 'ELIGIBLE_FOR_PROMOTIONS' ? 'ALL' : _customerSegment}&search=${Uri.encodeQueryComponent(_customerSearch.text.trim())}&limit=500'),
+        _request('GET', registerUri.toString()),
+        _request('GET', '/api/v1/admin/customer-daily-report?report_date=$reportDate'),
       ]);
       _customers = (growthResults[2]['customers'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
       _segmentCounts = Map<String,dynamic>.from(growthResults[0]['segment_counts'] as Map? ?? {});
       _offers = (growthResults[1]['offers'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
+      _dailyCustomerReport = Map<String,dynamic>.from(growthResults[3]);
     }
   }
 
@@ -304,6 +336,9 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     _client.close(); _email.dispose(); _password.dispose(); _totp.dispose();
     _newEmail.dispose(); _newPassword.dispose(); _subscriptionCustomer.dispose();
     _requestSearch.dispose(); _customerSearch.dispose(); _customerAsOfDate.dispose();
+    _reportDate.dispose(); _registeredFrom.dispose(); _registeredTo.dispose();
+    _approvedFrom.dispose(); _approvedTo.dispose(); _rejectedFrom.dispose(); _rejectedTo.dispose();
+    _planFrom.dispose(); _planTo.dispose(); _expiryFrom.dispose(); _expiryTo.dispose();
     _offerName.dispose(); _offerCode.dispose(); _offerDiscount.dispose();
     _offerStarts.dispose(); _offerExpires.dispose(); _offerTerms.dispose();
     super.dispose();
@@ -411,6 +446,51 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     }
   }
 
+  Widget _dateRangeFields(String label, TextEditingController from, TextEditingController to) =>
+    Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(children: [
+        Expanded(child: TextField(controller: from, keyboardType: TextInputType.datetime,
+          decoration: InputDecoration(labelText: '$label · from', hintText: 'YYYY-MM-DD', border: const OutlineInputBorder()))),
+        const SizedBox(width: 8),
+        Expanded(child: TextField(controller: to, keyboardType: TextInputType.datetime,
+          decoration: InputDecoration(labelText: '$label · to', hintText: 'YYYY-MM-DD', border: const OutlineInputBorder()))),
+      ]),
+    );
+
+  Widget _dailyCustomerReportCard() {
+    final metrics = _dailyCustomerReport['metrics'] as Map? ?? const {};
+    final conversion = _dailyCustomerReport['conversion'] as Map? ?? const {};
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('DATE-WISE CUSTOMER CONVERSION · IST', style: TextStyle(fontWeight: FontWeight.w900)),
+          const SizedBox(height: 8),
+          TextField(controller: _reportDate, keyboardType: TextInputType.datetime,
+            decoration: const InputDecoration(labelText: 'Daily report date · YYYY-MM-DD', border: OutlineInputBorder())),
+          const SizedBox(height: 8),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            _reportMetric('New registrations', metrics['new_registrations']),
+            _reportMetric('Existing requests', metrics['existing_customer_requests']),
+            _reportMetric('Approved', metrics['approved']),
+            _reportMetric('Rejected', metrics['rejected']),
+            _reportMetric('Pending', metrics['pending']),
+            _reportMetric('First plans', metrics['first_time_plan_availed']),
+            _reportMetric('Approved · no plan', metrics['approved_but_no_plan_availed']),
+          ]),
+          const SizedBox(height: 8),
+          Text('Registration → approval: ${conversion['registration_to_approval_percent'] ?? '—'}%'),
+          Text('Registration → first plan: ${conversion['registration_to_first_plan_percent'] ?? '—'}%'),
+          const Text('Counts use unique customers for approval/rejection and first plan; pending is a request count.',
+            style: TextStyle(fontSize: 10, color: Colors.grey)),
+        ]),
+      ),
+    );
+  }
+
+  Widget _reportMetric(String label, dynamic value) => Chip(label: Text('$label · ${value ?? 0}'));
+
   Widget _customerRegistry() {
     final segments = const [
       ('ALL', 'All customers'),
@@ -453,13 +533,21 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
         onSubmitted: (_) => _refresh(),
       ),
       const SizedBox(height: 8),
+      const Text('INDEPENDENT LIFECYCLE DATE FILTERS · YYYY-MM-DD', style: TextStyle(fontWeight: FontWeight.w800)),
+      _dateRangeFields('First registered', _registeredFrom, _registeredTo),
+      _dateRangeFields('First approved', _approvedFrom, _approvedTo),
+      _dateRangeFields('First rejected', _rejectedFrom, _rejectedTo),
+      _dateRangeFields('First plan availed', _planFrom, _planTo),
+      _dateRangeFields('Subscription expiry', _expiryFrom, _expiryTo),
+      const SizedBox(height: 8),
       TextField(controller: _customerAsOfDate, keyboardType: TextInputType.datetime,
         decoration: const InputDecoration(labelText: 'Classify NEW vs EXISTING as of date (YYYY-MM-DD)',
           helperText: 'Customers registered on this date are NEW; earlier registrations are EXISTING.',
           border: OutlineInputBorder()),
         onSubmitted: (_) => _refresh()),
       const SizedBox(height: 8),
-      OutlinedButton.icon(onPressed: _busy ? null : _refresh, icon: const Icon(Icons.refresh), label: const Text('REFRESH CUSTOMERS')),
+      OutlinedButton.icon(onPressed: _busy ? null : _refresh, icon: const Icon(Icons.refresh), label: const Text('APPLY FILTERS / REFRESH')),
+      _dailyCustomerReportCard(),
       Text('${_customers.length} customer(s) displayed', style: Theme.of(context).textTheme.labelMedium),
       if (_customers.isEmpty) const Card(child: Padding(padding: EdgeInsets.all(24), child: Center(child: Text('No customers match this segment.')))),
       for (final customer in _customers)
@@ -469,8 +557,11 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
           childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
           children: [
             SelectableText('Customer: ${customer['customer_id']}'),
-            Align(alignment: Alignment.centerLeft, child: Text('Registered: ${customer['registered_at'] ?? '—'}')),
+            Align(alignment: Alignment.centerLeft, child: Text('First registered: ${customer['first_registered_at'] ?? customer['registered_at'] ?? '—'}')),
             Align(alignment: Alignment.centerLeft, child: Text('Lifecycle: ${customer['customer_type'] ?? '—'}')),
+            Align(alignment: Alignment.centerLeft, child: Text('First approved: ${customer['first_approved_at'] ?? '—'}')),
+            Align(alignment: Alignment.centerLeft, child: Text('First rejected: ${customer['first_rejected_at'] ?? '—'}')),
+            Align(alignment: Alignment.centerLeft, child: Text('First plan availed: ${customer['first_plan_availed_at'] ?? '—'}')),
             Align(alignment: Alignment.centerLeft, child: Text('Devices: ${customer['device_count'] ?? 0}')),
             Align(alignment: Alignment.centerLeft, child: Text('Plan: ${customer['plan_code'] ?? 'None'}')),
             Align(alignment: Alignment.centerLeft, child: Text('Expiry: ${customer['subscription_expires_at'] ?? '—'}')),
