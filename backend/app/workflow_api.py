@@ -23,6 +23,16 @@ class WorkflowUpdate(WorkflowCreate):
     pass
 
 
+class ExchangeCalendarEntry(BaseModel):
+    exchange_code: str = Field(min_length=2, max_length=8)
+    session_date: str = Field(min_length=10, max_length=10)
+    status: str
+    description: str = Field(default="", max_length=240)
+    source: str = Field(default="ADMIN", max_length=240)
+    session_open: str | None = None
+    session_close: str | None = None
+
+
 class EventCreate(BaseModel):
     event_type: str = Field(min_length=1, max_length=120)
     source: str = Field(min_length=1, max_length=120)
@@ -101,7 +111,7 @@ async def set_workflow_enabled(workflow_id: str, enabled: bool, admin: dict = De
     _management_admin(admin)
     store = WorkflowStore()
     try:
-        workflow = store.set_workflow_enabled(workflow_id, enabled)
+        workflow = store.set_workflow_enabled(workflow_id, enabled, actor_id=admin["admin_id"])
         if workflow is None:
             raise HTTPException(status_code=404, detail="Workflow not found")
         return workflow
@@ -119,6 +129,19 @@ async def list_workflow_runs(limit: int = 100, admin: dict = Depends(require_adm
 
 
 
+@router.post("/runs/{run_id}/replay")
+async def replay_workflow_run(run_id: str, admin: dict = Depends(require_admin)):
+    _management_admin(admin)
+    store = WorkflowStore()
+    try:
+        try:
+            return store.replay_run(run_id, requested_by=admin["admin_id"])
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    finally:
+        store.close()
+
+
 @router.get("/runs/{run_id}/steps")
 async def list_workflow_run_steps(run_id: str, admin: dict = Depends(require_admin)):
     store = WorkflowStore()
@@ -128,6 +151,55 @@ async def list_workflow_run_steps(run_id: str, admin: dict = Depends(require_adm
         return {"run_id": run_id, "steps": store.list_run_steps(run_id)}
     finally:
         store.close()
+
+@router.get("/audit")
+async def list_workflow_audit(
+    workflow_id: str | None = None, limit: int = 100,
+    admin: dict = Depends(require_admin),
+):
+    _management_admin(admin)
+    store = WorkflowStore()
+    try:
+        return {"audit": store.list_audit(workflow_id=workflow_id, limit=limit)}
+    finally:
+        store.close()
+
+
+@router.get("/calendar")
+async def list_exchange_calendar(
+    exchange: str = "NSE", from_date: str | None = None,
+    to_date: str | None = None, limit: int = 500,
+    admin: dict = Depends(require_admin),
+):
+    _management_admin(admin)
+    store = WorkflowStore()
+    try:
+        return {"entries": store.list_exchange_calendar(
+            exchange_code=exchange, from_date=from_date, to_date=to_date, limit=limit,
+        )}
+    finally:
+        store.close()
+
+
+@router.put("/calendar")
+async def upsert_exchange_calendar(
+    body: ExchangeCalendarEntry, admin: dict = Depends(require_admin),
+):
+    _management_admin(admin)
+    store = WorkflowStore()
+    try:
+        try:
+            return store.upsert_exchange_calendar_entry(
+                exchange_code=body.exchange_code, session_date=body.session_date,
+                status=body.status, description=body.description,
+                source=body.source, session_open=body.session_open,
+                session_close=body.session_close, updated_by=admin["admin_id"],
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    finally:
+        store.close()
+
 
 @router.post("/events")
 async def publish_workflow_event(body: EventCreate, admin: dict = Depends(require_admin)):
