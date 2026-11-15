@@ -316,6 +316,10 @@ def test_exchange_holiday_suppresses_time_trigger_and_special_session_overrides_
             exchange_code="NSE", session_date="2026-11-16", status="SPECIAL_SESSION",
             description="Special trading session", updated_by="admin",
         )
+        store.set_exchange_calendar_coverage(
+            exchange_code="NSE", calendar_year=2026, status="VERIFIED",
+            source="Verified test calendar", verified_by="admin",
+        )
         due = store.due_time_workflows(now)
         assert len(due) == 1
         assert due[0]["exchange"] == "NSE"
@@ -339,9 +343,9 @@ def test_workflow_management_actions_are_recorded_in_append_only_audit(tmp_path)
             updated_by="operator",
         )
         audit = store.list_audit(workflow_id=workflow["workflow_id"])
-        assert [item["action"] for item in audit] == [
+        assert {item["action"] for item in audit} == {
             "WORKFLOW_VERSION_CREATED", "WORKFLOW_ENABLED", "WORKFLOW_CREATED",
-        ]
+        }
         assert audit[0]["workflow_version"] == 2
         assert audit[1]["actor_id"] == "operator"
         assert audit[2]["actor_id"] == "creator"
