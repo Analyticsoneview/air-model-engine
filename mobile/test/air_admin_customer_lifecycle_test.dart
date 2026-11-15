@@ -24,8 +24,18 @@ void main() {
         data = {'requests': []};
       } else if (path.endsWith('/access-decisions')) {
         data = {'decisions': []};
-      } else if (path.endsWith('/customers') && path.startsWith('/api/v1/admin/')) {
-        data = {'customers': [], 'summary': {
+      } else if (path == '/api/v1/admin/customers') {
+        data = {'customers': [{
+          'customer_id': '+919876543210',
+          'first_registered_at': '2026-11-15T09:00:00+05:30',
+          'first_approved_at': '2026-11-15T09:10:00+05:30',
+          'first_rejected_at': null,
+          'first_plan_availed_at': '2026-11-15T09:20:00+05:30',
+          'customer_type': 'NEW', 'device_count': 2,
+          'access_status': 'APPROVED', 'subscription_status': 'ACTIVE',
+          'plan_code': 'MONTHLY',
+          'subscription_expires_at': '2026-12-15T09:20:00+05:30',
+        }], 'summary': {
           'new_customers': 7, 'existing_customers': 12,
           'pending_approvals': 3, 'no_plan_availed': 4,
         }};
@@ -39,7 +49,7 @@ void main() {
           'registration_to_approval_pct': 71.43, 'registration_to_plan_pct': 57.14,
           'approval_to_plan_pct': 80.0,
         }]};
-      } else if (path.endsWith('/marketing/customers')) {
+      } else if (path == '/api/v1/admin/marketing/customers') {
         data = {'segment_counts': {}};
       } else if (path.endsWith('/marketing/offers')) {
         data = {'offers': []};
@@ -63,6 +73,12 @@ void main() {
     expect(find.text('12'), findsOneWidget);
     expect(find.text('INDEPENDENT LIFECYCLE DATE FILTERS'), findsOneWidget);
     expect(find.text('DAILY CONVERSION REPORT'), findsOneWidget);
+    expect(find.textContaining('2 customer(s) displayed'), findsNothing);
+    await tester.tap(find.textContaining('••••210'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('First registered: 2026-11-15T09:00:00+05:30'), findsOneWidget);
+    expect(find.textContaining('First approved: 2026-11-15T09:10:00+05:30'), findsOneWidget);
+    expect(find.textContaining('First plan availed: 2026-11-15T09:20:00+05:30'), findsOneWidget);
 
     await tester.tap(find.text('DAILY CONVERSION REPORT'));
     await tester.pumpAndSettle();
