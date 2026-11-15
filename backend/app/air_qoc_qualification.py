@@ -113,8 +113,9 @@ def qualify_option_observations(
             or (option_type == "PE" and spot_change <= -0.05)
         )
         if expected_move:
-            breakdown["underlying_direction"] = 20
-            score += 20
+            direction_score = 20 if abs(spot_change) >= 0.5 else 15 if abs(spot_change) >= 0.2 else 10
+            breakdown["underlying_direction"] = direction_score
+            score += direction_score
         else:
             failures.append("UNDERLYING_DIRECTION_NOT_CONFIRMED")
 
@@ -122,8 +123,9 @@ def qualify_option_observations(
         prior_premium = _num(previous.get("last_price")) if previous else None
         premium_change = _pct_change(premium, prior_premium)
         if premium_change is not None and premium_change >= 2.0:
-            breakdown["premium_acceleration"] = 20
-            score += 20
+            premium_score = 20 if premium_change >= 10 else 15 if premium_change >= 5 else 10
+            breakdown["premium_acceleration"] = premium_score
+            score += premium_score
         else:
             failures.append("PREMIUM_NOT_ACCELERATING")
 
@@ -131,8 +133,9 @@ def qualify_option_observations(
         prior_volume = _int(previous.get("volume")) if previous else None
         volume_delta = volume - prior_volume if volume is not None and prior_volume is not None else None
         if volume_delta is not None and volume_delta > 0:
-            breakdown["volume_confirmation"] = 15
-            score += 15
+            volume_score = 15 if volume_delta >= 500 else 10 if volume_delta >= 100 else 5
+            breakdown["volume_confirmation"] = volume_score
+            score += volume_score
         else:
             failures.append("VOLUME_NOT_INCREASING")
 
@@ -140,8 +143,9 @@ def qualify_option_observations(
         prior_oi = _int(previous.get("open_interest")) if previous else None
         oi_delta = oi - prior_oi if oi is not None and prior_oi is not None else None
         if oi_delta is not None and oi_delta > 0:
-            breakdown["oi_confirmation"] = 15
-            score += 15
+            oi_score = 15 if oi_delta >= 500 else 10 if oi_delta >= 100 else 5
+            breakdown["oi_confirmation"] = oi_score
+            score += oi_score
         else:
             failures.append("OI_NOT_INCREASING")
 
@@ -159,7 +163,7 @@ def qualify_option_observations(
             and bid_qty > 0 and ask_qty > 0
         )
         if liquid:
-            liquidity_score = 15 if spread_pct <= 1.5 else 12 if spread_pct <= 3.0 else 8
+            liquidity_score = 15 if spread_pct <= 1.5 else 10 if spread_pct <= 3.0 else 5
             breakdown["liquidity"] = liquidity_score
             score += liquidity_score
         else:
@@ -176,8 +180,9 @@ def qualify_option_observations(
                 otm_pct = (spot - strike) / spot * 100.0
                 is_otm = 0.05 <= otm_pct <= 5.0
         if is_otm:
-            breakdown["otm_distance"] = 10
-            score += 10
+            otm_score = 10 if 0.1 <= otm_pct <= 3.0 else 5
+            breakdown["otm_distance"] = otm_score
+            score += otm_score
         else:
             failures.append("OTM_DISTANCE_OUTSIDE_0_5_PERCENT")
 
