@@ -56,7 +56,7 @@ void main() {
         scrollable: find.byType(Scrollable).first);
     expect(find.text('EXECUTION HISTORY'), findsOneWidget);
     expect(find.textContaining('SUCCEEDED'), findsOneWidget);
-    expect(requests, hasLength(4));
+    expect(requests, hasLength(5));
     expect(requests.every((request) =>
         request.headers['Authorization'] == 'Bearer test-token'), isTrue);
   });
