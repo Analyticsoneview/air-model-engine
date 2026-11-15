@@ -1162,7 +1162,18 @@ async def admin_customer_daily_report(
     existing_requests = sum(1 for item in daily_requests if item.get("customer_type") == "EXISTING")
     approved = {item["mobile_e164"] for item in daily_decisions if item.get("new_status") == "APPROVED"}
     rejected = {item["mobile_e164"] for item in daily_decisions if item.get("new_status") == "REJECTED"}
-    pending = sum(1 for item in daily_requests if item.get("status") == "PENDING")
+    decisions_by_request = {}
+    for decision in decisions:
+        if ist_day(decision.get("decided_at")) is not None and ist_day(decision.get("decided_at")) <= day:
+            current = decisions_by_request.get(decision["request_id"])
+            if current is None or str(decision["decided_at"]) > str(current["decided_at"]):
+                decisions_by_request[decision["request_id"]] = decision
+    pending = sum(
+        1 for request in requests
+        if ist_day(request.get("created_at")) is not None
+        and ist_day(request.get("created_at")) <= day
+        and request.get("request_id") not in decisions_by_request
+    )
     first_plans = sum(1 for item in customers if ist_day(item.get("first_plan_availed_at")) == day)
     cohort = [item for item in customers if ist_day(item.get("registered_at")) == day]
     cohort_approved = sum(1 for item in cohort
