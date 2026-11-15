@@ -129,6 +129,27 @@ class AirQocStore:
         """, (provider, account_id, limit)).fetchall()
         return [dict(row) for row in rows]
 
+    def qualification_history(self, *, account_id: str, provider: str = "dhan",
+                              underlying_scrip: str | None = None,
+                              expiry: str | None = None,
+                              limit: int = 10000) -> list[dict[str, Any]]:
+        """Return bounded, account-scoped snapshot history for multi-observation scoring."""
+        clauses = ["provider=?", "account_id=?"]
+        params: list[Any] = [provider, account_id]
+        if underlying_scrip is not None:
+            clauses.append("underlying_scrip=?")
+            params.append(str(underlying_scrip))
+        if expiry is not None:
+            clauses.append("expiry=?")
+            params.append(expiry)
+        params.append(max(2, min(int(limit), 20000)))
+        rows = self.db.execute(
+            "SELECT * FROM option_observations WHERE " + " AND ".join(clauses)
+            + " ORDER BY observed_at DESC, underlying_scrip, expiry, strike, option_type LIMIT ?",
+            tuple(params),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     def close(self) -> None:
         self.db.close()
 

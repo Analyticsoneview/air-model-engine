@@ -20,6 +20,13 @@ class _AirQocScreenState extends State<AirQocScreen> {
   Map<String, dynamic>? _selectedUnderlying;
   List<String> _expiries = [];
   List<Map<String, dynamic>> _rows = [];
+  List<Map<String, dynamic>> _signals = [];
+  String _qocMode = 'LIVE';
+  String _qocScope = 'ALL';
+  bool _showRejected = false;
+  Map<String, dynamic>? _qocSummary;
+  Map<String, dynamic>? _backtestSummary;
+  List<Map<String, dynamic>> _backtestTrades = [];
   String? _accountId;
   String? _expiry;
   String? _error;
@@ -145,6 +152,48 @@ class _AirQocScreenState extends State<AirQocScreen> {
     });
   });
 
+  Future<void> _runQualification() => _run(() async {
+    final id = _accountId;
+    if (id == null) throw const AirApiException('Select a Dhan account first.');
+    final result = await _api.dhanQocQualification(
+      id,
+      mode: _qocMode,
+      underlyingScrip: _qocScope == 'SELECTED'
+          ? _selectedUnderlying == null ? null : _selectedUnderlying!['security_id'].toString() : null,
+      expiry: _qocScope == 'SELECTED' ? _expiry : null,
+    );
+    if (!mounted) return;
+    final values = (result['signals'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>().toList(growable: false);
+    setState(() {
+      _signals = values;
+      _qocSummary = result;
+      _status = 'AIR QOC ${result['mode']} · Evaluated ${result['contracts_evaluated'] ?? 0} contracts · '
+          'High conviction ${(result['counts'] as Map?)?['HIGH_CONVICTION'] ?? 0} · '
+          'Qualified ${(result['counts'] as Map?)?['QUALIFIED'] ?? 0} · '
+          'Watch ${(result['counts'] as Map?)?['WATCH'] ?? 0} · '
+          'Rejected ${(result['counts'] as Map?)?['REJECT'] ?? 0}';
+    });
+  });
+
+  Future<void> _runBacktest() => _run(() async {
+    final id = _accountId;
+    if (id == null) throw const AirApiException('Select a Dhan account first.');
+    final result = await _api.dhanQocBacktest(id);
+    if (!mounted) return;
+    final summary = result['summary'] as Map<String, dynamic>? ?? const {};
+    final trades = (result['trades'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>().toList(growable: false);
+    setState(() {
+      _backtestSummary = summary;
+      _backtestTrades = trades;
+      _status = 'AIR QOC historical replay · ${summary['trades'] ?? 0} trades · '
+          'Win rate ${summary['win_rate_pct'] ?? '—'}% · '
+          'Average ${summary['average_return_pct'] ?? '—'}% · '
+          'Simple total ${summary['total_simple_return_pct'] ?? '—'}%';
+    });
+  });
+
   Future<void> _runEodCapture() => _run(() async {
     final result = await _api.runQocEodCapture();
     if (!mounted) return;
@@ -193,6 +242,9 @@ class _AirQocScreenState extends State<AirQocScreen> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final visibleSignals = _showRejected
+        ? _signals
+        : _signals.where((item) => item['classification'] != 'REJECT').toList();
     return Scaffold(
       appBar: AppBar(title: const Text('AIR QOC · OPTIONS DATA')),
       body: ListView(
@@ -303,6 +355,159 @@ class _AirQocScreenState extends State<AirQocScreen> {
           if (_error != null) ...[
             const SizedBox(height: 10),
             Text(_error!, style: TextStyle(color: cs.error, fontSize: 11)),
+          ],
+          if (_authenticated) ...[
+            const SizedBox(height: 12),
+            Card(child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('AIR QOC · QUALIFIED RESEARCH',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900)),
+                const SizedBox(height: 5),
+                Text('Scores require two distinct same-session snapshots. Missing/stale evidence is rejected; one snapshot never creates a signal. Intraday only: no overnight carry; monitor +50/+100/+200/+300% milestones and manually close at 15:20 IST if +300% remains sustained.',
+                    style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  initialValue: _qocScope,
+                  decoration: const InputDecoration(labelText: 'Universe scope', border: OutlineInputBorder()),
+                  items: const [
+                    DropdownMenuItem(value: 'ALL', child: Text('All stored NSE F&O underlyings')),
+                    DropdownMenuItem(value: 'SELECTED', child: Text('Selected underlying / expiry')),
+                  ],
+                  onChanged: _loading ? null : (value) => setState(() {
+                    _qocScope = value ?? 'ALL';
+                    _signals = [];
+                    _qocSummary = null;
+                  }),
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  initialValue: _qocMode,
+                  decoration: const InputDecoration(labelText: 'Research workflow', border: OutlineInputBorder()),
+                  items: const [
+                    DropdownMenuItem(value: 'LIVE', child: Text('AIR QOC LIVE · 5-minute freshness')),
+                    DropdownMenuItem(value: 'POSITIONAL', child: Text('AIR QOC POSITIONAL · 30-minute freshness')),
+                    DropdownMenuItem(value: 'POST_MARKET', child: Text('AIR QOC POST-MARKET · same-session data')),
+                  ],
+                  onChanged: _loading ? null : (value) => setState(() {
+                    _qocMode = value ?? 'LIVE';
+                    _signals = [];
+                    _qocSummary = null;
+                  }),
+                ),
+                const SizedBox(height: 9),
+                SizedBox(width: double.infinity, child: FilledButton.icon(
+                  onPressed: _loading ? null : _runQualification,
+                  icon: const Icon(Icons.fact_check_outlined),
+                  label: const Text('RUN AIR QOC QUALIFICATION'),
+                )),
+                const SizedBox(height: 6),
+                SizedBox(width: double.infinity, child: OutlinedButton.icon(
+                  onPressed: _loading ? null : _runBacktest,
+                  icon: const Icon(Icons.history_rounded),
+                  label: const Text('RUN HISTORICAL QOC REPLAY'),
+                )),
+                if (_qocSummary != null) ...[
+                  const SizedBox(height: 8),
+                  Text('${_qocSummary!['disclosure'] ?? ''}',
+                      style: TextStyle(fontSize: 9, height: 1.35, color: cs.onSurfaceVariant)),
+                ],
+              ]),
+            )),
+            if (_signals.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Row(children: [
+                const Expanded(child: Text('RANKED QOC RESULTS',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900))),
+                TextButton(
+                  onPressed: () => setState(() => _showRejected = !_showRejected),
+                  child: Text(_showRejected ? 'HIDE REJECTS' : 'SHOW REJECTS'),
+                ),
+              ]),
+              if (visibleSignals.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Text('No contracts passed the current qualification gates. Rejected contracts: ${(_qocSummary?['counts'] as Map?)?['REJECT'] ?? 0}.',
+                      style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+                )
+              else
+              ...visibleSignals.map((signal) {
+                final classification = signal['classification']?.toString() ?? 'REJECT';
+                final accepted = classification == 'HIGH_CONVICTION' || classification == 'QUALIFIED';
+                final color = classification == 'HIGH_CONVICTION'
+                    ? const Color(0xFF168A61)
+                    : classification == 'QUALIFIED' ? const Color(0xFF3985C6)
+                    : classification == 'WATCH' ? const Color(0xFFB88728) : cs.error;
+                final failures = (signal['gate_failures'] as List<dynamic>? ?? const []).join(' · ');
+                final breakdown = (signal['score_breakdown'] as Map?)?.entries
+                    .map((entry) => '${entry.key}: ${entry.value}').join(' · ') ?? 'No score evidence';
+                final targets = signal['targets_reference'] as Map<String, dynamic>? ?? const {};
+                return Card(child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Row(children: [
+                      Expanded(child: Text('${signal['underlying']} ${signal['option_type']} ${signal['strike']}',
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900))),
+                      Text('${signal['score']}/100', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: color)),
+                    ]),
+                    const SizedBox(height: 3),
+                    Text('$classification · Expiry ${signal['expiry']} · DTE ${signal['dte'] ?? '—'}',
+                        style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: color)),
+                    const SizedBox(height: 7),
+                    Wrap(spacing: 12, runSpacing: 5, children: [
+                      Text('Premium ₹${signal['entry_premium'] ?? '—'}', style: const TextStyle(fontSize: 10)),
+                      Text('OTM ${signal['otm_pct'] ?? '—'}%', style: const TextStyle(fontSize: 10)),
+                      Text('Underlying ${signal['underlying_change_pct'] ?? '—'}%', style: const TextStyle(fontSize: 10)),
+                      Text('Premium move ${signal['premium_change_pct'] ?? '—'}%', style: const TextStyle(fontSize: 10)),
+                      Text('Option vol Δ ${signal['volume_delta'] ?? '—'}', style: const TextStyle(fontSize: 10)),
+                      Text('OI Δ ${signal['oi_delta'] ?? '—'}', style: const TextStyle(fontSize: 10)),
+                      Text('Spread ${signal['spread_pct'] ?? '—'}%', style: const TextStyle(fontSize: 10)),
+                    ]),
+                    const SizedBox(height: 5),
+                    Text('Score evidence: $breakdown', style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant)),
+                    if (!accepted && failures.isNotEmpty)
+                      Text('Failed gates: $failures', style: TextStyle(fontSize: 9, color: cs.error)),
+                    if (accepted)
+                      Text('Illustrative SL (−30%) ₹${signal['stop_loss_reference'] ?? '—'} · +50% ₹${targets['plus_50_percent'] ?? '—'} · +100% ₹${targets['plus_100_percent'] ?? '—'} · +200% ₹${targets['plus_200_percent'] ?? '—'} · +300% ₹${targets['plus_300_percent'] ?? '—'}',
+                          style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant)),
+                  ]),
+                ));
+              }),
+            ],
+          ],
+          if (_backtestSummary != null) ...[
+            const SizedBox(height: 12),
+            Card(child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('HISTORICAL QOC REPLAY', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900)),
+                const SizedBox(height: 8),
+                Wrap(spacing: 14, runSpacing: 6, children: [
+                  Text('Trades ${_backtestSummary!['trades'] ?? 0}', style: const TextStyle(fontSize: 10)),
+                  Text('Win rate ${_backtestSummary!['win_rate_pct'] ?? '—'}%', style: const TextStyle(fontSize: 10)),
+                  Text('Average ${_backtestSummary!['average_return_pct'] ?? '—'}%', style: const TextStyle(fontSize: 10)),
+                  Text('Simple total ${_backtestSummary!['total_simple_return_pct'] ?? '—'}%', style: const TextStyle(fontSize: 10)),
+                  Text('Profit factor ${_backtestSummary!['profit_factor'] ?? '—'}', style: const TextStyle(fontSize: 10)),
+                ]),
+                const SizedBox(height: 8),
+                Text('Snapshot-based simulation only. Costs, slippage and actual fills are excluded; not live or calibrated performance.',
+                    style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant)),
+                if (_backtestTrades.isNotEmpty) ...[
+                  const Divider(height: 18),
+                  ..._backtestTrades.take(10).map((trade) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 5),
+                    child: Row(children: [
+                      Expanded(child: Text('${trade['signal_date']} · ${trade['underlying']} ${trade['option_type']} ${trade['strike']}',
+                          style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700))),
+                      Text('${trade['return_pct']}%', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900,
+                          color: (trade['return_pct'] as num? ?? 0) >= 0 ? const Color(0xFF168A61) : cs.error)),
+                    ]),
+                  )),
+                ] else
+                  Text('No qualified entries with a later same-session exit snapshot were found.',
+                      style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+              ]),
+            )),
           ],
           if (_loading) const Padding(
             padding: EdgeInsets.symmetric(vertical: 12),
