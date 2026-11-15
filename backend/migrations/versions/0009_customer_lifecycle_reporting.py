@@ -1,13 +1,13 @@
 """Complete customer lifecycle, subscription history and immutable approval audit.
 
-Revision ID: 0009_customer_lifecycle_reporting
+Revision ID: 0009_customer_lifecycle
 Revises: 0008_customer_access_decisions
 """
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
 
-revision = "0009_customer_lifecycle_reporting"
+revision = "0009_customer_lifecycle"
 down_revision = "0008_customer_access_decisions"
 branch_labels = None
 depends_on = None
