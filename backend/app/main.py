@@ -1077,25 +1077,48 @@ async def admin_customer_register(
     classification_date = as_of_date or datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
     customers = access_store.list_marketing_customers(segment, search, limit)
     filtered = []
+    from zoneinfo import ZoneInfo
+    ist = ZoneInfo("Asia/Kolkata")
+
+    def ist_datetime(value):
+        if value is None:
+            return None
+        try:
+            parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(ist)
+        except (TypeError, ValueError):
+            return None
+
+    def ist_date(value):
+        converted = ist_datetime(value)
+        return converted.date().isoformat() if converted else None
+
     filters = (
-        ("registered_at", registered_from, registered_to),
-        ("first_approved_at", approved_from, approved_to),
-        ("first_rejected_at", rejected_from, rejected_to),
-        ("first_plan_availed_at", plan_availed_from, plan_availed_to),
-        ("subscription_expires_at", expires_from, expires_to),
+        ("registered_at", registered_from, registered_to, "registered"),
+        ("first_approved_at", approved_from, approved_to, "first_approved"),
+        ("first_rejected_at", rejected_from, rejected_to, "first_rejected"),
+        ("first_plan_availed_at", plan_availed_from, plan_availed_to, "first_plan_availed"),
+        ("subscription_expires_at", expires_from, expires_to, "subscription_expires"),
     )
     for source in customers:
         item = dict(source)
+        registration_day = ist_date(item.get("registered_at"))
         item["customer_type"] = (
-            "NEW" if str(item["registered_at"])[:10] == classification_date
-            else "EXISTING" if str(item["registered_at"])[:10] < classification_date
+            "NEW" if registration_day == classification_date
+            else "EXISTING" if registration_day and registration_day < classification_date
             else "NOT_YET_REGISTERED"
         )
         if item["subscription_status"] == "NEVER_SUBSCRIBED":
             item["subscription_status"] = "NO_PLAN_AVAILED"
-        if all((not start or (item.get(field) is not None and str(item[field])[:10] >= start))
-               and (not end or (item.get(field) is not None and str(item[field])[:10] <= end))
-               for field, start, end in filters):
+        for field, _, _, label in filters:
+            converted = ist_datetime(item.get(field))
+            item[label + "_at_ist"] = converted.isoformat() if converted else None
+        item["first_access_request_at_ist"] = item.get("registered_at_ist")
+        if all((not start or (ist_date(item.get(field)) is not None and ist_date(item[field]) >= start))
+               and (not end or (ist_date(item.get(field)) is not None and ist_date(item[field]) <= end))
+               for field, start, end, _ in filters):
             filtered.append(item)
     return {"customers": filtered, "count": len(filtered), "segment": segment,
             "as_of_date": classification_date,
