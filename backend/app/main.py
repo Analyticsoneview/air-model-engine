@@ -36,6 +36,7 @@ from app.model_engine_api import router as model_engine_router
 from app.backtest_api import router as backtest_router
 from app.model_engine_settlement_comparison import router as settlement_comparison_router
 from app.orb_strategy_api import router as orb_strategy_router
+from app.workflow_api import router as workflow_router
 from app.air_qoc_scheduler import start_qoc_scheduler, stop_qoc_scheduler, capture_dhan_eod_snapshots, capture_selected_provider_option_chains
 from app.air_telegram_scheduler import start_telegram_scheduler, stop_telegram_scheduler
 from app.telegram_notifications import send_telegram_message
@@ -55,6 +56,7 @@ app.include_router(model_engine_router)
 app.include_router(backtest_router)
 app.include_router(settlement_comparison_router)
 app.include_router(orb_strategy_router)
+app.include_router(workflow_router)
 _cors_origins = [
     origin.strip() for origin in os.getenv("AIR_CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
     if origin.strip()
