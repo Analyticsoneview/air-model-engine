@@ -40,6 +40,7 @@ from app.air_qoc_scheduler import start_qoc_scheduler, stop_qoc_scheduler, captu
 from app.air_telegram_scheduler import start_telegram_scheduler, stop_telegram_scheduler
 from app.telegram_notifications import send_telegram_message
 from app.account_reporting import AccountReporting
+from app.portfolio_risk import PortfolioRiskStore, build_portfolio_snapshot
 from app import telegram_destinations
 from app.nse_bhavcopy import (nse_data_status, nse_data_rows, start_nse_data_jobs, stop_nse_data_jobs, trigger_nse_bootstrap)
 from app.market_intelligence import build_market_intelligence_pulse
@@ -73,6 +74,7 @@ _credential_vault: CredentialVault | None = None
 _upstox_oauth_states: dict[tuple[str, str], str] = {}
 _fyers_oauth_states: dict[tuple[str, str], str] = {}
 account_reporting = AccountReporting(os.getenv('AIR_REPORT_DB_PATH', 'data/air_account_reports.sqlite3'))
+portfolio_risk = PortfolioRiskStore()
 _report_scheduler_task: asyncio.Task | None = None
 
 
@@ -272,6 +274,52 @@ async def run_account_reports(customer_id: str = Depends(require_customer)) -> d
         _collect_broker_account_statement, report_date, force=True)
     return {"reports": reports}
 
+@app.get("/api/v1/customer/portfolio")
+async def customer_portfolio_overview(customer_id: str = Depends(require_customer)) -> dict:
+    owner_id = access_store.mobile_for_request_id(customer_id) or customer_id
+    return portfolio_risk.overview(owner_id)
+
+
+@app.get("/api/v1/customer/portfolio/history")
+async def customer_portfolio_history(
+    limit: int = Query(default=100, ge=1, le=500),
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    owner_id = access_store.mobile_for_request_id(customer_id) or customer_id
+    return {"history": portfolio_risk.history(owner_id, limit)}
+
+
+@app.post("/api/v1/customer/portfolio/refresh")
+async def refresh_customer_portfolio(customer_id: str = Depends(require_customer)) -> dict:
+    """Refresh owned broker accounts using read-only profile/positions/holdings APIs."""
+    owner_id = access_store.mobile_for_request_id(customer_id) or customer_id
+    accounts = account_directory.list_for_customer(owner_id)
+    if not accounts:
+        raise HTTPException(status_code=404, detail="No broker accounts are assigned to this customer")
+    captured, failures = [], []
+    for account in accounts:
+        try:
+            payload = await _collect_broker_account_statement(owner_id, account.broker, account.account_id)
+            snapshot = build_portfolio_snapshot(payload, account.broker, account.account_id)
+            snapshot["snapshot_id"] = portfolio_risk.save(owner_id, snapshot)
+            captured.append({
+                "broker": account.broker, "account_id": account.account_id,
+                "snapshot_id": snapshot["snapshot_id"], "captured_at": snapshot["captured_at"],
+                "summary": snapshot["summary"],
+            })
+        except Exception as exc:
+            failures.append({
+                "broker": account.broker, "account_id": account.account_id,
+                "error": f"{type(exc).__name__}: {str(exc)[:240]}",
+            })
+    return {
+        "captured": captured, "failures": failures,
+        "status": "COMPLETE" if captured and not failures else "PARTIAL" if captured else "FAILED",
+        "portfolio": portfolio_risk.overview(owner_id),
+        "read_only": True,
+        "note": "Broker data only. Missing capital/equity history is not estimated; no orders are placed.",
+    }
+
 
 async def _market_data_health_loop() -> None:
     while True:
@@ -450,6 +498,7 @@ async def stop_air_qoc_jobs() -> None:
     stop_qoc_scheduler()
     stop_nse_data_jobs()
     account_reporting.close()
+    portfolio_risk.close()
 
 
 @app.post("/api/v1/air-qoc/run-eod-capture", dependencies=[Depends(require_air_admin)])
