@@ -219,6 +219,28 @@ class PortfolioRiskStore:
             latest_by_account.setdefault(key, self._decode(row))
         return list(latest_by_account.values())
 
+    def drawdowns(self, customer_id: str) -> dict[tuple[str, str], float]:
+        rows = self.db.execute("""SELECT broker,account_id,captured_at,summary_json
+            FROM air_portfolio_snapshots WHERE customer_id=?
+            ORDER BY broker,account_id,captured_at""", (customer_id,)).fetchall()
+        equity_series: dict[tuple[str, str], list[float]] = {}
+        for row in rows:
+            summary = json.loads(row["summary_json"])
+            equity = _number(summary.get("account_equity"))
+            if equity is not None and equity > 0:
+                equity_series.setdefault((row["broker"], row["account_id"]), []).append(equity)
+        result = {}
+        for key, values in equity_series.items():
+            if len(values) < 2:
+                continue
+            peak = values[0]
+            max_drawdown = 0.0
+            for value in values[1:]:
+                peak = max(peak, value)
+                max_drawdown = max(max_drawdown, (peak - value) / peak * 100)
+            result[key] = round(max_drawdown, 2)
+        return result
+
     def history(self, customer_id: str, limit: int = 100) -> list[dict]:
         rows = self.db.execute("""SELECT snapshot_id,broker,account_id,captured_at,summary_json
             FROM air_portfolio_snapshots WHERE customer_id=?
@@ -233,30 +255,60 @@ class PortfolioRiskStore:
     def overview(self, customer_id: str) -> dict:
         accounts = self.latest(customer_id)
         summaries = [item["summary"] for item in accounts]
+        drawdown_by_account = self.drawdowns(customer_id)
+        for account in accounts:
+            account["max_drawdown_pct"] = drawdown_by_account.get(
+                (account["broker"], account["account_id"])
+            )
         def aggregate(key: str) -> float | None:
             values = [s[key] for s in summaries if isinstance(s.get(key), (int, float))]
             return round(sum(values), 2) if values else None
-        equity_points = [s["account_equity"] for s in summaries if isinstance(s.get("account_equity"), (int, float))]
+        gross = aggregate("gross_market_value")
+        invested = aggregate("invested_value")
+        pnl = aggregate("unrealized_pnl")
+        return_pct = round(pnl / invested * 100, 2) if pnl is not None and invested else None
+        positions = [row for account in accounts for row in account["positions"] + account["holdings"]]
+        by_symbol: dict[str, float] = {}
+        by_sector: dict[str, float] = {}
+        for row in positions:
+            value = _number(row.get("market_value"))
+            if value is None:
+                continue
+            by_symbol[row["symbol"]] = by_symbol.get(row["symbol"], 0.0) + value
+            if row.get("sector"):
+                sector = str(row["sector"])
+                by_sector[sector] = by_sector.get(sector, 0.0) + value
+        concentration = round(max(by_symbol.values()) / gross * 100, 2) if gross and by_symbol else None
+        sector_exposure = [
+            {"sector": key, "market_value": round(value, 2),
+             "exposure_pct": round(value / gross * 100, 2) if gross else None}
+            for key, value in sorted(by_sector.items(), key=lambda x: abs(x[1]), reverse=True)
+        ]
+        drawdowns = list(drawdown_by_account.values())
+        max_drawdown = max(drawdowns) if drawdowns else None
+        all_equity_known = bool(summaries) and all(s.get("account_equity") is not None for s in summaries)
         return {
             "accounts": accounts,
             "account_count": len(accounts),
             "summary": {
                 "position_count": sum(int(s.get("position_count") or 0) for s in summaries),
                 "holding_count": sum(int(s.get("holding_count") or 0) for s in summaries),
-                "gross_market_value": aggregate("gross_market_value"),
+                "gross_market_value": gross,
                 "net_exposure": aggregate("net_exposure"),
-                "invested_value": aggregate("invested_value"),
-                "unrealized_pnl": aggregate("unrealized_pnl"),
+                "invested_value": invested,
+                "unrealized_pnl": pnl,
                 "realized_pnl": aggregate("realized_pnl"),
                 "day_pnl": aggregate("day_pnl"),
-                "account_equity": aggregate("account_equity"),
-                "return_pct_on_observed_invested_value": None,
-                "max_drawdown_pct": None,
-                "drawdown_status": "INSUFFICIENT_EQUITY_HISTORY",
+                "account_equity": aggregate("account_equity") if all_equity_known else None,
+                "return_pct_on_observed_invested_value": return_pct,
+                "max_drawdown_pct": max_drawdown,
+                "drawdown_status": "AVAILABLE" if max_drawdown is not None else "INSUFFICIENT_EQUITY_HISTORY",
+                "concentration_top_position_pct": concentration,
+                "sector_exposure": sector_exposure,
                 "data_quality": "NO_SNAPSHOTS" if not accounts else (
                     "COMPLETE" if all(s.get("data_quality") == "COMPLETE" for s in summaries) else "PARTIAL"
                 ),
-                "risk_note": "Returns and drawdown require a verified capital/equity time series. No estimate is substituted.",
+                "risk_note": "Return uses observed invested value as its denominator. Drawdown is calculated only from broker-reported account-equity snapshots; missing values are not estimated.",
             },
             "as_of": max((a["captured_at"] for a in accounts), default=None),
             "history": self.history(customer_id, 100),
