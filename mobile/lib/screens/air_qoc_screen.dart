@@ -364,7 +364,7 @@ class _AirQocScreenState extends State<AirQocScreen> {
                 const Text('AIR QOC · QUALIFIED RESEARCH',
                     style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900)),
                 const SizedBox(height: 5),
-                Text('Scores are calculated from two distinct same-session snapshots. Missing or stale evidence is rejected; one snapshot never creates a signal.',
+                Text('Scores require two distinct same-session snapshots. Missing/stale evidence is rejected; one snapshot never creates a signal. Intraday only: no overnight carry; monitor +50/+100/+200/+300% milestones and manually close at 15:20 IST if +300% remains sustained.',
                     style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
@@ -468,7 +468,7 @@ class _AirQocScreenState extends State<AirQocScreen> {
                     if (!accepted && failures.isNotEmpty)
                       Text('Failed gates: $failures', style: TextStyle(fontSize: 9, color: cs.error)),
                     if (accepted)
-                      Text('Illustrative only · SL ₹${signal['stop_loss_reference'] ?? '—'} · +50% ₹${targets['plus_50_percent'] ?? '—'} · +100% ₹${targets['plus_100_percent'] ?? '—'} · +200% ₹${targets['plus_200_percent'] ?? '—'} · +300% ₹${targets['plus_300_percent'] ?? '—'}',
+                      Text('Illustrative SL (−30%) ₹${signal['stop_loss_reference'] ?? '—'} · +50% ₹${targets['plus_50_percent'] ?? '—'} · +100% ₹${targets['plus_100_percent'] ?? '—'} · +200% ₹${targets['plus_200_percent'] ?? '—'} · +300% ₹${targets['plus_300_percent'] ?? '—'}',
                           style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant)),
                   ]),
                 ));
