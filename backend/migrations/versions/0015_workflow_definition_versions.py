@@ -6,7 +6,7 @@ Revises: 0014_workflow_run_steps
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0015_workflow_definition_versions"
+revision = "0015_workflow_def_versions"
 down_revision = "0014_workflow_run_steps"
 branch_labels = None
 depends_on = None
