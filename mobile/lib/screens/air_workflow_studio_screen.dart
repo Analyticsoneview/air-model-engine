@@ -171,7 +171,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
       }
       return {
         'timezone': 'Asia/Kolkata',
-        if (_exchange != 'NONE') 'exchange': _exchange,
+        'exchange': _exchange,
         'hour': hour,
         'minute': minute,
         'days_of_week': [0, 1, 2, 3, 4],
