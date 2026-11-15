@@ -164,7 +164,7 @@ def build_portfolio_snapshot(payload: dict, broker: str, account_id: str) -> dic
 
 class PortfolioRiskStore:
     def __init__(self, db_path: str | None = None):
-        url = read_database_url("AIR_PORTFOLIO_DATABASE_URL") or read_database_url("AIR_CUSTOMER_DATABASE_URL") or read_database_url("AIR_DATABASE_URL")
+        url = None if db_path is not None else (read_database_url("AIR_PORTFOLIO_DATABASE_URL") or read_database_url("AIR_CUSTOMER_DATABASE_URL") or read_database_url("AIR_DATABASE_URL"))
         if url:
             self.db = PostgresConnection(url)
             self.is_postgres = True
