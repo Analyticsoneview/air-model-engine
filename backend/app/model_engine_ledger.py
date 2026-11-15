@@ -20,7 +20,7 @@ STATUSES = {"NEW", "HOLD", "WAIT", "RE-ENTRY", "SL", "TARGETS", "EXPIRED", "EXPI
 
 class ModelEngineLedger:
     def __init__(self, db_path: str | None = None):
-        database_url = None if db_path is not None else (read_database_url("AIR_MODEL_LEDGER_DATABASE_URL") or read_database_url("AIR_CUSTOMER_DATABASE_URL") or read_database_url("AIR_DATABASE_URL"))
+        database_url = None if db_path is not None else (read_database_url("AIR_CUSTOMER_DATABASE_URL") or read_database_url("AIR_DATABASE_URL"))
         self._is_postgres = database_url is not None
         if self._is_postgres:
             self.db_path = None
