@@ -1079,6 +1079,7 @@ async def admin_customer_register(
         if start_date and end_date and start_date > end_date:
             raise HTTPException(status_code=422, detail=f"{label} start date must be before or equal to end date")
     customers = access_store.list_marketing_customers(segment, search, limit)
+    all_customers = access_store.list_marketing_customers("ALL", limit=10000)
     as_of_date = as_of_date or datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
 
     def local_day(value):
@@ -1089,6 +1090,13 @@ async def admin_customer_register(
             parsed = parsed.replace(tzinfo=timezone.utc)
         return parsed.astimezone(ZoneInfo("Asia/Kolkata")).date().isoformat()
 
+    summary = {
+        "new_customers": sum(1 for item in all_customers if local_day(item.get("first_registered_at") or item.get("registered_at")) == as_of_date),
+        "existing_customers": sum(1 for item in all_customers if (local_day(item.get("first_registered_at") or item.get("registered_at")) or "") < as_of_date),
+        "pending_approvals": sum(1 for item in all_customers if item.get("access_status") == "PENDING"),
+        "no_plan_availed": sum(1 for item in all_customers if item.get("subscription_status") == "NEVER_SUBSCRIBED"),
+        "as_of_date": as_of_date,
+    }
     filtered = []
     for raw in customers:
         item = dict(raw)
@@ -1117,7 +1125,7 @@ async def admin_customer_register(
                for day, lower, upper in checks):
             filtered.append(item)
     return {
-        "customers": filtered, "count": len(filtered), "segment": segment, "as_of_date": as_of_date,
+        "customers": filtered, "count": len(filtered), "segment": segment, "as_of_date": as_of_date, "summary": summary,
         "date_filters": {
             "registered": [registered_from, registered_to],
             "approved": [approved_from, approved_to],
@@ -1219,6 +1227,20 @@ async def admin_customer_daily_report(
                     approved_no_plan += 1
 
         first_plans = sum(1 for plan_day in first_plan_days.values() if plan_day == day)
+        cohort = [item for item in customers
+                  if first_registration.get(item["customer_id"]) == day]
+        cohort_approved = sum(
+            1 for item in cohort
+            if report_day(item.get("first_approved_at")) is not None
+            and report_day(item.get("first_approved_at")) <= day
+        )
+        cohort_plans = sum(
+            1 for item in cohort
+            if report_day(item.get("first_plan_availed_at")) is not None
+            and report_day(item.get("first_plan_availed_at")) <= day
+        )
+        def percent(numerator, denominator):
+            return round((numerator / denominator) * 100, 2) if denominator else 0.0
         output.append({
             "date": day,
             "new_registrations": len(registered),
