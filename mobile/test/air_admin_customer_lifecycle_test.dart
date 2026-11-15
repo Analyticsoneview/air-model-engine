@@ -90,6 +90,9 @@ void main() {
     expect(find.text('RUN REPORT'), findsOneWidget);
     expect(customerEndpointRequests, isNotEmpty,
         reason: 'The admin customer-register endpoint must be requested by the console.');
+    await tester.scrollUntilVisible(
+      find.textContaining('1 customer(s) displayed'), 300, scrollable: verticalScroll);
+    await tester.pumpAndSettle();
     expect(find.textContaining('1 customer(s) displayed'), findsOneWidget);
     await tester.scrollUntilVisible(find.textContaining('••••210'), 300, scrollable: verticalScroll);
     await tester.pumpAndSettle();
