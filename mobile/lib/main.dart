@@ -15,6 +15,7 @@ import 'screens/model_engine_screen.dart';
 import 'screens/orb_strategy_screen.dart';
 import 'screens/nse_data_screen.dart';
 import 'screens/air_markets_screen.dart';
+import 'screens/air_market_pulse_card.dart';
 import 'services/air_api_client.dart';
 
 void main() => runApp(const AirModelEngineApp());
@@ -284,18 +285,7 @@ class AirDashboard extends StatelessWidget {
           ),
         ]),
         const SizedBox(height: 18),
-        Row(children: [
-          const Expanded(child: Text('MARKET PULSE', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1))),
-          AirTag('FEED PENDING', color: muted),
-        ]),
-        const SizedBox(height: 9),
-        Row(children: [
-          Expanded(child: _CompactIndexCard(name: 'NIFTY 50', panel: panel, muted: muted)),
-          const SizedBox(width: 9),
-          Expanded(child: _CompactIndexCard(name: 'BANK NIFTY', panel: panel, muted: muted)),
-          const SizedBox(width: 9),
-          Expanded(child: _CompactIndexCard(name: 'SENSEX', panel: panel, muted: muted)),
-        ]),
+        const AirMarketPulseCard(),
         const SizedBox(height: 12),
         const NseBootstrapSummaryCard(),
         const SizedBox(height: 18),
