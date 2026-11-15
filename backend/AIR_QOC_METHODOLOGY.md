@@ -6,7 +6,7 @@ AIR QOC is an evidence filter over normalized, account-scoped broker option-chai
 
 ## Data requirement
 
-A contract is never scored as a signal from a single observation. Qualification compares the two latest distinct observations for the same provider, account, underlying, expiry, strike and CE/PE side. Both observations must be from the current IST session. The latest observation must satisfy the selected workflow freshness window:
+A contract is never scored as a signal from a single observation. Qualification compares the two latest distinct observations for the same provider, account, underlying, expiry, strike and CE/PE side. Both observations must be from the current IST session, and the gap between them cannot exceed the selected workflow freshness window. The latest observation must also satisfy that freshness window:
 
 | Workflow | Maximum age | Intended use |
 |---|---:|---|
