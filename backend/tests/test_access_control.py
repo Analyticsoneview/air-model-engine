@@ -128,5 +128,21 @@ class AccessStoreTests(unittest.TestCase):
             store.close()
 
 
+    def test_subscription_assignment_history_is_append_only(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = AccessStore(str(Path(temp) / "auth.sqlite3"))
+            store.request_access("+919876543297", "device-lifecycle-0004")
+            starts = datetime.now(timezone.utc)
+            store.assign_subscription("+919876543297", "MONTHLY", starts.isoformat(),
+                                      (starts + timedelta(days=30)).isoformat())
+            with self.assertRaises(Exception):
+                with store.db:
+                    store.db.execute("UPDATE air_customer_subscription_history SET plan_code='YEARLY'")
+            with self.assertRaises(Exception):
+                with store.db:
+                    store.db.execute("DELETE FROM air_customer_subscription_history")
+            store.close()
+
+
 if __name__ == "__main__":
     unittest.main()
