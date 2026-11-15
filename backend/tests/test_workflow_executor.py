@@ -22,13 +22,22 @@ def _queued_run(store, workflow_spec):
 def test_workflow_executor_runs_allowlisted_event_emit_step(tmp_path):
     store = WorkflowStore(str(tmp_path / "executor.sqlite3"))
     try:
-        workflow, run = _queued_run(store, {
-            "steps": [{
+        workflow = store.create_workflow(
+            name="Executor test", created_by="admin", trigger_type="EVENT",
+            trigger_config={"event_types": ["workflow.executor.trigger", "workflow.executor.completed"]},
+            workflow_spec={"steps": [{
                 "id": "emit", "action": "event.emit",
                 "params": {"event_type": "workflow.executor.completed",
                            "payload": {"result": "ok"}},
-            }]
-        })
+            }]},
+        )
+        store.set_workflow_enabled(workflow["workflow_id"], True)
+        event = store.publish_event(
+            event_type="workflow.executor.trigger", source="test",
+            payload={"customer_id": "customer-1"},
+            idempotency_key=f"trigger:{workflow['workflow_id']}",
+        )
+        run = store.process_event(event["event_id"])[0]
         result = executor.execute_workflow_run(store, run["run_id"])
         assert result["status"] == "SUCCEEDED"
         assert store.list_runs()[0]["status"] == "SUCCEEDED"
@@ -40,6 +49,11 @@ def test_workflow_executor_runs_allowlisted_event_emit_step(tmp_path):
             ("workflow.executor.completed",),
         ).fetchone()
         assert '"customer_id": "customer-1"' in emitted["payload_json"]
+        emitted_row = store.db.execute(
+            "SELECT event_id FROM air_workflow_events WHERE event_type=?",
+            ("workflow.executor.completed",),
+        ).fetchone()
+        assert store.process_event(emitted_row["event_id"]) == []
     finally:
         store.close()
 
