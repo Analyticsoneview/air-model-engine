@@ -184,3 +184,49 @@ def test_empty_qoc_result_does_not_send_false_candidate_alert(tmp_path, monkeypa
         assert called == []
     finally:
         store.close()
+
+
+def test_executor_recovers_missing_terminal_event_after_publish_outage(tmp_path, monkeypatch):
+    store = WorkflowStore(str(tmp_path / "terminal-recovery.sqlite3"))
+    try:
+        _, run = _queued_run(store, {"steps": []})
+        store.set_run_status(run["run_id"], "FAILED", "Injected terminal failure")
+        original_publish = store.publish_event
+        attempts = {"count": 0}
+
+        def fail_once(**kwargs):
+            if kwargs.get("event_type") == "workflow.run.failed" and attempts["count"] == 0:
+                attempts["count"] += 1
+                raise RuntimeError("temporary outbox failure")
+            return original_publish(**kwargs)
+
+        monkeypatch.setattr(store, "publish_event", fail_once)
+        executor.execute_workflow_run(store, run["run_id"])
+        assert run["run_id"] in store.runnable_runs()
+        monkeypatch.setattr(store, "publish_event", original_publish)
+        executor.execute_workflow_run(store, run["run_id"])
+        assert run["run_id"] not in store.runnable_runs()
+        terminal = store.db.execute(
+            "SELECT COUNT(*) AS count FROM air_workflow_events WHERE event_type=?",
+            ("workflow.run.failed",),
+        ).fetchone()
+        assert terminal["count"] == 1
+    finally:
+        store.close()
+
+
+def test_terminal_event_does_not_retrigger_the_originating_workflow(tmp_path):
+    store = WorkflowStore(str(tmp_path / "terminal-chain.sqlite3"))
+    try:
+        workflow, run = _queued_run(store, {"steps": []})
+        executor.execute_workflow_run(store, run["run_id"])
+        event = store.db.execute(
+            "SELECT event_id,payload_json FROM air_workflow_events WHERE event_type=?",
+            ("workflow.run.completed",),
+        ).fetchone()
+        assert event is not None
+        payload = __import__("json").loads(event["payload_json"])
+        assert workflow["workflow_id"] in payload["workflow_chain"]
+        assert store.process_event(event["event_id"]) == []
+    finally:
+        store.close()
