@@ -50,6 +50,29 @@ void main() {
       client.dispose();
     });
 
+    test('customer market-data access uses the authenticated customer endpoint', () async {
+      final client = AirApiClient(
+        baseUrl: 'https://air.example',
+        client: MockClient((request) async {
+          expect(request.url.path, '/api/v1/customer/market-data/access');
+          expect(request.headers['Authorization'], 'Bearer market-token');
+          return http.Response(jsonEncode({
+            'effective_source': 'NSE',
+            'connection_status': 'not_requested',
+            'market_data_source': {'connection_message': 'NSE EOD default'},
+          }), 200);
+        }),
+      );
+      AirApiClient.setAccessToken('market-token');
+
+      final result = await client.customerMarketDataAccess();
+
+      expect(result['effective_source'], 'NSE');
+      expect((result['market_data_source'] as Map)['connection_message'], 'NSE EOD default');
+      client.dispose();
+      AirApiClient.setAccessToken(null);
+    });
+
     test('status check does not require a token', () async {
       final client = AirApiClient(
         baseUrl: 'https://air.example',
