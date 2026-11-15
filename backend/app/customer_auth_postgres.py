@@ -6,6 +6,7 @@ SQLite remains the default compatibility store until AIR_CUSTOMER_DATABASE_URL
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 from pathlib import Path
@@ -76,6 +77,13 @@ class PostgresAccessStore:
                 created_at,reviewed_at,reviewer_note FROM air_access_requests
                 WHERE mobile_e164=:mobile AND device_id=:device"""),
                 {"mobile": mobile, "device": device}).mappings().one()
+            conn.execute(text("""INSERT INTO air_customer_lifecycle
+                (customer_id,first_registered_at,updated_at)
+                VALUES(:customer,:registered,CURRENT_TIMESTAMP::text)
+                ON CONFLICT(customer_id) DO UPDATE SET
+                first_registered_at=LEAST(air_customer_lifecycle.first_registered_at,EXCLUDED.first_registered_at),
+                updated_at=CURRENT_TIMESTAMP::text"""),
+                {"customer": mobile, "registered": str(row["created_at"])})
         return dict(row)
 
     def get_request(self, mobile_e164: str, device_id: str):
@@ -132,24 +140,36 @@ class PostgresAccessStore:
         return [dict(row) for row in rows]
 
     def review(self, request_id: str, status: str, note: str = "", reviewer_admin_id: str = "",
-               reviewer_role: str = "", totp_counter: int = -1) -> bool:
+               reviewer_role: str = "", totp_counter: int = -1,
+               authenticator_verified_at: str | None = None,
+               verification_reference: str = "", request_context: dict | None = None) -> bool:
         status = status.upper()
         if status not in {"APPROVED", "REJECTED", "BLOCKED"}:
             raise ValueError("Status must be APPROVED, REJECTED or BLOCKED")
         with self.engine.begin() as conn:
-            current = conn.execute(text("SELECT mobile_e164,status FROM air_access_requests WHERE request_id=:id FOR UPDATE"),
+            current = conn.execute(text("SELECT mobile_e164,status,device_id,created_at FROM air_access_requests WHERE request_id=:id FOR UPDATE"),
                                    {"id": request_id}).first()
             if not current: return False
             result = conn.execute(text("""UPDATE air_access_requests SET status=:status,
                 reviewed_at=CURRENT_TIMESTAMP,reviewer_note=:note WHERE request_id=:id"""),
                 {"status": status, "note": note[:500], "id": request_id})
             if result.rowcount:
+                verified_at = authenticator_verified_at or __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+                context = request_context or {"device_id": current.device_id, "request_created_at": str(current.created_at)}
                 conn.execute(text("""INSERT INTO air_access_decision_history
                     (decision_id,request_id,mobile_e164,previous_status,new_status,reviewer_admin_id,
-                     reviewer_role,note,totp_counter) VALUES(:decision,:request,:mobile,:previous,:status,:admin,:role,:note,:counter)"""),
+                     reviewer_role,note,totp_counter,authenticator_verified_at,verification_reference,request_context)
+                    VALUES(:decision,:request,:mobile,:previous,:status,:admin,:role,:note,:counter,:verified,:reference,:context)"""),
                     {"decision": str(uuid4()), "request": request_id, "mobile": current.mobile_e164,
                      "previous": current.status, "status": status, "admin": reviewer_admin_id,
-                     "role": reviewer_role, "note": note[:500], "counter": int(totp_counter)})
+                     "role": reviewer_role, "note": note[:500], "counter": int(totp_counter),
+                     "verified": verified_at, "reference": verification_reference or f"totp-counter:{int(totp_counter)}",
+                     "context": json.dumps(context, sort_keys=True)})
+                if status == "APPROVED":
+                    conn.execute(text("""UPDATE air_customer_lifecycle SET
+                        first_approved_at=COALESCE(first_approved_at,:approved),
+                        updated_at=CURRENT_TIMESTAMP::text WHERE customer_id=:customer"""),
+                        {"approved": verified_at, "customer": current.mobile_e164})
                 if status != "APPROVED":
                     conn.execute(text("UPDATE air_device_sessions SET active=false WHERE request_id=:id"), {"id": request_id})
         return result.rowcount > 0
@@ -172,7 +192,8 @@ class PostgresAccessStore:
                 {"sid": session_id}).first()
         return bool(row and row.active and row.status == "APPROVED")
 
-    def assign_subscription(self, customer_id: str, plan_code: str, starts_at: str, expires_at: str):
+    def assign_subscription(self, customer_id: str, plan_code: str, starts_at: str, expires_at: str,
+                            assigned_by_admin_id: str = ""):
         plan = plan_code.upper()
         if plan not in _PLANS:
             raise ValueError("Unsupported AIR subscription plan")
@@ -189,6 +210,20 @@ class PostgresAccessStore:
                 status='ACTIVE',updated_at=CURRENT_TIMESTAMP"""),
                 {"customer": customer_id, "plan": plan, "starts": starts.isoformat(),
                  "expires": expires.isoformat()})
+            conn.execute(text("""INSERT INTO air_customer_subscription_history
+                (assignment_id,customer_id,plan_code,starts_at,expires_at,assigned_at,assigned_by_admin_id)
+                VALUES(:id,:customer,:plan,:starts,:expires,CURRENT_TIMESTAMP::text,:admin)"""),
+                {"id": str(uuid4()), "customer": customer_id, "plan": plan,
+                 "starts": starts.isoformat(), "expires": expires.isoformat(),
+                 "admin": assigned_by_admin_id})
+            conn.execute(text("""INSERT INTO air_customer_lifecycle
+                (customer_id,first_registered_at,first_plan_availed_at,updated_at)
+                SELECT :customer, COALESCE(MIN(created_at),:starts), :starts, CURRENT_TIMESTAMP::text
+                  FROM air_access_requests WHERE mobile_e164=:customer
+                ON CONFLICT(customer_id) DO UPDATE SET
+                first_plan_availed_at=COALESCE(air_customer_lifecycle.first_plan_availed_at,EXCLUDED.first_plan_availed_at),
+                updated_at=CURRENT_TIMESTAMP::text"""),
+                {"customer": customer_id, "starts": starts.isoformat()})
 
     def get_subscription(self, customer_id: str):
         with self.engine.connect() as conn:
@@ -264,6 +299,14 @@ class PostgresAccessStore:
                     "promotional_consent": consent, "marketing_status": marketing_status,
                     "consent_updated_at": pref["consent_updated_at"] if pref else None,
                 }
+                lifecycle = conn.execute(text("""SELECT first_registered_at,first_approved_at,first_plan_availed_at
+                    FROM air_customer_lifecycle WHERE customer_id=:customer"""),
+                    {"customer": customer_id}).mappings().first()
+                if lifecycle:
+                    item.update(dict(lifecycle))
+                else:
+                    item.update({"first_registered_at": row["registered_at"],
+                                 "first_approved_at": None, "first_plan_availed_at": None})
                 if segment == "NEVER_SUBSCRIBED" and sub_status != "NEVER_SUBSCRIBED": continue
                 if segment == "EXPIRED" and sub_status != "EXPIRED": continue
                 if segment == "ACTIVE" and sub_status != "ACTIVE": continue
