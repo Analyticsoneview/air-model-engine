@@ -103,7 +103,7 @@ def _execute_action(
         try:
             observations = qoc_store.qualification_history(
                 account_id=account_id,
-                provider=str(params.get("provider") or event_payload.get("provider") or "dhan"),
+                provider=provider,
                 underlying_scrip=params.get("underlying_scrip"),
                 expiry=params.get("expiry"),
                 limit=max(2, min(int(params.get("limit", 10000)), 20000)),
@@ -132,11 +132,6 @@ def _execute_action(
             risk_store.close()
         return {
             "summary": result.get("summary", {}),
-            "accounts": [
-                {"broker": row.get("broker"), "account_id": row.get("account_id"),
-                 "summary": row.get("summary", {})}
-                for row in result.get("accounts", [])
-            ],
             "data_quality": (result.get("summary") or {}).get("data_quality"),
         }
 
@@ -175,12 +170,6 @@ def _execute_action(
         from app.telegram_notifications import notify_candidates
 
         strategy = str(params.get("strategy") or "AIR_WORKFLOW").upper()
-        if strategy == "PORTFOLIO_RISK":
-            raise WorkflowStepError("Portfolio risk alerts require customer-specific notification destinations")
-        if source_output and ("accounts" in source_output or "positions" in source_output or "holdings" in source_output):
-            raise WorkflowStepError("Private portfolio detail cannot be sent to global Telegram destinations")
-        if event_payload.get("broker") and event_payload.get("account_id") and event_payload.get("summary"):
-            raise WorkflowStepError("Customer portfolio snapshots cannot be sent to global Telegram destinations")
         if params.get("source_step") and strategy == "AIR_QOC":
             rows = source_output.get("signals", []) if isinstance(source_output, dict) else []
             if not rows:
