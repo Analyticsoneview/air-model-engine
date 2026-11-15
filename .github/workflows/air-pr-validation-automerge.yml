@@ -220,7 +220,7 @@ jobs:
       - name: Run Flutter tests
         working-directory: mobile
         run: |
-          & $env:AIR_FLUTTER test
+          & $env:AIR_FLUTTER test --concurrency=1
           if ($LASTEXITCODE -ne 0) { throw 'Flutter tests failed.' }
       - name: Build ARM64 lab APK
         working-directory: mobile
