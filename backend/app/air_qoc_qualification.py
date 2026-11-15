@@ -101,7 +101,12 @@ def qualify_option_observations(
             and prior_observed.date() == current_time.date()
             and prior_observed < observed
         )
-        previous_sample = previous if same_session_pair else None
+        snapshot_gap_seconds = (observed - prior_observed).total_seconds() if same_session_pair else None
+        pair_is_fresh = (
+            same_session_pair and snapshot_gap_seconds is not None
+            and snapshot_gap_seconds <= max_age
+        )
+        previous_sample = previous if pair_is_fresh else None
         age_seconds = (current_time - observed).total_seconds() if observed else None
         fresh = (
             age_seconds is not None and 0 <= age_seconds <= max_age
@@ -115,6 +120,8 @@ def qualify_option_observations(
 
         if not same_session_pair:
             failures.append("SECOND_SAME_SESSION_OBSERVATION_REQUIRED")
+        elif not pair_is_fresh:
+            failures.append("SNAPSHOT_PAIR_GAP_TOO_WIDE")
 
         spot = _num(latest.get("underlying_price"))
         prior_spot = _num(previous_sample.get("underlying_price")) if previous_sample else None
@@ -240,6 +247,7 @@ def qualify_option_observations(
             "ask_quantity": ask_qty,
             "observed_at": latest.get("observed_at"),
             "age_seconds": round(age_seconds, 1) if age_seconds is not None else None,
+            "snapshot_gap_seconds": round(snapshot_gap_seconds, 1) if snapshot_gap_seconds is not None else None,
             "score_breakdown": breakdown,
             "gate_failures": sorted(set(failures)),
             "risk_note": "Illustrative premium references only; manual decision required. No orders are placed.",
