@@ -26,6 +26,7 @@ def test_workflow_definition_defaults_to_disabled_research_only(tmp_path):
 @pytest.mark.parametrize("field,value", [
     ("trigger_type", "UNKNOWN"),
     ("execution_mode", "AUTO_TRADE"),
+    ("execution_mode", "AUTHORIZED_EXECUTION"),
 ])
 def test_workflow_rejects_unsupported_modes(field, value, tmp_path):
     store = WorkflowStore(str(tmp_path / "workflow.sqlite3"))
