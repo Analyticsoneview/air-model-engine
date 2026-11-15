@@ -177,5 +177,23 @@ class TelegramNotificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("no trades are placed", risk)
 
 
+    def test_customer_scoped_notifications_do_not_fall_back_to_global_routes(self):
+        from app import telegram_destinations
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {
+            "AIR_TELEGRAM_CONFIG_DB_PATH": str(Path(folder) / "telegram-config.sqlite3"),
+        }, clear=False):
+            global_route = telegram_destinations.upsert_destination(
+                "Global AIR QOC", "-1001000000001", "GROUP", ["AIR_QOC"], True,
+            )
+            customer_route = telegram_destinations.upsert_destination(
+                "Customer AIR QOC", "-1001000000002", "GROUP", ["AIR_QOC"], True,
+                customer_id="customer-123",
+            )
+            self.assertEqual(telegram._chat_ids("AIR_QOC", "customer-123"),
+                             [customer_route["chat_id"]])
+            self.assertEqual(telegram._chat_ids("AIR_QOC", "customer-other"), [])
+            self.assertEqual(telegram._chat_ids("AIR_QOC", None), [global_route["chat_id"]])
+
+
 if __name__ == "__main__":
     unittest.main()
