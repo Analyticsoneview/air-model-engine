@@ -289,7 +289,7 @@ class AccessStore:
             parsed = parsed.replace(tzinfo=timezone.utc)
         return parsed.astimezone(timezone.utc)
 
-    def assign_subscription(self, customer_id: str, plan_code: str, starts_at: str, expires_at: str):
+    def assign_subscription(self, customer_id: str, plan_code: str, starts_at: str, expires_at: str, assigned_by_admin_id: str | None = None):
         plan = plan_code.upper()
         if plan not in {"DAILY", "MONTHLY", "SIX_MONTHS", "YEARLY"}:
             raise ValueError("Unsupported AIR subscription plan")
@@ -310,9 +310,9 @@ class AccessStore:
                 (customer_id, plan, starts.isoformat(), expires.isoformat()),
             )
             self.db.execute("""INSERT INTO air_customer_subscription_history
-                (assignment_id,customer_id,plan_code,starts_at,expires_at,status,assigned_at)
-                VALUES(?,?,?,?,?,'ACTIVE',?)""",
-                (str(uuid4()), customer_id, plan, starts.isoformat(), expires.isoformat(), assigned_at))
+                (assignment_id,customer_id,plan_code,starts_at,expires_at,status,assigned_by_admin_id,assigned_at)
+                VALUES(?,?,?,?,?,'ACTIVE',?,?)""",
+                (str(uuid4()), customer_id, plan, starts.isoformat(), expires.isoformat(), assigned_by_admin_id, assigned_at))
             registered = self.db.execute("SELECT MIN(created_at) FROM air_access_requests WHERE mobile_e164=?",
                                          (customer_id,)).fetchone()[0]
             if registered:
