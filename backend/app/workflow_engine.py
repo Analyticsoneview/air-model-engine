@@ -326,15 +326,20 @@ class WorkflowStore:
                 local = current.astimezone(ZoneInfo(timezone_name))
                 hour, minute = int(config["hour"]), int(config["minute"])
                 days = config.get("days_of_week", [0, 1, 2, 3, 4])
+                if not isinstance(days, list):
+                    raise ValueError("days_of_week must be an array")
                 days = {int(day) for day in days}
+                grace = int(config.get("misfire_grace_seconds", 300))
             except (KeyError, TypeError, ValueError, KeyError) as exc:
                 raise ValueError(f"Invalid time trigger configuration for workflow {row['workflow_id']}") from exc
-            if not 0 <= hour <= 23 or not 0 <= minute <= 59 or any(day < 0 or day > 6 for day in days):
+            if not 0 <= hour <= 23 or not 0 <= minute <= 59 or any(day < 0 or day > 6 for day in days) or not 0 <= grace <= 86400:
                 raise ValueError(f"Invalid time trigger configuration for workflow {row['workflow_id']}")
-            if local.weekday() in days and local.hour == hour and local.minute == minute:
+            scheduled = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            lateness = (local - scheduled).total_seconds()
+            if local.weekday() in days and 0 <= lateness <= grace:
                 due.append({
                     "workflow_id": row["workflow_id"], "name": row["name"],
-                    "local_time": local.isoformat(), "scheduled_key": local.strftime("%Y%m%d%H%M"),
+                    "local_time": scheduled.isoformat(), "scheduled_key": scheduled.strftime("%Y%m%d%H%M"),
                 })
         return due
 
