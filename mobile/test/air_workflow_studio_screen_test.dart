@@ -61,6 +61,10 @@ void main() {
         request.headers['Authorization'] == 'Bearer test-token'), isTrue);
   });
   testWidgets('Workflow Studio creates a customer-scoped QOC time/event workflow', (tester) async {
+    tester.view.physicalSize = const Size(1000, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     final created = <Map<String, dynamic>>[];
     final client = MockClient((request) async {
       if (request.method == 'POST' && request.url.path == '/api/v1/admin/workflows') {
@@ -91,8 +95,6 @@ void main() {
     await tester.enterText(find.byType(TextField).at(0), 'Morning QOC');
     await tester.enterText(find.byType(TextField).at(2), 'customer-123');
     await tester.enterText(find.byType(TextField).at(3), 'broker-account-1');
-    await tester.scrollUntilVisible(find.text('CREATE WORKFLOW'), 350,
-        scrollable: find.byType(Scrollable).first);
     await tester.tap(find.text('CREATE WORKFLOW'));
     await tester.pumpAndSettle();
 
