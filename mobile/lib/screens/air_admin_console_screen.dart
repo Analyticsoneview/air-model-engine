@@ -64,6 +64,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
   List<Map<String, dynamic>> _requests = [];
   List<Map<String, dynamic>> _customers = [];
   List<Map<String, dynamic>> _offers = [];
+  List<Map<String, dynamic>> _supportTickets = [];
   List<Map<String, dynamic>> _dailyReport = [];
   Map<String, dynamic> _segmentCounts = {};
   Map<String, dynamic> _customerSummary = {};
@@ -185,12 +186,14 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
         _request('GET', '/api/v1/admin/marketing/offers'),
         _request('GET', '${Uri(path: '/api/v1/admin/customers', queryParameters: customerFilters)}'),
         _request('GET', dailyUri.toString()),
+        _request('GET', '/api/v1/admin/support/tickets?limit=200'),
       ]);
       _customers = (growthResults[2]['customers'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
       _customerSummary = Map<String,dynamic>.from(growthResults[2]['summary'] as Map? ?? {});
       _segmentCounts = Map<String,dynamic>.from(growthResults[0]['segment_counts'] as Map? ?? {});
       _offers = (growthResults[1]['offers'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
       _dailyReport = (growthResults[3]['daily'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
+      _supportTickets = (growthResults[4]['tickets'] as List? ?? []).whereType<Map>().map((e) => Map<String,dynamic>.from(e)).toList();
     }
   }
 
@@ -338,7 +341,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
   Future<void> _logout() async {
     try { await _request('POST', '/api/v1/admin/auth/logout'); } catch (_) {}
     await _storage.delete(key: 'air_admin_access_token');
-    if (mounted) setState(() { _token = null; _role = ''; _admins = []; _audit = []; _requests = []; });
+    if (mounted) setState(() { _token = null; _role = ''; _admins = []; _audit = []; _requests = []; _supportTickets = []; });
   }
 
   @override
@@ -391,10 +394,10 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     if (_mustChangePassword) Card(color: Theme.of(context).colorScheme.errorContainer, child: ListTile(leading: const Icon(Icons.lock_reset), title: const Text('Password rotation required'), subtitle: const Text('Change the temporary password before using administrator functions.'), trailing: TextButton(onPressed: _changePassword, child: const Text('CHANGE')))),
     if (_error != null) Padding(padding: const EdgeInsets.all(12), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
     SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: [
-      for (final item in ['overview','admins','requests','audit', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'subscriptions', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'customers', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'offers'])
+      for (final item in ['overview','admins','requests','audit', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'subscriptions', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'customers', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'offers', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'support'])
         Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: ChoiceChip(label: Text(item.toUpperCase()), selected: _tab == item, onSelected: (_) => setState(() => _tab = item))),
     ])),
-    Expanded(child: _tab == 'overview' ? _overview() : _tab == 'admins' ? _adminUsers() : _tab == 'requests' ? _accessRequests() : _tab == 'subscriptions' ? _subscriptions() : _tab == 'customers' ? _customerRegistry() : _tab == 'offers' ? _marketingOffers() : _auditView()),
+    Expanded(child: _tab == 'overview' ? _overview() : _tab == 'admins' ? _adminUsers() : _tab == 'requests' ? _accessRequests() : _tab == 'subscriptions' ? _subscriptions() : _tab == 'customers' ? _customerRegistry() : _tab == 'offers' ? _marketingOffers() : _tab == 'support' ? _supportQueue() : _auditView()),
   ]);
 
 
@@ -658,6 +661,94 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
           Align(alignment: Alignment.centerRight, child: FilledButton(onPressed: _busy ? null : () => _reviewMarketingOffer(offer['offer_id'].toString(), 'approve'), child: const Text('SUPER ADMIN APPROVE'))),
         if (_role == 'SUPER_ADMIN' && offer['status'] == 'APPROVED')
           Align(alignment: Alignment.centerRight, child: TextButton(onPressed: _busy ? null : () => _reviewMarketingOffer(offer['offer_id'].toString(), 'revoke'), child: const Text('REVOKE OFFER'))),
+      ]))),
+  ]);
+
+  Future<void> _updateSupportTicket(Map<String, dynamic> ticket, {String? status, String? priority}) async {
+    if (_role != 'ADMIN' && _role != 'SUPER_ADMIN') return;
+    final reply = TextEditingController();
+    final shouldReply = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Ticket ${ticket['ticket_id']}'),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(ticket['subject']?.toString() ?? ''),
+          const SizedBox(height: 8),
+          TextField(controller: reply, minLines: 2, maxLines: 5,
+            decoration: const InputDecoration(labelText: 'Reply to customer (optional)', border: OutlineInputBorder())),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('CANCEL')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('SAVE UPDATE')),
+        ],
+      ),
+    );
+    if (shouldReply != true || !mounted) { reply.dispose(); return; }
+    setState(() { _busy = true; _error = null; });
+    try {
+      await _request('PUT', '/api/v1/admin/support/tickets/${ticket['ticket_id']}', body: {
+        'message': reply.text.trim(),
+        if (status != null) 'status': status,
+        if (priority != null) 'priority': priority,
+      });
+      await _load();
+    } catch (e) {
+      _error = e.toString();
+    } finally {
+      reply.dispose();
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Widget _supportQueue() => ListView(padding: const EdgeInsets.all(16), children: [
+    const Text('CUSTOMER SUPPORT QUEUE', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1)),
+    const SizedBox(height: 6),
+    const Text('Customer-scoped tickets. Every reply and status change is recorded in the immutable activity history.'),
+    const SizedBox(height: 12),
+    Row(children: [
+      Text('${_supportTickets.length} ticket(s)', style: const TextStyle(fontWeight: FontWeight.w700)),
+      const Spacer(),
+      OutlinedButton.icon(onPressed: _busy ? null : _refresh, icon: const Icon(Icons.refresh), label: const Text('REFRESH')),
+    ]),
+    if (_supportTickets.isEmpty)
+      const Card(child: Padding(padding: EdgeInsets.all(24), child: Center(child: Text('No support tickets.')))),
+    for (final ticket in _supportTickets)
+      Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Expanded(child: Text(ticket['subject']?.toString() ?? 'Support request', style: const TextStyle(fontWeight: FontWeight.w800))),
+          Chip(label: Text(ticket['priority']?.toString() ?? 'NORMAL')),
+        ]),
+        Text('Customer: ${ticket['customer_id']} · ${ticket['category']}'),
+        Text('Ticket: ${ticket['ticket_id']}'),
+        Text('Updated: ${ticket['updated_at']}'),
+        const SizedBox(height: 8),
+        Row(children: [
+          const Text('Status: '),
+          Expanded(child: DropdownButton<String>(
+            isExpanded: true,
+            value: (ticket['status']?.toString() ?? 'OPEN'),
+            items: const [
+              DropdownMenuItem(value: 'OPEN', child: Text('OPEN')),
+              DropdownMenuItem(value: 'IN_PROGRESS', child: Text('IN PROGRESS')),
+              DropdownMenuItem(value: 'WAITING_CUSTOMER', child: Text('WAITING CUSTOMER')),
+              DropdownMenuItem(value: 'RESOLVED', child: Text('RESOLVED')),
+              DropdownMenuItem(value: 'CLOSED', child: Text('CLOSED')),
+            ],
+            onChanged: _busy || ticket['status'] == 'CLOSED' ? null : (value) {
+              if (value != null) _updateSupportTicket(ticket, status: value);
+            },
+          )),
+        ]),
+        for (final event in (ticket['events'] as List? ?? []).whereType<Map>())
+          Padding(padding: const EdgeInsets.only(top: 4), child: Text(
+            '${event['created_at']} · ${event['actor_type']} · ${event['event_type']}: ${event['message']}',
+            style: Theme.of(context).textTheme.bodySmall,
+          )),
+        if (ticket['status'] != 'CLOSED')
+          Align(alignment: Alignment.centerRight, child: FilledButton.tonalIcon(
+            onPressed: _busy ? null : () => _updateSupportTicket(ticket),
+            icon: const Icon(Icons.reply), label: const Text('REPLY / UPDATE'),
+          )),
       ]))),
   ]);
 
