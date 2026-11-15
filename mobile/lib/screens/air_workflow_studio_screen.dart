@@ -26,7 +26,8 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
   final _name = TextEditingController();
   final _customerId = TextEditingController();
   final _eventType = TextEditingController(text: 'qoc.candidate.qualified');
-  final _strategy = TextEditingController(text: 'AIR_QOC');
+  final _strategy = TextEditingController(text: 'ORB');
+  final _notificationStrategy = TextEditingController(text: 'AIR_QOC');
   final _hour = TextEditingController(text: '09');
   final _minute = TextEditingController(text: '18');
   final _params = TextEditingController(text: '{"mode":"LIVE","max_candidates":20}');
@@ -103,6 +104,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
     _customerId.dispose();
     _eventType.dispose();
     _strategy.dispose();
+    _notificationStrategy.dispose();
     _hour.dispose();
     _minute.dispose();
     _params.dispose();
@@ -168,7 +170,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
       }
       return {
         'event_type': event,
-        'strategy': _strategy.text.trim().toUpperCase(),
+        'strategy': _notificationStrategy.text.trim().toUpperCase(),
         if (customer.isNotEmpty) 'customer_id': customer,
       };
     }
@@ -196,7 +198,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
       var mode = _mode;
       if (_action == 'notify.telegram') {
         mode = 'ALERT_NOTIFY';
-        params['strategy'] = _strategy.text.trim().toUpperCase();
+        params['strategy'] = _notificationStrategy.text.trim().toUpperCase();
       } else if (_notifyAfter) {
         mode = 'ALERT_NOTIFY';
         steps.add({
@@ -238,7 +240,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
     final spec = Map<String, dynamic>.from(workflow['workflow_spec'] as Map? ?? {});
     final steps = (spec['steps'] as List? ?? [])
         .whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
-    if (steps.isEmpty) {
+    if (steps.isEmpty || steps.length > 2 || (steps.length == 2 && steps[1]['action'] != 'notify.telegram')) {
       _error = 'This workflow has no configured steps to edit.';
       setState(() {});
       return;
@@ -256,7 +258,8 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
       _eventType.text = (triggerConfig['event_type'] ??
           (triggerConfig['event_types'] is List && (triggerConfig['event_types'] as List).isNotEmpty
               ? (triggerConfig['event_types'] as List).first : 'qoc.candidate.qualified')).toString();
-      _strategy.text = (notifyParams['strategy'] ?? triggerConfig['strategy'] ?? 'AIR_QOC').toString();
+      _strategy.text = (triggerConfig['strategy'] ?? 'ORB').toString();
+      _notificationStrategy.text = (notifyParams['strategy'] ?? firstParams['strategy'] ?? 'AIR_QOC').toString();
       _customerId.text = triggerConfig['customer_id']?.toString() ?? '';
       _hour.text = (triggerConfig['hour'] ?? 9).toString().padLeft(2, '0');
       _minute.text = (triggerConfig['minute'] ?? 18).toString().padLeft(2, '0');
@@ -403,7 +406,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
         ),
         const SizedBox(height: 10),
         if (_action == 'notify.telegram' || _notifyAfter)
-          _field(_strategy, 'Telegram strategy route', hint: 'AIR_QOC'),
+          _field(_notificationStrategy, 'Telegram strategy route', hint: 'AIR_QOC'),
         if (_action != 'notify.telegram')
           _field(_params, 'Action parameters (JSON)', maxLines: 3),
         if (_action != 'notify.telegram')
