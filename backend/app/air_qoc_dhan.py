@@ -17,9 +17,9 @@ from app.brokers.customer_accounts import CustomerAccountDirectory
 from app.credential_vault import CredentialVault
 from app.security import require_customer
 from app.air_qoc_store import AirQocStore
-from app.air_qoc_qualification import qualify_option_observations
+from app.air_qoc_qualification import qualify_option_observations, backtest_option_observations
 from app.air_qoc_universe import DETAILED_MASTER_URL, parse_dhan_instrument_master
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 router = APIRouter(prefix="/api/v1/air-qoc/dhan", tags=["AIR QOC - Dhan Data"])
 _accounts = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3"))
@@ -213,6 +213,36 @@ async def dhan_qoc_qualification(
         result = qualify_option_observations(rows, mode=mode.upper())
         result.update({"provider": "dhan", "account_id": account_id,
                        "underlying_filter": underlying_scrip, "expiry_filter": expiry})
+        return result
+    finally:
+        store.close()
+
+
+@router.get("/backtest/{account_id}")
+async def dhan_qoc_backtest(
+    account_id: str,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    limit: int = 20000,
+    customer_id: str = Depends(_operator),
+) -> dict:
+    """Replay historical QOC entries from stored same-session snapshots; no orders."""
+    if from_date and to_date and from_date > to_date:
+        raise HTTPException(status_code=422, detail="from_date must be on or before to_date")
+    account_check = _client(customer_id, account_id)
+    await account_check.close()
+    store = AirQocStore()
+    try:
+        rows = store.qualification_history(
+            account_id=account_id, provider="dhan", limit=max(2, min(limit, 20000)),
+        )
+        result = backtest_option_observations(
+            rows,
+            from_date=from_date.isoformat() if from_date else None,
+            to_date=to_date.isoformat() if to_date else None,
+        )
+        result.update({"provider": "dhan", "account_id": account_id,
+                       "observations_loaded": len(rows)})
         return result
     finally:
         store.close()
