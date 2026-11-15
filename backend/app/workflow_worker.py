@@ -1,4 +1,4 @@
-"""AIR workflow runtime: RabbitMQ outbox publisher, event consumer and time triggers.
+"""AIR workflow runtime: RabbitMQ transport, scheduler, executor and health heartbeat.
 
 This process is separate from the API. RabbitMQ outages do not prevent the API from
 accepting durable events; the PostgreSQL outbox is retried with bounded backoff.
