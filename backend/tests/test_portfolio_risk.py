@@ -66,3 +66,22 @@ def test_drawdown_requires_and_uses_verified_account_equity_history():
         assert overview["summary"]["drawdown_status"] == "AVAILABLE"
     finally:
         store.close()
+
+def test_consolidated_return_is_unavailable_when_one_account_has_incomplete_basis():
+    store = PortfolioRiskStore(":memory:")
+    try:
+        complete = build_portfolio_snapshot({
+            "positions": [{"symbol": "AAA", "quantity": 1, "average_price": 100, "last_price": 110}],
+            "holdings": [],
+        }, "dhan", "account-a")
+        incomplete = build_portfolio_snapshot({
+            "positions": [{"symbol": "BBB", "quantity": 1}],
+            "holdings": [],
+        }, "zerodha", "account-b")
+        store.save("customer-partial", complete)
+        store.save("customer-partial", incomplete)
+        overview = store.overview("customer-partial")
+        assert overview["summary"]["data_quality"] == "PARTIAL"
+        assert overview["summary"]["return_pct_on_observed_invested_value"] is None
+    finally:
+        store.close()
