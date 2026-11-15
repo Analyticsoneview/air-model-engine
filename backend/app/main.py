@@ -1135,6 +1135,13 @@ async def admin_customer_daily_report(
     rejected = {item["mobile_e164"] for item in daily_decisions if item.get("new_status") == "REJECTED"}
     pending = sum(1 for item in daily_requests if item.get("status") == "PENDING")
     first_plans = sum(1 for item in customers if ist_day(item.get("first_plan_availed_at")) == day)
+    cohort = [item for item in customers if ist_day(item.get("registered_at")) == day]
+    cohort_approved = sum(1 for item in cohort
+        if ist_day(item.get("first_approved_at")) is not None
+        and ist_day(item.get("first_approved_at")) <= day)
+    cohort_plans = sum(1 for item in cohort
+        if ist_day(item.get("first_plan_availed_at")) is not None
+        and ist_day(item.get("first_plan_availed_at")) <= day)
     approved_no_plan = sum(1 for item in customers
         if item.get("access_status") == "APPROVED"
         and item.get("subscription_status") in {"NEVER_SUBSCRIBED", "NO_PLAN_AVAILED"})
@@ -1148,8 +1155,8 @@ async def admin_customer_daily_report(
             "approved_but_no_plan_availed": approved_no_plan,
         },
         "conversion": {
-            "registration_to_approval_percent": round(len(approved) * 100 / new_registrations, 2) if new_registrations else None,
-            "registration_to_first_plan_percent": round(first_plans * 100 / new_registrations, 2) if new_registrations else None,
+            "registration_to_approval_percent": round(cohort_approved * 100 / new_registrations, 2) if new_registrations else None,
+            "registration_to_first_plan_percent": round(cohort_plans * 100 / new_registrations, 2) if new_registrations else None,
         },
     }
 
