@@ -57,6 +57,7 @@ The UI displays an illustrative 30% premium stop reference and +50%, +100%, +200
 
 ## Known limitations
 
+- Volume confirmation currently means option-contract traded-volume delta. Underlying cash-market traded volume is not present in the normalized option-chain snapshot schema and is not scored yet.
 - Current customer UI and qualification endpoint use the operator-authorized Dhan account snapshot store. Other broker adapters may capture snapshots, but cross-provider QOC selection is not yet surfaced in this screen.
 - The current automated scheduler is an EOD 15:20 IST capture, not a substitute for frequent live snapshots. LIVE mode returns rejects/no qualified results when fresh repeated intraday snapshots are absent.
 - Scores are deterministic rule scores, not calibrated probabilities. No historical performance claim is made until a separate, point-in-time backtest with transaction costs, slippage and survivorship controls is complete.
