@@ -27,6 +27,7 @@ admin_api = read("admin_api_key") or secrets.token_urlsafe(48)
 mfa = read("admin_mfa_key") or base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("ascii")
 pg = read("postgres_password") or secrets.token_urlsafe(32)
 redis = read("redis_password") or secrets.token_urlsafe(32)
+rabbitmq = read("rabbitmq_password") or secrets.token_urlsafe(32)
 
 values = {
     "jwt_secret": jwt,
@@ -35,6 +36,7 @@ values = {
     "admin_mfa_key": mfa,
     "postgres_password": pg,
     "redis_password": redis,
+    "rabbitmq_password": rabbitmq,
     "database_url": read("database_url") or f"postgresql+psycopg://air:{pg}@postgres:5432/air",
     "redis_url": read("redis_url") or f"redis://:{redis}@redis:6379/0",
 }
@@ -43,4 +45,4 @@ for name, value in values.items():
 missing = [name for name in values if not (ROOT / name).is_file() or not read(name)]
 if missing:
     raise SystemExit("Failed to create required AIR secrets: " + ", ".join(missing))
-print("All 8 required AIR local secrets are present; existing non-empty secrets were preserved.")
+print("All 9 required AIR local secrets are present; existing non-empty secrets were preserved.")
