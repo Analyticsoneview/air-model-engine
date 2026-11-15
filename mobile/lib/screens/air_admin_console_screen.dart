@@ -800,7 +800,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
           Align(alignment: Alignment.centerLeft, child: Text('Previous → new: ${e['previous_status']} → ${e['new_status']}')),
           Align(alignment: Alignment.centerLeft, child: Text('Administrator: ${e['reviewer_admin_id']} · ${e['reviewer_role']}')),
           Align(alignment: Alignment.centerLeft, child: Text('Reason: ${e['note'] ?? '—'}')),
-          Align(alignment: Alignment.centerLeft, child: Text('Authenticator verified: ${e['authenticator_verified_at'] ?? 'Legacy record · timestamp unavailable'}')),
+          Align(alignment: Alignment.centerLeft, child: Text('Authenticator verified: ${e['authenticator_verified_at_ist'] ?? 'Legacy record · timestamp unavailable'}')),
           Align(alignment: Alignment.centerLeft, child: Text('Verification reference: ${e['verification_reference'] ?? '—'}')),
           Align(alignment: Alignment.centerLeft, child: Text('Request/device context: ${e['request_context'] ?? '—'}')),
         ],
