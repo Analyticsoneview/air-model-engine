@@ -8,7 +8,7 @@ This repository uses GitHub Actions to test and build immutable Docker images, G
 - Pushes to \`main\` run verification and publish versioned images to GHCR.
 - A deployment happens only when an administrator manually starts **AIR Build and Deploy** from the Actions tab on \`main\` and sets \`deploy=true\`.
 - The deployment uses the exact commit SHA as the image tag, not the mutable \`latest\` tag.
-- The server-side script checks required environment values, all ten Swarm secrets, rendered stack configuration, Swarm state and service health before reporting success.
+- The server-side script checks required environment values, all eleven Swarm secrets, rendered stack configuration, Swarm state and service health before reporting success.
 - The first deployment must be prepared and smoke-tested manually. Do not enable scheduled AIR market-data jobs until broker credentials, entitlements and permissions are verified.
 
 ## GitHub repository configuration
@@ -79,7 +79,7 @@ The current \`docker-stack.yml\` requires all ten external secrets:
 - \`air_telegram_bot_token\`
 - \`air_smtp_password\`
 
-The installer creates these secrets and preserves existing values on reruns. For manual provisioning, follow [DOCKER_SWARM.md](./DOCKER_SWARM.md), including the database/Redis URL secrets and administrator MFA key. If SMTP is not configured, create a random placeholder \`air_smtp_password\` secret; keep SMTP host, username and sender address empty so email delivery remains disabled. The deployment preflight checks all ten secret names without reading or printing their values. Create the Telegram secret locally on the Swarm manager using the replacement BotFather token:
+The installer creates these secrets and preserves existing values on reruns. For manual provisioning, follow [DOCKER_SWARM.md](./DOCKER_SWARM.md), including the database/Redis URL secrets and administrator MFA key. If SMTP is not configured, create a random placeholder \`air_smtp_password\` secret; keep SMTP host, username and sender address empty so email delivery remains disabled. The deployment preflight checks all eleven secret names without reading or printing their values. Create the Telegram secret locally on the Swarm manager using the replacement BotFather token:
 
 \`\`\`bash
 read -rsp "Telegram bot token: " AIR_TELEGRAM_BOT_TOKEN; echo
