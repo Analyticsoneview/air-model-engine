@@ -1113,6 +1113,7 @@ async def admin_customer_register(
     for raw in customers:
         item = dict(raw)
         item["first_registered_at"] = item.get("first_registered_at") or item.get("registered_at")
+        item["first_access_request_at"] = item["first_registered_at"]
         registered_day = local_day(item.get("first_registered_at"))
         approved_day = local_day(item.get("first_approved_at"))
         rejected_day = local_day(item.get("first_rejected_at"))
