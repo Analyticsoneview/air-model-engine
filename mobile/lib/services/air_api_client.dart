@@ -492,7 +492,7 @@ class AirApiClient {
 
   Future<Map<String, dynamic>> marketIntelligencePulse() async {
     return _decode(await _client.get(
-      Uri.parse('\$baseUrl/api/v1/customer/market-intelligence/pulse'),
+      Uri.parse('$baseUrl/api/v1/customer/market-intelligence/pulse'),
       headers: _headers,
     ));
   }
@@ -672,11 +672,11 @@ class AirApiClient {
     try {
       body = jsonDecode(response.body) as Map<String, dynamic>;
     } catch (_) {
-      throw AirApiException('AIR server returned an invalid response (\${response.statusCode}).');
+      throw AirApiException('AIR server returned an invalid response (${response.statusCode}).');
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw AirApiException(
-        body['detail']?.toString() ?? 'AIR server request failed (\${response.statusCode}).',
+        body['detail']?.toString() ?? 'AIR server request failed (${response.statusCode}).',
       );
     }
     return body;
