@@ -417,6 +417,7 @@ class WorkflowStore:
             if local.weekday() in days and 0 <= lateness <= grace:
                 due.append({
                     "workflow_id": row["workflow_id"], "name": row["name"],
+                    "customer_id": config.get("customer_id"),
                     "local_time": scheduled.isoformat(), "scheduled_key": scheduled.strftime("%Y%m%d%H%M"),
                 })
         return due
