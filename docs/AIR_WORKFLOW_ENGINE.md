@@ -39,7 +39,7 @@ Do not add a broker dependency to API startup or make the API unavailable when R
 
 ### Initial event families
 - `strategy.orb.signal.created` — emitted by the existing live ORB engine when a new signal is formed
-- `qoc.scan.completed`, `qoc.candidate.qualified`, `qoc.backtest.completed` — emitted by the evidence-based Dhan QOC endpoints
+- `qoc.snapshot.captured`, `qoc.scan.completed`, `qoc.candidate.qualified`, `qoc.backtest.completed` — emitted by the evidence-based Dhan QOC endpoints
 - `research.signal.persisted` — emitted when the operator Model Engine ledger stores a signal
 - `portfolio.snapshot.updated` — emitted after a customer-owned read-only broker snapshot is persisted
 - `market.session.opened`, `market.session.closed`, `market.instrument.updated`, `market.data.stale`, `report.ready` — reserved contracts for later adapters
