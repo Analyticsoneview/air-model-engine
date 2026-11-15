@@ -124,7 +124,7 @@ class PostgresAccessStore:
     def decision_history(self, request_id: str):
         with self.engine.connect() as conn:
             rows = conn.execute(text("""SELECT decision_id,request_id,mobile_e164,previous_status,new_status,
-                reviewer_admin_id,reviewer_role,note,totp_counter,decided_at FROM air_access_decision_history
+                reviewer_admin_id,reviewer_role,note,totp_counter,authenticator_verified_at,verification_reference,request_context,decided_at FROM air_access_decision_history
                 WHERE request_id=:id ORDER BY decided_at,decision_id"""), {"id": request_id}).mappings().all()
         return [dict(row) for row in rows]
 
