@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 
 import pytest
 
@@ -289,5 +290,117 @@ def test_workflow_update_rejects_unsafe_actions_without_creating_new_version(tmp
                 execution_mode="RESEARCH_ONLY", updated_by="admin",
             )
         assert len(store.list_workflow_versions(workflow["workflow_id"])) == 1
+    finally:
+        store.close()
+
+
+def test_exchange_holiday_suppresses_time_trigger_and_special_session_overrides_weekday(tmp_path):
+    store = WorkflowStore(str(tmp_path / "exchange-calendar.sqlite3"))
+    try:
+        workflow = store.create_workflow(
+            name="NSE morning scan", created_by="admin", trigger_type="TIME",
+            trigger_config={
+                "timezone": "Asia/Kolkata", "hour": 9, "minute": 18,
+                "days_of_week": [0, 1, 2, 3, 4], "exchange": "NSE",
+            },
+            workflow_spec={"steps": []},
+        )
+        store.set_workflow_enabled(workflow["workflow_id"], True, actor_id="admin")
+        now = datetime(2026, 11, 16, 3, 48, tzinfo=timezone.utc)
+        store.upsert_exchange_calendar_entry(
+            exchange_code="NSE", session_date="2026-11-16", status="HOLIDAY",
+            description="Test holiday", updated_by="admin",
+        )
+        assert store.due_time_workflows(now) == []
+        store.upsert_exchange_calendar_entry(
+            exchange_code="NSE", session_date="2026-11-16", status="SPECIAL_SESSION",
+            description="Special trading session", updated_by="admin",
+        )
+        due = store.due_time_workflows(now)
+        assert len(due) == 1
+        assert due[0]["exchange"] == "NSE"
+        assert store.list_exchange_calendar(exchange_code="NSE")[0]["status"] == "SPECIAL_SESSION"
+    finally:
+        store.close()
+
+
+def test_workflow_management_actions_are_recorded_in_append_only_audit(tmp_path):
+    store = WorkflowStore(str(tmp_path / "workflow-audit.sqlite3"))
+    try:
+        workflow = store.create_workflow(
+            name="Audited", created_by="creator", trigger_type="EVENT",
+            trigger_config={"event_type": "audit.trigger"}, workflow_spec={"steps": []},
+        )
+        store.set_workflow_enabled(workflow["workflow_id"], True, actor_id="operator")
+        store.update_workflow(
+            workflow["workflow_id"], name="Audited v2", description="",
+            trigger_type="EVENT", trigger_config={"event_type": "audit.trigger"},
+            workflow_spec={"steps": []}, execution_mode="RESEARCH_ONLY",
+            updated_by="operator",
+        )
+        audit = store.list_audit(workflow_id=workflow["workflow_id"])
+        assert [item["action"] for item in audit] == [
+            "WORKFLOW_VERSION_CREATED", "WORKFLOW_ENABLED", "WORKFLOW_CREATED",
+        ]
+        assert audit[0]["workflow_version"] == 2
+        assert audit[1]["actor_id"] == "operator"
+        assert audit[2]["actor_id"] == "creator"
+    finally:
+        store.close()
+
+
+def test_failed_run_replay_uses_original_immutable_workflow_version(tmp_path):
+    store = WorkflowStore(str(tmp_path / "workflow-replay.sqlite3"))
+    try:
+        workflow = store.create_workflow(
+            name="Replay version 1", created_by="admin", trigger_type="EVENT",
+            trigger_config={"event_type": "workflow.replay.trigger"},
+            workflow_spec={"steps": [{"id": "emit", "action": "event.emit",
+                                     "params": {"event_type": "workflow.replay.v1"}}]},
+        )
+        store.set_workflow_enabled(workflow["workflow_id"], True, actor_id="admin")
+        event = store.publish_event(
+            event_type="workflow.replay.trigger", source="test",
+            payload={"customer_id": "customer-1"},
+            idempotency_key="workflow-replay-original-event",
+        )
+        original_run = store.process_event(event["event_id"])[0]
+        store.set_run_status(original_run["run_id"], "FAILED", "Injected failure")
+        store.update_workflow(
+            workflow["workflow_id"], name="Replay version 2", description="",
+            trigger_type="EVENT",
+            trigger_config={"event_type": "workflow.replay.trigger"},
+            workflow_spec={"steps": [{"id": "emit", "action": "event.emit",
+                                     "params": {"event_type": "workflow.replay.v2"}}]},
+            execution_mode="RESEARCH_ONLY", updated_by="admin",
+        )
+        replay = store.replay_run(original_run["run_id"], requested_by="admin")
+        assert len(replay["runs"]) == 1
+        replay_run = replay["runs"][0]
+        assert replay_run["workflow_version"] == 1
+        assert replay_run["status"] == "QUEUED"
+        context = store.run_context(replay_run["run_id"])
+        assert context["workflow_spec"]["steps"][0]["params"]["event_type"] == "workflow.replay.v1"
+        assert any(item["action"] == "WORKFLOW_RUN_REPLAYED"
+                   for item in store.list_audit(workflow_id=workflow["workflow_id"]))
+    finally:
+        store.close()
+
+
+def test_workflow_replay_rejects_non_failed_runs(tmp_path):
+    store = WorkflowStore(str(tmp_path / "workflow-replay-invalid.sqlite3"))
+    try:
+        workflow = store.create_workflow(
+            name="Not failed", created_by="admin", trigger_type="EVENT",
+            trigger_config={"event_type": "workflow.replay.invalid"}, workflow_spec={"steps": []},
+        )
+        store.set_workflow_enabled(workflow["workflow_id"], True)
+        event = store.publish_event(
+            event_type="workflow.replay.invalid", source="test", payload={},
+            idempotency_key="workflow-replay-not-failed",
+        )
+        run = store.process_event(event["event_id"])[0]
+        with pytest.raises(ValueError, match="Only failed"):
+            store.replay_run(run["run_id"], requested_by="admin")
     finally:
         store.close()
