@@ -505,21 +505,22 @@ class WorkflowStore:
         if status not in {"QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"}:
             raise ValueError("Unsupported workflow run status")
         now = _now()
-        if status == "RUNNING":
-            self.db.execute(
-                "UPDATE air_workflow_runs SET status=?,started_at=COALESCE(started_at,?),completed_at=NULL,error=NULL WHERE run_id=?",
-                (status, now, run_id),
-            )
-        elif status in {"SUCCEEDED", "FAILED", "CANCELLED"}:
-            self.db.execute(
-                "UPDATE air_workflow_runs SET status=?,completed_at=?,error=? WHERE run_id=?",
-                (status, now, str(error)[:1000] if error else None, run_id),
-            )
-        else:
-            self.db.execute(
-                "UPDATE air_workflow_runs SET status=?,error=? WHERE run_id=?",
-                (status, str(error)[:1000] if error else None, run_id),
-            )
+        with self.db:
+            if status == "RUNNING":
+                self.db.execute(
+                    "UPDATE air_workflow_runs SET status=?,started_at=COALESCE(started_at,?),completed_at=NULL,error=NULL WHERE run_id=?",
+                    (status, now, run_id),
+                )
+            elif status in {"SUCCEEDED", "FAILED", "CANCELLED"}:
+                self.db.execute(
+                    "UPDATE air_workflow_runs SET status=?,completed_at=?,error=? WHERE run_id=?",
+                    (status, now, str(error)[:1000] if error else None, run_id),
+                )
+            else:
+                self.db.execute(
+                    "UPDATE air_workflow_runs SET status=?,error=? WHERE run_id=?",
+                    (status, str(error)[:1000] if error else None, run_id),
+                )
 
     def get_run_step(self, run_id: str, step_key: str) -> dict | None:
         row = self.db.execute(
@@ -539,34 +540,35 @@ class WorkflowStore:
         now = _now()
         input_json = json.dumps(input_data, allow_nan=False)
         output_json = json.dumps(output_data, allow_nan=False) if output_data is not None else None
-        existing = self.get_run_step(run_id, step_key)
-        if existing:
-            if status == "RUNNING":
-                self.db.execute(
-                    """UPDATE air_workflow_run_steps SET status=?,input_json=?,output_json=NULL,
-                       error=NULL,attempts=?,started_at=COALESCE(started_at,?),completed_at=NULL
-                       WHERE run_id=? AND step_key=?""",
-                    (status, input_json, attempts, now, run_id, step_key),
-                )
+        with self.db:
+            existing = self.get_run_step(run_id, step_key)
+            if existing:
+                if status == "RUNNING":
+                    self.db.execute(
+                        """UPDATE air_workflow_run_steps SET status=?,input_json=?,output_json=NULL,
+                           error=NULL,attempts=?,started_at=COALESCE(started_at,?),completed_at=NULL
+                           WHERE run_id=? AND step_key=?""",
+                        (status, input_json, attempts, now, run_id, step_key),
+                    )
+                else:
+                    completed = now if status in {"SUCCEEDED", "FAILED", "SKIPPED"} else None
+                    self.db.execute(
+                        """UPDATE air_workflow_run_steps SET status=?,input_json=?,output_json=?,
+                           error=?,attempts=?,completed_at=? WHERE run_id=? AND step_key=?""",
+                        (status, input_json, output_json, str(error)[:1000] if error else None,
+                         attempts, completed, run_id, step_key),
+                    )
             else:
-                completed = now if status in {"SUCCEEDED", "FAILED", "SKIPPED"} else None
                 self.db.execute(
-                    """UPDATE air_workflow_run_steps SET status=?,input_json=?,output_json=?,
-                       error=?,attempts=?,completed_at=? WHERE run_id=? AND step_key=?""",
-                    (status, input_json, output_json, str(error)[:1000] if error else None,
-                     attempts, completed, run_id, step_key),
+                    """INSERT INTO air_workflow_run_steps
+                       (step_record_id,run_id,step_key,step_index,action,status,input_json,
+                        output_json,error,attempts,started_at,completed_at)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (str(uuid4()), run_id, step_key, step_index, action, status, input_json,
+                     output_json, str(error)[:1000] if error else None, attempts,
+                     now if status == "RUNNING" else None,
+                     now if status in {"SUCCEEDED", "FAILED", "SKIPPED"} else None),
                 )
-        else:
-            self.db.execute(
-                """INSERT INTO air_workflow_run_steps
-                   (step_record_id,run_id,step_key,step_index,action,status,input_json,
-                    output_json,error,attempts,started_at,completed_at)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (str(uuid4()), run_id, step_key, step_index, action, status, input_json,
-                 output_json, str(error)[:1000] if error else None, attempts,
-                 now if status == "RUNNING" else None,
-                 now if status in {"SUCCEEDED", "FAILED", "SKIPPED"} else None),
-            )
         return self.get_run_step(run_id, step_key)
 
     @staticmethod
