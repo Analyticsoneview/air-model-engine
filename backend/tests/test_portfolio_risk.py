@@ -47,3 +47,22 @@ def test_no_fabricated_pnl_or_drawdown_when_broker_omits_fields():
     assert snapshot["summary"]["return_pct_on_observed_invested_value"] is None
     assert snapshot["summary"]["max_drawdown_pct"] is None
     assert snapshot["summary"]["data_quality"] == "PARTIAL"
+
+def test_drawdown_requires_and_uses_verified_account_equity_history():
+    store = PortfolioRiskStore(":memory:")
+    try:
+        first = build_portfolio_snapshot({
+            "positions": [], "holdings": [], "account_equity": 10000,
+            "fetched_at": "2026-11-14T15:30:00+05:30",
+        }, "dhan", "acct-equity")
+        second = build_portfolio_snapshot({
+            "positions": [], "holdings": [], "account_equity": 9000,
+            "fetched_at": "2026-11-15T15:30:00+05:30",
+        }, "dhan", "acct-equity")
+        store.save("customer-equity", first)
+        store.save("customer-equity", second)
+        overview = store.overview("customer-equity")
+        assert overview["summary"]["max_drawdown_pct"] == 10.0
+        assert overview["summary"]["drawdown_status"] == "AVAILABLE"
+    finally:
+        store.close()
