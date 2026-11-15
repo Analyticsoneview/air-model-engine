@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -72,11 +72,28 @@ class SupportStore:
 
     def _event(self, ticket_id: str, actor_type: str, actor_id: str,
                event_type: str, message: str = "", metadata: dict | None = None) -> None:
+        # Several audit events can be appended in one request. Wall-clock calls
+        # can share the same microsecond, so a random UUID tie-breaker would make
+        # the visible history appear out of order. Give each ticket a strictly
+        # increasing UTC timestamp; the ticket row is already locked/updated by
+        # the caller's transaction for customer/admin mutations.
+        latest = self.db.execute(
+            "SELECT MAX(created_at) FROM air_support_ticket_events WHERE ticket_id=?",
+            (ticket_id,),
+        ).fetchone()[0]
+        event_time = datetime.now(timezone.utc)
+        if latest:
+            if isinstance(latest, str):
+                latest = datetime.fromisoformat(latest.replace("Z", "+00:00"))
+            if latest.tzinfo is None:
+                latest = latest.replace(tzinfo=timezone.utc)
+            if event_time <= latest:
+                event_time = latest + timedelta(microseconds=1)
         self.db.execute("""INSERT INTO air_support_ticket_events
             (event_id,ticket_id,actor_type,actor_id,event_type,message,metadata_json,created_at)
             VALUES(?,?,?,?,?,?,?,?)""",
             (str(uuid4()), ticket_id, actor_type, actor_id, event_type,
-             message, json.dumps(metadata or {}, separators=(",", ":")), _now()))
+             message, json.dumps(metadata or {}, separators=(",", ":")), event_time.isoformat()))
 
     def create(self, customer_id: str, subject: str, category: str, message: str) -> dict:
         subject, category, message = subject.strip(), category.strip().upper(), message.strip()
@@ -102,7 +119,7 @@ class SupportStore:
         result["events"] = [dict(e) | {"metadata": json.loads(e["metadata_json"])}
             for e in self.db.execute("""SELECT event_id,actor_type,actor_id,event_type,message,
                 metadata_json,created_at FROM air_support_ticket_events
-                WHERE ticket_id=? ORDER BY created_at,event_id""", (result["ticket_id"],)).fetchall()]
+                WHERE ticket_id=? ORDER BY created_at""", (result["ticket_id"],)).fetchall()]
         for event in result["events"]:
             event.pop("metadata_json", None)
         return result
