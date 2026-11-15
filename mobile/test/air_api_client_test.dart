@@ -122,6 +122,32 @@ void main() {
       AirApiClient.setAccessToken(null);
     });
 
+    test('AIR QOC historical replay uses authenticated account endpoint', () async {
+      final client = AirApiClient(
+        baseUrl: 'https://air.example',
+        client: MockClient((request) async {
+          expect(request.url.path, '/api/v1/air-qoc/dhan/backtest/account-42');
+          expect(request.url.queryParameters['from_date'], '2026-11-01');
+          expect(request.url.queryParameters['to_date'], '2026-11-15');
+          expect(request.headers['Authorization'], 'Bearer qoc-token');
+          return http.Response(jsonEncode({
+            'status': 'completed',
+            'summary': {'trades': 4, 'win_rate_pct': 75.0},
+            'trades': [],
+          }), 200);
+        }),
+      );
+      AirApiClient.setAccessToken('qoc-token');
+
+      final result = await client.dhanQocBacktest(
+        'account-42', fromDate: '2026-11-01', toDate: '2026-11-15');
+
+      expect(result['status'], 'completed');
+      expect((result['summary'] as Map)['trades'], 4);
+      client.dispose();
+      AirApiClient.setAccessToken(null);
+    });
+
     test('status check does not require a token', () async {
       final client = AirApiClient(
         baseUrl: 'https://air.example',
