@@ -132,6 +132,7 @@ class WorkflowStore:
                 self.db.execute("SELECT 1 FROM air_workflow_definition_versions LIMIT 0")
                 self.db.execute("SELECT 1 FROM air_workflow_audit LIMIT 0")
                 self.db.execute("SELECT 1 FROM air_exchange_calendar LIMIT 0")
+                self.db.execute("SELECT 1 FROM air_exchange_calendar_coverage LIMIT 0")
             except Exception as exc:
                 self.db.close()
                 raise RuntimeError("Workflow PostgreSQL schema is missing; apply Alembic migrations first") from exc
@@ -224,6 +225,38 @@ class WorkflowStore:
             );
             CREATE INDEX IF NOT EXISTS ix_air_exchange_calendar_date
                 ON air_exchange_calendar(session_date,exchange_code);
+            CREATE TABLE IF NOT EXISTS air_exchange_calendar_coverage (
+                exchange_code TEXT NOT NULL, calendar_year INTEGER NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('VERIFIED','INCOMPLETE')),
+                source TEXT NOT NULL, verified_by TEXT NOT NULL, verified_at TEXT NOT NULL,
+                PRIMARY KEY(exchange_code,calendar_year)
+            );
+            INSERT OR IGNORE INTO air_exchange_calendar
+                (exchange_code,session_date,status,description,source,updated_by,updated_at)
+            VALUES
+                ('NSE','2026-01-15','HOLIDAY','Municipal Corporation Election - Maharashtra','NSE official equity holiday calendar 2026','system-seed','2026-11-16T00:00:00+00:00'),
+                ('NSE','2026-01-26','HOLIDAY','Republic Day','NSE official equity holiday calendar 2026','system-seed','2026-11-16T00:00:00+00:00'),
+                ('NSE','2026-02-15','HOLIDAY','Mahashivratri (weekend holiday)','NSE official equity holiday calendar 2026','system-seed','2026-11-16T00:00:00+00:00'),
+                ('NSE','2026-03-03','HOLIDAY','Holi','NSE official equity holiday calendar 2026','system-seed','2026-11-16T00:00:00+00:00'),
+                ('NSE','2026-03-21','HOLIDAY','Id-Ul-Fitr (weekend holiday)','NSE official equity holiday calendar 2026','system-seed','2026-11-16T00:00:00+00:00'),
+                ('NSE','2026-03-26','HOLIDAY','Shri Ram Navami','NSE official equity holiday calendar 2026','system-seed','2026-11-16T00:00:00+00:00'),
+                ('NSE','2026-03-31','HOLIDAY','Shri Mahavir Jayanti','NSE official equity holiday calendar 2026','system-seed','2026-11-16T00:00:00+00:00'),
+                ('NSE','2026-04-03','HOLIDAY','Good Friday','NSE official equity holiday calendar 2026','system-seed','2026-11-16T00:00:00+00:00'),
+                ('NSE','2026-04-14','HOLIDAY','Dr. Baba Saheb Ambedkar Jayanti','NSE official equity holiday calendar 2026','system-seed','2026-11-16T00:00:00+00:00'),
+                ('NSE','2026-05-01','HOLIDAY','Maharashtra Day','NSE official equity holiday calendar 2026','system-seed','2026-11-16T00:00:00+00:00'),
+                ('NSE','2026-05-28','HOLIDAY','Bakri Id','NSE official equity holiday calendar 2026','system-seed','2026-11-16T00:00:00+00:00'),
+                ('NSE','2026-06-26','HOLIDAY','Muharram','NSE official equity holiday calendar 2026','system-seed','2026-11-16T00:00:00+00:00'),
+                ('NSE','2026-08-15','HOLIDAY','Independence Day (weekend holiday)','NSE official equity holiday calendar 2026','system-seed','2026-11-16T00:00:00+00:00'),
+                ('NSE','2026-09-14','HOLIDAY','Ganesh Chaturthi','NSE official equity holiday calendar 2026','system-seed','2026-11-16T00:00:00+00:00'),
+                ('NSE','2026-10-02','HOLIDAY','Mahatma Gandhi Jayanti','NSE official equity holiday calendar 2026','system-seed','2026-11-16T00:00:00+00:00'),
+                ('NSE','2026-10-20','HOLIDAY','Dussehra','NSE official equity holiday calendar 2026','system-seed','2026-11-16T00:00:00+00:00'),
+                ('NSE','2026-11-08','HOLIDAY','Diwali Laxmi Pujan - Muhurat session times notified separately','NSE official equity holiday calendar 2026','system-seed','2026-11-16T00:00:00+00:00'),
+                ('NSE','2026-11-10','HOLIDAY','Diwali-Balipratipada','NSE official equity holiday calendar 2026','system-seed','2026-11-16T00:00:00+00:00'),
+                ('NSE','2026-11-24','HOLIDAY','Prakash Gurpurb Sri Guru Nanak Dev','NSE official equity holiday calendar 2026','system-seed','2026-11-16T00:00:00+00:00'),
+                ('NSE','2026-12-25','HOLIDAY','Christmas','NSE official equity holiday calendar 2026','system-seed','2026-11-16T00:00:00+00:00');
+            INSERT OR IGNORE INTO air_exchange_calendar_coverage
+                (exchange_code,calendar_year,status,source,verified_by,verified_at)
+            VALUES ('NSE',2026,'VERIFIED','NSE official equity holiday calendar 2026','system-seed','2026-11-16T00:00:00+00:00');
         """)
         self.db.commit()
 
