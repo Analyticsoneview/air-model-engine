@@ -12,7 +12,7 @@ def test_snapshot_normalizes_broker_rows_and_exposes_missing_capital():
     assert snapshot["summary"]["holding_count"] == 1
     assert snapshot["summary"]["gross_market_value"] == 2200
     assert snapshot["summary"]["unrealized_pnl"] == 200
-    assert snapshot["summary"]["return_pct_on_observed_invested_value"] == 9.52
+    assert snapshot["summary"]["return_pct_on_observed_invested_value"] == 10.0
     assert snapshot["summary"]["max_drawdown_pct"] is None
     assert snapshot["summary"]["drawdown_status"] == "INSUFFICIENT_EQUITY_HISTORY"
     assert "account_equity" in snapshot["summary"]["missing_fields"]
