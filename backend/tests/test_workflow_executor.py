@@ -157,3 +157,30 @@ def test_telegram_action_uses_alert_mode_and_source_step_rows(tmp_path, monkeypa
         assert sent["rows"][0]["signal_id"] == "run-1:notify:0"
     finally:
         store.close()
+
+
+def test_empty_qoc_result_does_not_send_false_candidate_alert(tmp_path, monkeypatch):
+    from app import telegram_notifications
+
+    store = WorkflowStore(str(tmp_path / "empty-qoc.sqlite3"))
+    called = []
+
+    async def fake_notify(strategy, rows):
+        called.append((strategy, rows))
+        return {"configured": True, "attempted": len(rows), "sent": len(rows), "failures": []}
+
+    monkeypatch.setattr(telegram_notifications, "notify_candidates", fake_notify)
+    try:
+        context = {
+            "run_id": "run-empty", "workflow_id": "workflow-empty",
+            "execution_mode": "ALERT_NOTIFY",
+            "event_payload": {"customer_id": "customer-1"},
+        }
+        step = {"id": "notify", "action": "notify.telegram",
+                "params": {"strategy": "AIR_QOC", "source_step": "scan"}}
+        result = executor._execute_action(store, context, step, {"scan": {"signals": []}})
+        assert result["sent"] == 0
+        assert result["reason"] == "no qualified candidates"
+        assert called == []
+    finally:
+        store.close()
