@@ -14,6 +14,7 @@ import 'screens/air_qoc_screen.dart';
 import 'screens/model_engine_screen.dart';
 import 'screens/orb_strategy_screen.dart';
 import 'screens/nse_data_screen.dart';
+import 'screens/air_markets_screen.dart';
 import 'services/air_api_client.dart';
 
 void main() => runApp(const AirModelEngineApp());
@@ -108,11 +109,7 @@ class _AirShellState extends State<AirShell> {
     final pages = [
       AirDashboard(look: widget.look, onLookChanged: widget.onLookChanged),
       const ModelEngineScreen(),
-      const SimplePage(
-        title: 'Markets & Options',
-        icon: Icons.candlestick_chart_rounded,
-        subtitle: 'Market overview, option chains, strike activity, expiry and liquidity context.',
-      ),
+      const AirMarketsScreen(),
       const AirQocScreen(),
       const AirMoreScreen(),
     ];
