@@ -12,13 +12,14 @@ AIR is a self-hosted research and broker-connectivity foundation with a Flutter 
 - `backend/` — FastAPI authentication, customer-owned broker accounts, encrypted credential vault, market-data routing and execution safety foundations.
 - `deploy/` — Docker Swarm deployment guide, self-hosted PWA Dockerfile and Nginx SPA configuration.
 - `docker-stack.yml` — single-replica lab stack for API and PWA.
-- `.github/workflows/` — backend tests and Flutter build/test workflows.
+- `.github/workflows/` — backend verification, Flutter/PWA build and gated Docker image deployment workflows.
 
 ## Current verified scope
 
-- Backend unit tests passed in earlier GitHub Actions runs. The latest PR checks currently fail before a runner starts (no steps/logs), so the newest commits remain unverified.
-- Earlier recorded runs produced an Android lab APK and unsigned iOS lab IPA. The latest Android workflow retry is currently blocked before runner startup; the new signed customer APK workflow has not yet run. The iOS IPA is not installable without Apple signing; use the PWA route for iPhone without an Apple Developer membership.
-- Flutter web analysis, tests and self-hosted PWA bundle workflow are being validated separately.
+- **Release validation on main commit `bf3c3851c496c7e9a7cf9668a058ee65e92be893` (2026-11-15):** backend unit tests and deployment-file checks passed; the AIR API and PWA Docker images built and published to GHCR with both commit-SHA and `latest` tags; Flutter analysis, tests and optimized PWA build passed.
+- GitHub Actions run records: [AIR Build and Deploy](https://github.com/Analyticsoneview/air-model-engine/actions/runs/43756095252) and [AIR iPhone Web App (Self-hosted PWA)](https://github.com/Analyticsoneview/air-model-engine/actions/runs/43756095090). The PWA workflow uploaded the `air-pwa-web` artifact. These are build validations, not proof of a live server deployment.
+- The signed Android customer APK workflow requires the protected signing secrets and has not been verified as a distributable signed release. The iOS IPA is not installable without Apple signing; use the self-hosted PWA route for iPhone when Apple signing is unavailable.
+- The GitHub deployment workflow intentionally skips production deployment on ordinary pushes. Production deployment requires the separately prepared Ubuntu Docker Swarm host, protected SSH secrets, `AIR_API_BASE_URL`, ten Swarm secrets and post-deployment smoke tests; see [GitHub deployment](deploy/GITHUB_DEPLOYMENT.md).
 - Broker REST foundations exist for Angel One, DhanHQ, Zerodha, Upstox and FYERS. Dhan has the furthest market-feed integration; real-account entitlements and streaming for all brokers are not yet validated.
 - AIR QOC now has a read-only Dhan option-chain path, expiry lookup, normalized private SQLite snapshot storage and a Flutter research screen. An optional 15:45 IST weekday snapshot scheduler is implemented but disabled by default; it requires a registered Dhan account, encrypted credentials and verified Data API entitlement. It discovers the NSE F&O universe from Dhan's instrument master (with a configured fallback list), captures active-expiry option chains, then automatically runs the evidence-first EXPIRYSCAN liquidity screen. The Model Engine app refreshes the scan every five minutes while signed in. EXPIRYSCAN is not a qualified AIR QOC signal.
 - Broker order permission is intentionally disabled. Do not use this project for live order placement.
