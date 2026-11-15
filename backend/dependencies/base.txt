@@ -17,3 +17,6 @@ redis>=5.0,<7.0
 
 # Local SVG QR generation for administrator TOTP enrollment.
 qrcode>=8.0,<9.0
+
+# Durable event transport for the AIR workflow runtime.
+pika>=1.3.2,<2.0
