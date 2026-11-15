@@ -38,14 +38,15 @@ Do not add a broker dependency to API startup or make the API unavailable when R
 - Composite triggers will be represented as explicit workflow conditions, not hidden scheduler code.
 
 ### Initial event families
-- `market.session.opened`, `market.session.closed`
-- `market.orb.breakout`, `market.orb.failed`
-- `market.instrument.updated`, `market.data.stale`
-- `qoc.scan.requested`, `qoc.candidate.qualified`, `qoc.candidate.rejected`
-- `portfolio.snapshot.updated`, `portfolio.risk.threshold_breached`
-- `backtest.completed`, `report.ready`
+- `strategy.orb.signal.created` — emitted by the existing live ORB engine when a new signal is formed
+- `qoc.scan.completed`, `qoc.candidate.qualified`, `qoc.backtest.completed` — emitted by the evidence-based Dhan QOC endpoints
+- `research.signal.persisted` — emitted when the operator Model Engine ledger stores a signal
+- `portfolio.snapshot.updated` — emitted after a customer-owned read-only broker snapshot is persisted
+- `market.session.opened`, `market.session.closed`, `market.instrument.updated`, `market.data.stale`, `report.ready` — reserved contracts for later adapters
 
-Each event carries a stable event ID, type, source, UTC occurrence timestamp, JSON payload, idempotency key and optional correlation ID. Exchange-session schedules use Asia/Kolkata and an exchange calendar; they must not assume every weekday is a trading day.
+A workflow may set `trigger_config.customer_id` to match only that customer's events. Unscoped definitions match across customers and should be reserved for platform-level administrator workflows.
+
+Each event carries a stable event ID, type, source, UTC occurrence timestamp, JSON payload, idempotency key and optional correlation ID. CONDITION triggers evaluate a safe allowlist of nested JSON field operators (eq, neq, gt, gte, lt, lte, in, not_in, contains, exists) with ALL/ANY grouping; arbitrary expressions and code are never evaluated. For example: `{"event_type":"portfolio.snapshot.updated","customer_id":"customer-123","filters":[{"field":"summary.concentration_top_position_pct","operator":"gte","value":40}]}`. Exchange-session schedules currently support weekdays and configurable misfire grace; a verified NSE holiday calendar is still required before production trading-day schedules are enabled.
 
 ### Workflow lifecycle
 1. Define and validate a workflow; save a versioned definition.
@@ -68,10 +69,10 @@ The initial engine will not call broker order-placement APIs. Broker execution r
 
 ## Delivery phases
 
-1. **Foundation:** versioned workflow definitions, event contracts, durable event inbox and transactional outbox. (In progress in PR #50.)
-2. **Transport:** RabbitMQ publisher/consumer, acknowledgements, retry/dead-letter policy and health checks.
-3. **Scheduler and run ledger:** time triggers, exchange calendar, durable run/step state, deduplication and recovery.
-4. **Rule and strategy adapters:** connect ORB, QOC, market data and portfolio-risk events without duplicating domain logic.
+1. **Foundation:** versioned workflow definitions, event contracts, durable event inbox and transactional outbox. (Merged in PR #50.)
+2. **Transport:** RabbitMQ publisher/consumer, acknowledgements, retry/dead-letter policy and health checks. (Merged in PR #51.)
+3. **Scheduler and run ledger:** time triggers, durable run records, deduplication, misfire grace and startup recovery. (Merged in PR #51; exchange holiday calendar remains to be added.)
+4. **Rule and strategy adapters:** ORB, QOC, model-ledger and portfolio snapshot events, customer-scoped matching and safe nested condition operators. (In progress in Gate 8 Phase 4.)
 5. **Notifications and reports:** dashboard, mobile, Telegram/email adapters with per-customer authorization and deduplication.
 6. **Workflow Studio:** admin builder/templates, enable/pause controls, versioning and run history.
 7. **Hardening:** failure injection, restart/replay tests, load tests, permissions, audit and production acceptance.
