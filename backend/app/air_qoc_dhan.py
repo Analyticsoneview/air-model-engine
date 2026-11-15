@@ -17,6 +17,7 @@ from app.brokers.customer_accounts import CustomerAccountDirectory
 from app.credential_vault import CredentialVault
 from app.security import require_customer
 from app.air_qoc_store import AirQocStore
+from app.air_qoc_qualification import qualify_option_observations
 from app.air_qoc_universe import DETAILED_MASTER_URL, parse_dhan_instrument_master
 from datetime import datetime, timezone
 
@@ -186,6 +187,35 @@ async def dhan_expired_options(account_id: str, body: DhanExpiredOptionsRequest,
     finally:
         await client.close()
 
+
+
+@router.get("/qualification/{account_id}")
+async def dhan_qoc_qualification(
+    account_id: str,
+    underlying_scrip: str | None = None,
+    expiry: str | None = None,
+    mode: str = "LIVE",
+    limit: int = 10000,
+    customer_id: str = Depends(_operator),
+) -> dict:
+    """Return evidence-backed QOC candidates from repeated private snapshots."""
+    if mode.upper() not in {"LIVE", "POSITIONAL", "POST_MARKET"}:
+        raise HTTPException(status_code=422, detail="mode must be LIVE, POSITIONAL or POST_MARKET")
+    account_check = _client(customer_id, account_id)
+    await account_check.close()
+    store = AirQocStore()
+    try:
+        rows = store.qualification_history(
+            account_id=account_id, provider="dhan",
+            underlying_scrip=underlying_scrip, expiry=expiry,
+            limit=max(2, min(limit, 20000)),
+        )
+        result = qualify_option_observations(rows, mode=mode.upper())
+        result.update({"provider": "dhan", "account_id": account_id,
+                       "underlying_filter": underlying_scrip, "expiry_filter": expiry})
+        return result
+    finally:
+        store.close()
 
 
 @router.get("/observations/{account_id}")
