@@ -120,7 +120,7 @@ def _execute_action(
                  "summary": row.get("summary", {})}
                 for row in result.get("accounts", [])
             ],
-            "data_quality": result.get("data_quality"),
+            "data_quality": (result.get("summary") or {}).get("data_quality"),
         }
 
     if action == "event.emit":
@@ -128,11 +128,17 @@ def _execute_action(
         payload = params.get("payload") or {}
         if not isinstance(payload, dict):
             raise WorkflowStepError("event.emit params.payload must be an object")
+        chain = event_payload.get("workflow_chain") if isinstance(event_payload.get("workflow_chain"), list) else []
+        if context["workflow_id"] not in chain:
+            chain = [*chain, context["workflow_id"]]
+        if len(chain) > 20:
+            raise WorkflowStepError("Workflow event chain exceeded the 20-workflow safety limit")
         payload = {
             **payload,
             "customer_id": payload.get("customer_id") or event_payload.get("customer_id"),
             "workflow_id": context["workflow_id"],
             "workflow_run_id": context["run_id"],
+            "workflow_chain": chain,
         }
         result = store.publish_event(
             event_type=event_type,
