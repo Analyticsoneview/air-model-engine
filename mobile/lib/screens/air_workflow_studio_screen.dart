@@ -715,10 +715,10 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
           ]),
           const SizedBox(height: 8),
           Wrap(spacing: 16, runSpacing: 8, children: [
-            Text('Outbox pending: \${outbox['pending'] ?? 0}'),
-            Text('Outbox failed: \${outbox['failed'] ?? 0}'),
-            Text('Runs queued: \${runs['queued'] ?? 0}'),
-            Text('Runs failed: \${runs['failed'] ?? 0}'),
+            Text('Outbox pending: ${outbox['pending'] ?? 0}'),
+            Text('Outbox failed: ${outbox['failed'] ?? 0}'),
+            Text('Runs queued: ${runs['queued'] ?? 0}'),
+            Text('Runs failed: ${runs['failed'] ?? 0}'),
           ]),
           const SizedBox(height: 8),
           if (workers.isEmpty)
@@ -732,10 +732,10 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
                   worker['healthy'] == true ? Icons.check_circle : Icons.warning_amber_rounded,
                   color: worker['healthy'] == true ? Colors.green : Theme.of(context).colorScheme.error,
                 ),
-                title: Text('\${worker['component'] ?? 'worker'} · \${worker['status'] ?? 'UNKNOWN'}'),
+                title: Text('${worker['component'] ?? 'worker'} · ${worker['status'] ?? 'UNKNOWN'}'),
                 subtitle: Text(
-                  '\${worker['worker_id'] ?? ''} · last seen \${worker['age_seconds'] ?? 'unknown'}s ago'
-                  '\${worker['details'] is Map && worker['details']['rabbitmq_connected'] == true ? ' · RabbitMQ connected' : ''}',
+                  '${worker['worker_id'] ?? ''} · last seen ${worker['age_seconds'] ?? 'unknown'}s ago'
+                  '${worker['details'] is Map && worker['details']['rabbitmq_connected'] == true ? ' · RabbitMQ connected' : ''}',
                 ),
               ),
           const Text('Health is based on a worker heartbeat received within 45 seconds.'),
