@@ -56,4 +56,46 @@ void main() {
     expect(requests.every((request) =>
         request.headers['Authorization'] == 'Bearer test-token'), isTrue);
   });
+  testWidgets('Workflow Studio creates a customer-scoped QOC time/event workflow', (tester) async {
+    final created = <Map<String, dynamic>>[];
+    final client = MockClient((request) async {
+      if (request.method == 'POST' && request.url.path == '/api/v1/admin/workflows') {
+        created.add(Map<String, dynamic>.from(jsonDecode(request.body) as Map));
+        return http.Response(jsonEncode({
+          'workflow_id': 'workflow-new',
+          'name': 'Morning QOC',
+          'version': 1,
+          'enabled': false,
+        }), 201);
+      }
+      if (request.url.path.endsWith('/workflows/runs')) {
+        return http.Response(jsonEncode({'runs': []}), 200);
+      }
+      return http.Response(jsonEncode({'workflows': []}), 200);
+    });
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: AirWorkflowStudioScreen(
+          apiBase: 'http://air.test',
+          accessToken: 'test-token',
+          httpClient: client,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).at(0), 'Morning QOC');
+    await tester.enterText(find.byType(TextField).at(2), 'customer-123');
+    await tester.enterText(find.byType(TextField).at(3), 'broker-account-1');
+    await tester.tap(find.text('CREATE WORKFLOW'));
+    await tester.pumpAndSettle();
+
+    expect(created, hasLength(1));
+    expect(created.single['trigger_type'], 'EVENT');
+    expect(created.single['trigger_config']['customer_id'], 'customer-123');
+    expect(created.single['workflow_spec']['steps'][0]['action'], 'qoc.qualify');
+    expect(created.single['workflow_spec']['steps'][0]['params']['account_id'], 'broker-account-1');
+    expect(created.single['execution_mode'], 'RESEARCH_ONLY');
+  });
+
 }
