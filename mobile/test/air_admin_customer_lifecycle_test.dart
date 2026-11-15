@@ -64,6 +64,8 @@ void main() {
     await tester.enterText(find.widgetWithText(TextField, 'Authenticator code'), '111111');
     await tester.tap(find.text('SIGN IN'));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('CUSTOMERS'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('CUSTOMERS'));
     await tester.pumpAndSettle();
 
@@ -74,6 +76,8 @@ void main() {
     expect(find.text('INDEPENDENT LIFECYCLE DATE FILTERS'), findsOneWidget);
     expect(find.text('DAILY CONVERSION REPORT'), findsOneWidget);
     expect(find.textContaining('1 customer(s) displayed'), findsOneWidget);
+    await tester.ensureVisible(find.textContaining('••••210'));
+    await tester.pumpAndSettle();
     await tester.tap(find.textContaining('••••210'));
     await tester.pumpAndSettle();
     expect(find.textContaining('First registered: 2026-11-15T09:00:00+05:30'), findsOneWidget);
