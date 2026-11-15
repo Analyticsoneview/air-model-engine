@@ -408,3 +408,26 @@ def test_workflow_replay_rejects_non_failed_runs(tmp_path):
             store.replay_run(run["run_id"], requested_by="admin")
     finally:
         store.close()
+
+
+def test_time_trigger_fails_closed_when_exchange_year_is_not_verified(tmp_path):
+    store = WorkflowStore(str(tmp_path / "calendar-unverified.sqlite3"))
+    try:
+        workflow = store.create_workflow(
+            name="NSE 2027", created_by="admin", trigger_type="TIME",
+            trigger_config={
+                "timezone": "Asia/Kolkata", "hour": 9, "minute": 18,
+                "days_of_week": [0, 1, 2, 3, 4], "exchange": "NSE",
+            },
+            workflow_spec={"steps": []},
+        )
+        store.set_workflow_enabled(workflow["workflow_id"], True)
+        now = datetime(2027, 1, 4, 3, 48, tzinfo=timezone.utc)
+        assert store.due_time_workflows(now) == []
+        store.set_exchange_calendar_coverage(
+            exchange_code="NSE", calendar_year=2027, status="VERIFIED",
+            source="Official NSE 2027 calendar manually verified", verified_by="admin",
+        )
+        assert len(store.due_time_workflows(now)) == 1
+    finally:
+        store.close()
