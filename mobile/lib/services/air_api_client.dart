@@ -667,6 +667,20 @@ class AirApiClient {
         .whereType<Map<String, dynamic>>().toList(growable: false);
   }
 
+  Future<Map<String, dynamic>> dhanQocQualification(
+      String accountId, {String mode = 'LIVE', String? underlyingScrip,
+      String? expiry, int limit = 10000}) async {
+    final uri = Uri.parse('$baseUrl/api/v1/air-qoc/dhan/qualification/'
+        '${Uri.encodeComponent(accountId)}').replace(queryParameters: {
+      'mode': mode,
+      'limit': limit.toString(),
+      if (underlyingScrip != null && underlyingScrip.isNotEmpty)
+        'underlying_scrip': underlyingScrip,
+      if (expiry != null && expiry.isNotEmpty) 'expiry': expiry,
+    });
+    return _decode(await _client.get(uri, headers: _headers));
+  }
+
   Map<String, dynamic> _decode(http.Response response) {
     Map<String, dynamic> body;
     try {
