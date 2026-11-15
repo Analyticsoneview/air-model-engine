@@ -129,6 +129,19 @@ async def list_workflow_runs(limit: int = 100, admin: dict = Depends(require_adm
 
 
 
+@router.post("/runs/{run_id}/replay")
+async def replay_workflow_run(run_id: str, admin: dict = Depends(require_admin)):
+    _management_admin(admin)
+    store = WorkflowStore()
+    try:
+        try:
+            return store.replay_run(run_id, requested_by=admin["admin_id"])
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    finally:
+        store.close()
+
+
 @router.get("/runs/{run_id}/steps")
 async def list_workflow_run_steps(run_id: str, admin: dict = Depends(require_admin)):
     store = WorkflowStore()
