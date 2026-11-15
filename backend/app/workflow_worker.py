@@ -16,6 +16,7 @@ from urllib.parse import quote
 import pika
 
 from app.workflow_engine import WorkflowStore
+from app.workflow_executor import execute_workflow_run
 
 log = logging.getLogger("air.workflow.worker")
 EXCHANGE = "air.events"
@@ -161,6 +162,41 @@ def _schedule_time_triggers(stop: threading.Event) -> None:
             store.close()
 
 
+
+def _execute_runs(stop: threading.Event) -> None:
+    store = None
+    try:
+        while not stop.is_set():
+            try:
+                if store is None:
+                    store = WorkflowStore()
+                run_ids = store.runnable_runs(20)
+                for run_id in run_ids:
+                    if stop.is_set():
+                        break
+                    try:
+                        result = execute_workflow_run(store, run_id)
+                        if result:
+                            log.info("AIR workflow run %s finished with %s",
+                                     run_id, result.get("status"))
+                    except Exception as exc:
+                        log.exception("AIR workflow run %s executor iteration failed (%s)",
+                                      run_id, type(exc).__name__)
+                stop.wait(1.0 if run_ids else 2.0)
+            except Exception as exc:
+                log.warning("AIR workflow execution runtime will retry after %s", type(exc).__name__)
+                if store is not None:
+                    try:
+                        store.close()
+                    except Exception:
+                        pass
+                    store = None
+                stop.wait(3.0)
+    finally:
+        if store is not None:
+            store.close()
+
+
 def _consume(stop: threading.Event) -> None:
     while not stop.is_set():
         connection = None
@@ -206,8 +242,10 @@ def main() -> None:
     stop = threading.Event()
     publisher = threading.Thread(target=_publish_outbox, args=(stop,), name="workflow-outbox", daemon=True)
     scheduler = threading.Thread(target=_schedule_time_triggers, args=(stop,), name="workflow-scheduler", daemon=True)
+    executor = threading.Thread(target=_execute_runs, args=(stop,), name="workflow-executor", daemon=True)
     publisher.start()
     scheduler.start()
+    executor.start()
     log.info("AIR workflow runtime starting (RabbitMQ transport; no order execution)")
     try:
         _consume(stop)
@@ -217,6 +255,7 @@ def main() -> None:
         stop.set()
         publisher.join(timeout=5)
         scheduler.join(timeout=5)
+        executor.join(timeout=5)
 
 
 if __name__ == "__main__":
