@@ -156,5 +156,26 @@ class TelegramNotificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(FakeClient.sent[0][1]["chat_id"], "-1009876543210")
 
 
+    def test_air_qoc_orb_and_portfolio_risk_messages_are_explicitly_research_only(self):
+        qoc = telegram._format_message("AIR_QOC", {
+            "symbol": "NIFTY", "option_type": "CE", "strike": 25000,
+            "classification": "HIGH_CONVICTION", "score": 93,
+        })
+        orb = telegram._format_message("ORB", {
+            "symbol": "NIFTY", "status": "BREAKOUT", "entry_price": 25010,
+            "stop_loss": 24980, "range_high": 25000,
+        })
+        risk = telegram._format_message("PORTFOLIO_RISK", {
+            "summary": {"concentration_top_position_pct": 45, "data_quality": "COMPLETE"},
+        })
+        self.assertIn("AIR QOC QUALIFIED CANDIDATE", qoc)
+        self.assertIn("does not place orders", qoc)
+        self.assertIn("AIR ORB STRATEGY SIGNAL", orb)
+        self.assertIn("Opening range high", orb)
+        self.assertIn("AIR PORTFOLIO RISK ALERT", risk)
+        self.assertIn("45", risk)
+        self.assertIn("no trades are placed", risk)
+
+
 if __name__ == "__main__":
     unittest.main()
