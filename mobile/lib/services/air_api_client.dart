@@ -483,6 +483,13 @@ class AirApiClient {
     return _decode(await _client.post(uri, headers: _headers));
   }
 
+  Future<Map<String, dynamic>> customerMarketDataAccess() async {
+    return _decode(await _client.get(
+      Uri.parse('$baseUrl/api/v1/customer/market-data/access'),
+      headers: _headers,
+    ));
+  }
+
   Future<Map<String, dynamic>> nseDataStatus() async {
     return _decode(await _client.get(
       Uri.parse('$baseUrl/api/v1/nse-data/status'),
