@@ -27,7 +27,7 @@ from app.security import require_customer
 from app.telegram_notifications import notify_candidates, send_telegram_message
 from app.market_data.runtime import execution_policy
 from app.market_data.customer_runtime import get_customer_market_data_service, get_customer_market_data_status
-from app.workflow_events import emit_workflow_event
+from app.workflow_events import build_idempotency_key, emit_workflow_event
 
 router = APIRouter(prefix="/api/v1/model-engine", tags=["AIR Model Engine"])
 _ledger = ModelEngineLedger()
@@ -288,7 +288,7 @@ async def upsert_model_engine_signal(
             "strategy": (record.get("evidence") or {}).get("strategy"),
             "signal": record,
         },
-        idempotency_key=f"model-signal:{customer_id}:{record['signal_id']}:{classification}",
+        idempotency_key=build_idempotency_key("model-signal", customer_id, record["signal_id"], classification),
     )
     return {"status": "saved", "signal_id": record["signal_id"],
             "classification": classification}
