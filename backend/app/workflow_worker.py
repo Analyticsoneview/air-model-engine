@@ -53,13 +53,14 @@ def _declare(channel) -> None:
     channel.exchange_declare(exchange=DEAD_EXCHANGE, exchange_type="fanout", durable=True)
     channel.queue_declare(
         queue=DEAD_QUEUE, durable=True,
-        arguments={"x-queue-type": "quorum"},
+        arguments={"x-queue-type": "quorum", "x-delivery-limit": 5},
     )
     channel.queue_bind(queue=DEAD_QUEUE, exchange=DEAD_EXCHANGE)
     channel.queue_declare(
         queue=QUEUE, durable=True,
         arguments={
             "x-queue-type": "quorum",
+            "x-delivery-limit": 5,
             "x-dead-letter-exchange": DEAD_EXCHANGE,
         },
     )
