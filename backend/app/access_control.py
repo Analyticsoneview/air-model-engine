@@ -215,7 +215,7 @@ class AccessStore:
         if end_date: clauses.append("date(decided_at)<=date(?)"); params.append(end_date)
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         rows = self.db.execute("""SELECT decision_id,request_id,mobile_e164,previous_status,new_status,
-            reviewer_admin_id,reviewer_role,note,totp_counter,decided_at FROM air_access_decision_history""" +
+            reviewer_admin_id,reviewer_role,note,totp_counter,totp_verified_at,verification_reference,device_id,request_context,decided_at FROM air_access_decision_history""" +
             where + " ORDER BY decided_at DESC,decision_id DESC", params).fetchall()
         return [dict(row) for row in rows]
 
