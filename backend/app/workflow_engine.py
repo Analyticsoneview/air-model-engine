@@ -130,6 +130,8 @@ class WorkflowStore:
                 self.db.execute("SELECT 1 FROM air_workflow_runs LIMIT 0")
                 self.db.execute("SELECT 1 FROM air_workflow_run_steps LIMIT 0")
                 self.db.execute("SELECT 1 FROM air_workflow_definition_versions LIMIT 0")
+                self.db.execute("SELECT 1 FROM air_workflow_audit LIMIT 0")
+                self.db.execute("SELECT 1 FROM air_exchange_calendar LIMIT 0")
             except Exception as exc:
                 self.db.close()
                 raise RuntimeError("Workflow PostgreSQL schema is missing; apply Alembic migrations first") from exc
@@ -150,7 +152,7 @@ class WorkflowStore:
                 trigger_type TEXT NOT NULL CHECK(trigger_type IN ('EVENT','TIME','STRATEGY','CONDITION')),
                 trigger_config_json TEXT NOT NULL DEFAULT '{}', workflow_spec_json TEXT NOT NULL DEFAULT '{}',
                 execution_mode TEXT NOT NULL DEFAULT 'RESEARCH_ONLY'
-                    CHECK(execution_mode IN ('RESEARCH_ONLY','ALERT_NOTIFY','AUTHORIZED_EXECUTION')),
+                    CHECK(execution_mode IN ('RESEARCH_ONLY','ALERT_NOTIFY')),
                 version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1), enabled INTEGER NOT NULL DEFAULT 0,
                 created_by TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
             );
@@ -205,6 +207,23 @@ class WorkflowStore:
             );
             CREATE INDEX IF NOT EXISTS ix_air_workflow_run_steps_order
                 ON air_workflow_run_steps(run_id,step_index);
+            CREATE TABLE IF NOT EXISTS air_workflow_audit (
+                audit_id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL,
+                workflow_version INTEGER NOT NULL, actor_id TEXT NOT NULL,
+                action TEXT NOT NULL, payload_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS ix_air_workflow_audit_workflow_time
+                ON air_workflow_audit(workflow_id,created_at);
+            CREATE TABLE IF NOT EXISTS air_exchange_calendar (
+                exchange_code TEXT NOT NULL, session_date TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('HOLIDAY','SPECIAL_SESSION','TRADING_DAY')),
+                description TEXT NOT NULL DEFAULT '', session_open TEXT, session_close TEXT,
+                source TEXT NOT NULL DEFAULT 'ADMIN', updated_by TEXT NOT NULL,
+                updated_at TEXT NOT NULL, PRIMARY KEY(exchange_code,session_date)
+            );
+            CREATE INDEX IF NOT EXISTS ix_air_exchange_calendar_date
+                ON air_exchange_calendar(session_date,exchange_code);
         """)
         self.db.commit()
 
