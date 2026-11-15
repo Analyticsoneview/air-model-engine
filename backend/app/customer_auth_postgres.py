@@ -171,13 +171,14 @@ class PostgresAccessStore:
                      "device": current.device_id, "context": json.dumps(request_context or {})})
                 if status in {"APPROVED", "REJECTED"}:
                     lifecycle_column = "first_approved_at" if status == "APPROVED" else "first_rejected_at"
+                    decision_at = conn.execute(text("SELECT CURRENT_TIMESTAMP")).scalar_one()
                     conn.execute(text(f"""INSERT INTO air_customer_lifecycle
                         (customer_id,first_registered_at,{lifecycle_column})
                         VALUES(:customer,CAST(:registered AS timestamptz),:decision_at)
                         ON CONFLICT(customer_id) DO UPDATE SET
                         {lifecycle_column}=COALESCE(air_customer_lifecycle.{lifecycle_column},EXCLUDED.{lifecycle_column}),
                         updated_at=CURRENT_TIMESTAMP"""),
-                        {"customer": current.mobile_e164, "registered": current.created_at, "decision_at": verified_at})
+                        {"customer": current.mobile_e164, "registered": current.created_at, "decision_at": decision_at})
                 else:
                     conn.execute(text("UPDATE air_device_sessions SET active=false WHERE request_id=:id"), {"id": request_id})
         return result.rowcount > 0
