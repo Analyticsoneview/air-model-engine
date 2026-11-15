@@ -73,8 +73,16 @@ void main() {
     expect(find.text('7'), findsOneWidget);
     expect(find.text('EXISTING CUSTOMERS'), findsOneWidget);
     expect(find.text('12'), findsOneWidget);
-    expect(find.text('INDEPENDENT LIFECYCLE DATE FILTERS'), findsOneWidget);
-    expect(find.text('DAILY CONVERSION REPORT'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('INDEPENDENT LIFECYCLE DATE FILTERS'), 300, scrollable: find.byType(Scrollable).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('INDEPENDENT LIFECYCLE DATE FILTERS'));
+    await tester.pumpAndSettle();
+    expect(find.text('First registered date'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('DAILY CONVERSION REPORT'), 300, scrollable: find.byType(Scrollable).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('DAILY CONVERSION REPORT'));
+    await tester.pumpAndSettle();
+    expect(find.text('RUN REPORT'), findsOneWidget);
     expect(find.textContaining('1 customer(s) displayed'), findsOneWidget);
     await tester.ensureVisible(find.textContaining('••••210'));
     await tester.pumpAndSettle();
@@ -84,8 +92,6 @@ void main() {
     expect(find.textContaining('First approved: 2026-11-15T09:10:00+05:30'), findsOneWidget);
     expect(find.textContaining('First plan availed: 2026-11-15T09:20:00+05:30'), findsOneWidget);
 
-    await tester.tap(find.text('DAILY CONVERSION REPORT'));
-    await tester.pumpAndSettle();
     expect(find.text('2026-11-15'), findsAtLeastNWidgets(1));
     expect(find.textContaining('New: 7 · Existing requests: 2'), findsOneWidget);
     expect(find.textContaining('First plans: 4 · Approved, no plan: 2'), findsOneWidget);
