@@ -7,7 +7,7 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
 
-revision = "0009_customer_lifecycle"
+revision = "0009_customer_lifecycle_reporting"
 down_revision = "0008_customer_access_decisions"
 branch_labels = None
 depends_on = None
@@ -103,9 +103,15 @@ def upgrade() -> None:
         BEFORE UPDATE OR DELETE ON air_access_decision_history
         FOR EACH ROW EXECUTE FUNCTION air_reject_access_decision_mutation()
     """)
+    op.execute("""
+        CREATE TRIGGER trg_air_subscription_history_immutable
+        BEFORE UPDATE OR DELETE ON air_customer_subscription_history
+        FOR EACH ROW EXECUTE FUNCTION air_reject_access_decision_mutation()
+    """)
 
 
 def downgrade() -> None:
+    op.execute("DROP TRIGGER IF EXISTS trg_air_subscription_history_immutable ON air_customer_subscription_history")
     op.execute("DROP TRIGGER IF EXISTS trg_air_access_decision_immutable ON air_access_decision_history")
     op.execute("DROP FUNCTION IF EXISTS air_reject_access_decision_mutation()")
     op.drop_index("ix_air_subscription_history_customer", table_name="air_customer_subscription_history")
