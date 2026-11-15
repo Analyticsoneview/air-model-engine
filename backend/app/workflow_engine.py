@@ -129,6 +129,7 @@ class WorkflowStore:
                 self.db.execute("SELECT 1 FROM air_workflow_outbox LIMIT 0")
                 self.db.execute("SELECT 1 FROM air_workflow_runs LIMIT 0")
                 self.db.execute("SELECT 1 FROM air_workflow_run_steps LIMIT 0")
+                self.db.execute("SELECT 1 FROM air_workflow_definition_versions LIMIT 0")
             except Exception as exc:
                 self.db.close()
                 raise RuntimeError("Workflow PostgreSQL schema is missing; apply Alembic migrations first") from exc
@@ -155,6 +156,22 @@ class WorkflowStore:
             );
             CREATE INDEX IF NOT EXISTS ix_air_workflow_enabled_trigger
                 ON air_workflow_definitions(enabled,trigger_type);
+            CREATE TABLE IF NOT EXISTS air_workflow_definition_versions (
+                workflow_id TEXT NOT NULL, version INTEGER NOT NULL CHECK(version >= 1),
+                name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+                trigger_type TEXT NOT NULL, trigger_config_json TEXT NOT NULL DEFAULT '{}',
+                workflow_spec_json TEXT NOT NULL DEFAULT '{}', execution_mode TEXT NOT NULL,
+                created_by TEXT NOT NULL, created_at TEXT NOT NULL,
+                PRIMARY KEY(workflow_id,version)
+            );
+            CREATE INDEX IF NOT EXISTS ix_air_workflow_definition_versions_created
+                ON air_workflow_definition_versions(workflow_id,created_at);
+            INSERT OR IGNORE INTO air_workflow_definition_versions
+                (workflow_id,version,name,description,trigger_type,trigger_config_json,
+                 workflow_spec_json,execution_mode,created_by,created_at)
+            SELECT workflow_id,version,name,description,trigger_type,trigger_config_json,
+                   workflow_spec_json,execution_mode,created_by,created_at
+            FROM air_workflow_definitions;
             CREATE TABLE IF NOT EXISTS air_workflow_events (
                 event_id TEXT PRIMARY KEY, event_type TEXT NOT NULL, source TEXT NOT NULL,
                 occurred_at TEXT NOT NULL, payload_json TEXT NOT NULL DEFAULT '{}',
@@ -251,6 +268,14 @@ class WorkflowStore:
                 json.dumps(trigger_config, allow_nan=False), json.dumps(workflow_spec, allow_nan=False),
                 execution_mode, 1, False if self.is_postgres else 0, created_by, now, now,
             ))
+            self.db.execute("""INSERT INTO air_workflow_definition_versions
+                (workflow_id,version,name,description,trigger_type,trigger_config_json,
+                 workflow_spec_json,execution_mode,created_by,created_at)
+                VALUES(?,?,?,?,?,?,?,?,?,?)""", (
+                workflow_id, 1, name, str(description)[:4000], trigger_type,
+                json.dumps(trigger_config, allow_nan=False), json.dumps(workflow_spec, allow_nan=False),
+                execution_mode, created_by, now,
+            ))
         return self.get_workflow(workflow_id)
 
     def get_workflow(self, workflow_id: str) -> dict | None:
@@ -329,6 +354,92 @@ class WorkflowStore:
             "created_at": row["created_at"], "duplicate": duplicate,
         }
 
+
+    def list_workflow_versions(self, workflow_id: str) -> list[dict]:
+        rows = self.db.execute(
+            "SELECT * FROM air_workflow_definition_versions WHERE workflow_id=? ORDER BY version DESC",
+            (workflow_id,),
+        ).fetchall()
+        return [{
+            "workflow_id": row["workflow_id"], "version": row["version"],
+            "name": row["name"], "description": row["description"],
+            "trigger_type": row["trigger_type"],
+            "trigger_config": json.loads(row["trigger_config_json"]),
+            "workflow_spec": json.loads(row["workflow_spec_json"]),
+            "execution_mode": row["execution_mode"],
+            "created_by": row["created_by"], "created_at": row["created_at"],
+        } for row in rows]
+
+    def update_workflow(
+        self, workflow_id: str, *, name: str, description: str,
+        trigger_type: str, trigger_config: dict, workflow_spec: dict,
+        execution_mode: str, updated_by: str,
+    ) -> dict | None:
+        current = self.get_workflow(workflow_id)
+        if current is None:
+            return None
+        name = str(name).strip()
+        description = str(description or "")[:4000]
+        trigger_type = str(trigger_type).upper()
+        execution_mode = str(execution_mode).upper()
+        updated_by = str(updated_by).strip()
+        if not name or len(name) > 120 or not updated_by or len(updated_by) > 128:
+            raise ValueError("Workflow name and updated_by are required and bounded")
+        if trigger_type not in TRIGGER_TYPES or execution_mode not in EXECUTION_MODES:
+            raise ValueError("Unsupported workflow trigger or execution mode")
+        trigger_config = _json_object(trigger_config, "trigger_config")
+        workflow_spec = _json_object(workflow_spec, "workflow_spec")
+        steps = workflow_spec.get("steps", [])
+        if not isinstance(steps, list) or len(steps) > 20:
+            raise ValueError("workflow_spec.steps must be an array containing at most 20 steps")
+        seen: set[str] = set()
+        for step in steps:
+            if not isinstance(step, dict):
+                raise ValueError("Each workflow step must be an object")
+            step_id = str(step.get("id") or "").strip()
+            action = str(step.get("action") or "").strip().lower()
+            params = step.get("params", {})
+            if not step_id or len(step_id) > 64 or step_id in seen:
+                raise ValueError("Workflow step IDs must be unique and contain 1-64 characters")
+            if action not in WORKFLOW_ACTIONS or not isinstance(params, dict):
+                raise ValueError(f"Unsupported action or params for workflow step {step_id}")
+            attempts = step.get("max_attempts", 3)
+            if not isinstance(attempts, int) or not 1 <= attempts <= 5:
+                raise ValueError(f"Workflow step {step_id} max_attempts must be between 1 and 5")
+            if action == "notify.telegram":
+                if execution_mode != "ALERT_NOTIFY":
+                    raise ValueError("Telegram notification steps require ALERT_NOTIFY execution mode")
+                strategy = str(params.get("strategy") or "AIR_WORKFLOW").upper()
+                if strategy not in TELEGRAM_STRATEGIES:
+                    raise ValueError(f"Unsupported Telegram strategy route: {strategy}")
+            if action == "event.emit" and not str(params.get("event_type") or "").strip():
+                raise ValueError(f"Workflow step {step_id} event.emit requires params.event_type")
+            if params.get("source_step") and params["source_step"] not in seen:
+                raise ValueError(f"Workflow step {step_id} source_step must reference an earlier step")
+            seen.add(step_id)
+        version = int(current["version"]) + 1
+        now = _now()
+        with self.db:
+            self.db.execute(
+                """UPDATE air_workflow_definitions
+                   SET name=?,description=?,trigger_type=?,trigger_config_json=?,
+                       workflow_spec_json=?,execution_mode=?,version=?,enabled=?,updated_at=?
+                   WHERE workflow_id=?""",
+                (name, description, trigger_type,
+                 json.dumps(trigger_config, allow_nan=False),
+                 json.dumps(workflow_spec, allow_nan=False), execution_mode,
+                 version, False if self.is_postgres else 0, now, workflow_id),
+            )
+            self.db.execute(
+                """INSERT INTO air_workflow_definition_versions
+                   (workflow_id,version,name,description,trigger_type,trigger_config_json,
+                    workflow_spec_json,execution_mode,created_by,created_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                (workflow_id, version, name, description, trigger_type,
+                 json.dumps(trigger_config, allow_nan=False),
+                 json.dumps(workflow_spec, allow_nan=False), execution_mode, updated_by, now),
+            )
+        return self.get_workflow(workflow_id)
 
     def set_workflow_enabled(self, workflow_id: str, enabled: bool) -> dict | None:
         now = _now()
@@ -490,10 +601,10 @@ class WorkflowStore:
 
     def run_context(self, run_id: str) -> dict | None:
         row = self.db.execute(
-            """SELECT r.*,d.name,d.workflow_spec_json,d.trigger_config_json,e.payload_json
+            """SELECT r.*,v.name,v.workflow_spec_json,v.trigger_config_json,e.payload_json
                FROM air_workflow_runs r
-               JOIN air_workflow_definitions d
-                 ON d.workflow_id=r.workflow_id AND d.version=r.workflow_version
+               JOIN air_workflow_definition_versions v
+                 ON v.workflow_id=r.workflow_id AND v.version=r.workflow_version
                JOIN air_workflow_events e ON e.event_id=r.event_id
                WHERE r.run_id=?""", (run_id,),
         ).fetchone()
