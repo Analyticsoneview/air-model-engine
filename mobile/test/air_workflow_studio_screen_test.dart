@@ -152,6 +152,10 @@ void main() {
 
 
   testWidgets('Workflow Studio preserves the selected strategy trigger', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     final created = <Map<String, dynamic>>[];
     final client = MockClient((request) async {
       if (request.method == 'POST' && request.url.path == '/api/v1/admin/workflows') {
@@ -191,10 +195,7 @@ void main() {
           widget is TextField && widget.decoration?.labelText == 'Customer ID'),
       'customer-123',
     );
-    final createButton = find.text('CREATE WORKFLOW');
-    await tester.ensureVisible(createButton);
-    await tester.pumpAndSettle();
-    await tester.tap(createButton);
+    await tester.tap(find.text('CREATE WORKFLOW'));
     await tester.pumpAndSettle();
     expect(created, hasLength(1));
     expect(created.single['trigger_type'], 'STRATEGY');
