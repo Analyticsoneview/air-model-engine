@@ -62,6 +62,8 @@ def _normalize_instrument(row: dict, kind: str) -> dict:
     if market_value is None and quantity is not None and ltp is not None:
         market_value = abs(quantity) * ltp
     pnl = _number(_first(row, ("unrealizedProfit", "unrealized_pnl", "pnl", "profit", "pl", "mtm")))
+    realized = _number(_first(row, ("realizedProfit", "realized_profit", "realized_pnl", "realisedProfit", "realised_profit")))
+    day_pnl = _number(_first(row, ("dayProfit", "day_pnl", "dayPnL", "day_pnl_rupees")))
     if pnl is None and market_value is not None and invested is not None:
         pnl = market_value - invested
     symbol = _first(row, ("tradingSymbol", "tradingsymbol", "symbol", "trading_symbol", "securityName", "scripName"))
@@ -82,6 +84,8 @@ def _normalize_instrument(row: dict, kind: str) -> dict:
         "market_value": round(market_value, 2) if market_value is not None else None,
         "invested_value": round(invested, 2) if invested is not None else None,
         "pnl": round(pnl, 2) if pnl is not None else None,
+        "realized_pnl": round(realized, 2) if realized is not None else None,
+        "day_pnl": round(day_pnl, 2) if day_pnl is not None else None,
         "signed_exposure": round(signed_value, 2) if signed_value is not None else None,
         "raw": row,
     }
@@ -98,8 +102,14 @@ def build_portfolio_snapshot(payload: dict, broker: str, account_id: str) -> dic
     signed = total("signed_exposure")
     invested = total("invested_value")
     pnl = total("pnl")
+    realized_values = [item["realized_pnl"] for item in instruments if item.get("realized_pnl") is not None]
+    day_values = [item["day_pnl"] for item in instruments if item.get("day_pnl") is not None]
     explicit_realized = _number(payload.get("realized_pnl"))
     explicit_day = _number(payload.get("day_pnl"))
+    if explicit_realized is None and realized_values:
+        explicit_realized = round(sum(realized_values), 2)
+    if explicit_day is None and day_values:
+        explicit_day = round(sum(day_values), 2)
     explicit_equity = _number(_first(payload, ("net_liquidation", "netLiquidation", "equity", "account_value")))
     capital = _number(_first(payload, ("capital_base", "opening_balance", "available_capital")))
     pnl_pct = round((pnl / invested) * 100, 2) if pnl is not None and invested not in (None, 0) else None
@@ -149,7 +159,7 @@ def build_portfolio_snapshot(payload: dict, broker: str, account_id: str) -> dic
 
 class PortfolioRiskStore:
     def __init__(self, db_path: str | None = None):
-        url = read_database_url("AIR_PORTFOLIO_DATABASE_URL") or read_database_url("AIR_CUSTOMER_DATABASE_URL")
+        url = read_database_url("AIR_PORTFOLIO_DATABASE_URL") or read_database_url("AIR_CUSTOMER_DATABASE_URL") or read_database_url("AIR_DATABASE_URL")
         if url:
             self.db = PostgresConnection(url)
             self.is_postgres = True
