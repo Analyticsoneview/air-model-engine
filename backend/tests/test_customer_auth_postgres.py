@@ -148,6 +148,10 @@ def test_sqlite_migration_is_idempotent_and_preserves_all_customer_rows(customer
                 request_id TEXT PRIMARY KEY,mobile_e164 TEXT NOT NULL,device_id TEXT NOT NULL,
                 status TEXT NOT NULL,created_at TEXT NOT NULL,reviewed_at TEXT,reviewer_note TEXT,
                 UNIQUE(mobile_e164,device_id));
+            CREATE TABLE air_access_decision_history(
+                decision_id TEXT PRIMARY KEY,request_id TEXT NOT NULL,mobile_e164 TEXT NOT NULL,
+                previous_status TEXT NOT NULL,new_status TEXT NOT NULL,reviewer_admin_id TEXT NOT NULL,
+                reviewer_role TEXT NOT NULL,note TEXT NOT NULL,totp_counter INTEGER NOT NULL,decided_at TEXT NOT NULL);
             CREATE TABLE air_device_sessions(
                 session_id TEXT PRIMARY KEY,request_id TEXT NOT NULL,active INTEGER NOT NULL,
                 created_at TEXT NOT NULL);
@@ -169,6 +173,9 @@ def test_sqlite_migration_is_idempotent_and_preserves_all_customer_rows(customer
         source.execute("INSERT INTO air_access_requests VALUES(?,?,?,?,?,?,?)",
                        ("request-1", "+919876543213", "legacy-device-0001", "APPROVED",
                         "2026-01-01 00:00:00", "2026-01-01 00:01:00", "legacy approval"))
+        source.execute("INSERT INTO air_access_decision_history VALUES(?,?,?,?,?,?,?,?,?,?)",
+                       ("decision-1", "request-1", "+919876543213", "PENDING", "APPROVED",
+                        "admin-1", "SUPER_ADMIN", "legacy approval", 12345, "2026-01-01 00:01:00"))
         source.execute("INSERT INTO air_device_sessions VALUES(?,?,?,?)",
                        ("session-1", "request-1", 1, "2026-01-01 00:02:00"))
         source.execute("INSERT INTO air_customer_subscriptions VALUES(?,?,?,?,?,?)",
@@ -191,12 +198,19 @@ def test_sqlite_migration_is_idempotent_and_preserves_all_customer_rows(customer
         second = migrate(source_path, url)
         assert first == second
         assert first["air_access_requests"] == 1
+        assert first["air_access_decision_history"] == 1
         assert first["air_device_sessions"] == 1
         assert first["air_customer_subscriptions"] == 1
         engine = create_engine(url)
         try:
             with engine.connect() as conn:
                 assert conn.execute(text("SELECT COUNT(*) FROM air_access_requests WHERE request_id='request-1'")).scalar_one() == 1
+                assert conn.execute(text("SELECT COUNT(*) FROM air_access_decision_history WHERE decision_id='decision-1'")).scalar_one() == 1
+                assert conn.execute(text("SELECT authenticator_verified_at FROM air_access_decision_history WHERE decision_id='decision-1'")).scalar_one() is None
+                lifecycle = conn.execute(text("SELECT first_approved_at,first_plan_availed_at FROM air_customer_lifecycle WHERE customer_id='+919876543213'")).one()
+                assert lifecycle.first_approved_at == "2026-01-01 00:01:00"
+                assert lifecycle.first_plan_availed_at == "2026-01-01T00:00:00+00:00"
+                assert conn.execute(text("SELECT COUNT(*) FROM air_customer_subscription_history WHERE customer_id='+919876543213'")).scalar_one() == 1
                 assert conn.execute(text("SELECT active FROM air_device_sessions WHERE session_id='session-1'")).scalar_one() is True
                 assert conn.execute(text("SELECT promotional_consent FROM air_customer_marketing_preferences WHERE customer_id='+919876543213'")).scalar_one() is False
                 assert conn.execute(text("SELECT status FROM air_marketing_offers WHERE offer_id='offer-1'")).scalar_one() == "REVOKED"
