@@ -61,6 +61,9 @@ class AccessStore:
             assignment_id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, plan_code TEXT NOT NULL,
             starts_at TEXT NOT NULL, expires_at TEXT NOT NULL, status TEXT NOT NULL,
             assigned_by_admin_id TEXT, assigned_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+        lifecycle_columns = {row["name"] for row in self.db.execute("PRAGMA table_info(air_customer_lifecycle)")}
+        if "first_rejected_at" not in lifecycle_columns:
+            self.db.execute("ALTER TABLE air_customer_lifecycle ADD COLUMN first_rejected_at TEXT")
         self.db.execute("""INSERT OR IGNORE INTO air_customer_lifecycle(customer_id,first_registered_at)
             SELECT mobile_e164,MIN(created_at) FROM air_access_requests GROUP BY mobile_e164""")
         self.db.execute("""UPDATE air_customer_lifecycle SET first_approved_at=(
