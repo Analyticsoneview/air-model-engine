@@ -77,7 +77,7 @@ def _validate(name: str, chat_id: str, destination_type: str,
     if destination_type == "GROUP" and not chat_id.startswith("-"):
         raise ValueError("Group and supergroup chat IDs must be negative")
     if not strategies or not set(strategies).issubset(_ALLOWED_STRATEGIES):
-        raise ValueError("Select at least one supported strategy: RECOVERED, EXPIRY78, EXPIRYSCAN")
+        raise ValueError("Select at least one supported strategy: RECOVERED, EXPIRY78, EXPIRYSCAN, AIR_QOC, ORB, PORTFOLIO_RISK, AIR_WORKFLOW")
     return name, chat_id, destination_type, strategies
 
 
