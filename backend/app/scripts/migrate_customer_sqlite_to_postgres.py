@@ -20,11 +20,24 @@ TABLES = {
     "air_access_requests": ("request_id", (
         "request_id", "mobile_e164", "device_id", "status", "created_at", "reviewed_at", "reviewer_note",
     )),
+    "air_access_decision_history": ("decision_id", (
+        "decision_id", "request_id", "mobile_e164", "previous_status", "new_status",
+        "reviewer_admin_id", "reviewer_role", "note", "totp_counter", "authenticator_verified_at",
+        "verification_reference", "request_context", "decided_at",
+    )),
     "air_device_sessions": ("session_id", (
         "session_id", "request_id", "active", "created_at",
     )),
     "air_customer_subscriptions": ("customer_id", (
         "customer_id", "plan_code", "starts_at", "expires_at", "status", "updated_at",
+    )),
+    "air_customer_lifecycle": ("customer_id", (
+        "customer_id", "first_registered_at", "first_approved_at", "first_rejected_at",
+        "first_plan_availed_at", "updated_at",
+    )),
+    "air_customer_subscription_history": ("assignment_id", (
+        "assignment_id", "customer_id", "plan_code", "starts_at", "expires_at",
+        "assigned_at", "assigned_by_admin_id",
     )),
     "air_customer_marketing_preferences": ("customer_id", (
         "customer_id", "promotional_consent", "consent_updated_at", "updated_at",
@@ -37,7 +50,10 @@ TABLES = {
         "event_id", "actor_customer_id", "action", "target_id", "details", "created_at",
     )),
 }
-OPTIONAL_TABLES = {"air_customer_marketing_preferences", "air_marketing_offers", "air_marketing_audit"}
+OPTIONAL_TABLES = {
+    "air_access_decision_history", "air_customer_lifecycle", "air_customer_subscription_history",
+    "air_customer_marketing_preferences", "air_marketing_offers", "air_marketing_audit",
+}
 BOOL_COLUMNS = {"active", "promotional_consent"}
 
 
@@ -68,10 +84,14 @@ def migrate(source_path: str, database_url: str) -> dict[str, int]:
 
         # One target transaction: any conflict or schema error rolls back the entire import.
         with engine.begin() as target:
-            for table, (primary_key, columns) in TABLES.items():
+            for table, (primary_key, configured_columns) in TABLES.items():
                 if table not in existing_tables:
                     counts[table] = 0
                     continue
+                source_columns = {row["name"] for row in source.execute(f"PRAGMA table_info({table})").fetchall()}
+                columns = tuple(column for column in configured_columns if column in source_columns)
+                if primary_key not in columns:
+                    raise RuntimeError(f"SQLite source table {table} is missing its primary key {primary_key}")
                 rows = source.execute(f"SELECT {','.join(columns)} FROM {table}").fetchall()
                 counts[table] = len(rows)
                 column_sql = ",".join(columns)
@@ -95,6 +115,44 @@ def migrate(source_path: str, database_url: str) -> dict[str, int]:
                                 f"Data conflict in {table}.{column} for key "
                                 f"{values[primary_key]!r}; transaction rolled back"
                             )
+
+            # A source predating lifecycle tables still contributes complete derived customer dates.
+            # Existing history is preserved; only synthesize a single legacy plan row if no
+            # assignment history was available in the source database.
+            target.execute(text("""
+                INSERT INTO air_customer_subscription_history
+                    (assignment_id,customer_id,plan_code,starts_at,expires_at,assigned_at,assigned_by_admin_id)
+                SELECT md5(s.customer_id || s.starts_at || s.expires_at),s.customer_id,s.plan_code,
+                       s.starts_at,s.expires_at,s.starts_at,''
+                  FROM air_customer_subscriptions s
+                 WHERE NOT EXISTS (
+                    SELECT 1 FROM air_customer_subscription_history h WHERE h.customer_id=s.customer_id
+                 )
+                ON CONFLICT(assignment_id) DO NOTHING
+            """))
+            target.execute(text("""
+                INSERT INTO air_customer_lifecycle
+                    (customer_id,first_registered_at,first_approved_at,first_rejected_at,first_plan_availed_at,updated_at)
+                SELECT r.mobile_e164,MIN(r.created_at),
+                       (SELECT MIN(d.decided_at) FROM air_access_decision_history d
+                         WHERE d.mobile_e164=r.mobile_e164 AND d.new_status='APPROVED'),
+                       (SELECT MIN(d.decided_at) FROM air_access_decision_history d
+                         WHERE d.mobile_e164=r.mobile_e164 AND d.new_status='REJECTED'),
+                       COALESCE(
+                         (SELECT MIN(h.assigned_at) FROM air_customer_subscription_history h
+                           WHERE h.customer_id=r.mobile_e164),
+                         (SELECT MIN(s.starts_at) FROM air_customer_subscriptions s
+                           WHERE s.customer_id=r.mobile_e164)
+                       ), CURRENT_TIMESTAMP::text
+                  FROM air_access_requests r
+                 GROUP BY r.mobile_e164
+                ON CONFLICT(customer_id) DO UPDATE SET
+                    first_registered_at=LEAST(air_customer_lifecycle.first_registered_at,EXCLUDED.first_registered_at),
+                    first_approved_at=COALESCE(air_customer_lifecycle.first_approved_at,EXCLUDED.first_approved_at),
+                    first_rejected_at=COALESCE(air_customer_lifecycle.first_rejected_at,EXCLUDED.first_rejected_at),
+                    first_plan_availed_at=COALESCE(air_customer_lifecycle.first_plan_availed_at,EXCLUDED.first_plan_availed_at),
+                    updated_at=CURRENT_TIMESTAMP::text
+            """))
         return counts
     finally:
         source.close()
