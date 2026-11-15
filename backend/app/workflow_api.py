@@ -19,6 +19,10 @@ class WorkflowCreate(BaseModel):
     execution_mode: str = "RESEARCH_ONLY"
 
 
+class WorkflowUpdate(WorkflowCreate):
+    pass
+
+
 class EventCreate(BaseModel):
     event_type: str = Field(min_length=1, max_length=120)
     source: str = Field(min_length=1, max_length=120)
@@ -56,6 +60,38 @@ async def create_workflow(body: WorkflowCreate, admin: dict = Depends(require_ad
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+    finally:
+        store.close()
+
+
+@router.put("/{workflow_id}")
+async def update_workflow(workflow_id: str, body: WorkflowUpdate, admin: dict = Depends(require_admin)):
+    _management_admin(admin)
+    store = WorkflowStore()
+    try:
+        try:
+            workflow = store.update_workflow(
+                workflow_id, name=body.name, description=body.description,
+                trigger_type=body.trigger_type, trigger_config=body.trigger_config,
+                workflow_spec=body.workflow_spec, execution_mode=body.execution_mode,
+                updated_by=admin["admin_id"],
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if workflow is None:
+            raise HTTPException(status_code=404, detail="Workflow not found")
+        return workflow
+    finally:
+        store.close()
+
+
+@router.get("/{workflow_id}/versions")
+async def list_workflow_versions(workflow_id: str, admin: dict = Depends(require_admin)):
+    store = WorkflowStore()
+    try:
+        if store.get_workflow(workflow_id) is None:
+            raise HTTPException(status_code=404, detail="Workflow not found")
+        return {"workflow_id": workflow_id, "versions": store.list_workflow_versions(workflow_id)}
     finally:
         store.close()
 

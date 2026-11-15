@@ -19,6 +19,7 @@ EXPECTED_CHAIN = [
     "0012_workflow_engine_foundation",
     "0013_workflow_run_ledger",
     "0014_workflow_run_steps",
+    "0015_workflow_def_versions",
 ]
 
 
