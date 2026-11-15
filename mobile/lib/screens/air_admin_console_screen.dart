@@ -781,6 +781,27 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
   }
 
   Widget _auditView() => ListView(padding: const EdgeInsets.all(16), children: [
+    const Text('CUSTOMER ACCESS DECISION HISTORY · IMMUTABLE', style: TextStyle(fontWeight: FontWeight.w900)),
+    const SizedBox(height: 8),
+    if (_customerDecisions.isEmpty) const Text('No customer access decisions recorded.'),
+    for (final e in _customerDecisions)
+      Card(child: ExpansionTile(
+        title: Text('${e['new_status']} · ${_maskCustomer(e['mobile_e164']?.toString() ?? '')}',
+          style: const TextStyle(fontWeight: FontWeight.w800)),
+        subtitle: Text('${e['decided_at_ist'] ?? e['decided_at']} · ${e['reviewer_role']}'),
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        children: [
+          Align(alignment: Alignment.centerLeft, child: Text('Request: ${e['request_id']}')),
+          Align(alignment: Alignment.centerLeft, child: Text('Previous → new: ${e['previous_status']} → ${e['new_status']}')),
+          Align(alignment: Alignment.centerLeft, child: Text('Administrator: ${e['reviewer_admin_id']} · ${e['reviewer_role']}')),
+          Align(alignment: Alignment.centerLeft, child: Text('Reason: ${e['note'] ?? '—'}')),
+          Align(alignment: Alignment.centerLeft, child: Text('Authenticator verified: ${e['authenticator_verified_at'] ?? 'Legacy record · timestamp unavailable'}')),
+          Align(alignment: Alignment.centerLeft, child: Text('Verification reference: ${e['verification_reference'] ?? '—'}')),
+          Align(alignment: Alignment.centerLeft, child: Text('Request/device context: ${e['request_context'] ?? '—'}')),
+        ],
+      )),
+    const Divider(height: 28),
+    const Text('ADMINISTRATOR AUDIT EVENTS', style: TextStyle(fontWeight: FontWeight.w900)),
     for (final e in _audit) Card(child: ListTile(title: Text(e['action']?.toString() ?? ''), subtitle: Text('${e['created_at']} · target ${e['target_admin_id'] ?? '—'}'))),
   ]);
 }
