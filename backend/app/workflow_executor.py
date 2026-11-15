@@ -267,7 +267,7 @@ def execute_workflow_run(
             store.save_run_step(
                 run_id=run_id, step_key=step_key, step_index=index, action=action,
                 status="FAILED", input_data=params,
-                error="Retry budget exhausted while recovering workflow run", attempts=attempts, worker_id=worker_id, claim_version=claim_version,
+                error="Retry budget exhausted while recovering workflow run", attempts=attempts,
                 worker_id=worker_id, claim_version=claim_version,
             )
             store.set_run_status(
