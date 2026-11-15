@@ -10,7 +10,7 @@ class ModelEngineScreen extends StatefulWidget {
 
 class _ModelEngineScreenState extends State<ModelEngineScreen> {
   final AirApiClient _api = AirApiClient();
-  static const _sections = ['P&L CALENDAR', 'OPEN', 'NEW', 'HOLD', 'REENTRY', 'SURVIVOR', 'WAIT', 'SLHIT', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN', 'SETTLEMENT UP / DOWN', 'PHYSICAL SETTLEMENT', 'COMBINED', 'EXPIRY78', 'RECOVERED', 'RECOVERY'];
+  static const _sections = ['PORTFOLIO RISK', 'P&L CALENDAR', 'OPEN', 'NEW', 'HOLD', 'REENTRY', 'SURVIVOR', 'WAIT', 'SLHIT', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN', 'SETTLEMENT UP / DOWN', 'PHYSICAL SETTLEMENT', 'COMBINED', 'EXPIRY78', 'RECOVERED', 'RECOVERY'];
   static const _strategyTabs = ['EXPIRY78', 'RECOVERED', 'RECOVERY'];
 
   String _strategyKey(String section) => section == 'RECOVERED' ? 'ORIGINAL366' : section;
@@ -45,6 +45,8 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   List<Map<String, dynamic>> _reportHistory = [];
   String? _reportMessage;
   bool _reportBusy = false;
+  Map<String, dynamic> _portfolioOverview = {};
+  bool _portfolioBusy = false;
 
   @override
   void initState() {
@@ -53,6 +55,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     if (_authenticated) {
       _refresh();
       _loadAccountReports();
+      _loadPortfolio();
       _autoRefreshTimer = Timer.periodic(const Duration(minutes: 5), (_) {
         if (mounted && !_loading) _refresh();
       });
@@ -118,6 +121,26 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     finally { if (mounted) setState(() => _loading = false); }
   }
 
+  Future<void> _loadPortfolio({bool refresh = false}) async {
+    if (!_api.isAuthenticated || _portfolioBusy) return;
+    setState(() => _portfolioBusy = true);
+    try {
+      final result = refresh
+          ? await _api.refreshCustomerPortfolio()
+          : await _api.customerPortfolio();
+      if (!mounted) return;
+      setState(() {
+        _portfolioOverview = refresh
+            ? (result['portfolio'] as Map<String, dynamic>? ?? {})
+            : result;
+      });
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Portfolio refresh unavailable: $e');
+    } finally {
+      if (mounted) setState(() => _portfolioBusy = false);
+    }
+  }
+
   Future<void> _loadAccountReports() async {
     try {
       final recipient = await _api.reportEmail();
@@ -167,6 +190,106 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     finally { if (mounted) setState(() => _reportBusy = false); }
   }
 
+  Widget _portfolioRiskView() {
+    final summary = _portfolioOverview['summary'] is Map
+        ? _portfolioOverview['summary'] as Map<String, dynamic> : <String, dynamic>{};
+    final accounts = (_portfolioOverview['accounts'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>().toList();
+    final history = (_portfolioOverview['history'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>().toList();
+    String metric(String key, {String suffix = ''}) {
+      final value = summary[key];
+      if (value is num) return '${value.toStringAsFixed(2)}$suffix';
+      return 'NOT AVAILABLE';
+    }
+    Widget tile(String label, String value) => Expanded(child: Card(child: Padding(
+      padding: const EdgeInsets.all(10), child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+        children: [Text(label, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 5), Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900))],
+      ),
+    )));
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            const Expanded(child: Text('CONSOLIDATED BROKER PORTFOLIO', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12))),
+            IconButton(onPressed: _portfolioBusy ? null : () => _loadPortfolio(refresh: true),
+              icon: const Icon(Icons.sync_rounded), tooltip: 'Refresh read-only broker data'),
+          ]),
+          Text('As of ${_portfolioOverview['as_of'] ?? 'No snapshots yet'} • ${summary['data_quality'] ?? 'NO_SNAPSHOTS'}',
+            style: const TextStyle(fontSize: 9)),
+          const SizedBox(height: 8),
+          Row(children: [
+            tile('GROSS MARKET VALUE', '₹${metric('gross_market_value')}'),
+            tile('NET EXPOSURE', '₹${metric('net_exposure')}'),
+          ]),
+          Row(children: [
+            tile('UNREALIZED P&L', '₹${metric('unrealized_pnl')}'),
+            tile('DAY P&L', '₹${metric('day_pnl')}'),
+          ]),
+          Row(children: [
+            tile('POSITIONS', metric('position_count')),
+            tile('HOLDINGS', metric('holding_count')),
+          ]),
+          Text('RETURN: ${metric('return_pct_on_observed_invested_value', suffix: '%')}  •  MAX DRAWDOWN: ${metric('max_drawdown_pct', suffix: '%')}',
+            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 5),
+          Text('TOP POSITION CONCENTRATION: ${metric('concentration_top_position_pct', suffix: '%')}',
+            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
+          ...((summary['sector_exposure'] as List<dynamic>? ?? const [])
+              .whereType<Map<String, dynamic>>().take(4).map((sector) => Text(
+                'SECTOR ${sector['sector']}: ₹${sector['market_value']} • ${sector['exposure_pct'] ?? '—'}%',
+                style: const TextStyle(fontSize: 9)))),
+          const SizedBox(height: 5),
+          Text(summary['risk_note']?.toString() ??
+              'Returns and drawdown require verified capital/equity history. Missing values are not estimated.',
+              style: const TextStyle(fontSize: 9)),
+          if (_portfolioBusy) const LinearProgressIndicator(),
+        ],
+      ))),
+      if (accounts.isEmpty) const Card(child: Padding(padding: EdgeInsets.all(14),
+        child: Text('No portfolio snapshots yet. Connect an owned broker account and tap refresh.'))),
+      ...accounts.map((account) {
+        final aSummary = account['summary'] is Map
+            ? account['summary'] as Map<String, dynamic> : <String, dynamic>{};
+        final positions = (account['positions'] as List<dynamic>? ?? const [])
+            .whereType<Map<String, dynamic>>().toList();
+        final holdings = (account['holdings'] as List<dynamic>? ?? const [])
+            .whereType<Map<String, dynamic>>().toList();
+        return Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('${account['broker']} • ${account['account_id']}',
+              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 11)),
+            Text('Captured: ${account['captured_at']} • ${aSummary['data_quality'] ?? 'PARTIAL'}',
+              style: const TextStyle(fontSize: 9)),
+            Text('Gross ₹${aSummary['gross_market_value'] ?? '—'} • P&L ₹${aSummary['unrealized_pnl'] ?? '—'} • Concentration ${aSummary['concentration_top_position_pct'] ?? '—'}%',
+              style: const TextStyle(fontSize: 10)),
+            const Divider(),
+            ...[...positions, ...holdings].take(12).map((row) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: Row(children: [
+                Expanded(child: Text('${row['symbol']} • ${row['kind']} • ${row['side']}',
+                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700))),
+                Text('Qty ${row['quantity'] ?? '—'} • ₹${row['market_value'] ?? '—'} • P&L ₹${row['pnl'] ?? '—'}',
+                  style: const TextStyle(fontSize: 9)),
+              ]),
+            )),
+            if (positions.length + holdings.length > 12)
+              Text('Showing 12 of ${positions.length + holdings.length} instruments',
+                style: const TextStyle(fontSize: 9)),
+          ],
+        )));
+      }),
+      if (history.isNotEmpty) Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('SNAPSHOT HISTORY', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 10)),
+          ...history.take(10).map((row) => Text('${row['captured_at']} • ${row['broker']}/${row['account_id']} • P&L ₹${(row['summary'] as Map?)?['unrealized_pnl'] ?? '—'}',
+            style: const TextStyle(fontSize: 9))),
+        ],
+      ))),
+    ]);
+  }
+
   Widget _accountReportsView() {
     final verified = _reportRecipient['verified'] == true;
     final emailMatches = _reportEmailController.text.trim().toLowerCase() ==
@@ -214,6 +337,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   String _v(Map<String, dynamic> row, String key) => row[key] == null ? '—' : row[key].toString();
 
   String _tabCount(String section) {
+    if (section == 'PORTFOLIO RISK') return (_portfolioOverview['account_count'] ?? 0).toString();
     if (section == 'P&L CALENDAR') return '₹';
     if (_strategyTabs.contains(section)) {
       final data = _strategies[_strategyKey(section)];
@@ -731,6 +855,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final selectedSection = _sections[_selected];
+    final portfolioSelected = selectedSection == 'PORTFOLIO RISK';
     final pnlSelected = selectedSection == 'P&L CALENDAR';
     final expirySelected = selectedSection == 'EXPIRYSCAN';
     final settlementSelected = selectedSection == 'PHYSICAL SETTLEMENT';
@@ -801,6 +926,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
             ],
           ))),
           const SizedBox(height: 10),
+          if (portfolioSelected) _portfolioRiskView(),
           if (pnlSelected) ...[_pnlCalendarView(), _accountReportsView()],
           if (settlementComparisonSelected) _settlementComparisonView(),
           if (strategySelected) ...[
@@ -906,7 +1032,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                   'scan_status','observed_at']) DataCell(_cell(_v(r, key))),
               ],
             )).toList()))),
-          if (!pnlSelected && !settlementSelected && !settlementComparisonSelected && ((!expirySelected && rows.isEmpty) || (expirySelected && _expiryRows.isEmpty))) Card(child: Padding(padding: const EdgeInsets.all(18),
+          if (!portfolioSelected && !pnlSelected && !settlementSelected && !settlementComparisonSelected && ((!expirySelected && rows.isEmpty) || (expirySelected && _expiryRows.isEmpty))) Card(child: Padding(padding: const EdgeInsets.all(18),
             child: Column(children: [
               Icon(Icons.hourglass_empty_rounded, size: 28, color: cs.onSurfaceVariant),
               const SizedBox(height: 8),
@@ -915,7 +1041,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
               Text('This section populates only from persisted verified records. No invented sample trades are displayed.',
                 textAlign: TextAlign.center, style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
             ]),
-          )) else if (!pnlSelected && !expirySelected && !settlementSelected && !settlementComparisonSelected) Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal,
+          )) else if (!portfolioSelected && !pnlSelected && !expirySelected && !settlementSelected && !settlementComparisonSelected) Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal,
             child: DataTable(columnSpacing: 14, headingRowHeight: 38,
               dataRowMinHeight: 38, dataRowMaxHeight: 52,
               columns: _columns, rows: rows.map(_row).toList()))),

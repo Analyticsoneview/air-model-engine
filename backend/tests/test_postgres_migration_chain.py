@@ -14,6 +14,7 @@ EXPECTED_CHAIN = [
     "0007_execution_order_stores",
     "0008_customer_access_decisions",
     "0009_customer_lifecycle",
+    "0010_portfolio_risk_foundation",
 ]
 
 

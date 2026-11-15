@@ -582,6 +582,15 @@ class AirApiClient {
   Future<Map<String, dynamic>> runAccountReports() async => _decode(await _client.post(
     Uri.parse('$baseUrl/api/v1/customer/reports/run'), headers: _headers));
 
+  Future<Map<String, dynamic>> customerPortfolio() async => _decode(await _client.get(
+    Uri.parse('$baseUrl/api/v1/customer/portfolio'), headers: _headers));
+
+  Future<Map<String, dynamic>> refreshCustomerPortfolio() async => _decode(await _client.post(
+    Uri.parse('$baseUrl/api/v1/customer/portfolio/refresh'), headers: _headers));
+
+  Future<Map<String, dynamic>> customerPortfolioHistory({int limit = 100}) async => _decode(await _client.get(
+    Uri.parse('$baseUrl/api/v1/customer/portfolio/history?limit=$limit'), headers: _headers));
+
   Future<Map<String, dynamic>> settlementComparison({int limit = 500}) async {
     final uri = Uri.parse('$baseUrl/api/v1/model-engine/settlement-comparison')
         .replace(queryParameters: {'limit': limit.toString()});

@@ -164,4 +164,40 @@ void main() {
       client.dispose();
     });
   });
+    test('portfolio overview and refresh use authenticated customer endpoints', () async {
+      final requests = <http.Request>[];
+      final client = AirApiClient(
+        baseUrl: 'https://air.example',
+        client: MockClient((request) async {
+          requests.add(request);
+          expect(request.headers['Authorization'], 'Bearer portfolio-token');
+          if (request.method == 'POST') {
+            expect(request.url.path, '/api/v1/customer/portfolio/refresh');
+            return http.Response(jsonEncode({
+              'status': 'COMPLETE',
+              'captured': [{'broker': 'dhan', 'account_id': 'acct-1'}],
+              'portfolio': {'account_count': 1},
+              'read_only': true,
+            }), 200);
+          }
+          expect(request.url.path, '/api/v1/customer/portfolio');
+          return http.Response(jsonEncode({
+            'account_count': 1,
+            'summary': {'gross_market_value': 2200},
+          }), 200);
+        }),
+      );
+      AirApiClient.setAccessToken('portfolio-token');
+
+      final overview = await client.customerPortfolio();
+      final refreshed = await client.refreshCustomerPortfolio();
+
+      expect(overview['account_count'], 1);
+      expect((overview['summary'] as Map)['gross_market_value'], 2200);
+      expect(refreshed['status'], 'COMPLETE');
+      expect(requests.length, 2);
+      client.dispose();
+      AirApiClient.setAccessToken(null);
+    });
+
 }

@@ -21,48 +21,71 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 from zoneinfo import ZoneInfo
 
+from app.db_compat import PostgresConnection, read_database_url
+
 IST = ZoneInfo("Asia/Kolkata")
 
 
 class AccountReporting:
     def __init__(self, db_path: str | None = None):
-        self.db_path = db_path or os.getenv("AIR_REPORT_DB_PATH", "data/air_account_reports.sqlite3")
-        if self.db_path != ":memory:":
-            Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30)
-        self.db.row_factory = sqlite3.Row
-        self.db.execute("PRAGMA journal_mode=WAL")
-        self.db.execute("""
-            CREATE TABLE IF NOT EXISTS report_recipients (
-                customer_id TEXT PRIMARY KEY,
-                email TEXT NOT NULL,
-                verified INTEGER NOT NULL DEFAULT 0,
-                otp_hash TEXT,
-                otp_expires_at TEXT,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        self.db.execute("""
-            CREATE TABLE IF NOT EXISTS account_report_runs (
-                run_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                customer_id TEXT NOT NULL,
-                broker TEXT NOT NULL,
-                account_id TEXT NOT NULL,
-                report_date TEXT NOT NULL,
-                status TEXT NOT NULL,
-                detail TEXT,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(customer_id, broker, account_id, report_date)
-            )
-        """)
-        self.db.commit()
+        database_url = None if db_path is not None else (
+            read_database_url("AIR_CUSTOMER_DATABASE_URL")
+            or read_database_url("AIR_DATABASE_URL")
+        )
+        configured_path = db_path or os.getenv("AIR_REPORT_DB_PATH")
+        self._is_postgres = database_url is not None
+        if self._is_postgres:
+            self.db_path = None
+            self.db = PostgresConnection(database_url)
+            try:
+                self.db.execute("SELECT 1 FROM report_recipients LIMIT 0")
+                self.db.execute("SELECT 1 FROM account_report_runs LIMIT 0")
+            except Exception as exc:
+                self.db.close()
+                raise RuntimeError("PostgreSQL account-report schema is missing; apply Alembic migrations first") from exc
+        else:
+            self.db_path = configured_path or "data/air_account_reports.sqlite3"
+            if self.db_path != ":memory:":
+                Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+            self.db = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30)
+            self.db.row_factory = sqlite3.Row
+            self.db.execute("PRAGMA journal_mode=WAL")
+            self.db.execute("PRAGMA busy_timeout=30000")
+            self.db.execute("""
+                CREATE TABLE IF NOT EXISTS report_recipients (
+                    customer_id TEXT PRIMARY KEY,
+                    email TEXT NOT NULL,
+                    verified INTEGER NOT NULL DEFAULT 0,
+                    otp_hash TEXT,
+                    otp_expires_at TEXT,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            self.db.execute("""
+                CREATE TABLE IF NOT EXISTS account_report_runs (
+                    run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    customer_id TEXT NOT NULL,
+                    broker TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    report_date TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    detail TEXT,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(customer_id, broker, account_id, report_date)
+                )
+            """)
+            self.db.commit()
 
     def recipient(self, customer_id: str) -> dict[str, Any] | None:
         row = self.db.execute(
             "SELECT email,verified,updated_at FROM report_recipients WHERE customer_id=?",
             (customer_id,),
         ).fetchone()
-        return dict(row) if row else None
+        if row is None:
+            return None
+        recipient = dict(row)
+        recipient["verified"] = bool(recipient["verified"])
+        return recipient
 
     def request_verification(self, customer_id: str, email: str) -> str:
         email = email.strip().lower()
