@@ -43,10 +43,12 @@ def upgrade() -> None:
                     "air_customer_subscription_history", ["customer_id", "assigned_at"])
 
     op.execute("""
-        INSERT INTO air_customer_lifecycle(customer_id, first_registered_at, first_approved_at, first_plan_availed_at)
+        INSERT INTO air_customer_lifecycle(customer_id, first_registered_at, first_approved_at, first_rejected_at, first_plan_availed_at)
         SELECT r.mobile_e164, MIN(r.created_at),
                (SELECT MIN(d.decided_at) FROM air_access_decision_history d
                  WHERE d.mobile_e164=r.mobile_e164 AND d.new_status='APPROVED'),
+               (SELECT MIN(d.decided_at) FROM air_access_decision_history d
+                 WHERE d.mobile_e164=r.mobile_e164 AND d.new_status='REJECTED'),
                (SELECT MIN(s.starts_at) FROM air_customer_subscriptions s
                  WHERE s.customer_id=r.mobile_e164)
           FROM air_access_requests r
