@@ -634,16 +634,24 @@ class WorkflowStore:
         if not event:
             raise ValueError("Workflow event does not exist")
         payload = json.loads(event["payload_json"])
-        definitions = self.db.execute(
-            "SELECT * FROM air_workflow_definitions WHERE enabled=? ORDER BY created_at",
-            (True,),
-        ).fetchall()
+        replay = payload.get("_air_workflow_replay")
+        if isinstance(replay, dict):
+            definitions = self.db.execute(
+                """SELECT * FROM air_workflow_definition_versions
+                   WHERE workflow_id=? AND version=?""",
+                (str(replay.get("workflow_id") or ""), int(replay.get("workflow_version") or 0)),
+            ).fetchall()
+        else:
+            definitions = self.db.execute(
+                "SELECT * FROM air_workflow_definitions WHERE enabled=? ORDER BY created_at",
+                (True,),
+            ).fetchall()
         created = []
         for definition in definitions:
             config = json.loads(definition["trigger_config_json"])
             trigger_type = definition["trigger_type"]
             workflow_chain = payload.get("workflow_chain")
-            if isinstance(workflow_chain, list) and definition["workflow_id"] in workflow_chain:
+            if not isinstance(replay, dict) and isinstance(workflow_chain, list) and definition["workflow_id"] in workflow_chain:
                 continue
             scoped_customer = config.get("customer_id")
             if scoped_customer and str(payload.get("customer_id") or "") != str(scoped_customer):
@@ -685,6 +693,43 @@ class WorkflowStore:
                     "status": row["status"], "duplicate": row["run_id"] != run_id,
                 })
         return created
+
+    def replay_run(self, run_id: str, requested_by: str) -> dict:
+        actor = str(requested_by).strip()
+        if not actor or len(actor) > 128:
+            raise ValueError("requested_by must contain 1-128 characters")
+        row = self.db.execute(
+            """SELECT r.status,r.workflow_id,r.workflow_version,e.event_type,
+                      e.payload_json,e.correlation_id
+               FROM air_workflow_runs r
+               JOIN air_workflow_events e ON e.event_id=r.event_id
+               WHERE r.run_id=?""", (run_id,),
+        ).fetchone()
+        if not row:
+            raise ValueError("Workflow run does not exist")
+        if row["status"] != "FAILED":
+            raise ValueError("Only failed workflow runs can be replayed")
+        payload = json.loads(row["payload_json"])
+        payload["_air_workflow_replay"] = {
+            "workflow_id": row["workflow_id"],
+            "workflow_version": row["workflow_version"],
+            "original_run_id": run_id,
+            "requested_by": actor,
+        }
+        replay_event = self.publish_event(
+            event_type=row["event_type"], source="workflow.replay",
+            payload=payload,
+            idempotency_key=f"workflow-replay:{run_id}:{uuid4()}",
+            correlation_id=row["correlation_id"],
+        )
+        runs = self.process_event(replay_event["event_id"])
+        with self.db:
+            self._insert_audit(
+                row["workflow_id"], row["workflow_version"], actor,
+                "WORKFLOW_RUN_REPLAYED",
+                {"original_run_id": run_id, "replay_event_id": replay_event["event_id"]},
+            )
+        return {"event_id": replay_event["event_id"], "runs": runs}
 
     def due_time_workflows(self, now: datetime | None = None) -> list[dict]:
         current = now or datetime.now(timezone.utc)
