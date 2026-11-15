@@ -815,8 +815,7 @@ class WorkflowStore:
                     """SELECT run_id FROM air_workflow_runs
                        WHERE status IN ('QUEUED','RUNNING')
                          AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
-                       ORDER BY started_at
-                       FOR UPDATE SKIP LOCKED LIMIT ?""", (now, limit),
+                       ORDER BY started_at LIMIT ? FOR UPDATE SKIP LOCKED""", (now, limit),
                 ).fetchall()
                 for row in rows:
                     version = self.db.execute(
