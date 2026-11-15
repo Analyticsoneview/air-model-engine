@@ -1,5 +1,6 @@
 from app.workflow_engine import WorkflowStore
 import app.workflow_events as workflow_events
+from app.workflow_events import build_idempotency_key
 
 
 def test_domain_event_bridge_persists_idempotent_outbox_record(tmp_path, monkeypatch):
@@ -36,3 +37,10 @@ def test_domain_event_bridge_is_non_blocking_for_domain_when_store_unavailable(m
     )
     assert result["status"] == "deferred"
     assert result["error"] == "RuntimeError"
+
+
+def test_domain_event_idempotency_key_is_stable_and_bounded():
+    first = build_idempotency_key("long-customer-event", "customer-" * 40, "account-" * 40)
+    second = build_idempotency_key("long-customer-event", "customer-" * 40, "account-" * 40)
+    assert first == second
+    assert len(first) <= 200
