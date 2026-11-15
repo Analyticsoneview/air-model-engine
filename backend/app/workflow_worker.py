@@ -87,40 +87,58 @@ def _publish_batch(store: WorkflowStore, channel, items: list[dict]) -> None:
 
 
 def _publish_outbox(stop: threading.Event) -> None:
-    store = WorkflowStore()
+    store = None
     try:
         while not stop.is_set():
-            items = store.pending_outbox(100)
-            if not items:
-                stop.wait(1.0)
-                continue
-            connection = None
             try:
-                connection = _connection()
-                channel = connection.channel()
-                _declare(channel)
-                channel.confirm_delivery()
-                _publish_batch(store, channel, items)
-            except Exception as exc:  # broker outage must not stop the API or worker
-                log.warning("Workflow outbox publish deferred: %s", type(exc).__name__)
-                for item in items:
+                # The API applies migrations during startup. In Swarm the worker may
+                # start first, so database/schema availability must be retried.
+                if store is None:
+                    store = WorkflowStore()
+                items = store.pending_outbox(100)
+                if not items:
+                    stop.wait(1.0)
+                    continue
+                connection = None
+                try:
+                    connection = _connection()
+                    channel = connection.channel()
+                    _declare(channel)
+                    channel.confirm_delivery()
+                    _publish_batch(store, channel, items)
+                except Exception as exc:
+                    log.warning("Workflow outbox publish deferred: %s", type(exc).__name__)
+                    for item in items:
+                        try:
+                            store.mark_outbox_failed(item["outbox_id"], item["attempts"], type(exc).__name__)
+                        except Exception:
+                            log.exception("Could not update workflow outbox retry state")
+                    stop.wait(2.0)
+                finally:
+                    if connection and connection.is_open:
+                        connection.close()
+            except Exception as exc:
+                log.warning("Workflow outbox runtime will retry after %s", type(exc).__name__)
+                if store is not None:
                     try:
-                        store.mark_outbox_failed(item["outbox_id"], item["attempts"], type(exc).__name__)
+                        store.close()
                     except Exception:
-                        log.exception("Could not update workflow outbox retry state")
-                stop.wait(2.0)
-            finally:
-                if connection and connection.is_open:
-                    connection.close()
+                        pass
+                    store = None
+                stop.wait(3.0)
     finally:
-        store.close()
+        if store is not None:
+            store.close()
 
 
 def _schedule_time_triggers(stop: threading.Event) -> None:
-    store = WorkflowStore()
+    store = None
     try:
         while not stop.is_set():
             try:
+                # Retry until the API has completed the workflow migrations.
+                if store is None:
+                    store = WorkflowStore()
                 for item in store.due_time_workflows():
                     store.publish_event(
                         event_type="workflow.time.triggered", source="workflow.scheduler",
@@ -128,11 +146,18 @@ def _schedule_time_triggers(stop: threading.Event) -> None:
                                  "scheduled_local_time": item["local_time"]},
                         idempotency_key=f"time:{item['workflow_id']}:{item['scheduled_key']}",
                     )
-            except Exception:
-                log.exception("AIR time-trigger scheduler iteration failed")
+            except Exception as exc:
+                log.warning("AIR time-trigger scheduler will retry after %s", type(exc).__name__)
+                if store is not None:
+                    try:
+                        store.close()
+                    except Exception:
+                        pass
+                    store = None
             stop.wait(5.0)
     finally:
-        store.close()
+        if store is not None:
+            store.close()
 
 
 def _consume(stop: threading.Event) -> None:
