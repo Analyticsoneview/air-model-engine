@@ -71,8 +71,36 @@ def upgrade() -> None:
     op.create_index("idx_model_signals_contract", "model_signals",
                     ["symbol", "expiry", "strike", "option_type"])
 
+    op.create_table(
+        "report_recipients",
+        sa.Column("customer_id", sa.String(128), primary_key=True),
+        sa.Column("email", sa.String(254), nullable=False),
+        sa.Column("verified", sa.SmallInteger(), nullable=False, server_default="0"),
+        sa.Column("otp_hash", sa.String(64)),
+        sa.Column("otp_expires_at", sa.Text()),
+        sa.Column("updated_at", sa.Text(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP::text")),
+    )
+    op.create_table(
+        "account_report_runs",
+        sa.Column("run_id", sa.BigInteger(), sa.Identity(always=False), primary_key=True),
+        sa.Column("customer_id", sa.String(128), nullable=False),
+        sa.Column("broker", sa.String(32), nullable=False),
+        sa.Column("account_id", sa.String(128), nullable=False),
+        sa.Column("report_date", sa.String(10), nullable=False),
+        sa.Column("status", sa.String(16), nullable=False),
+        sa.Column("detail", sa.Text()),
+        sa.Column("created_at", sa.Text(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP::text")),
+        sa.UniqueConstraint("customer_id", "broker", "account_id", "report_date",
+                            name="uq_account_report_customer_account_date"),
+    )
+    op.create_index("idx_account_report_runs_customer_date", "account_report_runs",
+                    ["customer_id", "report_date"])
+
 
 def downgrade() -> None:
+    op.drop_index("idx_account_report_runs_customer_date", table_name="account_report_runs")
+    op.drop_table("account_report_runs")
+    op.drop_table("report_recipients")
     op.drop_index("idx_model_signals_contract", table_name="model_signals")
     op.drop_index("idx_model_signals_customer_status", table_name="model_signals")
     op.drop_table("model_signals")
