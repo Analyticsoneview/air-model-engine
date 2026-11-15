@@ -1,0 +1,54 @@
+name: AIR Workflow Engine RabbitMQ Integration
+
+on:
+  pull_request:
+    paths:
+      - 'backend/**'
+      - 'docker-stack.yml'
+      - 'compose.local.yml'
+      - 'deploy/**'
+      - '.github/workflows/workflow-engine-integration.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'docker-stack.yml'
+      - 'compose.local.yml'
+      - 'deploy/**'
+      - '.github/workflows/workflow-engine-integration.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  rabbitmq-integration:
+    name: RabbitMQ durable outbox and consumer integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      rabbitmq:
+        image: rabbitmq:4-management-alpine
+        env:
+          RABBITMQ_DEFAULT_USER: air
+          RABBITMQ_DEFAULT_PASS: testpass
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install backend dependencies
+        run: python -m pip install -r backend/requirements.txt pytest
+      - name: Verify RabbitMQ-backed workflow delivery
+        working-directory: backend
+        env:
+          AIR_RABBITMQ_URL: amqp://air:testpass@localhost:5672/%2F
+        run: python -m pytest -q tests/test_workflow_rabbitmq_integration.py
