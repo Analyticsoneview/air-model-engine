@@ -1159,6 +1159,14 @@ async def admin_customer_daily_report(
         if registered_day:
             first_registration[mobile] = min(first_registration.get(mobile, registered_day), registered_day)
 
+    decisions_by_request = {}
+    decisions_by_customer = {}
+    for decision in decisions:
+        decision_day = report_day(decision.get("decided_at"))
+        record = {"day": decision_day, "status": decision["new_status"], "at": decision.get("decided_at")}
+        decisions_by_request.setdefault(decision["request_id"], []).append(record)
+        decisions_by_customer.setdefault(decision["mobile_e164"], []).append(record)
+
     output = []
     current = first
     while current <= last:
@@ -1172,20 +1180,45 @@ async def admin_customer_daily_report(
         day_decisions = [decision for decision in decisions if report_day(decision.get("decided_at")) == day]
         approved = sum(1 for decision in day_decisions if decision["new_status"] == "APPROVED")
         rejected = sum(1 for decision in day_decisions if decision["new_status"] == "REJECTED")
-        pending = sum(
-            1 for row in requests
-            if row["status"] == "PENDING" and report_day(row.get("created_at")) == day
-        )
-        first_plans = sum(
-            1 for item in customers if report_day(item.get("first_plan_availed_at")) == day
-        )
-        approved_no_plan = sum(
-            1 for item in customers
-            if item["access_status"] == "APPROVED"
-            and report_day(item.get("first_approved_at")) is not None
-            and report_day(item.get("first_approved_at")) <= day
-            and (not item.get("first_plan_availed_at") or report_day(item.get("first_plan_availed_at")) > day)
-        )
+
+        # Reconstruct pending requests and customer access state as at the end of this IST date.
+        pending = 0
+        customer_request_states = {}
+        for row in requests:
+            created_day = report_day(row.get("created_at"))
+            if not created_day or created_day > day:
+                continue
+            history = [event for event in decisions_by_request.get(row["request_id"], [])
+                       if event["day"] is not None and event["day"] <= day]
+            latest = max(history, key=lambda event: str(event["at"] or "")) if history else None
+            status = latest["status"] if latest else "PENDING"
+            if status == "PENDING":
+                pending += 1
+            customer_request_states.setdefault(row["mobile_e164"], []).append(status)
+
+        first_plan_days = {
+            item["customer_id"]: report_day(item.get("first_plan_availed_at"))
+            for item in customers
+        }
+        approved_no_plan = 0
+        for customer_id, states in customer_request_states.items():
+            if "APPROVED" in states:
+                customer_status = "APPROVED"
+            elif "PENDING" in states:
+                customer_status = "PENDING"
+            elif "BLOCKED" in states:
+                customer_status = "BLOCKED"
+            else:
+                customer_status = "REJECTED"
+            approvals = [event for event in decisions_by_customer.get(customer_id, [])
+                         if event["status"] == "APPROVED" and event["day"] is not None and event["day"] <= day]
+            first_approved = min((event["day"] for event in approvals), default=None)
+            plan_day = first_plan_days.get(customer_id)
+            if customer_status == "APPROVED" and first_approved is not None and first_approved <= day:
+                if plan_day is None or plan_day > day:
+                    approved_no_plan += 1
+
+        first_plans = sum(1 for plan_day in first_plan_days.values() if plan_day == day)
         output.append({
             "date": day,
             "new_registrations": len(registered),
