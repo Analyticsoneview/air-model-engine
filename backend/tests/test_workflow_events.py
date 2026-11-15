@@ -1,6 +1,6 @@
 from app.workflow_engine import WorkflowStore
 import app.workflow_events as workflow_events
-from app.workflow_events import build_idempotency_key
+from app.workflow_events import build_idempotency_key, emit_workflow_events
 
 
 def test_domain_event_bridge_persists_idempotent_outbox_record(tmp_path, monkeypatch):
@@ -44,3 +44,23 @@ def test_domain_event_idempotency_key_is_stable_and_bounded():
     second = build_idempotency_key("long-customer-event", "customer-" * 40, "account-" * 40)
     assert first == second
     assert len(first) <= 200
+
+
+def test_domain_event_batch_uses_one_store_and_persists_each_event(tmp_path, monkeypatch):
+    path = str(tmp_path / "domain-event-batch.sqlite3")
+    monkeypatch.setattr(workflow_events, "WorkflowStore", lambda: WorkflowStore(path))
+    results = emit_workflow_events([
+        {"event_type": "qoc.scan.completed", "source": "qoc",
+         "payload": {"customer_id": "customer-1"},
+         "idempotency_key": "qoc-scan-one"},
+        {"event_type": "qoc.candidate.qualified", "source": "qoc",
+         "payload": {"customer_id": "customer-1", "score": 92},
+         "idempotency_key": "qoc-candidate-one"},
+    ])
+    assert len(results) == 2
+    assert all(result["duplicate"] is False for result in results)
+    store = WorkflowStore(path)
+    try:
+        assert len(store.pending_outbox()) == 2
+    finally:
+        store.close()
