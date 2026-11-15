@@ -433,7 +433,7 @@ class _AirQocScreenState extends State<AirQocScreen> {
                       Text('OTM ${signal['otm_pct'] ?? '—'}%', style: const TextStyle(fontSize: 10)),
                       Text('Underlying ${signal['underlying_change_pct'] ?? '—'}%', style: const TextStyle(fontSize: 10)),
                       Text('Premium move ${signal['premium_change_pct'] ?? '—'}%', style: const TextStyle(fontSize: 10)),
-                      Text('Vol Δ ${signal['volume_delta'] ?? '—'}', style: const TextStyle(fontSize: 10)),
+                      Text('Option vol Δ ${signal['volume_delta'] ?? '—'}', style: const TextStyle(fontSize: 10)),
                       Text('OI Δ ${signal['oi_delta'] ?? '—'}', style: const TextStyle(fontSize: 10)),
                       Text('Spread ${signal['spread_pct'] ?? '—'}%', style: const TextStyle(fontSize: 10)),
                     ]),
