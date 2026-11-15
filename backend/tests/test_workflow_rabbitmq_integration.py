@@ -162,3 +162,61 @@ def test_poison_message_reaches_dead_letter_queue_after_delivery_limit():
     finally:
         if connection.is_open:
             connection.close()
+
+
+def test_confirmed_publish_database_commit_gap_replays_same_event_idempotently(tmp_path):
+    store = WorkflowStore(str(tmp_path / "outbox-confirm-gap.sqlite3"))
+    connection = None
+    try:
+        workflow = store.create_workflow(
+            name="Confirm gap replay", created_by="ci", trigger_type="EVENT",
+            trigger_config={"event_type": "integration.confirm-gap"},
+        )
+        store.set_workflow_enabled(workflow["workflow_id"], True)
+        event = store.publish_event(
+            event_type="integration.confirm-gap", source="ci",
+            payload={"case": "confirm-before-db-commit"},
+            idempotency_key="rabbitmq-confirm-gap",
+        )
+        connection = _connection()
+        channel = connection.channel()
+        _declare(channel)
+        channel.queue_purge(queue=QUEUE)
+        channel.queue_purge(queue=DEAD_QUEUE)
+        channel.confirm_delivery()
+
+        # Model the crash window: RabbitMQ confirms the durable message, but the
+        # process dies before the outbox row can be marked PUBLISHED.
+        pending = store.pending_outbox()
+        item = pending[0]
+        confirmed = channel.basic_publish(
+            exchange=EXCHANGE, routing_key=item["event_type"],
+            body=json.dumps(item, separators=(",", ":")).encode(),
+            properties=pika.BasicProperties(
+                delivery_mode=2, content_type="application/json",
+                message_id=item["event_id"], type=item["event_type"],
+            ),
+            mandatory=True,
+        )
+        assert confirmed is not False
+        assert store.pending_outbox()[0]["event_id"] == event["event_id"]
+
+        # Restarted publisher retries the still-pending row with the same ID.
+        _publish_batch(store, channel, store.pending_outbox())
+        assert store.pending_outbox() == []
+
+        deliveries = []
+        for _ in range(2):
+            method, _, body = channel.basic_get(queue=QUEUE, auto_ack=False)
+            assert method is not None
+            deliveries.append(json.loads(body)["event_id"])
+            store.process_event(deliveries[-1])
+            channel.basic_ack(delivery_tag=method.delivery_tag)
+
+        assert deliveries == [event["event_id"], event["event_id"]]
+        assert len(store.list_runs()) == 1
+        assert store.list_runs()[0]["workflow_id"] == workflow["workflow_id"]
+    finally:
+        if connection and connection.is_open:
+            connection.close()
+        store.close()
