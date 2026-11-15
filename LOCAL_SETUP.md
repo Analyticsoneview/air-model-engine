@@ -9,7 +9,7 @@ AIR local development uses Docker Compose v2 so the same services and configurat
 - At least 15 GB free disk space recommended for images, build cache and the initial NSE CM/FO data import.
 - Internet access for image builds and NSE archive downloads.
 
-No host Python, Node.js, PostgreSQL or Redis installation is required for the local Compose startup. API dependencies run in the backend container and the PWA is built in a Flutter container.
+No host Python, Node.js, PostgreSQL, Redis or RabbitMQ installation is required for the local Compose startup. API dependencies run in the backend container and the PWA is built in a Flutter container.
 
 ## First launch
 
@@ -26,7 +26,7 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 bash ./AIRSTART.sh
 ```
 
-The launcher checks Docker and Compose, creates local secrets if missing, creates the local environment file, builds the API and Flutter PWA, starts both services, waits for the API health endpoint, and opens the app.
+The launcher checks Docker and Compose, creates local secrets if missing, creates the local environment file, builds the API and Flutter PWA, starts PostgreSQL, Redis, RabbitMQ, the API, workflow worker and PWA, waits for their health checks, and opens the app.
 
 After the first launch, the launcher installs the `AIRSTART` command in the PowerShell profile on Windows or the shell profile on macOS/Linux. Open a new terminal and run:
 
@@ -41,6 +41,7 @@ Run it from the AIR repository directory. It is safe to run repeatedly; Compose 
 - AIR app: http://localhost:8080
 - API health: http://localhost:8000/health
 - API docs: http://localhost:8000/docs
+- RabbitMQ management UI (local only): http://localhost:15672 (credentials are in `.air-secrets`; do not expose this port publicly)
 
 ## Safety defaults
 
@@ -48,7 +49,7 @@ Run it from the AIR repository directory. It is safe to run repeatedly; Compose 
 - QOC and Telegram schedulers remain disabled until their provider credentials, entitlements and destinations are explicitly configured and tested.
 - NSE historical-data bootstrap is enabled and runs in the background; it can take time and requires network access.
 - Local secrets are generated into `.air-secrets/`; they must never be committed or shared. Back up the credential encryption key securely if you enter real broker credentials.
-- Local SQLite data is persisted in the Docker volume `air_data`.
+- Local SQLite data is persisted in the Docker volume `air_data`. RabbitMQ data is persisted in `rabbitmq_data`; its password is generated in `.air-secrets/rabbitmq_password`.
 - This local stack does not create public DNS/TLS, deploy to Swarm, configure production secrets, or validate live broker trading.
 
 ## Operations
@@ -57,6 +58,7 @@ Run it from the AIR repository directory. It is safe to run repeatedly; Compose 
 docker compose -f compose.local.yml ps
 docker compose -f compose.local.yml logs -f air-api
 docker compose -f compose.local.yml logs -f air-pwa
+docker compose -f compose.local.yml logs -f air-workflow-worker
 docker compose -f compose.local.yml down
 ```
 
