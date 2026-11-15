@@ -1,6 +1,6 @@
 # Self-hosted Docker Swarm deployment (single-node lab)
 
-This stack serves the Flutter PWA and API on a private overlay network. It is a **single-replica lab deployment**, not a highly available production cluster. PostgreSQL 16 and Redis 7 are provisioned with persistent volumes and Docker secrets. The API container applies Alembic migrations before starting Uvicorn. Broker account ownership, market-data entitlements/selections and encrypted broker credentials use PostgreSQL through the shared `air_database_url` secret. Authentication, sessions, QOC, instruments and remaining repositories are still on their existing stores until their own migrations and tests are complete. Do not scale the API above one replica until repository migration and shared-state tests are complete.
+This stack serves the Flutter PWA and API on a private overlay network. It is a **single-replica lab deployment**, not a highly available production cluster. PostgreSQL 16, Redis 7 and RabbitMQ 4 are provisioned with persistent volumes and Docker secrets. The separate workflow worker consumes RabbitMQ events and schedules durable time-trigger events; it does not place broker orders. The API container applies Alembic migrations before starting Uvicorn. Broker account ownership, market-data entitlements/selections and encrypted broker credentials use PostgreSQL through the shared `air_database_url` secret. Authentication, sessions, QOC, instruments and remaining repositories are still on their existing stores until their own migrations and tests are complete. Do not scale the API above one replica until repository migration and shared-state tests are complete.
 
 ## 1. Build images
 
@@ -13,7 +13,8 @@ docker build --build-arg AIR_API_BASE_URL=https://api.example.com -f deploy/pwa.
 
 The PWA build embeds the API base URL at compile time. Use the public HTTPS API URL, not localhost. For multi-node Swarm, push both images to a private registry and set `AIR_BACKEND_IMAGE` and `AIR_PWA_IMAGE` to immutable image references.
 
-## 2. Create Docker secrets\n\nThe installer provisions persistent PostgreSQL/Redis passwords and connection-URL secrets automatically. If deploying manually, create the additional secrets below (use the same password values in the URL secrets):\n\n```bash\nopenssl rand -hex 32 | docker secret create air_postgres_password -\nopenssl rand -hex 32 | docker secret create air_redis_password -\n# Create air_database_url containing postgresql+psycopg://air:<password>@postgres:5432/air\n# Create air_redis_url containing redis://:<password>@redis:6379/0\n```
+## 2. Create Docker secrets\n\nThe installer provisions persistent PostgreSQL/Redis/RabbitMQ passwords and connection-URL secrets automatically. If deploying manually, create the additional secrets below (use the same password values in the URL secrets):\n\n```bash\nopenssl rand -hex 32 | docker secret create air_postgres_password -\nopenssl rand -hex 32 | docker secret create air_redis_password -
+openssl rand -hex 32 | docker secret create air_rabbitmq_password -\n# Create air_database_url containing postgresql+psycopg://air:<password>@postgres:5432/air\n# Create air_redis_url containing redis://:<password>@redis:6379/0\n```
 
 Generate keys on the server. Keep them outside source control and do not paste them into chat.
 
@@ -82,6 +83,8 @@ docker stack deploy -c docker-stack.yml air
 docker service ls
 docker service logs -f air_air-api
 docker service logs -f air_air-pwa
+docker service logs -f air_air-workflow-worker
+docker service logs -f air_rabbitmq
 ```
 
 The PWA listens on port 8080 inside the overlay as `air-pwa`; the API listens on port 8000 as `air-api`. Configure your existing TLS reverse proxy to route the app hostname to `air-pwa:8080` and API hostname to `air-api:8000`. Do not expose the PWA container directly to the public internet without TLS. The API is not published on the host; only the Caddy HTTPS ingress exposes ports 80 and 443.
