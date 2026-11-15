@@ -1,0 +1,37 @@
+"""Guard the ordered PostgreSQL migration history used by AIR deployments."""
+
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+
+
+EXPECTED_CHAIN = [
+    "0001_admin_auth_schema",
+    "0002_customer_access_schema",
+    "0003_broker_stores",
+    "0004_qoc_observations",
+    "0005_market_instrument_directory",
+    "0006_market_data_source_registry",
+    "0007_execution_order_stores",
+    "0008_customer_access_decisions",
+    "0009_customer_lifecycle",
+]
+
+
+def test_postgresql_migrations_have_one_expected_head_and_linear_history():
+    config = Config("alembic.ini")
+    script = ScriptDirectory.from_config(config)
+
+    assert script.get_heads() == [EXPECTED_CHAIN[-1]]
+
+    revision = script.get_revision(EXPECTED_CHAIN[-1])
+    actual_reverse = []
+    while revision is not None:
+        actual_reverse.append(revision.revision)
+        if revision.down_revision is None:
+            break
+        assert isinstance(revision.down_revision, str), (
+            "AIR PostgreSQL migrations must remain a single linear chain"
+        )
+        revision = script.get_revision(revision.down_revision)
+
+    assert list(reversed(actual_reverse)) == EXPECTED_CHAIN
