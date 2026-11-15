@@ -43,6 +43,20 @@ def upgrade() -> None:
         sa.CheckConstraint("status IN ('HOLIDAY','SPECIAL_SESSION','TRADING_DAY')",
                            name="ck_air_exchange_calendar_status"),
     )
+    op.execute("""
+        CREATE OR REPLACE FUNCTION air_workflow_audit_reject_mutation()
+        RETURNS trigger LANGUAGE plpgsql AS $
+        BEGIN
+            RAISE EXCEPTION 'AIR workflow audit is append-only';
+        END;
+        $;
+        CREATE TRIGGER trg_air_workflow_audit_no_update
+            BEFORE UPDATE ON air_workflow_audit
+            FOR EACH ROW EXECUTE FUNCTION air_workflow_audit_reject_mutation();
+        CREATE TRIGGER trg_air_workflow_audit_no_delete
+            BEFORE DELETE ON air_workflow_audit
+            FOR EACH ROW EXECUTE FUNCTION air_workflow_audit_reject_mutation();
+    """)
     op.create_index(
         "ix_air_exchange_calendar_date",
         "air_exchange_calendar", ["session_date", "exchange_code"],
@@ -50,6 +64,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.execute("DROP TRIGGER IF EXISTS trg_air_workflow_audit_no_update ON air_workflow_audit")
+    op.execute("DROP TRIGGER IF EXISTS trg_air_workflow_audit_no_delete ON air_workflow_audit")
+    op.execute("DROP FUNCTION IF EXISTS air_workflow_audit_reject_mutation()")
     op.drop_index("ix_air_exchange_calendar_date", table_name="air_exchange_calendar")
     op.drop_table("air_exchange_calendar")
     op.drop_index("ix_air_workflow_audit_workflow_time", table_name="air_workflow_audit")
