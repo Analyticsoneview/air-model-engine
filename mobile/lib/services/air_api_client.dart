@@ -681,6 +681,17 @@ class AirApiClient {
     return _decode(await _client.get(uri, headers: _headers));
   }
 
+  Future<Map<String, dynamic>> dhanQocBacktest(
+      String accountId, {String? fromDate, String? toDate, int limit = 20000}) async {
+    final uri = Uri.parse('$baseUrl/api/v1/air-qoc/dhan/backtest/'
+        '${Uri.encodeComponent(accountId)}').replace(queryParameters: {
+      'limit': limit.toString(),
+      if (fromDate != null && fromDate.isNotEmpty) 'from_date': fromDate,
+      if (toDate != null && toDate.isNotEmpty) 'to_date': toDate,
+    });
+    return _decode(await _client.get(uri, headers: _headers));
+  }
+
   Map<String, dynamic> _decode(http.Response response) {
     Map<String, dynamic> body;
     try {
