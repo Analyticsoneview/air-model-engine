@@ -1,0 +1,76 @@
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:air_model_engine/screens/air_admin_console_screen.dart';
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  const storage = MethodChannel('plugins.it_nomads.com/flutter_secure_storage');
+
+  testWidgets('Admin console renders lifecycle summary and daily conversion report', (tester) async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(storage, (call) async => null);
+    final client = MockClient((request) async {
+      final path = request.url.path;
+      Map<String, dynamic> data = {};
+      if (path.endsWith('/auth/login')) {
+        data = {'access_token': 'local-test-session'};
+      } else if (path.endsWith('/auth/me')) {
+        data = {'role': 'ADMIN', 'must_change_password': false};
+      } else if (path.endsWith('/access-requests')) {
+        data = {'requests': []};
+      } else if (path.endsWith('/access-decisions')) {
+        data = {'decisions': []};
+      } else if (path.endsWith('/customers') && path.startsWith('/api/v1/admin/')) {
+        data = {'customers': [], 'summary': {
+          'new_customers': 7, 'existing_customers': 12,
+          'pending_approvals': 3, 'no_plan_availed': 4,
+        }};
+      } else if (path.endsWith('/customer-reports/daily')) {
+        data = {'daily': [{
+          'date': '2026-11-15', 'new_registrations': 7,
+          'existing_customer_requests': 2, 'approved': 5, 'rejected': 1,
+          'pending': 3, 'first_time_plans_availed': 4,
+          'approved_but_no_plan_availed': 2,
+          'registration_cohort_approved': 5, 'registration_cohort_plan_availed': 4,
+          'registration_to_approval_pct': 71.43, 'registration_to_plan_pct': 57.14,
+          'approval_to_plan_pct': 80.0,
+        }]};
+      } else if (path.endsWith('/marketing/customers')) {
+        data = {'segment_counts': {}};
+      } else if (path.endsWith('/marketing/offers')) {
+        data = {'offers': []};
+      }
+      return http.Response(jsonEncode(data), 200);
+    });
+
+    await tester.pumpWidget(MaterialApp(home: AirAdminConsoleScreen(httpClient: client)));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'Administrator email'), 'admin@example.test');
+    await tester.enterText(find.widgetWithText(TextField, 'Password'), 'local-only');
+    await tester.enterText(find.widgetWithText(TextField, 'Authenticator code'), '111111');
+    await tester.tap(find.text('SIGN IN'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('CUSTOMERS'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('NEW CUSTOMERS'), findsOneWidget);
+    expect(find.text('7'), findsOneWidget);
+    expect(find.text('EXISTING CUSTOMERS'), findsOneWidget);
+    expect(find.text('12'), findsOneWidget);
+    expect(find.text('INDEPENDENT LIFECYCLE DATE FILTERS'), findsOneWidget);
+    expect(find.text('DAILY CONVERSION REPORT'), findsOneWidget);
+
+    await tester.tap(find.text('DAILY CONVERSION REPORT'));
+    await tester.pumpAndSettle();
+    expect(find.text('2026-11-15'), findsOneWidget);
+    expect(find.textContaining('New: 7 · Existing requests: 2'), findsOneWidget);
+    expect(find.textContaining('First plans: 4 · Approved, no plan: 2'), findsOneWidget);
+    await client.close();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(storage, null);
+  });
+}
