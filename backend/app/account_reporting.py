@@ -82,7 +82,11 @@ class AccountReporting:
             "SELECT email,verified,updated_at FROM report_recipients WHERE customer_id=?",
             (customer_id,),
         ).fetchone()
-        return dict(row) if row else None
+        if row is None:
+            return None
+        recipient = dict(row)
+        recipient["verified"] = bool(recipient["verified"])
+        return recipient
 
     def request_verification(self, customer_id: str, email: str) -> str:
         email = email.strip().lower()
