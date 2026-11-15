@@ -11,9 +11,9 @@ from app.account_reporting import AccountReporting
 
 
 _DATABASE_CONFIGURED = bool(
-    (os.getenv("AIR_PORTFOLIO_DATABASE_URL") or os.getenv("AIR_CUSTOMER_DATABASE_URL") or os.getenv("AIR_DATABASE_URL"))
-    and (os.getenv("AIR_MODEL_LEDGER_DATABASE_URL") or os.getenv("AIR_CUSTOMER_DATABASE_URL") or os.getenv("AIR_DATABASE_URL"))
-    and (os.getenv("AIR_REPORT_DATABASE_URL") or os.getenv("AIR_CUSTOMER_DATABASE_URL") or os.getenv("AIR_DATABASE_URL"))
+    (os.getenv("AIR_CUSTOMER_DATABASE_URL") or os.getenv("AIR_DATABASE_URL"))
+    and (os.getenv("AIR_CUSTOMER_DATABASE_URL") or os.getenv("AIR_DATABASE_URL"))
+    and (os.getenv("AIR_CUSTOMER_DATABASE_URL") or os.getenv("AIR_DATABASE_URL"))
 )
 
 
