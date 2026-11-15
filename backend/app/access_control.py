@@ -239,8 +239,8 @@ class AccessStore:
                 if status in {"APPROVED", "REJECTED"}:
                     lifecycle_column = "first_approved_at" if status == "APPROVED" else "first_rejected_at"
                     self.db.execute(f"""UPDATE air_customer_lifecycle SET
-                        {lifecycle_column}=COALESCE({lifecycle_column},?),updated_at=CURRENT_TIMESTAMP
-                        WHERE customer_id=?""", (verified_at, current["mobile_e164"]))
+                        {lifecycle_column}=COALESCE({lifecycle_column},CURRENT_TIMESTAMP),updated_at=CURRENT_TIMESTAMP
+                        WHERE customer_id=?""", (current["mobile_e164"],))
                 if status != "APPROVED":
                     self.db.execute("UPDATE air_device_sessions SET active=0 WHERE request_id=?", (request_id,))
         return cursor.rowcount > 0
