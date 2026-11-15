@@ -30,8 +30,7 @@ class AccountReporting:
     def __init__(self, db_path: str | None = None):
         configured_path = db_path or os.getenv("AIR_REPORT_DB_PATH")
         database_url = None if configured_path else (
-            read_database_url("AIR_REPORT_DATABASE_URL")
-            or read_database_url("AIR_CUSTOMER_DATABASE_URL")
+            read_database_url("AIR_CUSTOMER_DATABASE_URL")
             or read_database_url("AIR_DATABASE_URL")
         )
         self._is_postgres = database_url is not None
