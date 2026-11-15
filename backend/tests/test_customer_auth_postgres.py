@@ -19,7 +19,8 @@ from app.scripts.migrate_customer_sqlite_to_postgres import migrate
 
 
 TABLES = (
-    "air_access_decision_history", "air_marketing_audit", "air_marketing_offers",
+    "air_access_decision_history", "air_customer_subscription_history",
+    "air_customer_lifecycle", "air_marketing_audit", "air_marketing_offers",
     "air_customer_marketing_preferences", "air_customer_subscriptions",
     "air_device_sessions", "air_access_requests",
 )
@@ -100,6 +101,48 @@ def test_device_deduplication_consent_and_subscription_segmentation(customer_sto
     assert customer_store.list_marketing_customers("ACTIVE")[0]["plan_code"] == "MONTHLY"
     customer_store.set_marketing_consent("+919876543211", False)
     assert customer_store.list_marketing_customers("OPTED_OUT")[0]["marketing_status"] == "OPTED_OUT"
+
+
+
+def test_lifecycle_dates_subscription_history_and_immutable_decision_audit(customer_store):
+    first = customer_store.request_access("+919876543299", "lifecycle-device-0001")
+    second = customer_store.request_access("+919876543299", "lifecycle-device-0002")
+    assert first["request_id"] != second["request_id"]
+    assert customer_store.review(
+        first["request_id"], "APPROVED", "First approval",
+        reviewer_admin_id="admin-lifecycle", reviewer_role="SUPER_ADMIN", totp_counter=70000001,
+        verification_reference="verify-lifecycle-0001",
+        request_context={"source": "admin-console", "ip": "127.0.0.1"},
+    )
+    history = customer_store.decision_history(first["request_id"])
+    assert len(history) == 1
+    assert history[0]["reviewer_admin_id"] == "admin-lifecycle"
+    assert history[0]["verification_reference"] == "verify-lifecycle-0001"
+    assert history[0]["totp_verified_at"] is not None
+    assert history[0]["device_id"] == "lifecycle-device-0001"
+    assert history[0]["request_context"]["source"] == "admin-console"
+
+    customer = customer_store.list_marketing_customers(search="+919876543299")[0]
+    assert customer["device_count"] == 2
+    assert customer["first_registered_at"] is not None
+    assert customer["first_approved_at"] is not None
+    assert customer["first_rejected_at"] is None
+
+    now = datetime.now(timezone.utc)
+    customer_store.assign_subscription("+919876543299", "MONTHLY", now.isoformat(),
+                                        (now + timedelta(days=30)).isoformat())
+    first_plan_at = customer_store.list_marketing_customers(search="+919876543299")[0]["first_plan_availed_at"]
+    customer_store.assign_subscription("+919876543299", "YEARLY", now.isoformat(),
+                                        (now + timedelta(days=365)).isoformat())
+    refreshed = customer_store.list_marketing_customers(search="+919876543299")[0]
+    assert refreshed["first_plan_availed_at"] == first_plan_at
+    with customer_store.engine.connect() as conn:
+        assert conn.execute(text("""SELECT COUNT(*) FROM air_customer_subscription_history
+            WHERE customer_id='+919876543299'""")).scalar_one() == 2
+        with pytest.raises(Exception):
+            with conn.begin():
+                conn.execute(text("""UPDATE air_access_decision_history SET note='tampered'
+                    WHERE request_id=:request"""), {"request": first["request_id"]})
 
 
 def test_offer_requires_approval_and_can_be_revoked(customer_store):
