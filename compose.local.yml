@@ -39,6 +39,8 @@ services:
       - rabbitmq_password
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
+    ports:
+      - "127.0.0.1:15672:15672"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
