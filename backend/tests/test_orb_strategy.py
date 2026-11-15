@@ -67,6 +67,18 @@ class OrbSignalEngineTests(unittest.TestCase):
         self.assertEqual(signal["stop_loss"], "498")
         self.assertEqual(signal["status"], "SL_HIT")
 
+    def test_signal_listener_receives_new_orb_signal_once(self):
+        engine = OrbSignalEngine(["NIFTY"])
+        emitted = []
+        engine.add_signal_listener(emitted.append)
+        engine.on_tick(tick("NIFTY", "12:57:00", 100))
+        engine.on_tick(tick("NIFTY", "12:59:59", 105))
+        engine.on_tick(tick("NIFTY", "13:00:00", 105.05))
+        engine.on_tick(tick("NIFTY", "13:00:01", 105.10))
+        self.assertEqual(len(emitted), 1)
+        self.assertEqual(emitted[0]["strategy"], "ORB_AFTERNOON")
+
 
 if __name__ == "__main__":
     unittest.main()
+

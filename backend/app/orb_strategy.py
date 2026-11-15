@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -43,6 +43,7 @@ class OrbSignalEngine:
         self.signals: list[dict[str, Any]] = []
         self.last_tick_at: str | None = None
         self.feed_count = 0
+        self._signal_listeners: list[Callable[[dict[str, Any]], None]] = []
 
     @staticmethod
     def _new_symbol_state() -> dict[str, Any]:
@@ -57,6 +58,19 @@ class OrbSignalEngine:
     def add_symbols(self, symbols: list[str]) -> None:
         for symbol in symbols:
             self.symbols.setdefault(str(symbol).upper(), self._new_symbol_state())
+
+    def add_signal_listener(self, listener: Callable[[dict[str, Any]], None]) -> None:
+        if listener not in self._signal_listeners:
+            self._signal_listeners.append(listener)
+
+    def _notify_signal_listeners(self, signal: dict[str, Any]) -> None:
+        snapshot = dict(signal)
+        for listener in tuple(self._signal_listeners):
+            try:
+                listener(snapshot)
+            except Exception:
+                # Workflow/event adapters must never interrupt live signal generation.
+                continue
 
     def _can_open(self, stamp: datetime) -> bool:
         day = stamp.date().isoformat()
@@ -105,6 +119,7 @@ class OrbSignalEngine:
                 signal = self._signal(symbol, "AFTERNOON", stamp, price, low, high)
                 afternoon["entry"] = signal
                 self.signals.append(signal)
+                self._notify_signal_listeners(signal)
             entry = afternoon["entry"]
             if entry and entry["status"] == "OPEN" and price <= Decimal(str(entry["stop_loss"])):
                 entry.update({"status": "SL_HIT", "exit_price": str(price),
@@ -177,6 +192,7 @@ class OrbSignalEngine:
                     signal = self._signal(symbol, "MORNING", candle_close_at, close, low, high)
                     state["entry"] = signal
                     self.signals.append(signal)
+                    self._notify_signal_listeners(signal)
         else:
             entry = state["entry"]
             if entry["status"] == "OPEN":

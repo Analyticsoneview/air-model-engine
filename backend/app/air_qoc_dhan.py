@@ -5,6 +5,8 @@ raw Dhan responses. AIR's research store can retain normalized derived observati
 """
 from __future__ import annotations
 
+import asyncio
+
 import os
 import httpx
 from functools import lru_cache
@@ -19,6 +21,7 @@ from app.security import require_customer
 from app.air_qoc_store import AirQocStore
 from app.air_qoc_qualification import qualify_option_observations, backtest_option_observations
 from app.air_qoc_universe import DETAILED_MASTER_URL, parse_dhan_instrument_master
+from app.workflow_events import build_idempotency_key, emit_workflow_event, emit_workflow_events
 from datetime import date, datetime, timezone
 
 router = APIRouter(prefix="/api/v1/air-qoc/dhan", tags=["AIR QOC - Dhan Data"])
@@ -153,6 +156,18 @@ async def dhan_option_chain(account_id: str, body: DhanOptionChainRequest,
             underlying_price=data.get("last_price"), observed_at=observed_at,
             chain=data,
         )
+        await asyncio.to_thread(
+            emit_workflow_event,
+            event_type="qoc.snapshot.captured", source="air-qoc.dhan",
+            payload={
+                "customer_id": customer_id, "account_id": account_id, "provider": "dhan",
+                "underlying_scrip": body.underlying_scrip,
+                "underlying_segment": body.underlying_segment, "expiry": body.expiry,
+                "underlying_price": data.get("last_price"), "observed_at": observed_at,
+                "contracts_saved": saved,
+            },
+            idempotency_key=build_idempotency_key("qoc-snapshot", customer_id, account_id, body.underlying_scrip, body.expiry, observed_at),
+        )
         return {
             "provider": "dhan", "account_id": account_id,
             "underlying_scrip": body.underlying_scrip,
@@ -213,6 +228,41 @@ async def dhan_qoc_qualification(
         result = qualify_option_observations(rows, mode=mode.upper())
         result.update({"provider": "dhan", "account_id": account_id,
                        "underlying_filter": underlying_scrip, "expiry_filter": expiry})
+        latest_observed = max(
+            (str(row.get("observed_at")) for row in rows if row.get("observed_at")),
+            default="none",
+        )
+        events = [{
+            "event_type": "qoc.scan.completed", "source": "air-qoc.dhan",
+            "payload": {
+                "customer_id": customer_id, "account_id": account_id, "provider": "dhan",
+                "mode": mode.upper(), "counts": result.get("counts", {}),
+                "contracts_evaluated": result.get("contracts_evaluated", 0),
+                "signals_returned": result.get("signals_returned", 0),
+                "latest_observed_at": latest_observed,
+            },
+            "idempotency_key": build_idempotency_key(
+                "qoc-scan", customer_id, account_id, mode.upper(), latest_observed,
+            ),
+        }]
+        for signal in result.get("signals", []):
+            if signal.get("classification") not in {"HIGH_CONVICTION", "QUALIFIED"}:
+                continue
+            payload = {
+                **signal, "customer_id": customer_id, "account_id": account_id,
+                "provider": "dhan", "mode": mode.upper(), "strategy": "AIR_QOC",
+            }
+            identity = ":".join(str(signal.get(key) or "") for key in (
+                "underlying", "expiry", "strike", "option_type", "observed_at",
+            ))
+            events.append({
+                "event_type": "qoc.candidate.qualified", "source": "air-qoc.dhan",
+                "payload": payload,
+                "idempotency_key": build_idempotency_key(
+                    "qoc-qualified", customer_id, account_id, mode.upper(), identity,
+                ),
+            })
+        await asyncio.to_thread(emit_workflow_events, events)
         return result
     finally:
         store.close()
@@ -243,6 +293,23 @@ async def dhan_qoc_backtest(
         )
         result.update({"provider": "dhan", "account_id": account_id,
                        "observations_loaded": len(rows)})
+        latest_observed = max(
+            (str(row.get("observed_at")) for row in rows if row.get("observed_at")),
+            default="none",
+        )
+        await asyncio.to_thread(
+            emit_workflow_event,
+            event_type="qoc.backtest.completed", source="air-qoc.dhan",
+            payload={
+                "customer_id": customer_id, "account_id": account_id, "provider": "dhan",
+                "from_date": from_date.isoformat() if from_date else None,
+                "to_date": to_date.isoformat() if to_date else None,
+                "observations_loaded": len(rows), "latest_observed_at": latest_observed,
+                "trade_count": result.get("trade_count", len(result.get("trades", []))),
+                "summary": result.get("summary", {}),
+            },
+            idempotency_key=build_idempotency_key("qoc-backtest", customer_id, account_id, from_date, to_date, latest_observed),
+        )
         return result
     finally:
         store.close()

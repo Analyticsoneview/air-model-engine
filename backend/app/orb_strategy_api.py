@@ -1,6 +1,8 @@
 """Customer-authenticated API for the two AIR ORB sessions."""
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -8,10 +10,12 @@ from app.market_data.customer_runtime import get_customer_market_data_service, g
 from app.market_data.contracts import MarketInstrument
 from app.orb_strategy import OrbSignalEngine
 from app.subscription_access import require_strategy_access
+from app.workflow_events import build_idempotency_key, emit_workflow_event
 
 router = APIRouter(prefix="/api/v1/orb", tags=["AIR ORB"])
 _engines: dict[str, OrbSignalEngine] = {}
-_attached_hubs: set[int] = set()
+_attached_hubs: set[tuple[int, str]] = set()
+_attached_workflow_customers: set[str] = set()
 
 
 class OrbSubscribeRequest(BaseModel):
@@ -25,9 +29,31 @@ async def _engine_for(customer_id: str) -> tuple[OrbSignalEngine, object]:
         raise HTTPException(status_code=503, detail=f"Market-data service unavailable: {type(exc).__name__}") from exc
     engine = _engines.setdefault(customer_id, OrbSignalEngine())
     hub = service.hub
-    if id(hub) not in _attached_hubs:
+    hub_key = (id(hub), customer_id)
+    if hub_key not in _attached_hubs:
         hub.add_listener(engine.on_tick)
-        _attached_hubs.add(id(hub))
+        _attached_hubs.add(hub_key)
+    if customer_id not in _attached_workflow_customers:
+        loop = asyncio.get_running_loop()
+
+        def publish_orb_signal(signal: dict) -> None:
+            payload = {**signal, "customer_id": customer_id}
+            def schedule_publish() -> None:
+                asyncio.create_task(asyncio.to_thread(
+                    emit_workflow_event,
+                    event_type="strategy.orb.signal.created",
+                    source="orb.signal-engine",
+                    payload=payload,
+                    idempotency_key=build_idempotency_key("orb", customer_id, signal["signal_id"]),
+                ))
+            try:
+                loop.call_soon_threadsafe(schedule_publish)
+            except RuntimeError:
+                # API shutdown must not affect the signal engine.
+                return
+
+        engine.add_signal_listener(publish_orb_signal)
+        _attached_workflow_customers.add(customer_id)
     return engine, service
 
 

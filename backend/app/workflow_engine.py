@@ -17,7 +17,7 @@ from uuid import uuid4
 from app.db_compat import PostgresConnection, read_database_url
 
 TRIGGER_TYPES = {"EVENT", "TIME", "STRATEGY", "CONDITION"}
-EXECUTION_MODES = {"RESEARCH_ONLY", "ALERT_NOTIFY", "AUTHORIZED_EXECUTION"}
+EXECUTION_MODES = {"RESEARCH_ONLY", "ALERT_NOTIFY"}
 
 
 def _now() -> str:
@@ -34,6 +34,77 @@ def _json_object(value: Any, field: str) -> dict:
     except (TypeError, ValueError) as exc:
         raise ValueError(f"{field} must contain valid JSON values") from exc
     return value
+
+
+
+_MISSING = object()
+
+
+def _value_at_path(payload: dict, path: str):
+    value: Any = payload
+    for part in str(path).split("."):
+        if isinstance(value, dict) and part in value:
+            value = value[part]
+        elif isinstance(value, list) and part.isdigit() and int(part) < len(value):
+            value = value[int(part)]
+        else:
+            return _MISSING
+    return value
+
+
+def _condition_matches(payload: dict, condition: dict) -> bool:
+    if not isinstance(condition, dict) or not condition.get("field"):
+        return False
+    actual = _value_at_path(payload, condition["field"])
+    operator = str(condition.get("operator", "eq")).lower()
+    expected = condition.get("value")
+    if operator == "exists":
+        return (actual is not _MISSING) is bool(expected if expected is not None else True)
+    if actual is _MISSING:
+        return False
+    if operator == "in":
+        return isinstance(expected, list) and actual in expected
+    if operator == "not_in":
+        return isinstance(expected, list) and actual not in expected
+    if operator == "contains":
+        try:
+            return expected in actual
+        except (TypeError, ValueError):
+            return False
+    left, right = actual, expected
+    if operator in {"gt", "gte", "lt", "lte"}:
+        try:
+            left, right = float(actual), float(expected)
+        except (TypeError, ValueError):
+            return False
+    if operator == "eq":
+        return left == right
+    if operator == "neq":
+        return left != right
+    if operator == "gt":
+        return left > right
+    if operator == "gte":
+        return left >= right
+    if operator == "lt":
+        return left < right
+    if operator == "lte":
+        return left <= right
+    return False
+
+
+def _conditions_match(payload: dict, config: dict) -> bool:
+    conditions = config.get("filters", config.get("conditions"))
+    if isinstance(conditions, dict):
+        conditions = [conditions]
+    if not isinstance(conditions, list) or not conditions:
+        return False
+    outcomes = [_condition_matches(payload, condition) for condition in conditions]
+    mode = str(config.get("match", "ALL")).upper()
+    if mode == "ANY":
+        return any(outcomes)
+    if mode == "ALL":
+        return all(outcomes)
+    return False
 
 
 class WorkflowStore:
@@ -277,6 +348,9 @@ class WorkflowStore:
         for definition in definitions:
             config = json.loads(definition["trigger_config_json"])
             trigger_type = definition["trigger_type"]
+            scoped_customer = config.get("customer_id")
+            if scoped_customer and str(payload.get("customer_id") or "") != str(scoped_customer):
+                continue
             if trigger_type == "TIME":
                 matched = payload.get("workflow_id") == definition["workflow_id"]
             else:
@@ -284,6 +358,10 @@ class WorkflowStore:
                 if not isinstance(event_types, list):
                     event_types = [config.get("event_type")] if config.get("event_type") else []
                 matched = event["event_type"] in event_types
+                if matched and trigger_type == "STRATEGY" and config.get("strategy"):
+                    matched = str(payload.get("strategy") or "").upper() == str(config["strategy"]).upper()
+                if matched and trigger_type == "CONDITION":
+                    matched = _conditions_match(payload, config)
             if not matched:
                 continue
             run_id = str(uuid4())
@@ -339,6 +417,7 @@ class WorkflowStore:
             if local.weekday() in days and 0 <= lateness <= grace:
                 due.append({
                     "workflow_id": row["workflow_id"], "name": row["name"],
+                    "customer_id": config.get("customer_id"),
                     "local_time": scheduled.isoformat(), "scheduled_key": scheduled.strftime("%Y%m%d%H%M"),
                 })
         return due
