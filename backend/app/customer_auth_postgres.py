@@ -168,9 +168,9 @@ class PostgresAccessStore:
                 if status in {"APPROVED", "REJECTED"}:
                     lifecycle_column = "first_approved_at" if status == "APPROVED" else "first_rejected_at"
                     conn.execute(text(f"""UPDATE air_customer_lifecycle SET
-                        {lifecycle_column}=COALESCE({lifecycle_column},:decision_at),
+                        {lifecycle_column}=COALESCE({lifecycle_column},CURRENT_TIMESTAMP::text),
                         updated_at=CURRENT_TIMESTAMP::text WHERE customer_id=:customer"""),
-                        {"decision_at": verified_at, "customer": current.mobile_e164})
+                        {"customer": current.mobile_e164})
                 if status != "APPROVED":
                     conn.execute(text("UPDATE air_device_sessions SET active=false WHERE request_id=:id"), {"id": request_id})
         return result.rowcount > 0
