@@ -19,7 +19,8 @@ from app.scripts.migrate_customer_sqlite_to_postgres import migrate
 
 
 TABLES = (
-    "air_access_decision_history", "air_marketing_audit", "air_marketing_offers",
+    "air_access_decision_history", "air_customer_subscription_history",
+    "air_customer_lifecycle", "air_marketing_audit", "air_marketing_offers",
     "air_customer_marketing_preferences", "air_customer_subscriptions",
     "air_device_sessions", "air_access_requests",
 )
@@ -41,8 +42,8 @@ def _clear_database(url):
     engine = create_engine(url)
     try:
         with engine.begin() as conn:
-            for table in TABLES:
-                conn.execute(text(f"DELETE FROM {table}"))
+            # TRUNCATE bypasses row-level append-only audit triggers in this disposable test database.
+            conn.execute(text("TRUNCATE TABLE " + ", ".join(TABLES) + " RESTART IDENTITY CASCADE"))
     finally:
         engine.dispose()
 
@@ -102,6 +103,56 @@ def test_device_deduplication_consent_and_subscription_segmentation(customer_sto
     assert customer_store.list_marketing_customers("OPTED_OUT")[0]["marketing_status"] == "OPTED_OUT"
 
 
+
+def test_lifecycle_dates_subscription_history_and_immutable_decision_audit(customer_store):
+    first = customer_store.request_access("+919876543299", "lifecycle-device-0001")
+    second = customer_store.request_access("+919876543299", "lifecycle-device-0002")
+    assert first["request_id"] != second["request_id"]
+    assert customer_store.review(
+        first["request_id"], "APPROVED", "First approval",
+        reviewer_admin_id="admin-lifecycle", reviewer_role="SUPER_ADMIN", totp_counter=70000001,
+        verification_reference="verify-lifecycle-0001",
+        request_context={"source": "admin-console", "ip": "127.0.0.1"},
+    )
+    history = customer_store.decision_history(first["request_id"])
+    assert len(history) == 1
+    assert history[0]["reviewer_admin_id"] == "admin-lifecycle"
+    assert history[0]["verification_reference"] == "verify-lifecycle-0001"
+    assert history[0]["totp_verified_at"] is not None
+    assert history[0]["device_id"] == "lifecycle-device-0001"
+    assert history[0]["request_context"]["source"] == "admin-console"
+
+    customer = customer_store.list_marketing_customers(search="+919876543299")[0]
+    assert customer["device_count"] == 2
+    assert customer["first_registered_at"] is not None
+    assert customer["first_approved_at"] is not None
+    assert customer["first_rejected_at"] is None
+
+    now = datetime.now(timezone.utc)
+    customer_store.assign_subscription("+919876543299", "MONTHLY", now.isoformat(),
+                                        (now + timedelta(days=30)).isoformat())
+    first_plan_at = customer_store.list_marketing_customers(search="+919876543299")[0]["first_plan_availed_at"]
+    customer_store.assign_subscription("+919876543299", "YEARLY", now.isoformat(),
+                                        (now + timedelta(days=365)).isoformat())
+    refreshed = customer_store.list_marketing_customers(search="+919876543299")[0]
+    assert refreshed["first_plan_availed_at"] == first_plan_at
+    with customer_store.engine.connect() as conn:
+        assert conn.execute(text("""SELECT COUNT(*) FROM air_customer_subscription_history
+            WHERE customer_id='+919876543299'""")).scalar_one() == 2
+    with pytest.raises(Exception):
+        with customer_store.engine.begin() as conn:
+            conn.execute(text("""UPDATE air_access_decision_history SET note='tampered'
+                WHERE request_id=:request"""), {"request": first["request_id"]})
+    with pytest.raises(Exception):
+        with customer_store.engine.begin() as conn:
+            conn.execute(text("""UPDATE air_customer_subscription_history SET plan_code='DAILY'
+                WHERE customer_id='+919876543299'"""))
+    with pytest.raises(Exception):
+        with customer_store.engine.begin() as conn:
+            conn.execute(text("""DELETE FROM air_customer_subscription_history
+                WHERE customer_id='+919876543299'"""))
+
+
 def test_offer_requires_approval_and_can_be_revoked(customer_store):
     now = datetime.now(timezone.utc)
     offer = customer_store.create_marketing_offer(
@@ -141,6 +192,10 @@ def test_sqlite_migration_is_idempotent_and_preserves_all_customer_rows(customer
                 request_id TEXT PRIMARY KEY,mobile_e164 TEXT NOT NULL,device_id TEXT NOT NULL,
                 status TEXT NOT NULL,created_at TEXT NOT NULL,reviewed_at TEXT,reviewer_note TEXT,
                 UNIQUE(mobile_e164,device_id));
+            CREATE TABLE air_access_decision_history(
+                decision_id TEXT PRIMARY KEY,request_id TEXT NOT NULL,mobile_e164 TEXT NOT NULL,
+                previous_status TEXT NOT NULL,new_status TEXT NOT NULL,reviewer_admin_id TEXT NOT NULL,
+                reviewer_role TEXT NOT NULL,note TEXT NOT NULL,totp_counter INTEGER NOT NULL,decided_at TEXT NOT NULL);
             CREATE TABLE air_device_sessions(
                 session_id TEXT PRIMARY KEY,request_id TEXT NOT NULL,active INTEGER NOT NULL,
                 created_at TEXT NOT NULL);
@@ -162,6 +217,9 @@ def test_sqlite_migration_is_idempotent_and_preserves_all_customer_rows(customer
         source.execute("INSERT INTO air_access_requests VALUES(?,?,?,?,?,?,?)",
                        ("request-1", "+919876543213", "legacy-device-0001", "APPROVED",
                         "2026-01-01 00:00:00", "2026-01-01 00:01:00", "legacy approval"))
+        source.execute("INSERT INTO air_access_decision_history VALUES(?,?,?,?,?,?,?,?,?,?)",
+                       ("decision-1", "request-1", "+919876543213", "PENDING", "APPROVED",
+                        "admin-1", "SUPER_ADMIN", "legacy approval", 12345, "2026-01-01 00:01:00"))
         source.execute("INSERT INTO air_device_sessions VALUES(?,?,?,?)",
                        ("session-1", "request-1", 1, "2026-01-01 00:02:00"))
         source.execute("INSERT INTO air_customer_subscriptions VALUES(?,?,?,?,?,?)",
@@ -184,12 +242,19 @@ def test_sqlite_migration_is_idempotent_and_preserves_all_customer_rows(customer
         second = migrate(source_path, url)
         assert first == second
         assert first["air_access_requests"] == 1
+        assert first["air_access_decision_history"] == 1
         assert first["air_device_sessions"] == 1
         assert first["air_customer_subscriptions"] == 1
         engine = create_engine(url)
         try:
             with engine.connect() as conn:
                 assert conn.execute(text("SELECT COUNT(*) FROM air_access_requests WHERE request_id='request-1'")).scalar_one() == 1
+                assert conn.execute(text("SELECT COUNT(*) FROM air_access_decision_history WHERE decision_id='decision-1'")).scalar_one() == 1
+                assert conn.execute(text("SELECT totp_verified_at FROM air_access_decision_history WHERE decision_id='decision-1'")).scalar_one() is None
+                lifecycle = conn.execute(text("SELECT first_approved_at,first_plan_availed_at FROM air_customer_lifecycle WHERE customer_id='+919876543213'")).one()
+                assert lifecycle.first_approved_at.isoformat() == "2026-01-01T00:01:00+00:00"
+                assert lifecycle.first_plan_availed_at.isoformat() == "2026-01-02T00:00:00+00:00"
+                assert conn.execute(text("SELECT COUNT(*) FROM air_customer_subscription_history WHERE customer_id='+919876543213'")).scalar_one() == 1
                 assert conn.execute(text("SELECT active FROM air_device_sessions WHERE session_id='session-1'")).scalar_one() is True
                 assert conn.execute(text("SELECT promotional_consent FROM air_customer_marketing_preferences WHERE customer_id='+919876543213'")).scalar_one() is False
                 assert conn.execute(text("SELECT status FROM air_marketing_offers WHERE offer_id='offer-1'")).scalar_one() == "REVOKED"

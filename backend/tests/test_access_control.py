@@ -1,3 +1,4 @@
+import sqlite3
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -81,11 +82,87 @@ class AccessStoreTests(unittest.TestCase):
                 store.assign_subscription("+919876543210", "LIFETIME",
                     "2026-01-01T00:00:00+00:00", "2027-01-01T00:00:00+00:00")
             store.close()
+
+    def test_legacy_reviewed_at_backfills_first_approval_without_decision_rows(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = str(Path(temp) / "legacy-auth.sqlite3")
+            legacy = sqlite3.connect(path)
+            legacy.execute("""CREATE TABLE air_access_requests(
+                request_id TEXT PRIMARY KEY,mobile_e164 TEXT NOT NULL,device_id TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'PENDING',created_at TEXT NOT NULL,
+                reviewed_at TEXT,reviewer_note TEXT,UNIQUE(mobile_e164,device_id))""")
+            legacy.execute("INSERT INTO air_access_requests VALUES(?,?,?,?,?,?,?)",
+                ("legacy-request", "+919876543296", "legacy-device-0001", "APPROVED",
+                 "2026-01-01 00:00:00", "2026-01-02 00:00:00", "legacy review"))
+            legacy.commit()
+            legacy.close()
+
+            store = AccessStore(path)
+            customer = store.list_marketing_customers(search="+919876543296")[0]
+            self.assertEqual(customer["first_registered_at"], "2026-01-01 00:00:00")
+            self.assertEqual(customer["first_approved_at"], "2026-01-02 00:00:00")
+            self.assertEqual(store.decision_history("legacy-request"), [])
+            store.close()
+
+    def test_customer_lifecycle_dates_and_append_only_audit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = AccessStore(str(Path(temp) / "auth.sqlite3"))
+            first = store.request_access("+919876543299", "device-lifecycle-0001")
+            second = store.request_access("+919876543299", "device-lifecycle-0002")
+            self.assertNotEqual(first["request_id"], second["request_id"])
+            self.assertTrue(store.review(first["request_id"], "APPROVED", "Verified",
+                reviewer_admin_id="admin-1", reviewer_role="SUPER_ADMIN", totp_counter=12345,
+                verification_reference="verify-1", request_context={"source": "admin"}))
+            history = store.decision_history(first["request_id"])
+            self.assertEqual(len(history), 1)
+            self.assertEqual(history[0]["verification_reference"], "verify-1")
+            self.assertEqual(history[0]["device_id"], "device-lifecycle-0001")
+            self.assertIn("totp_verified_at", history[0])
+            customer = store.list_marketing_customers(search="+919876543299")[0]
+            self.assertEqual(customer["device_count"], 2)
+            self.assertIsNotNone(customer["first_approved_at"])
+            self.assertIsNone(customer["first_rejected_at"])
+            with self.assertRaises(Exception):
+                with store.db:
+                    store.db.execute("UPDATE air_access_decision_history SET note='tampered'")
+            store.close()
+
+    def test_first_plan_date_is_preserved_across_plan_reassignment(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = AccessStore(str(Path(temp) / "auth.sqlite3"))
+            store.request_access("+919876543298", "device-lifecycle-0003")
+            starts = datetime.now(timezone.utc)
+            store.assign_subscription("+919876543298", "MONTHLY", starts.isoformat(),
+                                      (starts + timedelta(days=30)).isoformat())
+            first_plan = store.list_marketing_customers(search="+919876543298")[0]["first_plan_availed_at"]
+            store.assign_subscription("+919876543298", "YEARLY", starts.isoformat(),
+                                      (starts + timedelta(days=365)).isoformat())
+            customer = store.list_marketing_customers(search="+919876543298")[0]
+            self.assertEqual(customer["first_plan_availed_at"], first_plan)
+            self.assertEqual(store.db.execute("SELECT COUNT(*) FROM air_customer_subscription_history").fetchone()[0], 2)
+            store.close()
+
     def test_international_mobile_format_is_required(self):
         with tempfile.TemporaryDirectory() as temp:
             store = AccessStore(str(Path(temp) / "auth.sqlite3"))
             with self.assertRaises(ValueError):
                 store.request_access("9876543210", "device-identifier-0003")
+            store.close()
+
+
+    def test_subscription_assignment_history_is_append_only(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = AccessStore(str(Path(temp) / "auth.sqlite3"))
+            store.request_access("+919876543297", "device-lifecycle-0004")
+            starts = datetime.now(timezone.utc)
+            store.assign_subscription("+919876543297", "MONTHLY", starts.isoformat(),
+                                      (starts + timedelta(days=30)).isoformat())
+            with self.assertRaises(Exception):
+                with store.db:
+                    store.db.execute("UPDATE air_customer_subscription_history SET plan_code='YEARLY'")
+            with self.assertRaises(Exception):
+                with store.db:
+                    store.db.execute("DELETE FROM air_customer_subscription_history")
             store.close()
 
 

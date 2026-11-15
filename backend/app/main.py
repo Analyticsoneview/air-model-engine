@@ -746,8 +746,15 @@ async def assign_customer_subscription(
     durations = {"DAILY": 1, "MONTHLY": 30, "SIX_MONTHS": 180, "YEARLY": 365}
     starts = datetime.now(timezone.utc)
     expires = starts + timedelta(days=durations[body.plan_code])
+    customers = access_store.list_marketing_customers("ALL", search=body.customer_id, limit=500)
+    customer = next((item for item in customers if item["customer_id"] == body.customer_id), None)
+    if customer is None:
+        raise HTTPException(status_code=404, detail="Registered customer not found")
+    if customer["access_status"] != "APPROVED":
+        raise HTTPException(status_code=409, detail="Customer access must be approved before assigning a plan")
     access_store.assign_subscription(
-        body.customer_id, body.plan_code, starts.isoformat(), expires.isoformat()
+        body.customer_id, body.plan_code, starts.isoformat(), expires.isoformat(),
+        assigned_by_admin_id=admin["admin_id"]
     )
     return {"customer_id": body.customer_id, "plan_code": body.plan_code,
             "starts_at": starts.isoformat(), "expires_at": expires.isoformat(), "status": "ACTIVE"}
@@ -1008,7 +1015,7 @@ async def list_access_requests(status: str | None = Query(default=None, pattern=
 
 
 @app.put("/api/v1/admin/access-requests/{request_id}")
-async def review_access_request(request_id: str, body: AccessReview, admin: dict = Depends(require_admin_management)) -> dict:
+async def review_access_request(request_id: str, body: AccessReview, request: Request, admin: dict = Depends(require_admin_management)) -> dict:
     if not access_store.get_request_by_id(request_id):
         raise HTTPException(status_code=404, detail="Access request not found")
     try:
@@ -1017,7 +1024,12 @@ async def review_access_request(request_id: str, body: AccessReview, admin: dict
         )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
-    updated = access_store.review(request_id, body.status, body.note, admin["admin_id"], admin["role"], counter)
+    verification_reference = str(uuid4())
+    request_context = {"client_host": request.client.host if request.client else None,
+                       "user_agent": request.headers.get("user-agent", "")[:256]}
+    updated = access_store.review(request_id, body.status, body.note, admin["admin_id"], admin["role"], counter,
+                                  verification_reference=verification_reference,
+                                  totp_verified_at=datetime.now(timezone.utc), request_context=request_context)
     if not updated:
         raise HTTPException(status_code=409, detail="Access request changed before the decision was recorded")
     return {"request_id": request_id, "status": body.status, "updated": True,
@@ -1026,33 +1038,279 @@ async def review_access_request(request_id: str, body: AccessReview, admin: dict
 
 @app.get("/api/v1/admin/access-requests/{request_id}/history")
 async def access_request_history(request_id: str, admin: dict = Depends(require_admin)) -> dict:
-    return {"request_id": request_id, "decisions": [dict(row) for row in access_store.decision_history(request_id)]}
+    decisions = [dict(row) for row in access_store.decision_history(request_id)]
+    for decision in decisions:
+        for field in ("decided_at", "totp_verified_at"):
+            value = decision.get(field)
+            if value:
+                parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                decision[field + "_ist"] = parsed.astimezone(ZoneInfo("Asia/Kolkata")).isoformat()
+    return {"request_id": request_id, "decisions": decisions, "timezone": "Asia/Kolkata"}
 
 
 @app.get("/api/v1/admin/customers")
 async def admin_customer_register(
     registered_from: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     registered_to: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    approved_from: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    approved_to: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    rejected_from: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    rejected_to: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    plan_from: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    plan_to: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    expiry_from: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    expiry_to: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     as_of_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     segment: str = Query(default="ALL", pattern="^(ALL|NEVER_SUBSCRIBED|EXPIRED|ACTIVE|CANCELLED|INACTIVE|PENDING_ACCESS|OPTED_OUT|NOT_GRANTED)$"),
     search: str = Query(default="", max_length=100),
     limit: int = Query(default=200, ge=1, le=500),
     admin: dict = Depends(require_admin),
 ) -> dict:
-    if registered_from and registered_to and registered_from > registered_to:
-        raise HTTPException(status_code=422, detail="registered_from must be before or equal to registered_to")
+    ranges = (
+        (registered_from, registered_to, "registration"),
+        (approved_from, approved_to, "approval"),
+        (rejected_from, rejected_to, "rejection"),
+        (plan_from, plan_to, "plan"),
+        (expiry_from, expiry_to, "expiry"),
+    )
+    from datetime import date
+    for start_date, end_date, label in ranges:
+        for candidate in (start_date, end_date):
+            if candidate:
+                try:
+                    date.fromisoformat(candidate)
+                except ValueError as exc:
+                    raise HTTPException(status_code=422, detail=f"{label} dates must be valid calendar dates") from exc
+        if start_date and end_date and start_date > end_date:
+            raise HTTPException(status_code=422, detail=f"{label} start date must be before or equal to end date")
+    if as_of_date:
+        try:
+            date.fromisoformat(as_of_date)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="as_of_date must be a valid calendar date") from exc
     customers = access_store.list_marketing_customers(segment, search, limit)
-    filtered = [dict(item) for item in customers
-                if (not registered_from or str(item["registered_at"])[:10] >= registered_from)
-                and (not registered_to or str(item["registered_at"])[:10] <= registered_to)]
-    for item in filtered:
-        item["customer_type"] = ("NEW" if not as_of_date or str(item["registered_at"])[:10] == as_of_date
-                                else "EXISTING" if str(item["registered_at"])[:10] < as_of_date
-                                else "NOT_YET_REGISTERED")
+    all_customers = access_store.list_marketing_customers("ALL", limit=10000)
+    as_of_date = as_of_date or datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
+
+    def local_datetime(value):
+        if not value:
+            return None
+        parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(ZoneInfo("Asia/Kolkata"))
+
+    def local_day(value):
+        converted = local_datetime(value)
+        return converted.date().isoformat() if converted else None
+
+    summary = {
+        "new_customers": sum(1 for item in all_customers if local_day(item.get("first_registered_at") or item.get("registered_at")) == as_of_date),
+        "existing_customers": sum(1 for item in all_customers if (local_day(item.get("first_registered_at") or item.get("registered_at")) or "") < as_of_date),
+        "pending_approvals": sum(1 for item in all_customers if item.get("access_status") == "PENDING"),
+        "no_plan_availed": sum(1 for item in all_customers if item.get("subscription_status") == "NEVER_SUBSCRIBED"),
+        "as_of_date": as_of_date,
+    }
+    filtered = []
+    for raw in customers:
+        item = dict(raw)
+        item["first_registered_at"] = item.get("first_registered_at") or item.get("registered_at")
+        item["first_access_request_at"] = item["first_registered_at"]
+        for field in ("first_registered_at", "first_access_request_at", "first_approved_at",
+                      "first_rejected_at", "first_plan_availed_at", "subscription_expires_at"):
+            converted = local_datetime(item.get(field))
+            item[field + "_ist"] = converted.isoformat() if converted else None
+        registered_day = local_day(item.get("first_registered_at"))
+        approved_day = local_day(item.get("first_approved_at"))
+        rejected_day = local_day(item.get("first_rejected_at"))
+        plan_day = local_day(item.get("first_plan_availed_at"))
+        expiry_day = local_day(item.get("subscription_expires_at"))
+        item["customer_type"] = (
+            "NEW" if registered_day == as_of_date else
+            "EXISTING" if registered_day and registered_day < as_of_date else
+            "NOT_YET_REGISTERED"
+        )
         if item["subscription_status"] == "NEVER_SUBSCRIBED":
             item["subscription_status"] = "NO_PLAN_AVAILED"
-    return {"customers": filtered, "count": len(filtered), "segment": segment,
-            "registered_from": registered_from, "registered_to": registered_to, "as_of_date": as_of_date}
+        checks = (
+            (registered_day, registered_from, registered_to),
+            (approved_day, approved_from, approved_to),
+            (rejected_day, rejected_from, rejected_to),
+            (plan_day, plan_from, plan_to),
+            (expiry_day, expiry_from, expiry_to),
+        )
+        if all((not lower or (day is not None and day >= lower)) and
+               (not upper or (day is not None and day <= upper))
+               for day, lower, upper in checks):
+            filtered.append(item)
+    return {
+        "customers": filtered, "count": len(filtered), "segment": segment, "as_of_date": as_of_date, "summary": summary,
+        "date_filters": {
+            "registered": [registered_from, registered_to],
+            "approved": [approved_from, approved_to],
+            "rejected": [rejected_from, rejected_to],
+            "first_plan_availed": [plan_from, plan_to],
+            "subscription_expiry": [expiry_from, expiry_to],
+        },
+    }
+
+
+@app.get("/api/v1/admin/customer-reports/daily")
+async def admin_customer_daily_report(
+    start_date: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end_date: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    admin: dict = Depends(require_admin),
+) -> dict:
+    from datetime import date, timedelta
+    if start_date > end_date:
+        raise HTTPException(status_code=422, detail="start_date must be before or equal to end_date")
+    try:
+        first, last = date.fromisoformat(start_date), date.fromisoformat(end_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="start_date and end_date must be valid calendar dates") from exc
+    if (last - first).days > 366:
+        raise HTTPException(status_code=422, detail="Daily report range cannot exceed 366 days")
+
+    def report_day(value):
+        if not value:
+            return None
+        parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(ZoneInfo("Asia/Kolkata")).date().isoformat()
+
+    requests = [dict(row) for row in access_store.list_requests()]
+    decisions = access_store.list_decisions()
+    customers = access_store.list_marketing_customers("ALL", limit=10000)
+    first_registration = {}
+    for row in requests:
+        registered_day = report_day(row.get("first_registered_at") or row.get("created_at"))
+        mobile = row["mobile_e164"]
+        if registered_day:
+            first_registration[mobile] = min(first_registration.get(mobile, registered_day), registered_day)
+
+    decisions_by_request = {}
+    decisions_by_customer = {}
+    for decision in decisions:
+        decision_day = report_day(decision.get("decided_at"))
+        record = {"day": decision_day, "status": decision["new_status"], "at": decision.get("decided_at")}
+        decisions_by_request.setdefault(decision["request_id"], []).append(record)
+        decisions_by_customer.setdefault(decision["mobile_e164"], []).append(record)
+
+    output = []
+    current = first
+    while current <= last:
+        day = current.isoformat()
+        registered = {mobile for mobile, registered_day in first_registration.items() if registered_day == day}
+        existing_requests = sum(
+            1 for row in requests
+            if report_day(row.get("created_at")) == day
+            and row.get("customer_type") == "EXISTING"
+        )
+        day_decisions = [decision for decision in decisions if report_day(decision.get("decided_at")) == day]
+        approved = sum(1 for decision in day_decisions if decision["new_status"] == "APPROVED")
+        rejected = sum(1 for decision in day_decisions if decision["new_status"] == "REJECTED")
+        # Revision 0008 introduced decision events. For older requests without
+        # an event row, reviewed_at is the only retained timestamp for the
+        # last legacy decision; count it once on that date.
+        requests_with_history = {decision["request_id"] for decision in decisions}
+        legacy_reviews = [
+            row for row in requests
+            if row["request_id"] not in requests_with_history
+            and row.get("reviewed_at")
+            and report_day(row.get("reviewed_at")) == day
+        ]
+        approved += sum(1 for row in legacy_reviews if row.get("status") == "APPROVED")
+        rejected += sum(1 for row in legacy_reviews if row.get("status") == "REJECTED")
+
+        # Reconstruct pending requests and customer access state as at the end of this IST date.
+        pending = 0
+        customer_request_states = {}
+        for row in requests:
+            created_day = report_day(row.get("created_at"))
+            if not created_day or created_day > day:
+                continue
+            history = [event for event in decisions_by_request.get(row["request_id"], [])
+                       if event["day"] is not None and event["day"] <= day]
+            latest = max(history, key=lambda event: str(event["at"] or "")) if history else None
+            if latest:
+                status = latest["status"]
+            elif row.get("reviewed_at") and report_day(row.get("reviewed_at")) <= day:
+                # Legacy records pre-dating the append-only event table.
+                status = row.get("status") or "PENDING"
+            else:
+                status = "PENDING"
+            if status == "PENDING":
+                pending += 1
+            customer_request_states.setdefault(row["mobile_e164"], []).append(status)
+
+        first_plan_days = {
+            item["customer_id"]: report_day(item.get("first_plan_availed_at"))
+            for item in customers
+        }
+        # The migration backfills first_approved_at for legacy approvals whose
+        # original decision event predates revision 0008 and therefore has no
+        # append-only decision-history row.
+        first_approval_days = {
+            item["customer_id"]: report_day(item.get("first_approved_at"))
+            for item in customers
+        }
+        approved_no_plan = 0
+        for customer_id, states in customer_request_states.items():
+            if "APPROVED" in states:
+                customer_status = "APPROVED"
+            elif "PENDING" in states:
+                customer_status = "PENDING"
+            elif "BLOCKED" in states:
+                customer_status = "BLOCKED"
+            else:
+                customer_status = "REJECTED"
+            approvals = [event for event in decisions_by_customer.get(customer_id, [])
+                         if event["status"] == "APPROVED" and event["day"] is not None and event["day"] <= day]
+            first_approved = min(
+                [event["day"] for event in approvals] +
+                ([first_approval_days.get(customer_id)] if first_approval_days.get(customer_id) else []),
+                default=None,
+            )
+            plan_day = first_plan_days.get(customer_id)
+            if customer_status == "APPROVED" and first_approved is not None and first_approved <= day:
+                if plan_day is None or plan_day > day:
+                    approved_no_plan += 1
+
+        first_plans = sum(1 for plan_day in first_plan_days.values() if plan_day == day)
+        cohort = [item for item in customers
+                  if first_registration.get(item["customer_id"]) == day]
+        cohort_approved = sum(
+            1 for item in cohort
+            if report_day(item.get("first_approved_at")) is not None
+            and report_day(item.get("first_approved_at")) <= day
+        )
+        cohort_plans = sum(
+            1 for item in cohort
+            if report_day(item.get("first_plan_availed_at")) is not None
+            and report_day(item.get("first_plan_availed_at")) <= day
+        )
+        def percent(numerator, denominator):
+            return round((numerator / denominator) * 100, 2) if denominator else 0.0
+        output.append({
+            "date": day,
+            "new_registrations": len(registered),
+            "existing_customer_requests": existing_requests,
+            "approved": approved,
+            "rejected": rejected,
+            "pending": pending,
+            "first_time_plans_availed": first_plans,
+            "approved_but_no_plan_availed": approved_no_plan,
+            "registration_cohort_approved": cohort_approved,
+            "registration_cohort_plan_availed": cohort_plans,
+            "registration_to_approval_pct": percent(cohort_approved, len(cohort)),
+            "registration_to_plan_pct": percent(cohort_plans, len(cohort)),
+            "approval_to_plan_pct": percent(cohort_plans, cohort_approved),
+        })
+        current += timedelta(days=1)
+    return {"timezone": "Asia/Kolkata", "start_date": start_date, "end_date": end_date, "daily": output}
 
 
 @app.get("/api/v1/admin/access-decisions")
@@ -1063,8 +1321,21 @@ async def admin_access_decisions(
 ) -> dict:
     if start_date and end_date and start_date > end_date:
         raise HTTPException(status_code=422, detail="start_date must be before or equal to end_date")
-    decisions = access_store.list_decisions(start_date, end_date)
-    return {"decisions": decisions, "count": len(decisions)}
+    decisions = access_store.list_decisions()
+    filtered_decisions = []
+    for decision in decisions:
+        for field in ("decided_at", "totp_verified_at"):
+            value = decision.get(field)
+            if value:
+                parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                decision[field + "_ist"] = parsed.astimezone(ZoneInfo("Asia/Kolkata")).isoformat()
+        local_date = decision.get("decided_at_ist", "")[:10]
+        if (start_date and local_date < start_date) or (end_date and local_date > end_date):
+            continue
+        filtered_decisions.append(decision)
+    return {"decisions": filtered_decisions, "count": len(filtered_decisions), "timezone": "Asia/Kolkata"}
 
 
 @app.get("/api/v1/operator/access-requests")
