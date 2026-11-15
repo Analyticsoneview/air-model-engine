@@ -275,3 +275,135 @@ def qualify_option_observations(
             "Scores are research filters, not probability or guaranteed returns."
         ),
     }
+
+
+def backtest_option_observations(
+    observations: list[dict[str, Any]],
+    *,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    stop_loss_pct: float = 30.0,
+    session_cutoff: str = "15:20",
+) -> dict[str, Any]:
+    """Replay first qualified contract/session entries using later same-session snapshots.
+
+    This is a sparse-snapshot research replay, not a tick-accurate fill simulation.
+    """
+    from datetime import time as clock_time
+
+    start_day = datetime.fromisoformat(from_date).date() if from_date else None
+    end_day = datetime.fromisoformat(to_date).date() if to_date else None
+    cutoff = clock_time.fromisoformat(session_cutoff)
+    grouped: dict[tuple[str, str, str, str, Any], list[dict[str, Any]]] = {}
+    for row in observations:
+        observed = _time(row.get("observed_at"))
+        if observed is None:
+            continue
+        if start_day and observed.date() < start_day:
+            continue
+        if end_day and observed.date() > end_day:
+            continue
+        key = (
+            str(row.get("underlying_scrip") or ""),
+            str(row.get("expiry") or ""),
+            str(row.get("strike") or ""),
+            str(row.get("option_type") or "").upper(),
+            observed.date(),
+        )
+        grouped.setdefault(key, []).append(row)
+
+    trades: list[dict[str, Any]] = []
+    for (underlying, expiry, strike, option_type, session_date), samples in grouped.items():
+        samples.sort(key=lambda item: _time(item.get("observed_at")) or datetime.min.replace(tzinfo=IST))
+        for index in range(1, len(samples) - 1):
+            entry_row = samples[index]
+            entry_time = _time(entry_row.get("observed_at"))
+            entry_premium = _num(entry_row.get("last_price"))
+            if entry_time is None or entry_time.timetz().replace(tzinfo=None) > cutoff or entry_premium is None or entry_premium <= 0:
+                continue
+            scored = qualify_option_observations(
+                [samples[index - 1], entry_row], mode="POST_MARKET", now=entry_time,
+                max_candidates=1,
+            )
+            if not scored["signals"]:
+                continue
+            signal = scored["signals"][0]
+            if signal["classification"] not in {"HIGH_CONVICTION", "QUALIFIED"}:
+                continue
+
+            forward = []
+            for row in samples[index + 1:]:
+                stamp = _time(row.get("observed_at"))
+                price = _num(row.get("last_price"))
+                if stamp is None or stamp.date() != session_date or stamp.timetz().replace(tzinfo=None) > cutoff:
+                    continue
+                if price is not None and price > 0:
+                    forward.append((stamp, row, price))
+            if not forward:
+                continue
+
+            stop_price = entry_premium * (1.0 - stop_loss_pct / 100.0)
+            stop_hit = next((position for position, item in enumerate(forward) if item[2] <= stop_price), None)
+            path = forward[:stop_hit + 1] if stop_hit is not None else forward
+            exit_time, exit_row, exit_premium = path[-1]
+            path_prices = [item[2] for item in path]
+            return_pct = (exit_premium - entry_premium) / entry_premium * 100.0
+            trades.append({
+                "signal_date": session_date.isoformat(),
+                "underlying": underlying,
+                "option_type": option_type,
+                "strike": strike,
+                "expiry": expiry,
+                "classification": signal["classification"],
+                "score": signal["score"],
+                "entry_time": entry_time.isoformat(),
+                "entry_premium": round(entry_premium, 2),
+                "exit_time": exit_time.isoformat(),
+                "exit_premium": round(exit_premium, 2),
+                "return_pct": round(return_pct, 2),
+                "exit_reason": "STOP_LOSS_OBSERVED" if stop_hit is not None else "SESSION_CUTOFF",
+                "max_favorable_excursion_pct": round((max(path_prices) / entry_premium - 1) * 100, 2),
+                "max_adverse_excursion_pct": round((min(path_prices) / entry_premium - 1) * 100, 2),
+                "milestones_reached": {
+                    "plus_50_percent": any(price >= entry_premium * 1.5 for price in path_prices),
+                    "plus_100_percent": any(price >= entry_premium * 2.0 for price in path_prices),
+                    "plus_200_percent": any(price >= entry_premium * 3.0 for price in path_prices),
+                    "plus_300_percent": any(price >= entry_premium * 4.0 for price in path_prices),
+                },
+                "holding_minutes": round((exit_time - entry_time).total_seconds() / 60.0, 1),
+            })
+            break  # first qualified entry per contract and IST session; no re-entry/overnight carry
+
+    trades.sort(key=lambda item: (item["signal_date"], item["entry_time"]), reverse=True)
+    returns = [item["return_pct"] for item in trades]
+    gains = sum(value for value in returns if value > 0)
+    losses = abs(sum(value for value in returns if value < 0))
+    wins = sum(1 for value in returns if value > 0)
+    summary = {
+        "trades": len(trades),
+        "wins": wins,
+        "losses": sum(1 for value in returns if value < 0),
+        "win_rate_pct": round(wins / len(trades) * 100.0, 2) if trades else None,
+        "average_return_pct": round(sum(returns) / len(returns), 2) if returns else None,
+        "total_simple_return_pct": round(sum(returns), 2) if returns else None,
+        "profit_factor": round(gains / losses, 3) if losses > 0 else (None if gains == 0 else "no_losses"),
+        "best_trade_pct": round(max(returns), 2) if returns else None,
+        "worst_trade_pct": round(min(returns), 2) if returns else None,
+    }
+    return {
+        "status": "completed" if trades else "insufficient_qualified_history",
+        "method": "first HIGH_CONVICTION/QUALIFIED entry per contract/session; snapshot-based exit replay",
+        "session_cutoff": session_cutoff,
+        "stop_loss_pct": stop_loss_pct,
+        "from_date": from_date,
+        "to_date": to_date,
+        "summary": summary,
+        "trades": trades[:500],
+        "disclosure": (
+            "Historical replay uses only stored snapshots and first qualifying entries per contract/session. "
+            "Stop exits occur at the first observed snapshot at or below the stop reference; otherwise "
+            "positions are marked at the last observed snapshot by the session cutoff. Intrabar path, "
+            "actual fills, slippage, brokerage, taxes and market impact are unavailable and excluded. "
+            "Results are not a calibrated strategy expectancy and must not be treated as live performance."
+        ),
+    }
