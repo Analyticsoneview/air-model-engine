@@ -1,9 +1,17 @@
 import json
+import os
 
 import pika
+import pytest
 
 from app.workflow_engine import WorkflowStore
 from app.workflow_worker import DEAD_QUEUE, QUEUE, _connection, _declare, _publish_batch
+
+
+pytestmark = pytest.mark.skipif(
+    not os.getenv("AIR_RABBITMQ_URL"),
+    reason="RabbitMQ integration requires the dedicated RabbitMQ service job",
+)
 
 
 def test_outbox_publish_and_rabbitmq_delivery_create_durable_run(tmp_path, monkeypatch):
