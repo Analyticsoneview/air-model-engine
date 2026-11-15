@@ -747,7 +747,8 @@ async def assign_customer_subscription(
     starts = datetime.now(timezone.utc)
     expires = starts + timedelta(days=durations[body.plan_code])
     access_store.assign_subscription(
-        body.customer_id, body.plan_code, starts.isoformat(), expires.isoformat()
+        body.customer_id, body.plan_code, starts.isoformat(), expires.isoformat(),
+        assigned_by_admin_id=str(admin.get("admin_id", "")),
     )
     return {"customer_id": body.customer_id, "plan_code": body.plan_code,
             "starts_at": starts.isoformat(), "expires_at": expires.isoformat(), "status": "ACTIVE"}
@@ -1009,7 +1010,8 @@ async def list_access_requests(status: str | None = Query(default=None, pattern=
 
 @app.put("/api/v1/admin/access-requests/{request_id}")
 async def review_access_request(request_id: str, body: AccessReview, admin: dict = Depends(require_admin_management)) -> dict:
-    if not access_store.get_request_by_id(request_id):
+    request_row = access_store.get_request_by_id(request_id)
+    if not request_row:
         raise HTTPException(status_code=404, detail="Access request not found")
     try:
         counter = get_admin_auth_store().verify_action_totp(
@@ -1017,7 +1019,19 @@ async def review_access_request(request_id: str, body: AccessReview, admin: dict
         )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
-    updated = access_store.review(request_id, body.status, body.note, admin["admin_id"], admin["role"], counter)
+    verified_at = datetime.now(timezone.utc).isoformat()
+    request_context = {
+        "request_id": request_id,
+        "mobile_e164": request_row["mobile_e164"],
+        "device_id": request_row["device_id"],
+        "request_created_at": str(request_row["created_at"]),
+    }
+    updated = access_store.review(
+        request_id, body.status, body.note, admin["admin_id"], admin["role"], counter,
+        authenticator_verified_at=verified_at,
+        verification_reference=f"admin-action-totp:{body.status.lower()}:{counter}",
+        request_context=request_context,
+    )
     if not updated:
         raise HTTPException(status_code=409, detail="Access request changed before the decision was recorded")
     return {"request_id": request_id, "status": body.status, "updated": True,
@@ -1033,26 +1047,109 @@ async def access_request_history(request_id: str, admin: dict = Depends(require_
 async def admin_customer_register(
     registered_from: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     registered_to: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    approved_from: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    approved_to: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    rejected_from: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    rejected_to: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    plan_availed_from: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    plan_availed_to: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    expires_from: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    expires_to: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     as_of_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     segment: str = Query(default="ALL", pattern="^(ALL|NEVER_SUBSCRIBED|EXPIRED|ACTIVE|CANCELLED|INACTIVE|PENDING_ACCESS|OPTED_OUT|NOT_GRANTED)$"),
     search: str = Query(default="", max_length=100),
     limit: int = Query(default=200, ge=1, le=500),
     admin: dict = Depends(require_admin),
 ) -> dict:
-    if registered_from and registered_to and registered_from > registered_to:
-        raise HTTPException(status_code=422, detail="registered_from must be before or equal to registered_to")
+    if admin.get("role") not in {"SUPER_ADMIN", "ADMIN"}:
+        raise HTTPException(status_code=403, detail="Administrator customer-management permission is required")
+    date_pairs = (
+        ("registered", registered_from, registered_to),
+        ("approved", approved_from, approved_to),
+        ("rejected", rejected_from, rejected_to),
+        ("plan_availed", plan_availed_from, plan_availed_to),
+        ("expires", expires_from, expires_to),
+    )
+    for label, start, end in date_pairs:
+        if start and end and start > end:
+            raise HTTPException(status_code=422, detail=f"{label}_from must be before or equal to {label}_to")
     customers = access_store.list_marketing_customers(segment, search, limit)
-    filtered = [dict(item) for item in customers
-                if (not registered_from or str(item["registered_at"])[:10] >= registered_from)
-                and (not registered_to or str(item["registered_at"])[:10] <= registered_to)]
-    for item in filtered:
-        item["customer_type"] = ("NEW" if not as_of_date or str(item["registered_at"])[:10] == as_of_date
-                                else "EXISTING" if str(item["registered_at"])[:10] < as_of_date
-                                else "NOT_YET_REGISTERED")
+    filtered = []
+    filters = (
+        ("registered_at", registered_from, registered_to),
+        ("first_approved_at", approved_from, approved_to),
+        ("first_rejected_at", rejected_from, rejected_to),
+        ("first_plan_availed_at", plan_availed_from, plan_availed_to),
+        ("subscription_expires_at", expires_from, expires_to),
+    )
+    for source in customers:
+        item = dict(source)
+        item["customer_type"] = (
+            "NEW" if not as_of_date or str(item["registered_at"])[:10] == as_of_date
+            else "EXISTING" if str(item["registered_at"])[:10] < as_of_date
+            else "NOT_YET_REGISTERED"
+        )
         if item["subscription_status"] == "NEVER_SUBSCRIBED":
             item["subscription_status"] = "NO_PLAN_AVAILED"
+        if all((not start or (item.get(field) is not None and str(item[field])[:10] >= start))
+               and (not end or (item.get(field) is not None and str(item[field])[:10] <= end))
+               for field, start, end in filters):
+            filtered.append(item)
     return {"customers": filtered, "count": len(filtered), "segment": segment,
-            "registered_from": registered_from, "registered_to": registered_to, "as_of_date": as_of_date}
+            "as_of_date": as_of_date,
+            "date_filters": {label: {"from": start, "to": end} for label, start, end in date_pairs}}
+
+
+@app.get("/api/v1/admin/customer-daily-report")
+async def admin_customer_daily_report(
+    report_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    admin: dict = Depends(require_admin),
+) -> dict:
+    if admin.get("role") not in {"SUPER_ADMIN", "ADMIN"}:
+        raise HTTPException(status_code=403, detail="Administrator customer-reporting permission is required")
+    from zoneinfo import ZoneInfo
+    ist = ZoneInfo("Asia/Kolkata")
+    day = report_date or datetime.now(ist).date().isoformat()
+
+    def ist_day(value):
+        if value is None:
+            return None
+        try:
+            parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(ist).date().isoformat()
+        except (TypeError, ValueError):
+            return str(value)[:10]
+
+    customers = [dict(item) for item in access_store.list_marketing_customers("ALL", limit=500)]
+    requests = [dict(item) for item in access_store.list_requests()]
+    decisions = access_store.list_decisions()
+    daily_requests = [item for item in requests if ist_day(item.get("created_at")) == day]
+    daily_decisions = [item for item in decisions if ist_day(item.get("decided_at")) == day]
+    new_registrations = sum(1 for item in customers if ist_day(item.get("registered_at")) == day)
+    existing_requests = sum(1 for item in daily_requests if item.get("customer_type") == "EXISTING")
+    approved = {item["mobile_e164"] for item in daily_decisions if item.get("new_status") == "APPROVED"}
+    rejected = {item["mobile_e164"] for item in daily_decisions if item.get("new_status") == "REJECTED"}
+    pending = sum(1 for item in daily_requests if item.get("status") == "PENDING")
+    first_plans = sum(1 for item in customers if ist_day(item.get("first_plan_availed_at")) == day)
+    approved_no_plan = sum(1 for item in customers
+        if item.get("access_status") == "APPROVED"
+        and item.get("subscription_status") in {"NEVER_SUBSCRIBED", "NO_PLAN_AVAILED"})
+    return {
+        "report_date": day, "timezone": "Asia/Kolkata", "counts_are_unique_customers_except_pending_requests": True,
+        "metrics": {
+            "new_registrations": new_registrations,
+            "existing_customer_requests": existing_requests,
+            "approved": len(approved), "rejected": len(rejected), "pending": pending,
+            "first_time_plan_availed": first_plans,
+            "approved_but_no_plan_availed": approved_no_plan,
+        },
+        "conversion": {
+            "registration_to_approval_percent": round(len(approved) * 100 / new_registrations, 2) if new_registrations else None,
+            "registration_to_first_plan_percent": round(first_plans * 100 / new_registrations, 2) if new_registrations else None,
+        },
+    }
 
 
 @app.get("/api/v1/admin/access-decisions")
