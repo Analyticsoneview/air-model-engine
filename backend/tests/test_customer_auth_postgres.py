@@ -19,7 +19,8 @@ from app.scripts.migrate_customer_sqlite_to_postgres import migrate
 
 
 TABLES = (
-    "air_access_decision_history", "air_marketing_audit", "air_marketing_offers",
+    "air_access_decision_history", "air_customer_subscription_history",
+    "air_customer_lifecycle", "air_marketing_audit", "air_marketing_offers",
     "air_customer_marketing_preferences", "air_customer_subscriptions",
     "air_device_sessions", "air_access_requests",
 )
@@ -73,6 +74,12 @@ def test_access_approval_session_and_block_revocation(customer_store):
     history = customer_store.decision_history(request["request_id"])
     assert [item["new_status"] for item in history] == ["APPROVED", "BLOCKED"]
     assert history[-1]["reviewer_admin_id"] == "admin-test"
+    assert history[0]["authenticator_verified_at"]
+    assert history[0]["verification_reference"].startswith("totp-counter:")
+    assert '"device_id"' in history[0]["request_context"]
+    lifecycle = customer_store.list_marketing_customers()[0]
+    assert lifecycle["first_approved_at"]
+    assert lifecycle["first_plan_availed_at"] is None
     assert not customer_store.is_session_active(session_id)
     assert customer_store.list_requests("BLOCKED")[0]["request_id"] == request["request_id"]
 
