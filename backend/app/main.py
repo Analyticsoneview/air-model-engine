@@ -1183,11 +1183,23 @@ async def admin_customer_daily_report(
         existing_requests = sum(
             1 for row in requests
             if report_day(row.get("created_at")) == day
-            and first_registration.get(row["mobile_e164"], day) < day
+            and row.get("customer_type") == "EXISTING"
         )
         day_decisions = [decision for decision in decisions if report_day(decision.get("decided_at")) == day]
         approved = sum(1 for decision in day_decisions if decision["new_status"] == "APPROVED")
         rejected = sum(1 for decision in day_decisions if decision["new_status"] == "REJECTED")
+        # Revision 0008 introduced decision events. For older requests without
+        # an event row, reviewed_at is the only retained timestamp for the
+        # last legacy decision; count it once on that date.
+        requests_with_history = {decision["request_id"] for decision in decisions}
+        legacy_reviews = [
+            row for row in requests
+            if row["request_id"] not in requests_with_history
+            and row.get("reviewed_at")
+            and report_day(row.get("reviewed_at")) == day
+        ]
+        approved += sum(1 for row in legacy_reviews if row.get("status") == "APPROVED")
+        rejected += sum(1 for row in legacy_reviews if row.get("status") == "REJECTED")
 
         # Reconstruct pending requests and customer access state as at the end of this IST date.
         pending = 0
@@ -1199,7 +1211,13 @@ async def admin_customer_daily_report(
             history = [event for event in decisions_by_request.get(row["request_id"], [])
                        if event["day"] is not None and event["day"] <= day]
             latest = max(history, key=lambda event: str(event["at"] or "")) if history else None
-            status = latest["status"] if latest else "PENDING"
+            if latest:
+                status = latest["status"]
+            elif row.get("reviewed_at") and report_day(row.get("reviewed_at")) <= day:
+                # Legacy records pre-dating the append-only event table.
+                status = row.get("status") or "PENDING"
+            else:
+                status = "PENDING"
             if status == "PENDING":
                 pending += 1
             customer_request_states.setdefault(row["mobile_e164"], []).append(status)
