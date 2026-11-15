@@ -1226,6 +1226,13 @@ async def admin_customer_daily_report(
             item["customer_id"]: report_day(item.get("first_plan_availed_at"))
             for item in customers
         }
+        # The migration backfills first_approved_at for legacy approvals whose
+        # original decision event predates revision 0008 and therefore has no
+        # append-only decision-history row.
+        first_approval_days = {
+            item["customer_id"]: report_day(item.get("first_approved_at"))
+            for item in customers
+        }
         approved_no_plan = 0
         for customer_id, states in customer_request_states.items():
             if "APPROVED" in states:
@@ -1238,7 +1245,11 @@ async def admin_customer_daily_report(
                 customer_status = "REJECTED"
             approvals = [event for event in decisions_by_customer.get(customer_id, [])
                          if event["status"] == "APPROVED" and event["day"] is not None and event["day"] <= day]
-            first_approved = min((event["day"] for event in approvals), default=None)
+            first_approved = min(
+                [event["day"] for event in approvals] +
+                ([first_approval_days.get(customer_id)] if first_approval_days.get(customer_id) else []),
+                default=None,
+            )
             plan_day = first_plan_days.get(customer_id)
             if customer_status == "APPROVED" and first_approved is not None and first_approved <= day:
                 if plan_day is None or plan_day > day:
