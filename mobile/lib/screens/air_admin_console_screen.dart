@@ -160,7 +160,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
         'as_of_date': asOfDate,
         'segment': _customerSegment == 'ELIGIBLE_FOR_PROMOTIONS' ? 'ALL' : _customerSegment,
         'search': _customerSearch.text.trim(),
-        'limit': '500',
+        'limit': '5000',
         if (_registeredFrom.text.trim().isNotEmpty) 'registered_from': _registeredFrom.text.trim(),
         if (_registeredTo.text.trim().isNotEmpty) 'registered_to': _registeredTo.text.trim(),
         if (_approvedFrom.text.trim().isNotEmpty) 'approved_from': _approvedFrom.text.trim(),
@@ -561,6 +561,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
           children: [
             SelectableText('Customer: ${customer['customer_id']}'),
             Align(alignment: Alignment.centerLeft, child: Text('First registered: ${customer['registered_at_ist'] ?? customer['first_registered_at'] ?? customer['registered_at'] ?? '—'}')),
+            Align(alignment: Alignment.centerLeft, child: Text('First-ever access request: ${customer['first_access_request_at_ist'] ?? customer['first_access_request_at'] ?? '—'}')),
             Align(alignment: Alignment.centerLeft, child: Text('Lifecycle: ${customer['customer_type'] ?? '—'}')),
             Align(alignment: Alignment.centerLeft, child: Text('First approved: ${customer['first_approved_at_ist'] ?? customer['first_approved_at'] ?? '—'}')),
             Align(alignment: Alignment.centerLeft, child: Text('First rejected: ${customer['first_rejected_at_ist'] ?? customer['first_rejected_at'] ?? '—'}')),
