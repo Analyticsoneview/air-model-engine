@@ -148,4 +148,39 @@ void main() {
     expect(find.text('CREATED · admin-1'), findsOneWidget);
   });
 
+
+  testWidgets('Workflow Studio preserves the selected strategy trigger', (tester) async {
+    final created = <Map<String, dynamic>>[];
+    final client = MockClient((request) async {
+      if (request.method == 'POST' && request.url.path == '/api/v1/admin/workflows') {
+        created.add(Map<String, dynamic>.from(jsonDecode(request.body) as Map));
+        return http.Response(jsonEncode({'workflow_id': 'strategy-workflow', 'version': 1}), 201);
+      }
+      if (request.url.path.endsWith('/runs')) {
+        return http.Response(jsonEncode({'runs': []}), 200);
+      }
+      if (request.url.path.endsWith('/calendar')) {
+        return http.Response(jsonEncode({'sessions': []}), 200);
+      }
+      return http.Response(jsonEncode({'workflows': []}), 200);
+    });
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: AirWorkflowStudioScreen(
+        apiBase: 'http://air.test', accessToken: 'test-token', httpClient: client,
+      )),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Strategy based').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).at(2), 'ORB_MORNING');
+    await tester.enterText(find.byType(TextField).at(3), 'customer-123');
+    await tester.tap(find.text('CREATE WORKFLOW'));
+    await tester.pumpAndSettle();
+    expect(created, hasLength(1));
+    expect(created.single['trigger_type'], 'STRATEGY');
+    expect(created.single['trigger_config']['strategy'], 'ORB_MORNING');
+  });
+
 }
