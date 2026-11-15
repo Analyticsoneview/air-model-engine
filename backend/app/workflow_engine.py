@@ -306,6 +306,8 @@ class WorkflowStore:
             raise ValueError("session_date must use YYYY-MM-DD") from exc
         if not 2 <= len(exchange) <= 8 or status_value not in {"HOLIDAY", "SPECIAL_SESSION", "TRADING_DAY"}:
             raise ValueError("Invalid exchange code or calendar status")
+        if status_value == "SPECIAL_SESSION" and (not session_open or not session_close):
+            raise ValueError("Special sessions require both session_open and session_close")
         if not actor or len(actor) > 128:
             raise ValueError("updated_by must contain 1-128 characters")
         for value, label in ((session_open, "session_open"), (session_close, "session_close")):
@@ -847,10 +849,16 @@ class WorkflowStore:
                 if not coverage or coverage["status"] != "VERIFIED":
                     continue
                 calendar_row = self.db.execute(
-                    "SELECT status FROM air_exchange_calendar WHERE exchange_code=? AND session_date=?",
+                    "SELECT status,session_open,session_close FROM air_exchange_calendar WHERE exchange_code=? AND session_date=?",
                     (exchange, local.date().isoformat()),
                 ).fetchone()
                 calendar_status = calendar_row["status"] if calendar_row else None
+                if calendar_status == "SPECIAL_SESSION" and calendar_row:
+                    local_clock = local.strftime("%H:%M")
+                    if (calendar_row["session_open"] and local_clock < calendar_row["session_open"]) or (
+                        calendar_row["session_close"] and local_clock > calendar_row["session_close"]
+                    ):
+                        continue
             is_exchange_holiday = calendar_status == "HOLIDAY"
             explicit_session = calendar_status in {"SPECIAL_SESSION", "TRADING_DAY"}
             is_scheduled_day = local.weekday() in days or explicit_session
