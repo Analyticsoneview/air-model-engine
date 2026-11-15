@@ -2,7 +2,7 @@
 
 ## Decision record
 
-**Status:** Gate 8 Phases 1–6 merged; Phase 7 hardening in progress  
+**Status:** Gate 8 Phases 1–7 merged; Gate 9 runtime observability in progress  
 **Runtime target:** self-hosted Docker Swarm on Linux  
 **Developer workstation:** Windows 10/11, with native tools or Docker Desktop  
 **Initial message transport:** RabbitMQ  
@@ -16,7 +16,7 @@ AIR already contains QOC, ORB, market-data, portfolio-risk, backtest, reporting 
 
 RabbitMQ is the preferred first transport because AIR's initial needs are task/event routing, competing consumers, acknowledgements, retries and delayed/retry queues. Kafka is a stronger fit if AIR later needs very high-volume event streams, long retention/replay and multiple independent stream-processing consumers. Starting with Kafka now would add operational complexity without a demonstrated requirement.
 
-The application persists every accepted event and its outbox record in one database transaction. A publisher will later forward pending outbox records to RabbitMQ. This avoids the dual-write failure in which the database commits but the broker publish is lost. Consumers must be idempotent because broker delivery is at-least-once.
+The application persists every accepted event and its outbox record in one database transaction. The dedicated publisher forwards pending outbox records to RabbitMQ with publisher confirms; the consumer uses durable quorum queues, acknowledgements and a dead-letter queue. Consumers must be idempotent because broker delivery is at-least-once.
 
 Do not add a broker dependency to API startup or make the API unavailable when RabbitMQ is down. The outbox remains durable and publisher/worker services recover independently.
 
@@ -46,7 +46,7 @@ Do not add a broker dependency to API startup or make the API unavailable when R
 
 A workflow may set `trigger_config.customer_id` to match only that customer's events. Unscoped definitions match across customers and should be reserved for platform-level administrator workflows.
 
-Each event carries a stable event ID, type, source, UTC occurrence timestamp, JSON payload, idempotency key and optional correlation ID. CONDITION triggers evaluate a safe allowlist of nested JSON field operators (eq, neq, gt, gte, lt, lte, in, not_in, contains, exists) with ALL/ANY grouping; arbitrary expressions and code are never evaluated. For example: `{"event_type":"portfolio.snapshot.updated","customer_id":"customer-123","filters":[{"field":"summary.concentration_top_position_pct","operator":"gte","value":40}]}`. Exchange-session schedules currently support weekdays and configurable misfire grace; a verified NSE holiday calendar is still required before production trading-day schedules are enabled.
+Each event carries a stable event ID, type, source, UTC occurrence timestamp, JSON payload, idempotency key and optional correlation ID. CONDITION triggers evaluate a safe allowlist of nested JSON field operators (eq, neq, gt, gte, lt, lte, in, not_in, contains, exists) with ALL/ANY grouping; arbitrary expressions and code are never evaluated. For example: `{"event_type":"portfolio.snapshot.updated","customer_id":"customer-123","filters":[{"field":"summary.concentration_top_position_pct","operator":"gte","value":40}]}`. Exchange-session schedules support weekdays, configurable misfire grace and the administrator-managed NSE/BSE calendar. Calendar dates are fail-closed: missing dates are skipped until verified official sessions are loaded.
 
 ### Workflow lifecycle
 1. Define and validate a workflow; save a versioned definition.
@@ -71,11 +71,11 @@ The initial engine will not call broker order-placement APIs. Broker execution r
 
 1. **Foundation:** versioned workflow definitions, event contracts, durable event inbox and transactional outbox. (Merged in PR #50.)
 2. **Transport:** RabbitMQ publisher/consumer, acknowledgements, retry/dead-letter policy and health checks. (Merged in PR #51.)
-3. **Scheduler and run ledger:** time triggers, durable run records, deduplication, misfire grace and startup recovery. (Merged in PR #51; exchange holiday calendar remains to be added.)
+3. **Scheduler and run ledger:** time triggers, durable run records, deduplication, misfire grace and startup recovery. (Merged in PR #51; exchange calendar hardening merged in PR #55.)
 4. **Rule and strategy adapters:** ORB, QOC, model-ledger and portfolio snapshot events, customer-scoped matching and safe nested condition operators. (Merged in PR #52.)
 5. **Execution and notifications:** allowlisted research actions, durable step history/retries, Telegram alert routing and report-ready events. (Merged in PR #53.)
 6. **Workflow Studio:** admin builder, trigger/action selection, enable/pause controls, immutable version history, edit-as-new-version and run/step history. (Merged in PR #54.)
-7. **Hardening:** append-only audit trail, exchange calendar administration and fail-closed trading-day scheduling are implemented in the current hardening branch; failure injection, restart/replay/load tests and production acceptance remain.
+7. **Hardening:** append-only audit trail, exchange calendar administration and fail-closed trading-day scheduling. (Merged in PR #55.) Failure injection, restart/replay/load tests and production acceptance remain part of Gate 9.
 
 ## Initial workflow examples
 
@@ -111,7 +111,7 @@ Use `ALERT_NOTIFY` execution mode for the example above. The workflow is still r
 
 ## Current implementation boundary
 
-PRs #50–#54 are merged. The engine has PostgreSQL-backed event intake/outbox, RabbitMQ transport, time-trigger scheduler, durable run ledger, ORB/QOC/model-ledger/portfolio adapters, safe condition matching, allowlisted workflow execution, per-step recovery, customer-scoped Telegram notifications and the administrator Workflow Studio. The hardening branch adds immutable audit records and an exchange calendar API; a configured exchange calendar is fail-closed until a date is explicitly marked as a trading day or special session. The calendar must be populated from verified official NSE/BSE notices before production trading-day schedules are enabled. No broker order execution is enabled.
+PRs #50–#55 are merged. The engine has PostgreSQL-backed event intake/outbox, RabbitMQ transport, time-trigger scheduler, durable run ledger, ORB/QOC/model-ledger/portfolio adapters, safe condition matching, allowlisted workflow execution, per-step recovery, customer-scoped Telegram notifications and the administrator Workflow Studio. PR #55 adds immutable audit records and an exchange calendar API; a configured exchange calendar is fail-closed until a date is explicitly marked as a trading day or special session. The calendar must be populated from verified official NSE/BSE notices before production trading-day schedules are enabled. No broker order execution is enabled.
 
 
 ## Audit and exchange calendar hardening
