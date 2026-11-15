@@ -77,10 +77,12 @@ class SupportStore:
         # the visible history appear out of order. Give each ticket a strictly
         # increasing UTC timestamp; the ticket row is already locked/updated by
         # the caller's transaction for customer/admin mutations.
-        latest = self.db.execute(
-            "SELECT MAX(created_at) FROM air_support_ticket_events WHERE ticket_id=?",
+        latest_row = self.db.execute(
+            "SELECT MAX(created_at) AS latest_created_at FROM air_support_ticket_events WHERE ticket_id=?",
             (ticket_id,),
-        ).fetchone()[0]
+        ).fetchone()
+        # PostgreSQL connections use dict_row while SQLite uses sqlite3.Row.
+        latest = latest_row["latest_created_at"] if latest_row is not None else None
         event_time = datetime.now(timezone.utc)
         if latest:
             if isinstance(latest, str):
