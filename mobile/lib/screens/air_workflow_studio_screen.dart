@@ -251,7 +251,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
     final steps = (spec['steps'] as List? ?? [])
         .whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
     if (steps.isEmpty || steps.length > 2 || (steps.length == 2 && steps[1]['action'] != 'notify.telegram')) {
-      _error = 'This workflow has no configured steps to edit.';
+      _error = 'This workflow has a step layout that the simple editor cannot safely preserve. Use the workflow API for this advanced definition.';
       setState(() {});
       return;
     }
