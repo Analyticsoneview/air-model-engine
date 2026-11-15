@@ -1,6 +1,6 @@
 """Workflow audit trail and exchange trading calendar.
 
-Revision ID: 0016_workflow_audit_exchange_calendar
+Revision ID: 0016_workflow_audit_calendar
 Revises: 0015_workflow_def_versions
 """
 from alembic import op
@@ -16,7 +16,7 @@ def upgrade() -> None:
     op.create_table(
         "air_workflow_audit",
         sa.Column("audit_id", sa.String(36), primary_key=True),
-        sa.Column("workflow_id", sa.String(36), nullable=False),
+        sa.Column("workflow_id", sa.String(128), nullable=False),
         sa.Column("workflow_version", sa.Integer(), nullable=False),
         sa.Column("actor_id", sa.String(128), nullable=False),
         sa.Column("action", sa.String(48), nullable=False),
@@ -45,17 +45,21 @@ def upgrade() -> None:
     )
     op.execute("""
         CREATE OR REPLACE FUNCTION air_workflow_audit_reject_mutation()
-        RETURNS trigger LANGUAGE plpgsql AS $
+        RETURNS trigger LANGUAGE plpgsql AS $body$
         BEGIN
             RAISE EXCEPTION 'AIR workflow audit is append-only';
         END;
-        $;
+        $body$
+    """)
+    op.execute("""
         CREATE TRIGGER trg_air_workflow_audit_no_update
-            BEFORE UPDATE ON air_workflow_audit
-            FOR EACH ROW EXECUTE FUNCTION air_workflow_audit_reject_mutation();
+        BEFORE UPDATE ON air_workflow_audit
+        FOR EACH ROW EXECUTE FUNCTION air_workflow_audit_reject_mutation()
+    """)
+    op.execute("""
         CREATE TRIGGER trg_air_workflow_audit_no_delete
-            BEFORE DELETE ON air_workflow_audit
-            FOR EACH ROW EXECUTE FUNCTION air_workflow_audit_reject_mutation();
+        BEFORE DELETE ON air_workflow_audit
+        FOR EACH ROW EXECUTE FUNCTION air_workflow_audit_reject_mutation()
     """)
     op.create_index(
         "ix_air_exchange_calendar_date",
