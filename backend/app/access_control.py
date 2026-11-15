@@ -366,7 +366,7 @@ class AccessStore:
                    END AS access_status,
                    l.first_approved_at,l.first_rejected_at,l.first_plan_availed_at
               FROM air_access_requests r LEFT JOIN air_customer_lifecycle l ON l.customer_id=r.mobile_e164
-             GROUP BY r.mobile_e164,l.first_approved_at,l.first_plan_availed_at
+             GROUP BY r.mobile_e164,l.first_approved_at,l.first_rejected_at,l.first_plan_availed_at
              ORDER BY MAX(r.created_at) DESC
         """).fetchall()
         result = []
@@ -391,6 +391,7 @@ class AccessStore:
                 "subscription_expires_at": subscription["expires_at"] if subscription else None,
                 "first_registered_at": row["registered_at"],
                 "first_approved_at": row["first_approved_at"],
+                "first_rejected_at": row["first_rejected_at"],
                 "first_plan_availed_at": row["first_plan_availed_at"],
                 "subscription_starts_at": subscription["starts_at"] if subscription else None,
                 "promotional_consent": consent,
