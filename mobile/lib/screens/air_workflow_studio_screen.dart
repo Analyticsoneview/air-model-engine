@@ -450,7 +450,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
           ],
           onChanged: _busy ? null : (value) => setState(() => _calendarStatus = value ?? 'TRADING_DAY'),
         ),
-        if (_calendarStatus != 'HOLIDAY') Row(children: [
+        if (_calendarStatus == 'SPECIAL_SESSION') Row(children: [
           Expanded(child: _field(_calendarOpen, 'Open (HH:MM)')),
           const SizedBox(width: 8),
           Expanded(child: _field(_calendarClose, 'Close (HH:MM)')),
