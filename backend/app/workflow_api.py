@@ -33,6 +33,13 @@ class ExchangeCalendarEntry(BaseModel):
     session_close: str | None = None
 
 
+class ExchangeCalendarCoverage(BaseModel):
+    exchange_code: str = Field(min_length=2, max_length=8)
+    calendar_year: int = Field(ge=2000, le=2100)
+    status: str
+    source: str = Field(min_length=1, max_length=240)
+
+
 class EventCreate(BaseModel):
     event_type: str = Field(min_length=1, max_length=120)
     source: str = Field(min_length=1, max_length=120)
@@ -195,6 +202,37 @@ async def upsert_exchange_calendar(
                 source=body.source, session_open=body.session_open,
                 session_close=body.session_close, updated_by=admin["admin_id"],
             )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    finally:
+        store.close()
+
+
+@router.get("/calendar/coverage")
+async def get_exchange_calendar_coverage(
+    exchange: str = "NSE", calendar_year: int = 2026,
+    admin: dict = Depends(require_admin),
+):
+    _management_admin(admin)
+    store = WorkflowStore()
+    try:
+        return {"coverage": store.get_exchange_calendar_coverage(exchange, calendar_year)}
+    finally:
+        store.close()
+
+
+@router.put("/calendar/coverage")
+async def set_exchange_calendar_coverage(
+    body: ExchangeCalendarCoverage, admin: dict = Depends(require_admin),
+):
+    _management_admin(admin)
+    store = WorkflowStore()
+    try:
+        try:
+            return {"coverage": store.set_exchange_calendar_coverage(
+                exchange_code=body.exchange_code, calendar_year=body.calendar_year,
+                status=body.status, source=body.source, verified_by=admin["admin_id"],
+            )}
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
     finally:
