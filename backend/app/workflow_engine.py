@@ -956,6 +956,7 @@ class WorkflowStore:
         self, *, run_id: str, step_key: str, step_index: int, action: str,
         status: str, input_data: dict, output_data: dict | list | None = None,
         error: str | None = None, attempts: int = 0,
+        worker_id: str | None = None, claim_version: int | None = None,
     ) -> dict:
         status = str(status).upper()
         if status not in {"PENDING", "RUNNING", "SUCCEEDED", "FAILED", "SKIPPED"}:
@@ -964,6 +965,20 @@ class WorkflowStore:
         input_json = json.dumps(input_data, allow_nan=False)
         output_json = json.dumps(output_data, allow_nan=False) if output_data is not None else None
         with self.db:
+            if worker_id is not None or claim_version is not None:
+                if worker_id is None or claim_version is None:
+                    raise ValueError("worker_id and claim_version must be supplied together")
+                lock_sql = """SELECT claimed_by,claim_version,lease_expires_at
+                              FROM air_workflow_runs WHERE run_id=?"""
+                if self.is_postgres:
+                    lock_sql += " FOR UPDATE"
+                claim = self.db.execute(lock_sql, (run_id,)).fetchone()
+                now_check = _now()
+                if (not claim or claim["claimed_by"] != worker_id
+                        or int(claim["claim_version"]) != int(claim_version)
+                        or not claim["lease_expires_at"]
+                        or claim["lease_expires_at"] <= now_check):
+                    raise RuntimeError("Workflow run claim was lost; stale worker cannot save a step")
             existing = self.get_run_step(run_id, step_key)
             if existing:
                 if status == "RUNNING":
