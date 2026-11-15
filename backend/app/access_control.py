@@ -161,6 +161,20 @@ class AccessStore:
                     WHERE first_rejected_at IS NULL AND EXISTS(
                     SELECT 1 FROM air_access_decision_history WHERE mobile_e164=air_customer_lifecycle.customer_id
                     AND new_status='REJECTED')""")
+                self.db.execute("""UPDATE air_customer_lifecycle SET first_approved_at=(
+                    SELECT MIN(reviewed_at) FROM air_access_requests
+                    WHERE mobile_e164=air_customer_lifecycle.customer_id
+                      AND status='APPROVED' AND reviewed_at IS NOT NULL)
+                    WHERE first_approved_at IS NULL AND EXISTS(
+                    SELECT 1 FROM air_access_requests WHERE mobile_e164=air_customer_lifecycle.customer_id
+                      AND status='APPROVED' AND reviewed_at IS NOT NULL)""")
+                self.db.execute("""UPDATE air_customer_lifecycle SET first_rejected_at=(
+                    SELECT MIN(reviewed_at) FROM air_access_requests
+                    WHERE mobile_e164=air_customer_lifecycle.customer_id
+                      AND status='REJECTED' AND reviewed_at IS NOT NULL)
+                    WHERE first_rejected_at IS NULL AND EXISTS(
+                    SELECT 1 FROM air_access_requests WHERE mobile_e164=air_customer_lifecycle.customer_id
+                      AND status='REJECTED' AND reviewed_at IS NOT NULL)""")
                 self.db.execute("""INSERT OR IGNORE INTO air_customer_subscription_history
                     (assignment_id,customer_id,plan_code,starts_at,expires_at,status,assigned_at)
                     SELECT lower(hex(randomblob(16))),customer_id,plan_code,starts_at,expires_at,status,updated_at
