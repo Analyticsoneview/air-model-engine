@@ -76,7 +76,6 @@ class _AirMarketsScreenState extends State<AirMarketsScreen> {
     final cs = Theme.of(context).colorScheme;
     final bootstrap = _status['bootstrap'] as Map<String, dynamic>? ?? const {};
     final markets = _status['markets'] as Map<String, dynamic>? ?? const {};
-    final marketStatus = markets[_market] as Map<String, dynamic>? ?? const {};
     final source = _access['market_data_source'] as Map<String, dynamic>? ?? const {};
     final sourceLabel = _access['effective_source']?.toString() ?? 'NSE';
     final connection = _access['connection_status']?.toString() ?? 'unknown';
