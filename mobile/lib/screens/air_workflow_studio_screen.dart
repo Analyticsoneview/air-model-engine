@@ -37,6 +37,7 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
   String _action = 'qoc.qualify';
   String _mode = 'RESEARCH_ONLY';
   String _match = 'ALL';
+  String? _editingWorkflowId;
   bool _notifyAfter = false;
   bool _busy = false;
   String? _error;
@@ -207,18 +208,22 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
           },
         });
       }
-      final created = await _request('POST', '/api/v1/admin/workflows', body: {
+      final body = {
         'name': _name.text.trim(),
         'description': 'Created in AIR Workflow Studio',
         'trigger_type': _trigger,
         'trigger_config': _triggerConfig(),
         'workflow_spec': {'steps': steps},
         'execution_mode': mode,
-      });
+      };
+      final editingId = _editingWorkflowId;
+      final created = await _request(editingId == null ? 'POST' : 'PUT',
+          editingId == null ? '/api/v1/admin/workflows' : '/api/v1/admin/workflows/${Uri.encodeComponent(editingId)}', body: body);
       _name.clear();
+      _editingWorkflowId = null;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Workflow created · version ${created['version'] ?? 1}. Enable it when ready.'),
+          content: Text('${editingId == null ? 'Workflow created' : 'New version saved'} · version ${created['version'] ?? 1}. Enable it when ready.'),
         ));
       }
       await _load();
@@ -227,6 +232,56 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  void _editWorkflow(Map<String, dynamic> workflow) {
+    final spec = Map<String, dynamic>.from(workflow['workflow_spec'] as Map? ?? {});
+    final steps = (spec['steps'] as List? ?? [])
+        .whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+    if (steps.isEmpty) {
+      _error = 'This workflow has no configured steps to edit.';
+      setState(() {});
+      return;
+    }
+    final first = steps.first;
+    final firstParams = Map<String, dynamic>.from(first['params'] as Map? ?? {});
+    final notifyStep = steps.length > 1 && steps[1]['action'] == 'notify.telegram'
+        ? steps[1] : null;
+    final notifyParams = Map<String, dynamic>.from(notifyStep?['params'] as Map? ?? {});
+    final triggerConfig = Map<String, dynamic>.from(workflow['trigger_config'] as Map? ?? {});
+    setState(() {
+      _editingWorkflowId = workflow['workflow_id'].toString();
+      _name.text = workflow['name']?.toString() ?? '';
+      _trigger = workflow['trigger_type']?.toString() ?? 'EVENT';
+      _eventType.text = (triggerConfig['event_type'] ??
+          (triggerConfig['event_types'] is List && (triggerConfig['event_types'] as List).isNotEmpty
+              ? (triggerConfig['event_types'] as List).first : 'qoc.candidate.qualified')).toString();
+      _strategy.text = (notifyParams['strategy'] ?? triggerConfig['strategy'] ?? 'AIR_QOC').toString();
+      _customerId.text = triggerConfig['customer_id']?.toString() ?? '';
+      _hour.text = (triggerConfig['hour'] ?? 9).toString().padLeft(2, '0');
+      _minute.text = (triggerConfig['minute'] ?? 18).toString().padLeft(2, '0');
+      _match = triggerConfig['match']?.toString() ?? 'ALL';
+      _filters.text = jsonEncode(triggerConfig['filters'] ?? []);
+      _action = first['action']?.toString() ?? 'qoc.qualify';
+      _params.text = const JsonEncoder.withIndent('  ').convert(firstParams);
+      _notifyAfter = notifyStep != null;
+      _mode = workflow['execution_mode']?.toString() ?? 'RESEARCH_ONLY';
+      _error = null;
+    });
+  }
+
+  void _cancelEdit() {
+    setState(() {
+      _editingWorkflowId = null;
+      _name.clear();
+      _customerId.clear();
+      _trigger = 'EVENT';
+      _action = 'qoc.qualify';
+      _mode = 'RESEARCH_ONLY';
+      _notifyAfter = false;
+      _params.text = '{"mode":"LIVE","max_candidates":20}';
+      _error = null;
+    });
   }
 
   Future<void> _toggleWorkflow(Map<String, dynamic> workflow, bool enabled) async {
@@ -370,10 +425,14 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
               ? null : (value) => setState(() => _mode = value ?? 'RESEARCH_ONLY'),
         ),
         const SizedBox(height: 12),
+        if (_editingWorkflowId != null)
+          Align(alignment: Alignment.centerRight, child: TextButton(
+            onPressed: _busy ? null : _cancelEdit, child: const Text('CANCEL EDIT'),
+          )),
         SizedBox(width: double.infinity, child: FilledButton.icon(
           onPressed: _busy ? null : _createWorkflow,
           icon: const Icon(Icons.add_task),
-          label: const Text('CREATE WORKFLOW'),
+          label: Text(_editingWorkflowId == null ? 'CREATE WORKFLOW' : 'SAVE NEW VERSION'),
         )),
       ]),
     ),
@@ -401,6 +460,9 @@ class _AirWorkflowStudioScreenState extends State<AirWorkflowStudioScreen> {
             leading: Icon(workflow['enabled'] == true ? Icons.play_circle_fill : Icons.pause_circle_outline,
                 color: workflow['enabled'] == true ? Colors.green : Colors.grey),
             trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+              IconButton(tooltip: 'Edit as new version',
+                onPressed: _busy ? null : () => _editWorkflow(workflow),
+                icon: const Icon(Icons.edit_outlined)),
               IconButton(tooltip: 'Version history',
                 onPressed: _busy ? null : () => _showVersions(workflow),
                 icon: const Icon(Icons.history)),
