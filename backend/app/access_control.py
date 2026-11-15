@@ -45,6 +45,50 @@ class AccessStore:
             )
         """)
         self.db.execute("CREATE INDEX IF NOT EXISTS ix_air_access_decisions_request ON air_access_decision_history(request_id, decided_at)")
+        decision_columns = {row["name"] for row in self.db.execute("PRAGMA table_info(air_access_decision_history)")}
+        for name, declaration in {
+            "totp_verified_at": "TEXT", "verification_reference": "TEXT",
+            "device_id": "TEXT", "request_context": "TEXT NOT NULL DEFAULT '{}'",
+        }.items():
+            if name not in decision_columns:
+                self.db.execute(f"ALTER TABLE air_access_decision_history ADD COLUMN {name} {declaration}")
+        self.db.execute("""CREATE TABLE IF NOT EXISTS air_customer_lifecycle(
+            customer_id TEXT PRIMARY KEY, first_registered_at TEXT NOT NULL,
+            first_approved_at TEXT, first_plan_availed_at TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+        self.db.execute("""CREATE TABLE IF NOT EXISTS air_customer_subscription_history(
+            assignment_id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, plan_code TEXT NOT NULL,
+            starts_at TEXT NOT NULL, expires_at TEXT NOT NULL, status TEXT NOT NULL,
+            assigned_by_admin_id TEXT, assigned_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+        self.db.execute("""INSERT OR IGNORE INTO air_customer_lifecycle(customer_id,first_registered_at)
+            SELECT mobile_e164,MIN(created_at) FROM air_access_requests GROUP BY mobile_e164""")
+        self.db.execute("""UPDATE air_customer_lifecycle SET first_approved_at=(
+            SELECT MIN(decided_at) FROM air_access_decision_history
+            WHERE mobile_e164=air_customer_lifecycle.customer_id AND new_status='APPROVED')
+            WHERE first_approved_at IS NULL AND EXISTS(
+            SELECT 1 FROM air_access_decision_history WHERE mobile_e164=air_customer_lifecycle.customer_id
+            AND new_status='APPROVED')""")
+        self.db.execute("""INSERT OR IGNORE INTO air_customer_subscription_history
+            (assignment_id,customer_id,plan_code,starts_at,expires_at,status,assigned_at)
+            SELECT lower(hex(randomblob(16))),customer_id,plan_code,starts_at,expires_at,status,updated_at
+            FROM air_customer_subscriptions""")
+        self.db.execute("""UPDATE air_customer_lifecycle SET first_plan_availed_at=(
+            SELECT MIN(assigned_at) FROM air_customer_subscription_history
+            WHERE customer_id=air_customer_lifecycle.customer_id)
+            WHERE first_plan_availed_at IS NULL AND EXISTS(
+            SELECT 1 FROM air_customer_subscription_history WHERE customer_id=air_customer_lifecycle.customer_id)""")
+        self.db.executescript("""
+            CREATE TRIGGER IF NOT EXISTS trg_air_access_decision_no_update
+            BEFORE UPDATE ON air_access_decision_history BEGIN
+                SELECT RAISE(ABORT, 'air_access_decision_history is append-only');
+            END;
+            CREATE TRIGGER IF NOT EXISTS trg_air_access_decision_no_delete
+            BEFORE DELETE ON air_access_decision_history BEGIN
+                SELECT RAISE(ABORT, 'air_access_decision_history is append-only');
+            END;
+        """)
+        self.db.commit()
         self.db.execute("""
             CREATE TABLE IF NOT EXISTS air_device_sessions (
                 session_id TEXT PRIMARY KEY,
@@ -166,12 +210,17 @@ class AccessStore:
         return [dict(row) for row in rows]
 
     def review(self, request_id: str, status: str, note: str = "", reviewer_admin_id: str = "",
-               reviewer_role: str = "", totp_counter: int = -1) -> bool:
+               reviewer_role: str = "", totp_counter: int = -1, verification_reference: str | None = None,
+               totp_verified_at=None, request_context: dict | None = None) -> bool:
+        import json
+        from datetime import datetime, timezone
         status = status.upper()
         if status not in {"APPROVED", "REJECTED", "BLOCKED"}:
             raise ValueError("Status must be APPROVED, REJECTED or BLOCKED")
+        verified_at = totp_verified_at or datetime.now(timezone.utc)
+        verification_reference = verification_reference or str(uuid4())
         with self.db:
-            current = self.db.execute("SELECT mobile_e164,status FROM air_access_requests WHERE request_id=?",
+            current = self.db.execute("SELECT mobile_e164,device_id,status,created_at FROM air_access_requests WHERE request_id=?",
                                        (request_id,)).fetchone()
             if not current: return False
             cursor = self.db.execute("""UPDATE air_access_requests SET status=?,reviewed_at=CURRENT_TIMESTAMP,
@@ -179,10 +228,20 @@ class AccessStore:
             if cursor.rowcount:
                 self.db.execute("""INSERT INTO air_access_decision_history
                     (decision_id,request_id,mobile_e164,previous_status,new_status,reviewer_admin_id,
-                     reviewer_role,note,totp_counter) VALUES(?,?,?,?,?,?,?,?,?)""",
+                     reviewer_role,note,totp_counter,totp_verified_at,verification_reference,device_id,request_context)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (str(uuid4()), request_id, current["mobile_e164"], current["status"], status,
-                     reviewer_admin_id, reviewer_role, note[:500], int(totp_counter)))
-                if status != "APPROVED":
+                     reviewer_admin_id, reviewer_role, note[:500], int(totp_counter),
+                     verified_at.isoformat(), verification_reference, current["device_id"],
+                     json.dumps(request_context or {})))
+                if status == "APPROVED":
+                    self.db.execute("""INSERT INTO air_customer_lifecycle
+                        (customer_id,first_registered_at,first_approved_at) VALUES(?,?,?)
+                        ON CONFLICT(customer_id) DO UPDATE SET
+                        first_approved_at=COALESCE(air_customer_lifecycle.first_approved_at,excluded.first_approved_at),
+                        updated_at=CURRENT_TIMESTAMP""",
+                        (current["mobile_e164"], current["created_at"], verified_at.isoformat()))
+                else:
                     self.db.execute("UPDATE air_device_sessions SET active=0 WHERE request_id=?", (request_id,))
         return cursor.rowcount > 0
 
@@ -227,7 +286,9 @@ class AccessStore:
         expires = self._subscription_datetime(expires_at)
         if expires <= starts:
             raise ValueError("Subscription expiry must be later than its start date")
+        from datetime import datetime, timezone
         with self.db:
+            assigned_at = datetime.now(timezone.utc).isoformat()
             self.db.execute(
                 """INSERT INTO air_customer_subscriptions
                    (customer_id,plan_code,starts_at,expires_at,status,updated_at)
@@ -237,6 +298,18 @@ class AccessStore:
                    expires_at=excluded.expires_at, status='ACTIVE', updated_at=CURRENT_TIMESTAMP""",
                 (customer_id, plan, starts.isoformat(), expires.isoformat()),
             )
+            self.db.execute("""INSERT INTO air_customer_subscription_history
+                (assignment_id,customer_id,plan_code,starts_at,expires_at,status,assigned_at)
+                VALUES(?,?,?,?,?,'ACTIVE',?)""",
+                (str(uuid4()), customer_id, plan, starts.isoformat(), expires.isoformat(), assigned_at))
+            registered = self.db.execute("SELECT MIN(created_at) FROM air_access_requests WHERE mobile_e164=?",
+                                         (customer_id,)).fetchone()[0]
+            if registered:
+                self.db.execute("""INSERT INTO air_customer_lifecycle
+                    (customer_id,first_registered_at,first_plan_availed_at) VALUES(?,?,?)
+                    ON CONFLICT(customer_id) DO UPDATE SET
+                    first_plan_availed_at=COALESCE(air_customer_lifecycle.first_plan_availed_at,excluded.first_plan_availed_at),
+                    updated_at=CURRENT_TIMESTAMP""", (customer_id, registered, assigned_at))
 
     def get_subscription(self, customer_id: str):
         row = self.db.execute(
@@ -279,9 +352,10 @@ class AccessStore:
                      WHEN SUM(CASE WHEN r.status='PENDING' THEN 1 ELSE 0 END)>0 THEN 'PENDING'
                      WHEN SUM(CASE WHEN r.status='BLOCKED' THEN 1 ELSE 0 END)>0 THEN 'BLOCKED'
                      ELSE 'REJECTED'
-                   END AS access_status
-              FROM air_access_requests r
-             GROUP BY r.mobile_e164
+                   END AS access_status,
+                   l.first_approved_at,l.first_plan_availed_at
+              FROM air_access_requests r LEFT JOIN air_customer_lifecycle l ON l.customer_id=r.mobile_e164
+             GROUP BY r.mobile_e164,l.first_approved_at,l.first_plan_availed_at
              ORDER BY MAX(r.created_at) DESC
         """).fetchall()
         result = []
@@ -304,6 +378,10 @@ class AccessStore:
                 "subscription_status": subscription_status,
                 "plan_code": subscription["plan_code"] if subscription else None,
                 "subscription_expires_at": subscription["expires_at"] if subscription else None,
+                "first_registered_at": row["registered_at"],
+                "first_approved_at": row["first_approved_at"],
+                "first_plan_availed_at": row["first_plan_availed_at"],
+                "subscription_starts_at": subscription["starts_at"] if subscription else None,
                 "promotional_consent": consent,
                 "marketing_status": "OPTED_IN" if consent else ("OPTED_OUT" if pref else "NOT_GRANTED"),
                 "consent_updated_at": pref["consent_updated_at"] if pref else None,
