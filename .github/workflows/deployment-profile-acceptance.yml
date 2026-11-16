@@ -9,6 +9,7 @@ on:
       - 'AIRSTART.sh'
       - 'deploy/DOCKER_SWARM.md'
       - 'deploy/rabbitmq.conf'
+      - 'deploy/READINESS_REGISTER.md'
       - 'backend/Dockerfile'
       - 'backend/app/deployment_profiles.py'
       - 'backend/app/main.py'
