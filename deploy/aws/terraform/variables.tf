@@ -157,3 +157,9 @@ variable "log_retention_days" {
   type    = number
   default = 30
 }
+
+variable "enable_http_for_bootstrap" {
+  description = "Explicit acknowledgement that temporary HTTP is allowed without ACM TLS."
+  type        = bool
+  default     = false
+}
