@@ -54,7 +54,7 @@ resource "aws_iam_role_policy" "ecs_task_storage" {
       { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], Resource = "${aws_s3_bucket.air.arn}/*" },
       { Effect = "Allow", Action = ["s3:ListBucket"], Resource = aws_s3_bucket.air.arn },
       { Effect = "Allow", Action = ["s3:CreateBucket"], Resource = "*" },
-      { Effect = "Allow", Action = ["s3:PutBucketPublicAccessBlock", "s3:PutEncryptionConfiguration", "s3:PutBucketVersioning", "s3:PutBucketTagging", "s3:GetBucketLocation", "s3:ListBucket"], Resource = "arn:aws:s3:::${local.tenant_bucket_prefix}*" },
+      { Effect = "Allow", Action = ["s3:PutBucketPublicAccessBlock", "s3:PutEncryptionConfiguration", "s3:PutBucketVersioning", "s3:PutBucketTagging", "s3:PutBucketPolicy", "s3:PutBucketOwnershipControls", "s3:GetBucketLocation", "s3:ListBucket"], Resource = "arn:aws:s3:::${local.tenant_bucket_prefix}*" },
       { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"], Resource = "arn:aws:s3:::${local.tenant_bucket_prefix}*/*" },
       { Effect = "Allow", Action = ["secretsmanager:CreateSecret", "secretsmanager:DescribeSecret", "secretsmanager:GetSecretValue", "secretsmanager:PutSecretValue", "secretsmanager:TagResource"], Resource = "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${var.tenant_secrets_prefix}/*" }
     ]
@@ -173,6 +173,7 @@ resource "aws_ecs_task_definition" "api" {
     environment = [
       { name = "AIR_DEPLOYMENT_PROFILE", value = var.deployment_profile },
       { name = "AIR_DEPLOYMENT_MODE", value = "aws" },
+      { name = "AWS_REGION", value = var.aws_region },
       { name = "AIR_TENANCY_MODE", value = var.tenancy_mode },
       { name = "AIR_RABBITMQ_MANAGEMENT_URL", value = replace(replace(aws_mq_broker.air.instances[0].endpoints[0], "amqps://", "https://"), ":5671", ":15671") },
       { name = "AIR_RABBITMQ_ADMIN_USER", value = "air" },
