@@ -6,7 +6,7 @@ from pathlib import Path
 
 from app.model_engine_ledger import ModelEngineLedger
 from app.nse_bhavcopy import (
-    NSEBhavcopyStore, _archive_url, _normalize, _parse_nse_calendar, _subtract_months, _date_range, _configured_history_months,
+    NSEBhavcopyStore, _archive_url, _normalize, _parse_nse_calendar, _subtract_months, _date_range, _configured_history_months, nse_bootstrap_is_ready,
 )
 
 
@@ -34,6 +34,26 @@ class NSEBhavcopyTests(unittest.TestCase):
                 os.environ.pop("AIR_NSE_HISTORY_MONTHS", None)
             else:
                 os.environ["AIR_NSE_HISTORY_MONTHS"] = previous
+
+    def test_readiness_rejects_legacy_three_month_ready_marker(self):
+        self.assertFalse(nse_bootstrap_is_ready({"status": "READY"}))
+        self.assertFalse(nse_bootstrap_is_ready({
+            "status": "READY", "history_months": 3,
+            "archive_coverage_pct": 100, "paired_session_coverage_pct": 100,
+        }))
+
+    def test_readiness_requires_full_archive_and_paired_session_coverage(self):
+        complete = {
+            "status": "READY", "history_months": 12,
+            "archive_coverage_pct": 100, "paired_session_coverage_pct": 100,
+        }
+        self.assertTrue(nse_bootstrap_is_ready(complete))
+        incomplete = dict(complete, archive_coverage_pct=99.9)
+        self.assertFalse(nse_bootstrap_is_ready(incomplete))
+        incomplete = dict(complete, paired_session_coverage_pct=99.9)
+        self.assertFalse(nse_bootstrap_is_ready(incomplete))
+        incomplete = dict(complete, status="PARTIAL")
+        self.assertFalse(nse_bootstrap_is_ready(incomplete))
 
     def test_nse_calendar_normalizes_cm_and_fo_separately(self):
         calendar = _parse_nse_calendar({
