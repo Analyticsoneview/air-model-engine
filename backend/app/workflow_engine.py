@@ -566,11 +566,11 @@ class WorkflowStore:
         customer_id = owner["customer_id"] if owner else current_customer_id()
         self.db.execute(
             """INSERT INTO air_workflow_audit
-               (audit_id,workflow_id,workflow_version,actor_id,action,payload_json,created_at,customer_id)
-               VALUES(?,?,?,?,?,?,?,?)""",
+               (audit_id,workflow_id,workflow_version,actor_id,action,payload_json,created_at,customer_id,tenant_id)
+               VALUES(?,?,?,?,?,?,?,?,?)""",
             (str(uuid4()), str(workflow_id), int(version), str(actor_id)[:128],
              str(action)[:48], json.dumps(_json_object(payload, "audit payload"), allow_nan=False),
-             _now(), customer_id),
+             _now(), customer_id, current_tenant_id()),
         )
 
     def list_workflow_audit(self, workflow_id: str | None = None, limit: int = 100) -> list[dict]:
