@@ -179,7 +179,6 @@ resource "aws_ecs_task_definition" "worker" {
       { name = "AIR_DEPLOYMENT_PROFILE", value = "aws-private-single" },
       { name = "AIR_DEPLOYMENT_MODE", value = "aws" },
       { name = "AIR_TENANCY_MODE", value = "single" },
-      { name = "AIR_DATABASE_URL_FILE", value = "/run/secrets/database_url" }
     ]
     secrets = [
       { name = "AIR_DATABASE_URL", valueFrom = aws_secretsmanager_secret.postgres.arn },
