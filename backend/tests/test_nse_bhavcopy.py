@@ -272,14 +272,14 @@ class NSEBhavcopyTests(unittest.TestCase):
             try:
                 ledger = ModelEngineLedger(ledger_path)
                 ledger.upsert("customer-1", {
-                    "signal_id": "EXPIRY78:NIFTY:2026-10-29:26000:CE",
+                    "signal_id": "EXPIRY78:NIFTY:2025-10-29:26000:CE",
                     "classification": "EXPIRED",
                     "signal_date": "2025-10-27",
                     "entry_date": "2025-10-28",
                     "symbol": "NIFTY",
                     "instrument_type": "INDEX",
                     "option_type": "CE",
-                    "expiry": "2026-10-29",
+                    "expiry": "2025-10-29",
                     "strike": 26000,
                     "entry_price": 5,
                     "quantity": 50,
@@ -290,11 +290,11 @@ class NSEBhavcopyTests(unittest.TestCase):
                 store = NSEBhavcopyStore(str(Path(folder) / "nse.sqlite3"))
                 daily_rows = [
                     {"FinInstrmId": "1", "TckrSymb": "NIFTY", "FinInstrmTp": "OPTIDX",
-                     "XpryDt": "2026-10-29", "StrkPric": "26000", "OptnTp": "CE",
+                     "XpryDt": "2025-10-29", "StrkPric": "26000", "OptnTp": "CE",
                      "OpnPric": "5", "HghPric": "6", "LwPric": "4", "ClsPric": "5.5",
                      "TtlTradgVol": "1000", "UndrlygPric": "26010"},
                     {"FinInstrmId": "1", "TckrSymb": "NIFTY", "FinInstrmTp": "OPTIDX",
-                     "XpryDt": "2026-10-29", "StrkPric": "26000", "OptnTp": "CE",
+                     "XpryDt": "2025-10-29", "StrkPric": "26000", "OptnTp": "CE",
                      "OpnPric": "5.5", "HghPric": "7", "LwPric": "5", "ClsPric": "6.5",
                      "TtlTradgVol": "1500", "UndrlygPric": "26020"},
                 ]
