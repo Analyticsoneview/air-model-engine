@@ -145,6 +145,9 @@ RESTRICTED_FEATURES = frozenset({
 # They grant only the pre-existing generic strategy-workspace entitlement.
 LEGACY_PLAN_CODES = frozenset({"DAILY", "MONTHLY", "SIX_MONTHS", "YEARLY"})
 LEGACY_ACTIVE_FEATURES = frozenset({"strategy_workspace"})
+OPERATOR_FEATURES = frozenset().union(
+    *(frozenset(plan["features"]) for plan in (*B2C_PLANS, *B2B_PLANS))
+)
 
 
 def public_catalogue() -> dict[str, Any]:
@@ -177,7 +180,11 @@ def resolve_entitlements(subscription: dict[str, Any] | None) -> dict[str, Any]:
         }
 
     code = str(subscription.get("plan_code") or "").upper()
-    if code in LEGACY_PLAN_CODES:
+    if code == "OPERATOR":
+        features = OPERATOR_FEATURES
+        status = "OPERATOR_OVERRIDE"
+        catalogue_code = None
+    elif code in LEGACY_PLAN_CODES:
         features = LEGACY_ACTIVE_FEATURES
         status = "LEGACY_ACTIVE"
         catalogue_code = None
