@@ -22,7 +22,7 @@ TABLES = (
     "air_access_decision_history", "air_customer_subscription_history",
     "air_customer_lifecycle", "air_marketing_audit", "air_marketing_offers",
     "air_customer_marketing_preferences", "air_customer_subscriptions",
-    "air_device_sessions", "air_access_requests",
+    "air_device_sessions", "air_access_requests", "air_tenant_members", "air_tenants",
 )
 
 
