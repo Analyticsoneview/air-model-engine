@@ -128,6 +128,7 @@ class ReleasePackageTests(unittest.TestCase):
                 self.assertTrue(any(s["name"] == "rabbitmq" for s in manifest["services"]))
                 self.assertTrue(any(s["name"] == "workflow-worker" for s in manifest["services"]))
                 self.assertTrue(any(s["name"] == "pwa" for s in manifest["services"]))
+                self.assertTrue(any(s["name"] == "caddy" for s in manifest["services"]))
                 joined = "\n".join(names)
                 self.assertNotIn(".air-secrets", joined)
                 self.assertNotIn(".air-local.env", joined)
