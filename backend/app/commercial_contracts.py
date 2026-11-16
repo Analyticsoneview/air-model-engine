@@ -135,7 +135,7 @@ class CommercialContractStore:
     def _event(self, conn, values, actor, event_type, old, new, key, payload):
         conn.execute(text("""INSERT INTO air_commercial_contract_events
           (event_id,contract_id,tenant_id,actor_id,event_type,from_status,to_status,idempotency_key,payload,occurred_at)
-          VALUES (:id,:contract,:tenant,:actor,:type,:old,:new,:key,:payload,:now)"""),
+          VALUES (:id,:contract,:tenant,:actor,:type,:old,:new,:key,CAST(:payload AS json),:now)"""),
           {"id":str(uuid4()),"contract":values["contract_id"],"tenant":values["tenant_id"],"actor":actor,
            "type":event_type,"old":old,"new":new,"key":key,"payload":json.dumps(payload,sort_keys=True),
            "now":datetime.now(timezone.utc)})
