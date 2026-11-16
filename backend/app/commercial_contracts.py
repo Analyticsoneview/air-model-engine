@@ -76,14 +76,16 @@ class CommercialContractStore:
               status TEXT NOT NULL CHECK(status IN ('DRAFT','TRIAL','ACTIVE','GRACE','PAST_DUE','CANCELLED','EXPIRED','SUSPENDED')),
               auto_renew INTEGER NOT NULL DEFAULT 0 CHECK(auto_renew IN (0,1)),
               provider TEXT, provider_customer_ref TEXT, provider_contract_ref TEXT,
-              created_at TEXT NOT NULL, updated_at TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1
+              created_at TEXT NOT NULL, updated_at TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1,
+              UNIQUE(tenant_id,contract_id)
             );
             CREATE INDEX IF NOT EXISTS ix_air_contract_tenant_status ON air_commercial_contracts(tenant_id,status,end_date);
             CREATE TABLE IF NOT EXISTS air_commercial_contract_events(
-              event_id TEXT PRIMARY KEY, contract_id TEXT NOT NULL REFERENCES air_commercial_contracts(contract_id),
+              event_id TEXT PRIMARY KEY, contract_id TEXT NOT NULL,
               tenant_id TEXT NOT NULL, actor_id TEXT NOT NULL, event_type TEXT NOT NULL,
               from_status TEXT, to_status TEXT, idempotency_key TEXT NOT NULL, payload TEXT NOT NULL,
-              occurred_at TEXT NOT NULL, UNIQUE(tenant_id,idempotency_key)
+              occurred_at TEXT NOT NULL, UNIQUE(tenant_id,idempotency_key),
+              FOREIGN KEY(tenant_id,contract_id) REFERENCES air_commercial_contracts(tenant_id,contract_id)
             );
             CREATE INDEX IF NOT EXISTS ix_air_contract_events_history ON air_commercial_contract_events(tenant_id,contract_id,occurred_at);
             """)
