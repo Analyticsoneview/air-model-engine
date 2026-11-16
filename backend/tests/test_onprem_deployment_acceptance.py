@@ -130,5 +130,19 @@ class OnPremDeploymentAcceptanceTests(unittest.TestCase):
         self.assertNotIn("adapters are delivered in the subsequent", docs)
 
 
+    def test_windows_installers_fail_on_native_docker_command_errors(self):
+        start = read("AIRSTART.ps1")
+        deploy = read("AIRDEPLOY.ps1")
+        self.assertIn("docker compose version", start)
+        self.assertGreaterEqual(start.count("$LASTEXITCODE -ne 0"), 4)
+        self.assertIn("docker info", deploy)
+        self.assertIn("$LASTEXITCODE -ne 0", deploy)
+
+    def test_swarm_guide_has_real_markdown_line_breaks(self):
+        guide = read("deploy/DOCKER_SWARM.md")
+        self.assertNotIn("\\n\\n", guide)
+        self.assertIn("## 2. Create Docker secrets", guide)
+
+
 if __name__ == "__main__":
     unittest.main()
