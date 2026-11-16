@@ -312,25 +312,47 @@ def upgrade() -> None:
     op.execute("ALTER TABLE air_tenants ENABLE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE air_tenants FORCE ROW LEVEL SECURITY")
     op.execute("""
-        CREATE POLICY air_tenants_scope ON air_tenants
+        CREATE POLICY air_tenants_select ON air_tenants FOR SELECT
         USING (air_is_admin_context()
             OR tenant_id=NULLIF(current_setting('air.tenant_id',true),'')
             OR owner_customer_id=NULLIF(current_setting('air.customer_id',true),'')
             OR EXISTS (SELECT 1 FROM air_tenant_members m
                        WHERE m.tenant_id=air_tenants.tenant_id
                          AND m.customer_id=NULLIF(current_setting('air.customer_id',true),'')))
+    """)
+    op.execute("""
+        CREATE POLICY air_tenants_insert ON air_tenants FOR INSERT
         WITH CHECK (air_is_admin_context()
             OR owner_customer_id=NULLIF(current_setting('air.customer_id',true),''))
     """)
-    op.execute("ALTER TABLE air_tenant_members ENABLE ROW LEVEL SECURITY")
     op.execute("""
-        CREATE POLICY air_tenant_members_scope ON air_tenant_members
+        CREATE POLICY air_tenants_admin_update ON air_tenants FOR UPDATE
+        USING (air_is_admin_context()) WITH CHECK (air_is_admin_context())
+    """)
+    op.execute("""
+        CREATE POLICY air_tenants_admin_delete ON air_tenants FOR DELETE
+        USING (air_is_admin_context())
+    """)
+    op.execute("ALTER TABLE air_tenant_members ENABLE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE air_tenant_members FORCE ROW LEVEL SECURITY")
+    op.execute("""
+        CREATE POLICY air_tenant_members_select ON air_tenant_members FOR SELECT
         USING (air_is_admin_context()
             OR tenant_id=NULLIF(current_setting('air.tenant_id',true),'')
             OR customer_id=NULLIF(current_setting('air.customer_id',true),''))
+    """)
+    op.execute("""
+        CREATE POLICY air_tenant_members_insert ON air_tenant_members FOR INSERT
         WITH CHECK (air_is_admin_context()
-            OR tenant_id=NULLIF(current_setting('air.tenant_id',true),'')
             OR customer_id=NULLIF(current_setting('air.customer_id',true),''))
+    """)
+    op.execute("""
+        CREATE POLICY air_tenant_members_admin_update ON air_tenant_members FOR UPDATE
+        USING (air_is_admin_context()) WITH CHECK (air_is_admin_context())
+    """)
+    op.execute("""
+        CREATE POLICY air_tenant_members_admin_delete ON air_tenant_members FOR DELETE
+        USING (air_is_admin_context())
     """)
 
     # Customer-owned tables require a matching tenant id for both reads and writes.
@@ -392,7 +414,10 @@ def downgrade() -> None:
         op.execute(f"ALTER TABLE {table} DISABLE ROW LEVEL SECURITY")
         op.drop_index(f"ix_{table}_tenant_id", table_name=table)
         op.drop_column(table, "tenant_id")
-    op.execute("DROP POLICY IF EXISTS air_tenant_members_scope ON air_tenant_members")
+    op.execute("DROP POLICY IF EXISTS air_tenant_members_select ON air_tenant_members")
+    op.execute("DROP POLICY IF EXISTS air_tenant_members_insert ON air_tenant_members")
+    op.execute("DROP POLICY IF EXISTS air_tenant_members_admin_update ON air_tenant_members")
+    op.execute("DROP POLICY IF EXISTS air_tenant_members_admin_delete ON air_tenant_members")
     op.execute("DROP INDEX IF EXISTS uq_air_workflow_events_tenant_idempotency")
     op.execute("DROP INDEX IF EXISTS uq_air_workflow_events_global_idempotency")
     op.execute("ALTER TABLE air_workflow_events ADD CONSTRAINT air_workflow_events_idempotency_key_key UNIQUE (idempotency_key)")
@@ -401,7 +426,10 @@ def downgrade() -> None:
     op.drop_index("ix_air_tenant_members_tenant_status", table_name="air_tenant_members")
     op.drop_index("ix_air_tenant_members_customer", table_name="air_tenant_members")
     op.drop_table("air_tenant_members")
-    op.execute("DROP POLICY IF EXISTS air_tenants_scope ON air_tenants")
+    op.execute("DROP POLICY IF EXISTS air_tenants_select ON air_tenants")
+    op.execute("DROP POLICY IF EXISTS air_tenants_insert ON air_tenants")
+    op.execute("DROP POLICY IF EXISTS air_tenants_admin_update ON air_tenants")
+    op.execute("DROP POLICY IF EXISTS air_tenants_admin_delete ON air_tenants")
     op.execute("ALTER TABLE air_tenants DISABLE ROW LEVEL SECURITY")
     op.drop_index("ix_air_tenants_status_created", table_name="air_tenants")
     op.drop_table("air_tenants")
