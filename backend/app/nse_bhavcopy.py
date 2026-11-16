@@ -368,6 +368,8 @@ class NSEBhavcopyStore:
         quantity and stored P&L fields are not overwritten. Original NSE ZIPs remain
         retained and per-session removal counts preserve source-count reconciliation.
         """
+        history_months = _configured_history_months()
+        retention_start = _subtract_months(as_of, history_months)
         with self._db() as db:
             rows = db.execute("""
                 SELECT trade_date, instrument_key, symbol, expiry, strike, option_type,
@@ -379,12 +381,18 @@ class NSEBhavcopyStore:
             expired_contracts = set()
             removed_by_date: dict[str, int] = {}
             unparsed_expiry_records = 0
+            retained_expired_records = 0
             for row in rows:
                 expiry = _expiry_iso(row["expiry"])
                 if not expiry:
                     unparsed_expiry_records += 1
                     continue
                 if date.fromisoformat(expiry) < as_of:
+                    if date.fromisoformat(row["trade_date"]) >= retention_start:
+                        # Keep expired contracts inside the configured research
+                        # history window; raw archives alone are not queryable data.
+                        retained_expired_records += 1
+                        continue
                     expired_rows.append((row["trade_date"], row["instrument_key"]))
                     expired_contracts.add((row["symbol"], expiry, row["strike"], row["option_type"]))
                     removed_by_date[row["trade_date"]] = removed_by_date.get(row["trade_date"], 0) + 1
@@ -424,6 +432,9 @@ class NSEBhavcopyStore:
                     """, (count, trade_date))
             result = {
                 "as_of": as_of.isoformat(),
+                "retention_months": history_months,
+                "retention_start_date": retention_start.isoformat(),
+                "retained_expired_records": retained_expired_records,
                 "removed_records": len(expired_rows),
                 "removed_contract_keys": len(expired_contracts),
                 "unparsed_expiry_records": unparsed_expiry_records,
