@@ -21,6 +21,7 @@ The initial history window is configured with `AIR_NSE_HISTORY_MONTHS`. The valu
 ## Download and recovery behaviour
 
 - Raw NSE ZIP archives are retained under the configured AIR data volume.
+- Expired FO contract rows inside the configured 12–60 month research-retention window remain queryable; only expired FO rows older than the retention cutoff are eligible for cleanup after strategy replay.
 - Each market/date archive has a persisted import status.
 - Existing verified archives are skipped on restart.
 - Failed or incomplete sessions are reconciled and repaired as a paired CM/FO session.
