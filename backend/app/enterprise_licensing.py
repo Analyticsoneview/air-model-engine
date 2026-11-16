@@ -79,8 +79,11 @@ def verify_license(token: str, public_key_b64: str, *, tenant_id: str,
     grace = date.fromisoformat(payload["grace_until"]) if payload.get("grace_until") else None
     if current < start:
         raise EnterpriseLicenseError("Enterprise licence is not yet valid")
-    if current >= end and (payload.get("status") != "GRACE" or not grace or current > grace):
-        raise EnterpriseLicenseError("Enterprise licence has expired")
+    if current >= end:
+        if not grace or current > grace:
+            raise EnterpriseLicenseError("Enterprise licence has expired")
+        payload = dict(payload)
+        payload["status"] = "GRACE"
     features = set(payload.get("features", []))
     if features.intersection(RESTRICTED_FEATURES):
         raise EnterpriseLicenseError("Licence contains globally restricted capabilities")
@@ -288,3 +291,21 @@ class EnterpriseLicenseStore:
                 VALUES(:e,:t,:l,:actor,'LICENSE_REVOKED',{details_sql},:k,:now)"""),
                 {"e": str(uuid4()), "t": tenant_id, "l": license_id, "actor": actor_id,
                  "details": "{}", "k": idempotency_key, "now": datetime.now(timezone.utc).isoformat()})
+
+
+def runtime_enterprise_license() -> dict | None:
+    """Validate the locally installed signed licence; never contacts a remote service."""
+    token = os.getenv("AIR_ENTERPRISE_LICENSE_TOKEN", "").strip()
+    if not token:
+        return None
+    public_key = os.getenv("AIR_LICENSE_VERIFY_PUBLIC_KEY", "").strip()
+    tenant_id = os.getenv("AIR_TENANT_ID", "").strip()
+    deployment_id = os.getenv("AIR_DEPLOYMENT_INSTANCE_ID", "").strip()
+    profile_id = os.getenv("AIR_DEPLOYMENT_PROFILE", "onprem-single").strip()
+    fingerprint = os.getenv("AIR_DEPLOYMENT_FINGERPRINT", "").strip()
+    if not all((public_key, tenant_id, deployment_id, fingerprint)):
+        raise EnterpriseLicenseError("Enterprise licence runtime identity or verification key is incomplete")
+    return verify_license(
+        token, public_key, tenant_id=tenant_id, deployment_id=deployment_id,
+        profile_id=profile_id, fingerprint=fingerprint,
+    )
