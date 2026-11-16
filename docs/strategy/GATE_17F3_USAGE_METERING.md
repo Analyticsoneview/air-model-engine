@@ -22,12 +22,14 @@ The versioned internal quota matrix maps each B2C/B2B catalogue plan to soft and
 - PostgreSQL uses Alembic revision `0023_usage_metering_quotas`, tenant RLS and immutable event permissions. SQLite creates an equivalent local schema for self-hosted mode.
 - The service serializes updates on the tenant/metric/period counter, records rejected attempts without counting them, and does not double-count idempotent retries.
 - Soft-limit crossings are accepted with a warning signal. Hard-limit crossings are durably rejected. Unknown plans and metrics fail closed.
-- Internal domain services call `UsageMeter.consume(...)` with a stable event idempotency key. This avoids trusting customer-submitted usage quantities. The usage API exposes current usage to customers and quota-policy changes to authenticated administrators.
+- Internal domain services attach the `require_usage(metric)` FastAPI dependency or call `UsageMeter.consume(...)` with a stable event idempotency key. This avoids trusting customer-submitted usage quantities. The usage API exposes current usage to customers and quota-policy changes to authenticated administrators.
+- Administrators can make signed, reasoned usage corrections through the adjustment endpoint. Corrections are immutable ledger events, idempotent, and cannot make an aggregate negative.
 
 ## API
 
 - `GET /api/v1/usage/me` — current tenant usage, limits and period boundaries.
 - `PUT /api/v1/usage/admin/quotas` — administrator-only custom quota override.
+- `POST /api/v1/usage/admin/adjustments` — administrator-only audited usage correction.
 
 ## Acceptance
 
