@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.security import require_customer
-from app.commercial_contracts import CommercialContractStore, ContractConflict
+from app.commercial_contracts import CommercialContractStore, ContractConflict\nfrom app.customer_auth_postgres import PostgresAccessStore\nimport os
 
 router = APIRouter(prefix="/api/v1/commercial/contracts", tags=["commercial-contracts"])
 
@@ -30,11 +30,22 @@ class ContractTransition(BaseModel):
     idempotency_key: str = Field(min_length=1, max_length=200)
     payload: dict = Field(default_factory=dict)
 
+def _tenant_id(customer_id: str) -> str:
+    database_url = os.getenv("AIR_CUSTOMER_DATABASE_URL", "").strip()
+    if database_url.startswith(("postgresql://", "postgresql+psycopg://")):
+        tenant = PostgresAccessStore(database_url=database_url).tenant_for_customer(customer_id)
+        if not tenant:
+            raise HTTPException(status_code=403, detail="An active tenant membership is required")
+        return tenant
+    # Local SQLite mode is an isolated individual workspace until Gate 17F-7
+    # provisions organisation memberships and seat-level administration.
+    return customer_id
+
 @router.post("", status_code=201)
 def create_contract(body: ContractCreate, customer_id: str = Depends(require_customer)):
     try:
         return _store().create_contract(
-            tenant_id=customer_id, customer_id=customer_id, actor_id=customer_id,
+            tenant_id=_tenant_id(customer_id), customer_id=customer_id, actor_id=customer_id,
             **body.model_dump(exclude={"idempotency_key"}),
             idempotency_key=body.idempotency_key,
         )
@@ -44,13 +55,13 @@ def create_contract(body: ContractCreate, customer_id: str = Depends(require_cus
 @router.get("")
 def list_contracts(customer_id: str = Depends(require_customer)):
     try:
-        return {"items": _store().list_contracts(customer_id)}
+        return {"items": _store().list_contracts(_tenant_id(customer_id))}
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail="Commercial contract store is not ready") from exc
 
 @router.get("/{contract_id}")
 def get_contract(contract_id: str, customer_id: str = Depends(require_customer)):
-    item = _store().get_contract(customer_id, contract_id)
+    item = _store().get_contract(_tenant_id(customer_id), contract_id)
     if not item:
         raise HTTPException(status_code=404, detail="Contract not found")
     return item
@@ -59,12 +70,12 @@ def get_contract(contract_id: str, customer_id: str = Depends(require_customer))
 def contract_events(contract_id: str, customer_id: str = Depends(require_customer)):
     if not _store().get_contract(customer_id, contract_id):
         raise HTTPException(status_code=404, detail="Contract not found")
-    return {"items": _store().events(customer_id, contract_id)}
+    return {"items": _store().events(_tenant_id(customer_id), contract_id)}
 
 @router.post("/{contract_id}/transitions")
 def transition_contract(contract_id: str, body: ContractTransition, customer_id: str = Depends(require_customer)):
     try:
-        return _store().transition(customer_id, contract_id, body.to_status, actor_id=customer_id,
+        return _store().transition(_tenant_id(customer_id), contract_id, body.to_status, actor_id=customer_id,
                                    idempotency_key=body.idempotency_key, payload=body.payload)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Contract not found") from exc
