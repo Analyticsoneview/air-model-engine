@@ -773,6 +773,19 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
         return state
 
 
+def nse_bootstrap_is_ready(bootstrap: dict[str, Any] | None) -> bool:
+    """Reject legacy three-month READY markers and incomplete archive coverage."""
+    if not isinstance(bootstrap, dict) or bootstrap.get("status") != "READY":
+        return False
+    try:
+        months = int(bootstrap.get("history_months", 0))
+        archive_coverage = float(bootstrap.get("archive_coverage_pct", 0))
+        paired_coverage = float(bootstrap.get("paired_session_coverage_pct", 0))
+    except (TypeError, ValueError):
+        return False
+    return months >= 12 and archive_coverage >= 100.0 and paired_coverage >= 100.0
+
+
 def nse_data_status() -> dict[str, Any]:
     return _get_store().status()
 
