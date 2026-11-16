@@ -5,6 +5,7 @@ from unittest.mock import patch
 from app.deployment_profiles import (
     DeploymentProfileError,
     load_profile,
+    load_runtime_profile,
     validate_profile,
 )
 
@@ -51,6 +52,15 @@ class DeploymentProfileTests(unittest.TestCase):
                 load_profile("onprem-single", require_cloud_env=True)["deployment"]["provider"],
                 "on_prem",
             )
+
+    def test_runtime_rejects_profile_environment_mismatch(self):
+        with patch.dict(os.environ, {
+            "AIR_DEPLOYMENT_PROFILE": "onprem-single",
+            "AIR_DEPLOYMENT_MODE": "aws",
+            "AIR_TENANCY_MODE": "single",
+        }, clear=True):
+            with self.assertRaisesRegex(DeploymentProfileError, "conflicts with profile"):
+                load_runtime_profile()
 
 
 if __name__ == "__main__":
