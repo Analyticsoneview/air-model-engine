@@ -13,6 +13,7 @@ from uuid import uuid4
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
+from app.tenant_context import install_tenant_context, tenant_scope
 
 
 _E164 = re.compile(r"^\+[1-9][0-9]{7,14}$")
@@ -33,6 +34,7 @@ class PostgresAccessStore:
             ):
                 raise RuntimeError("AIR_CUSTOMER_DATABASE_URL must be configured with PostgreSQL")
             engine = create_engine(database_url, pool_pre_ping=True, future=True)
+            install_tenant_context(engine)
         self.engine = engine
 
     @staticmethod
