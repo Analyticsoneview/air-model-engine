@@ -493,6 +493,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.execute("DROP POLICY IF EXISTS air_workflow_heartbeat_admin_only ON air_workflow_worker_heartbeats")
     op.execute("ALTER TABLE air_workflow_worker_heartbeats DISABLE ROW LEVEL SECURITY")
+    op.drop_index("uq_qoc_option_observation_tenant", table_name="option_observations")
     for table in _WORKFLOW_TABLES:
         op.execute(f"DROP TRIGGER IF EXISTS trg_{table}_assign_tenant ON {table}")
         op.execute(f"DROP POLICY IF EXISTS air_tenant_scope ON {table}")
@@ -512,10 +513,7 @@ def downgrade() -> None:
     op.execute("DROP POLICY IF EXISTS air_tenant_members_admin_delete ON air_tenant_members")
     op.execute("DROP INDEX IF EXISTS uq_air_workflow_events_tenant_idempotency")
     op.execute("DROP INDEX IF EXISTS uq_air_workflow_events_global_idempotency")
-    op.drop_index("uq_qoc_option_observation_tenant", table_name="option_observations")
     op.create_unique_constraint("uq_qoc_option_observation", "option_observations", ["provider","account_id","underlying_scrip","expiry","strike","option_type","observed_at"])
-    op.alter_column("option_observations", "tenant_id", nullable=True)
-    op.alter_column("option_observations", "customer_id", nullable=True)
     op.execute("ALTER TABLE air_workflow_events ADD CONSTRAINT air_workflow_events_idempotency_key_key UNIQUE (idempotency_key)")
     op.execute("ALTER TABLE air_tenant_members NO FORCE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE air_tenant_members DISABLE ROW LEVEL SECURITY")
