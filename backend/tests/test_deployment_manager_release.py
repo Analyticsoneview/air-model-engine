@@ -49,6 +49,29 @@ class DeploymentManagerTests(unittest.TestCase):
         self.assertEqual(payload["status"], "DEFERRED")
         self.assertIn("No AWS resources were created", payload["message"])
 
+    def test_shell_wrapper_defaults_aws_profile_to_validation_only(self):
+        result = subprocess.run(
+            ["bash", str(ROOT / "AIRDEPLOY.sh"), "aws-private-single"],
+            cwd=ROOT, text=True, capture_output=True, timeout=30,
+            env={key: value for key, value in os.environ.items() if key not in {"AWS_REGION", "AWS_DEFAULT_REGION"}},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "VALID")
+        self.assertEqual(payload["deployment_status"], "DEFERRED_UNTIL_AWS_ENVIRONMENT")
+
+    def test_installers_expose_noninteractive_upgrade_controls(self):
+        shell = (ROOT / "AIRSTART.sh").read_text(encoding="utf-8")
+        powershell = (ROOT / "AIRSTART.ps1").read_text(encoding="utf-8")
+        self.assertIn("AIR_START_PULL_BASE_IMAGES", shell)
+        self.assertIn("AIR_START_SKIP_OPEN", shell)
+        self.assertIn("AIR_START_SKIP_PROFILE", shell)
+        self.assertIn("AIR_START_PULL_BASE_IMAGES", powershell)
+        self.assertIn("AIR_START_SKIP_OPEN", powershell)
+        self.assertIn("AIR_START_SKIP_PROFILE", powershell)
+        self.assertIn("docker compose -f compose.local.yml config --quiet", shell)
+        self.assertIn("docker compose -f compose.local.yml config --quiet", powershell)
+
     def test_manager_help_exposes_lifecycle_and_diagnostic_actions(self):
         result = subprocess.run(
             [sys.executable, str(MANAGER), "--help"],
