@@ -71,6 +71,7 @@ class NSEBhavcopyTests(unittest.TestCase):
                 "status": "READY", "expected_symbols": 500, "missing_count": 0,
             },
             "strategy_run": {"status": "COMPLETED"},
+            "monthly_pd_scan": {"status": "COMPLETED"},
         }
         self.assertTrue(nse_bootstrap_is_ready(complete))
         warning_coverage = dict(complete, symbol_coverage={
@@ -86,6 +87,14 @@ class NSEBhavcopyTests(unittest.TestCase):
         incomplete = dict(complete, universe={"status": "FAILED", "indices": {}})
         self.assertFalse(nse_bootstrap_is_ready(incomplete))
         incomplete = dict(complete, strategy_run={"status": "FAILED"})
+        self.assertFalse(nse_bootstrap_is_ready(incomplete))
+        incomplete = dict(complete, monthly_pd_scan={"status": "DATA_INSUFFICIENT"})
+        self.assertFalse(nse_bootstrap_is_ready(incomplete))
+        pending_reference = dict(complete, monthly_pd_scan={
+            "status": "WAITING_FOR_REFERENCE_SESSION",
+        })
+        self.assertTrue(nse_bootstrap_is_ready(pending_reference))
+        incomplete = dict(complete, monthly_pd_scan={"status": "DATA_INSUFFICIENT"})
         self.assertFalse(nse_bootstrap_is_ready(incomplete))
         incomplete = dict(complete, symbol_coverage={
             "status": "BLOCKED", "expected_symbols": 500, "missing_count": 1,
@@ -122,6 +131,11 @@ class NSEBhavcopyTests(unittest.TestCase):
             )
             self.assertEqual(warning["status"], "READY_WITH_WARNINGS")
             self.assertEqual(warning["expected_symbols"], 2)
+            exact = store.query_exact_symbol(
+                "CM", "AAA", start_date="2026-01-01", end_date="2026-03-01",
+            )
+            self.assertEqual(len(exact), 50)
+            self.assertTrue(all(row["symbol"] == "AAA" for row in exact))
 
     def test_nse_calendar_normalizes_cm_and_fo_separately(self):
         calendar = _parse_nse_calendar({

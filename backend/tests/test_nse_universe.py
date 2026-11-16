@@ -43,6 +43,13 @@ class NSEUniverseTests(unittest.TestCase):
             status = store.status()
             self.assertEqual(status["status"], "READY")
             self.assertEqual(len(store.symbols()), 500)
+            latest = store.latest_universe()
+            self.assertEqual(latest["status"], "READY")
+            self.assertEqual(latest["unique_symbol_count"], 500)
+            self.assertEqual(set(latest["index_counts"]), {
+                "NIFTY100", "NIFTY_MIDCAP150", "NIFTY_SMALLCAP250",
+            })
+            self.assertTrue(latest["constituents"][0]["index_memberships"])
             self.assertEqual(
                 {code: item["actual_count"] for code, item in status["required_indices"].items()},
                 {"NIFTY100": 100, "NIFTYMIDCAP150": 150, "NIFTYSMALLCAP250": 250},

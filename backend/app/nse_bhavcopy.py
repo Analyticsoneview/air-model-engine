@@ -554,6 +554,26 @@ class NSEBhavcopyStore:
             "by_symbol": by_symbol,
         }
 
+    def query_exact_symbol(self, market: str, symbol: str,
+                            start_date: str | None = None, end_date: str | None = None,
+                            limit: int = 5000) -> list[dict[str, Any]]:
+        clauses = ["market=?", "symbol=?"]
+        params: list[Any] = [market, symbol.strip().upper()]
+        if start_date:
+            clauses.append("trade_date>=?")
+            params.append(start_date)
+        if end_date:
+            clauses.append("trade_date<=?")
+            params.append(end_date)
+        params.append(max(1, min(limit, 5000)))
+        with self._db() as db:
+            rows = db.execute(
+                "SELECT * FROM nse_bhavcopy WHERE " + " AND ".join(clauses) +
+                " ORDER BY trade_date ASC, expiry ASC, strike ASC LIMIT ?",
+                params,
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def query(self, market: str, symbol: str | None = None,
               start_date: str | None = None, end_date: str | None = None,
               instrument_type: str | None = None, instrument_id: str | None = None,
@@ -842,8 +862,31 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
                 state["strategy_run"] = strategy_run
                 log.exception("Post-import AIR strategy replay failed; expired FO cleanup deferred")
             if strategy_run.get("status") == "COMPLETED":
+                try:
+                    from app.air_monthly_pd_scanner import scan_monthly_pd_universe
+                    scan_result = await asyncio.to_thread(
+                        scan_monthly_pd_universe, end_date.isoformat()
+                    )
+                    state["monthly_pd_scan"] = {
+                        key: scan_result.get(key) for key in (
+                            "status", "as_of_date", "timeframe", "universe", "coverage",
+                            "qualified_stock_symbols", "persisted_stock_snapshots",
+                            "persisted_option_snapshots", "options_disclosure",
+                            "broker_orders_placed",
+                        ) if key in scan_result
+                    }
+                    if state["monthly_pd_scan"].get("status") not in {"COMPLETED", "WAITING_FOR_REFERENCE_SESSION"}:
+                        state["status"] = "PARTIAL"
+                except Exception as scan_exc:  # noqa: BLE001
+                    state["monthly_pd_scan"] = {
+                        "status": "FAILED",
+                        "error": f"{type(scan_exc).__name__}: {str(scan_exc)[:200]}",
+                    }
+                    state["status"] = "PARTIAL"
+                    log.exception("AIR MPDSM initial universe scan failed")
                 state["expired_fo_cleanup"] = store.cleanup_expired_fo(today)
             else:
+                state["monthly_pd_scan"] = {"status": "DEFERRED_STRATEGY_RUN_INCOMPLETE"}
                 # Initial installation is not fully ready until the research
                 # replay has completed successfully; a later bootstrap retries it.
                 state["status"] = "PARTIAL"
@@ -901,11 +944,17 @@ def nse_bootstrap_is_ready(bootstrap: dict[str, Any] | None) -> bool:
         and symbol_coverage.get("missing_count") == 0
     )
     strategy_run = bootstrap.get("strategy_run") or {}
+    monthly_pd_scan = bootstrap.get("monthly_pd_scan") or {}
     return (
         months >= 12 and archive_coverage >= 100.0
         and paired_coverage >= 100.0 and universes_ready and coverage_ready
         and strategy_run.get("status") == "COMPLETED"
+        and monthly_pd_scan.get("status") in {"COMPLETED", "WAITING_FOR_REFERENCE_SESSION"}
     )
+
+
+def nse_data_rows_exact_symbol(market: str, symbol: str, **filters: Any) -> list[dict[str, Any]]:
+    return _get_store().query_exact_symbol(market, symbol, **filters)
 
 
 def nse_data_status() -> dict[str, Any]:
