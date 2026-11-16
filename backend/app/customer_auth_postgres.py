@@ -34,7 +34,7 @@ class PostgresAccessStore:
             ):
                 raise RuntimeError("AIR_CUSTOMER_DATABASE_URL must be configured with PostgreSQL")
             engine = create_engine(database_url, pool_pre_ping=True, future=True)
-            install_tenant_context(engine)
+        install_tenant_context(engine)
         self.engine = engine
 
     @staticmethod
