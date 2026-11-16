@@ -25,9 +25,13 @@ EOF
   chmod 600 .air-local.env
 fi
 
+echo "Validating the rendered AIR Compose configuration..."
+docker compose -f compose.local.yml config --quiet
+
 if [[ "${AIR_START_PULL_BASE_IMAGES:-false}" == "true" ]]; then
-  echo "Refreshing PostgreSQL, Redis and RabbitMQ base images before upgrade..."
+  echo "Refreshing PostgreSQL, Redis, RabbitMQ and application build bases before upgrade..."
   docker compose -f compose.local.yml pull postgres redis rabbitmq
+  docker compose -f compose.local.yml build --pull air-api air-workflow-worker air-pwa
 fi
 
 echo "Building and starting AIR API + PWA..."
