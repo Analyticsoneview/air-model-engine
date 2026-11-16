@@ -95,10 +95,10 @@ class OnboardingStore:
             result = []
             for kind, version, accepted in normalized:
                 key = f"{idempotency_prefix}:{kind}"
-                old = conn.execute(text("SELECT consent_id,document_version,accepted FROM air_customer_consents WHERE tenant_id=:t AND idempotency_key=:k"),
+                old = conn.execute(text("SELECT consent_id,customer_id,consent_type,document_version,accepted FROM air_customer_consents WHERE tenant_id=:t AND idempotency_key=:k"),
                                    {"t": tenant_id, "k": key}).first()
                 if old:
-                    if old[1] != version or bool(old[2]) != accepted:
+                    if old[1] != customer_id or old[2] != kind or old[3] != version or bool(old[4]) != accepted:
                         raise OnboardingConflict("Consent idempotency key was reused with different content")
                     result.append({"consent_id": old[0], "consent_type": kind, "document_version": version, "accepted": accepted})
                     continue
@@ -138,13 +138,13 @@ class OnboardingStore:
         if len(idempotency_key) > 200:
             raise ValueError("Idempotency key is too long")
         with self._scope(tenant_id, customer_id), self.engine.begin() as conn:
-            prior = conn.execute(text("SELECT onboarding_id,product_code,plan_code FROM air_customer_onboarding WHERE tenant_id=:t AND idempotency_key=:k"),
+            prior = conn.execute(text("SELECT onboarding_id,customer_id,product_code,plan_code FROM air_customer_onboarding WHERE tenant_id=:t AND idempotency_key=:k"),
                                  {"t": tenant_id, "k": idempotency_key}).first()
             if prior:
-                if prior[1] != product_code or prior[2] != plan_code:
+                if prior[1] != customer_id or prior[2] != product_code or prior[3] != plan_code:
                     raise OnboardingConflict("Onboarding idempotency key was reused with different content")
-                return dict(conn.execute(text("SELECT * FROM air_customer_onboarding WHERE onboarding_id=:id"),
-                                         {"id": prior[0]}).mappings().one())
+                return dict(conn.execute(text("SELECT * FROM air_customer_onboarding WHERE tenant_id=:t AND onboarding_id=:id"),
+                                         {"t": tenant_id, "id": prior[0]}).mappings().one())
             existing = conn.execute(text("""SELECT * FROM air_customer_onboarding
                 WHERE tenant_id=:t AND customer_id=:c AND product_code=:p ORDER BY created_at DESC LIMIT 1"""),
                 {"t": tenant_id, "c": customer_id, "p": product_code}).mappings().first()
@@ -176,9 +176,12 @@ class OnboardingStore:
                                {"t": tenant_id, "c": customer_id, "id": onboarding_id}).mappings().first()
             if not row:
                 raise KeyError("Onboarding record not found")
-            prior = conn.execute(text("SELECT 1 FROM air_customer_onboarding_events WHERE tenant_id=:t AND idempotency_key=:k"),
+            prior = conn.execute(text("SELECT onboarding_id,event_type,to_status,details FROM air_customer_onboarding_events WHERE tenant_id=:t AND idempotency_key=:k"),
                                  {"t": tenant_id, "k": idempotency_key}).first()
             if prior:
+                prior_details = prior[3] if isinstance(prior[3], dict) else json.loads(prior[3])
+                if prior[0] != onboarding_id or prior[1] != target or prior[2] != target or prior_details != (details or {}):
+                    raise OnboardingConflict("Onboarding transition idempotency key was reused with different content")
                 return dict(row)
             if target not in allowed[row["status"]]:
                 raise OnboardingConflict(f"Illegal onboarding transition {row['status']} -> {target}")
@@ -198,8 +201,8 @@ class OnboardingStore:
                  "now": now, "t": tenant_id, "c": customer_id, "id": onboarding_id})
             self._event(conn, tenant_id, onboarding_id, actor_id, target, row["status"], target,
                         idempotency_key, details or {})
-            return dict(conn.execute(text("SELECT * FROM air_customer_onboarding WHERE onboarding_id=:id"),
-                                     {"id": onboarding_id}).mappings().one())
+            return dict(conn.execute(text("SELECT * FROM air_customer_onboarding WHERE tenant_id=:t AND customer_id=:c AND onboarding_id=:id"),
+                                     {"t": tenant_id, "c": customer_id, "id": onboarding_id}).mappings().one())
 
     def attach_contract(self, tenant_id, customer_id, onboarding_id, contract_id):
         with self._scope(tenant_id, customer_id), self.engine.begin() as conn:
