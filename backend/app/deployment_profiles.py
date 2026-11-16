@@ -70,6 +70,8 @@ def validate_profile(data: dict[str, Any], *, require_cloud_env: bool = False) -
             raise DeploymentProfileError("Private AWS AIR requires ECS; Kubernetes is not supported")
         if infrastructure.get("isolation") != "dedicated":
             raise DeploymentProfileError("Private AWS resources must be dedicated to the customer")
+        if infrastructure.get("storage") != "efs_s3":
+            raise DeploymentProfileError("Private AWS requires persistent EFS working storage and S3 backup storage")
     elif profile_id == "aws-saas-multi":
         if provider != "aws" or tenancy != "multi":
             raise DeploymentProfileError("aws-saas-multi must be AWS multi-tenant")
@@ -77,6 +79,8 @@ def validate_profile(data: dict[str, Any], *, require_cloud_env: bool = False) -
             raise DeploymentProfileError("AIR SaaS requires ECS; Kubernetes is not supported")
         if infrastructure.get("isolation") != "tenant_scoped":
             raise DeploymentProfileError("AWS SaaS requires tenant-scoped isolation")
+        if infrastructure.get("storage") != "efs_s3":
+            raise DeploymentProfileError("AWS SaaS requires persistent EFS working storage and S3 object storage")
 
     if provider == "aws" and require_cloud_env and not (
         os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or deployment.get("region")
