@@ -6,6 +6,9 @@ import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from functools import wraps
+
+from app.tenant_context import connection_customer_scope, tenant_scope
 from uuid import uuid4
 
 from app.db_compat import PostgresConnection, read_database_url
@@ -16,6 +19,22 @@ _PRIORITIES = {"LOW", "NORMAL", "HIGH", "URGENT"}
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _customer_scoped(method):
+    @wraps(method)
+    def wrapped(self, customer_id, *args, **kwargs):
+        with connection_customer_scope(self.db, customer_id):
+            return method(self, customer_id, *args, **kwargs)
+    return wrapped
+
+
+def _admin_scoped(method):
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        with tenant_scope(is_admin=True):
+            return method(self, *args, **kwargs)
+    return wrapped
 
 
 class SupportStore:
@@ -97,6 +116,7 @@ class SupportStore:
             (str(uuid4()), ticket_id, actor_type, actor_id, event_type,
              message, json.dumps(metadata or {}, separators=(",", ":")), event_time.isoformat()))
 
+    @_customer_scoped
     def create(self, customer_id: str, subject: str, category: str, message: str) -> dict:
         subject, category, message = subject.strip(), category.strip().upper(), message.strip()
         if not customer_id or len(customer_id) > 16:
@@ -126,16 +146,19 @@ class SupportStore:
             event.pop("metadata_json", None)
         return result
 
+    @_customer_scoped
     def get_customer_ticket(self, customer_id: str, ticket_id: str) -> dict | None:
         row = self.db.execute("SELECT * FROM air_support_tickets WHERE ticket_id=? AND customer_id=?",
                               (ticket_id, customer_id)).fetchone()
         return self._ticket(row) if row else None
 
+    @_customer_scoped
     def list_customer(self, customer_id: str, limit: int = 100) -> list[dict]:
         rows = self.db.execute("""SELECT * FROM air_support_tickets WHERE customer_id=?
             ORDER BY updated_at DESC,ticket_id LIMIT ?""", (customer_id, max(1,min(limit,200)))).fetchall()
         return [self._ticket(row) for row in rows]
 
+    @_admin_scoped
     def list_admin(self, status: str | None = None, limit: int = 200) -> list[dict]:
         if status and status not in _STATUSES:
             raise ValueError("Unsupported ticket status")
@@ -148,6 +171,7 @@ class SupportStore:
         rows = self.db.execute(sql, (*params, max(1,min(limit,500)))).fetchall()
         return [self._ticket(row) for row in rows]
 
+    @_customer_scoped
     def customer_reply(self, customer_id: str, ticket_id: str, message: str) -> dict:
         message = message.strip()
         if not 10 <= len(message) <= 5000:
@@ -165,6 +189,7 @@ class SupportStore:
             self._event(ticket_id,"CUSTOMER",customer_id,"CUSTOMER_REPLY",message)
         return self.get_customer_ticket(customer_id,ticket_id)
 
+    @_admin_scoped
     def admin_update(self, ticket_id: str, admin_id: str, message: str = "",
                      status: str | None = None, priority: str | None = None,
                      assigned_admin_id: str | None = None) -> dict | None:
