@@ -34,6 +34,8 @@ def _context() -> tuple[dict, str, str]:
         tenant = registry.get_customer_context(customer_id)
     except KeyError as exc:
         raise HTTPException(status_code=403, detail="Customer tenant membership is not active") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Tenant storage registry is unavailable") from exc
     if str(tenant.get("tenant_id", "")) != str(tenant_id) or tenant.get("tenant_status") != "ACTIVE":
         raise HTTPException(status_code=403, detail="Authenticated tenant context does not match active membership")
     return tenant, tenant_id, customer_id
@@ -57,7 +59,10 @@ async def list_tenant_objects(
 ) -> dict:
     tenant, tenant_id, owner = _context()
     registry, _ = _services()
-    rows = registry.list_tenant_objects(tenant_id, owner, limit=limit, offset=offset)
+    try:
+        rows = registry.list_tenant_objects(tenant_id, owner, limit=limit, offset=offset)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Tenant object metadata is unavailable") from exc
     return {
         "objects": rows, "count": len(rows),
         "storage_used_bytes": int(tenant.get("storage_used_bytes", 0)),
@@ -109,6 +114,8 @@ async def upload_tenant_object(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except OverflowError as exc:
         raise HTTPException(status_code=409, detail="Tenant storage quota would be exceeded") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Tenant storage quota registry is unavailable") from exc
 
     if reservation.get("already_stored"):
         return {"status": "already_stored", "object": reservation}
@@ -149,6 +156,8 @@ async def download_tenant_object(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Tenant object does not exist") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Tenant object metadata is unavailable") from exc
     try:
         result = get_provisioner().get_tenant_object(tenant, object_key)
     except KeyError as exc:
