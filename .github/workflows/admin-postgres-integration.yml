@@ -50,6 +50,7 @@ jobs:
       AIR_CUSTOMER_DATABASE_URL: postgresql+psycopg://air_test:air_test@127.0.0.1:5432/air_test
       AIR_TEST_ADMIN_DATABASE_URL: postgresql+psycopg://air_test:air_test@127.0.0.1:5432/air_test
       AIR_TEST_CUSTOMER_DATABASE_URL: postgresql+psycopg://air_test:air_test@127.0.0.1:5432/air_test
+      AIR_TEST_USAGE_DATABASE_URL: postgresql+psycopg://air_usage_test:air_usage_test@127.0.0.1:5432/air_test
       AIR_TEST_ADMIN_REDIS_URL: redis://127.0.0.1:6379/0
     steps:
       - uses: actions/checkout@v4
@@ -71,6 +72,18 @@ jobs:
       - name: Apply PostgreSQL migrations
         working-directory: backend
         run: python -m alembic upgrade head
+
+      - name: Create least-privilege usage RLS test role
+        env:
+          PGPASSWORD: air_test
+        run: |
+          psql -h 127.0.0.1 -U air_test -d air_test -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE air_usage_test LOGIN PASSWORD 'air_usage_test'
+            NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+          GRANT CONNECT ON DATABASE air_test TO air_usage_test;
+          GRANT USAGE ON SCHEMA public TO air_usage_test;
+          GRANT SELECT, INSERT, UPDATE ON air_usage_events, air_usage_counters, air_usage_quota_overrides TO air_usage_test;
+          SQL
 
       - name: Run admin and customer PostgreSQL integration tests
         working-directory: backend
