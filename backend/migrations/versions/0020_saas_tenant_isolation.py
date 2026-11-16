@@ -96,6 +96,8 @@ def upgrade() -> None:
             UNION SELECT customer_id FROM account_report_runs
             UNION SELECT customer_id FROM air_support_tickets
             UNION SELECT actor_customer_id FROM air_marketing_audit
+            UNION SELECT NULLIF(trigger_config_json::jsonb->>'customer_id','') FROM air_workflow_definitions
+            UNION SELECT NULLIF(payload_json::jsonb->>'customer_id','') FROM air_workflow_events
         )
         INSERT INTO air_tenants(tenant_id,name,owner_customer_id,plan_code,status)
         SELECT gen_random_uuid()::text, 'AIR ' || customer_id, customer_id, 'STANDARD', 'ACTIVE'
@@ -233,6 +235,7 @@ def upgrade() -> None:
         DECLARE
             active_tenant text;
             row_customer text;
+            resolved_tenant text;
         BEGIN
             active_tenant := NULLIF(current_setting('air.tenant_id', true), '');
             row_customer := COALESCE(
@@ -292,6 +295,13 @@ def upgrade() -> None:
                AND NEW.tenant_id IS DISTINCT FROM active_tenant THEN
                 RAISE EXCEPTION 'AIR tenant context mismatch';
             END IF;
+            IF NOT air_is_admin_context() AND active_tenant IS NOT NULL AND row_customer IS NOT NULL THEN
+                SELECT tenant_id INTO resolved_tenant FROM air_tenant_members
+                WHERE customer_id=row_customer AND status='ACTIVE' LIMIT 1;
+                IF resolved_tenant IS DISTINCT FROM active_tenant THEN
+                    RAISE EXCEPTION 'AIR customer is not a member of the active tenant';
+                END IF;
+            END IF;
             RETURN NEW;
         END;
         $$
@@ -348,10 +358,8 @@ def upgrade() -> None:
         op.execute(f"""
             CREATE POLICY air_tenant_scope ON {table}
             USING (air_is_admin_context()
-                OR tenant_id IS NULL
                 OR tenant_id=NULLIF(current_setting('air.tenant_id',true),''))
             WITH CHECK (air_is_admin_context()
-                OR tenant_id IS NULL
                 OR tenant_id=NULLIF(current_setting('air.tenant_id',true),''))
         """)
         op.execute(f"""
