@@ -332,7 +332,7 @@ def upgrade() -> None:
         LANGUAGE plpgsql
         SECURITY DEFINER
         SET search_path = pg_catalog, public
-        AS $
+        AS $air_assign$
         DECLARE
             active_tenant text;
             row_customer text;
@@ -419,7 +419,7 @@ def upgrade() -> None:
             END IF;
             RETURN NEW;
         END;
-        $$
+        $air_assign$
     """)
 
     # Tenant registry visibility: a member can see only their own tenant and
