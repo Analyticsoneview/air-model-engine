@@ -290,6 +290,13 @@ class WorkflowStore:
         if execution_mode not in EXECUTION_MODES:
             raise ValueError("Unsupported workflow execution_mode")
         trigger_config = _json_object(trigger_config, "trigger_config")
+        request_customer = current_customer_id()
+        configured_customer = str(trigger_config.get("customer_id") or "").strip() or None
+        if request_customer and configured_customer and configured_customer != request_customer:
+            raise PermissionError("Workflow customer scope cannot be changed by the caller")
+        customer_id = configured_customer or request_customer
+        if customer_id:
+            trigger_config["customer_id"] = customer_id
         workflow_spec = _json_object(workflow_spec, "workflow_spec")
         steps = workflow_spec.get("steps", [])
         if not isinstance(steps, list) or len(steps) > 20:
@@ -326,16 +333,16 @@ class WorkflowStore:
         with self.db:
             self.db.execute("""INSERT INTO air_workflow_definitions
                 (workflow_id,name,description,trigger_type,trigger_config_json,workflow_spec_json,
-                 execution_mode,version,enabled,created_by,created_at,updated_at)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""", (
+                 execution_mode,version,enabled,created_by,created_at,updated_at,customer_id)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
                 workflow_id, name, str(description)[:4000], trigger_type,
                 json.dumps(trigger_config, allow_nan=False), json.dumps(workflow_spec, allow_nan=False),
-                execution_mode, 1, False if self.is_postgres else 0, created_by, now, now,
+                execution_mode, 1, False if self.is_postgres else 0, created_by, now, now, customer_id,
             ))
             self.db.execute("""INSERT INTO air_workflow_definition_versions
                 (workflow_id,version,name,description,trigger_type,trigger_config_json,
-                 workflow_spec_json,execution_mode,created_by,created_at)
-                VALUES(?,?,?,?,?,?,?,?,?,?)""", (
+                 workflow_spec_json,execution_mode,created_by,created_at,customer_id)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?)""", (
                 workflow_id, 1, name, str(description)[:4000], trigger_type,
                 json.dumps(trigger_config, allow_nan=False), json.dumps(workflow_spec, allow_nan=False),
                 execution_mode, created_by, now,
@@ -371,6 +378,7 @@ class WorkflowStore:
             "workflow_spec": json.loads(row["workflow_spec_json"]), "execution_mode": row["execution_mode"],
             "version": row["version"], "enabled": bool(row["enabled"]), "created_by": row["created_by"],
             "created_at": row["created_at"], "updated_at": row["updated_at"],
+            "customer_id": row["customer_id"], "tenant_id": row["tenant_id"],
         }
 
     def publish_event(
@@ -387,19 +395,25 @@ class WorkflowStore:
         if not idempotency_key or len(idempotency_key) > 200:
             raise ValueError("idempotency_key must contain 1-200 characters")
         payload = _json_object(payload, "payload")
+        request_customer = current_customer_id()
+        event_customer = str(payload.get("customer_id") or request_customer or "").strip() or None
+        if request_customer and event_customer and event_customer != request_customer:
+            raise PermissionError("Workflow event tenant scope cannot be changed by the caller")
+        if event_customer:
+            payload["customer_id"] = event_customer
         event_id, now = str(uuid4()), _now()
         event_time = occurred_at or now
         try:
             with self.db:
                 self.db.execute("""INSERT INTO air_workflow_events
-                    (event_id,event_type,source,occurred_at,payload_json,idempotency_key,correlation_id,created_at)
-                    VALUES(?,?,?,?,?,?,?,?)""", (
+                    (event_id,event_type,source,occurred_at,payload_json,idempotency_key,correlation_id,created_at,customer_id)
+                    VALUES(?,?,?,?,?,?,?,?,?)""", (
                     event_id, event_type, source, event_time,
-                    json.dumps(payload, allow_nan=False), idempotency_key, correlation_id, now,
+                    json.dumps(payload, allow_nan=False), idempotency_key, correlation_id, now, event_customer,
                 ))
                 self.db.execute("""INSERT INTO air_workflow_outbox
-                    (outbox_id,event_id,status,attempts,available_at)
-                    VALUES(?,?,'PENDING',0,?)""", (str(uuid4()), event_id, now))
+                    (outbox_id,event_id,status,attempts,available_at,customer_id)
+                    VALUES(?,?,'PENDING',0,?,?)""", (str(uuid4()), event_id, now, event_customer))
         except Exception as exc:
             # A duplicate idempotency key is a successful replay, not a second event.
             existing = self.db.execute(
@@ -417,7 +431,8 @@ class WorkflowStore:
             "event_id": row["event_id"], "event_type": row["event_type"], "source": row["source"],
             "occurred_at": row["occurred_at"], "payload": json.loads(row["payload_json"]),
             "idempotency_key": row["idempotency_key"], "correlation_id": row["correlation_id"],
-            "created_at": row["created_at"], "duplicate": duplicate,
+            "created_at": row["created_at"], "customer_id": row["customer_id"],
+            "tenant_id": row["tenant_id"], "duplicate": duplicate,
         }
 
 
@@ -434,6 +449,7 @@ class WorkflowStore:
             "workflow_spec": json.loads(row["workflow_spec_json"]),
             "execution_mode": row["execution_mode"],
             "created_by": row["created_by"], "created_at": row["created_at"],
+            "customer_id": row["customer_id"], "tenant_id": row["tenant_id"],
         } for row in rows]
 
     def update_workflow(
@@ -553,6 +569,7 @@ class WorkflowStore:
             ).fetchall()
         return [{
             "audit_id": row["audit_id"], "workflow_id": row["workflow_id"],
+            "customer_id": row["customer_id"], "tenant_id": row["tenant_id"],
             "workflow_version": row["workflow_version"], "actor_id": row["actor_id"],
             "action": row["action"], "payload": json.loads(row["payload_json"]),
             "created_at": row["created_at"],
