@@ -139,6 +139,13 @@ def upgrade() -> None:
         op.add_column(table, sa.Column("customer_id", sa.String(128), nullable=True))
         op.add_column(table, sa.Column("tenant_id", sa.String(36), nullable=True))
 
+    # Temporarily disable append-only UPDATE guards for this one-time metadata backfill.
+    # The immutable audit/event payloads are not changed; only tenant ownership columns are set.
+    op.execute("ALTER TABLE air_access_decision_history DISABLE TRIGGER trg_air_access_decision_immutable")
+    op.execute("ALTER TABLE air_customer_subscription_history DISABLE TRIGGER trg_air_subscription_history_immutable")
+    op.execute("ALTER TABLE air_support_ticket_events DISABLE TRIGGER trg_air_support_events_immutable")
+    op.execute("ALTER TABLE air_workflow_audit DISABLE TRIGGER trg_air_workflow_audit_no_update")
+
     # Backfill tenant partition keys from the existing owner/customer relationship.
     op.execute("""
         UPDATE air_access_requests r SET tenant_id=m.tenant_id
@@ -262,6 +269,11 @@ def upgrade() -> None:
         UPDATE air_workflow_audit a SET customer_id=w.customer_id,tenant_id=w.tenant_id
         FROM air_workflow_definitions w WHERE w.workflow_id=a.workflow_id
     """)
+
+    op.execute("ALTER TABLE air_access_decision_history ENABLE TRIGGER trg_air_access_decision_immutable")
+    op.execute("ALTER TABLE air_customer_subscription_history ENABLE TRIGGER trg_air_subscription_history_immutable")
+    op.execute("ALTER TABLE air_support_ticket_events ENABLE TRIGGER trg_air_support_events_immutable")
+    op.execute("ALTER TABLE air_workflow_audit ENABLE TRIGGER trg_air_workflow_audit_no_update")
 
     # Fail the migration rather than silently hiding legacy records that cannot
     # be attributed to a verified tenant. Operators must reconcile these rows first.
