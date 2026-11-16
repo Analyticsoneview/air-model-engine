@@ -81,6 +81,37 @@ class NSEBhavcopyTests(unittest.TestCase):
         incomplete = dict(complete, strategy_run={"status": "FAILED"})
         self.assertFalse(nse_bootstrap_is_ready(incomplete))
 
+    def test_per_symbol_coverage_blocks_missing_symbols_and_warns_on_short_history(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = NSEBhavcopyStore(str(Path(folder) / "nse.sqlite3"))
+            for offset in range(50):
+                day = date.fromordinal(date(2026, 1, 1).toordinal() + offset).isoformat()
+                rows = [{
+                    "FinInstrmId": f"A{offset}", "TckrSymb": "AAA", "FinInstrmTp": "STK",
+                    "ClsPric": "100", "TtlTradgVol": "1000",
+                }]
+                if offset < 20:
+                    rows.append({
+                        "FinInstrmId": f"B{offset}", "TckrSymb": "BBB", "FinInstrmTp": "STK",
+                        "ClsPric": "100", "TtlTradgVol": "1000",
+                    })
+                store.save_rows("CM", day, rows)
+
+            blocked = store.symbol_coverage(
+                ["AAA", "BBB", "CCC"], "2026-01-01", "2026-03-01",
+                expected_sessions=50, minimum_sessions=45,
+            )
+            self.assertEqual(blocked["status"], "BLOCKED")
+            self.assertEqual(blocked["missing_symbols"], ["CCC"])
+            self.assertEqual(blocked["below_minimum_symbols"], ["BBB"])
+
+            warning = store.symbol_coverage(
+                ["AAA", "BBB"], "2026-01-01", "2026-03-01",
+                expected_sessions=50, minimum_sessions=45,
+            )
+            self.assertEqual(warning["status"], "READY_WITH_WARNINGS")
+            self.assertEqual(warning["expected_symbols"], 2)
+
     def test_nse_calendar_normalizes_cm_and_fo_separately(self):
         calendar = _parse_nse_calendar({
             "CM": [{"tradingDate": "10-Nov-2026", "weekDay": "Tuesday", "description": "Diwali"}],
