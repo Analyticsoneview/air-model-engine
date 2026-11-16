@@ -22,7 +22,7 @@ case "$PROFILE" in
 esac
 
 if [[ "$PROFILE" == "onprem-single" ]]; then
-  exec "$ROOT/AIRSTART.sh"
+  exec bash "$ROOT/AIRSTART.sh"
 fi
 
 AWS_SCRIPT="$ROOT/deploy/aws/AIRDEPLOY.sh"
@@ -30,4 +30,4 @@ if [[ ! -f "$AWS_SCRIPT" ]]; then
   echo "The profile is valid, but its AWS provisioning adapter is delivered in the subsequent AWS deployment gate. No AWS resources were created." >&2
   exit 2
 fi
-exec "$AWS_SCRIPT" "$PROFILE"
+exec bash "$AWS_SCRIPT" "$PROFILE"
