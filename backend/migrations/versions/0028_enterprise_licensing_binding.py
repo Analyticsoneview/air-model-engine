@@ -1,12 +1,12 @@
 """Enterprise licences bound to registered AIR deployment instances.
 
-Revision ID: 0028_enterprise_licensing_binding
+Revision ID: 0028_enterprise_license
 Revises: 0027_organisation_memberships
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0028_enterprise_licensing_binding"
+revision = "0028_enterprise_license"
 down_revision = "0027_organisation_memberships"
 branch_labels = None
 depends_on = None
