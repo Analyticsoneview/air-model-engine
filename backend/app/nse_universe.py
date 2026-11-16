@@ -152,6 +152,10 @@ class NSEUniverseStore:
         if len(rows) != expected or len({r["symbol"] for r in rows}) != expected:
             raise ValueError(f"{index_code} snapshot failed exact-count validation")
         with self._db() as db:
+            db.execute("""
+                DELETE FROM nse_index_constituent_snapshots
+                WHERE index_code=? AND snapshot_date=?
+            """, (index_code, snapshot_date))
             db.executemany("""
                 INSERT OR REPLACE INTO nse_index_constituent_snapshots
                     (index_code, snapshot_date, symbol, company_name, industry, series, isin, source_url)
