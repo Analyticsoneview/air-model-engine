@@ -1,6 +1,7 @@
 """Customer usage visibility and administrator quota-policy endpoints."""
 from __future__ import annotations
 from functools import lru_cache
+from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import text
@@ -35,6 +36,17 @@ def _active_plan(customer_id,tenant_id):
                     WHERE tenant_id=:tenant AND status='ACTIVE' AND start_date<=CURRENT_DATE AND end_date>CURRENT_DATE ORDER BY created_at DESC LIMIT 1"""),
                     {"tenant":tenant_id}).first()
         if row: return str(row[0])
+    else:
+        # Local/self-hosted mode persists contracts in the Gate 17F-2 SQLite ledger.
+        from app.commercial_contracts import CommercialContractStore
+        today = date.today().isoformat()
+        active = [item for item in CommercialContractStore().list_contracts(tenant_id)
+                  if item.get("status") == "ACTIVE"
+                  and str(item.get("start_date", "")) <= today
+                  and today < str(item.get("end_date", ""))]
+        if active:
+            active.sort(key=lambda item: (str(item.get("created_at", "")), str(item.get("contract_id", ""))))
+            return str(active[-1]["plan_code"])
     return "B2C_FREE"
 
 def require_usage(metric: str, quantity: int = 1):
