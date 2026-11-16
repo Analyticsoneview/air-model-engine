@@ -75,6 +75,7 @@ def upgrade():
         sa.Column("settled_at", sa.DateTime(timezone=True)),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.UniqueConstraint("tenant_id", "provider", "provider_reference", name="uq_air_billing_settlement_provider_ref"),
+        sa.UniqueConstraint("tenant_id", "settlement_id", name="uq_air_billing_tenant_settlement"),
         sa.CheckConstraint("amount_minor >= 0", name="ck_air_billing_settlement_nonnegative"),
     )
     op.create_table(
