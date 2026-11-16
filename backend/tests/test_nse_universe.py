@@ -6,10 +6,10 @@ from app.nse_universe import INDEX_UNIVERSES, NSEUniverseStore, parse_index_cons
 
 
 class NSEUniverseTests(unittest.TestCase):
-    def _csv(self, count: int) -> str:
+    def _csv(self, count: int, prefix: str = "") -> str:
         lines = ["Index Name,Index Industry,Symbol,Company Name,Series,ISIN Code"]
         for i in range(count):
-            lines.append(f"NIFTY 100,Test Sector,STOCK{i:03d},Company {i},EQ,INE{i:010d}")
+            lines.append(f"NIFTY 100,Test Sector,{prefix}STOCK{i:03d},Company {i},EQ,INE{i:010d}")
         return "\n".join(lines)
 
     def test_official_universe_counts_are_explicit(self):
@@ -37,11 +37,12 @@ class NSEUniverseTests(unittest.TestCase):
             self.assertEqual(store.status()["status"], "INCOMPLETE")
             for code in INDEX_UNIVERSES:
                 rows = parse_index_constituents(
-                    self._csv(int(INDEX_UNIVERSES[code]["expected_count"])), code
+                    self._csv(int(INDEX_UNIVERSES[code]["expected_count"]), code), code
                 )
                 store.save_snapshot(code, rows, "https://nsearchives.nseindia.com/test.csv")
             status = store.status()
             self.assertEqual(status["status"], "READY")
+            self.assertEqual(len(store.symbols()), 500)
             self.assertEqual(
                 {code: item["actual_count"] for code, item in status["required_indices"].items()},
                 {"NIFTY100": 100, "NIFTYMIDCAP150": 150, "NIFTYSMALLCAP250": 250},
