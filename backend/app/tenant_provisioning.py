@@ -207,6 +207,20 @@ class TenantRegistry:
         }
 
     @staticmethod
+    def _require_active_storage_member(conn, tenant_id: str, customer_id: str, *, write: bool = False) -> dict:
+        member = conn.execute(text("""
+            SELECT m.role,m.status,t.status AS tenant_status
+            FROM air_tenant_members m
+            JOIN air_tenants t ON t.tenant_id=m.tenant_id
+            WHERE m.tenant_id=:tenant AND m.customer_id=:customer
+        """), {"tenant": tenant_id, "customer": customer_id}).mappings().first()
+        if not member or member["status"] != "ACTIVE" or member["tenant_status"] != "ACTIVE":
+            raise PermissionError("Customer is not an active member of this tenant")
+        if write and member["role"] not in {"OWNER", "ADMIN", "MEMBER"}:
+            raise PermissionError("Tenant membership is read-only")
+        return dict(member)
+
+    @staticmethod
     def _validate_object_key(object_key: str) -> str:
         key = str(object_key or "")
         if (
@@ -238,6 +252,7 @@ class TenantRegistry:
 
         with tenant_scope(tenant_id=tenant, customer_id=customer):
             with self.engine.begin() as conn:
+                self._require_active_storage_member(conn, tenant, customer, write=True)
                 row = conn.execute(text("""
                     SELECT status,max_storage_bytes,storage_used_bytes
                     FROM air_tenants WHERE tenant_id=:tenant FOR UPDATE
@@ -298,6 +313,7 @@ class TenantRegistry:
         key = self._validate_object_key(object_key)
         with tenant_scope(tenant_id=tenant, customer_id=customer):
             with self.engine.begin() as conn:
+                self._require_active_storage_member(conn, tenant, customer, write=True)
                 row = conn.execute(text("""
                     UPDATE air_tenant_objects SET status='STORED',etag=:etag,updated_at=CURRENT_TIMESTAMP
                     WHERE tenant_id=:tenant AND object_key=:key AND status='PENDING'
@@ -321,6 +337,7 @@ class TenantRegistry:
         page_size, page_offset = max(1, min(int(limit), 500)), max(0, int(offset))
         with tenant_scope(tenant_id=tenant, customer_id=customer):
             with self.engine.connect() as conn:
+                self._require_active_storage_member(conn, tenant, customer)
                 rows = conn.execute(text("""
                     SELECT object_key,size_bytes,sha256,content_type,etag,status,created_at
                     FROM air_tenant_objects WHERE tenant_id=:tenant AND status='STORED'
@@ -334,6 +351,7 @@ class TenantRegistry:
         key = self._validate_object_key(object_key)
         with tenant_scope(tenant_id=tenant, customer_id=customer):
             with self.engine.connect() as conn:
+                self._require_active_storage_member(conn, tenant, customer)
                 row = conn.execute(text("""
                     SELECT object_key,size_bytes,sha256,content_type,etag,status,created_at
                     FROM air_tenant_objects
