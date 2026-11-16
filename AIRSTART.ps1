@@ -32,10 +32,38 @@ if ($LASTEXITCODE -ne 0) { throw "Docker Desktop/Engine is not running. Start Do
 
 Push-Location $Root
 try {
+    $python = Get-Command python -ErrorAction SilentlyContinue
+    $pythonArgs = @()
+    if ($python) {
+        $versionText = & $python.Source --version 2>&1
+        if ($versionText -notmatch "Python 3\.(1[2-9]|[2-9][0-9])") { $python = $null }
+    }
+    if (!$python) {
+        $python = Get-Command py -ErrorAction SilentlyContinue
+        if ($python) {
+            $pythonArgs += "-3.12"
+            $versionText = & $python.Source -3.12 --version 2>&1
+            if ($LASTEXITCODE -ne 0 -or $versionText -notmatch "Python 3\.(1[2-9]|[2-9][0-9])") {
+                throw "Python 3.12 or newer is required for AIR installation."
+            }
+        }
+    }
+    if (!$python) { throw "Python 3.12 or newer is required for AIR installation." }
+
+    $profileId = $env:AIR_DEPLOYMENT_PROFILE
+    if (!$profileId) { $profileId = "onprem-single" }
+    if ($profileId -ne "onprem-single") {
+        throw "AIRSTART is the on-premises installer. Use AIRDEPLOY to validate AWS profiles; live AWS deployment is deferred."
+    }
+    $env:AIR_DEPLOYMENT_PROFILE = $profileId
+    $env:PYTHONPATH = Join-Path $Root "backend"
+    & $python.Source @pythonArgs -m app.deployment_profiles --profile $profileId
+    if ($LASTEXITCODE -ne 0) { throw "AIR deployment profile validation failed." }
+
     $secretDir = Join-Path $Root ".air-secrets"
     New-Item -ItemType Directory -Force -Path $secretDir | Out-Null
     Write-Host "Checking and generating all required local-only AIR secrets..." -ForegroundColor Cyan
-    docker run --rm --mount "type=bind,source=$secretDir,target=/secrets" --mount "type=bind,source=$Root/scripts,target=/scripts,readonly" python:3.12-slim python /scripts/generate_local_secrets.py
+    & $python.Source @pythonArgs (Join-Path $Root "scripts/generate_local_secrets.py") $secretDir
     if ($LASTEXITCODE -ne 0) { throw "AIR local secret generation failed." }
 
     $envFile = Join-Path $Root ".air-local.env"
