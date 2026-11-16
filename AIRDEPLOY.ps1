@@ -9,7 +9,8 @@ $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProfilePath = Join-Path $Root "backend/config/deployment_profiles/$DeploymentProfile.json"
 if (!(Test-Path $ProfilePath)) { throw "AIR deployment profile not found: $ProfilePath" }
 if (!(Get-Command docker -ErrorAction SilentlyContinue)) { throw "Docker is required for AIR deployment." }
-try { docker info | Out-Null } catch { throw "Docker daemon is not running." }
+docker info | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "Docker daemon is not running. Start Docker Desktop/Engine and retry." }
 
 Write-Host "Validating AIR deployment profile: $DeploymentProfile" -ForegroundColor Cyan
 docker run --rm --env AWS_REGION --env AWS_DEFAULT_REGION --mount "type=bind,source=$(Join-Path $Root 'backend'),target=/app" -w /app python:3.12-slim python -m app.deployment_profiles --profile $DeploymentProfile --require-cloud-env
