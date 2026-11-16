@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import unittest
-from urllib.parse import unquote
 
 import httpx
 
@@ -105,7 +104,7 @@ class AwsTenantProvisionerTests(unittest.TestCase):
         bucket = result["storage"]["bucket"]
         self.assertEqual(result["status"], "PROVISIONED")
         self.assertIn(bucket, self.s3.buckets)
-        self.assertIn(("public_access", unittest.mock.ANY), self.s3.calls)
+        self.assertTrue(any(call[0] == "public_access" for call in self.s3.calls))
         encryption = next(call[1] for call in self.s3.calls if call[0] == "encryption")
         self.assertEqual(
             encryption["ServerSideEncryptionConfiguration"]["Rules"][0]
