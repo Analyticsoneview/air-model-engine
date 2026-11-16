@@ -71,7 +71,7 @@ class OnPremDeploymentAcceptanceTests(unittest.TestCase):
         api = service_block(stack, "air-api")
         self.assertNotIn("    ports:", api)
         worker = service_block(stack, "air-workflow-worker")
-        self.assertIn("python -m app.workflow_worker", worker)
+        self.assertIn('command: ["python", "-m", "app.workflow_worker"]', worker)
 
     def test_swarm_declares_external_secrets_and_no_inline_secret_values(self):
         stack = read("docker-stack.yml")
