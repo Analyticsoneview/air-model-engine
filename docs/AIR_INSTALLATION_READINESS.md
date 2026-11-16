@@ -15,6 +15,7 @@ AIRSTART is a one-click local installation entry point. Container liveness is no
 - Combined current universe: exactly 500 unique symbols.
 - Per-symbol CM EOD history coverage report.
 - Existing AIR post-import strategy/research replay.
+- AIR MPDSM monthly universe scan and persisted stock/options EOD snapshots.
 
 The initial history window is configured with `AIR_NSE_HISTORY_MONTHS`. The value is clamped to 12–60 months; values below 12 cannot reduce the mandatory minimum.
 
