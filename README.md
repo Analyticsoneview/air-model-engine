@@ -41,6 +41,17 @@ python -m pytest -q
 
 The app includes a dedicated **More → Administrator Sign In** console. It is independent of customer mobile approval and uses administrator email, password and TOTP MFA with a separate 20-minute, server-revocable JWT session. Super Admin manages administrator accounts and audit events; Admin reviews customer access; Research Admin is read-only. The first Super Admin is created once with `cd backend && python -m scripts.bootstrap_admin` (or from the deployed API container). Configure `AIR_ADMIN_MFA_KEY_FILE` with a persistent Fernet key and `AIR_JWT_SECRET` before bootstrap. The Swarm stack provisions the MFA key as the `air_admin_mfa_key` Docker secret. Never store bootstrap passwords, TOTP provisioning URIs or key material in source control.
 
+## AIR Deployment Manager
+
+The root `AIRDEPLOY` wrappers use one cross-platform Python manager for profile validation, host diagnostics, install, upgrade, status, support reports and release packaging:
+
+- Windows: `.\AIRDEPLOY.ps1 -DeploymentProfile onprem-single -Action install`
+- Linux/macOS: `bash AIRDEPLOY.sh onprem-single install`
+- Validate an AWS profile without AWS credentials: `python scripts/air_manager.py --profile aws-saas-multi validate`
+- Build a checksummed release bundle: `python scripts/air_manager.py --profile onprem-single package --version 1.0.0`
+
+AWS profile validation does not provision resources. AWS live deployment remains deferred until an approved AWS environment is available. See [Deployment Manager and installation operations](deploy/INSTALLATION.md) and the [deployment readiness register](deploy/READINESS_REGISTER.md).
+
 ## Self-hosted deployment
 
 Follow [Docker Swarm deployment](deploy/DOCKER_SWARM.md). It covers Docker secrets, first-operator provisioning, PWA/API routing and the current single-replica limits.
