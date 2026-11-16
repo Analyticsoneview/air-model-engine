@@ -27,7 +27,7 @@ async def evaluate_monthly_pd(body: EvaluationRequest, admin: dict=Depends(requi
     store=AirMonthlyPdStore()
     try:
         levels=monthly_levels(body.previous_month_bars)
-        support=evaluate_support_acceptance(body.post_reference_bars,levels["pml"],2)
+        support=evaluate_support_acceptance(body.post_reference_bars,levels["pml"],2,body.reference_date.isoformat())
         pattern=classify_price_structure(body.structure_bars)
         from app.air_monthly_pd import expiry_tags, classify_expiry_participation
         option_rows=[]
