@@ -211,6 +211,33 @@ def scan_monthly_pd_universe(as_of_date: str | None = None) -> dict[str, Any]:
             "days_to_expiry": (date.fromisoformat(expiry) - date.fromisoformat(as_of)).days if expiry else None,
             "bid_ask_spread": "DATA_INSUFFICIENT", "liquidity": "EOD_VOLUME_ONLY",
             **evidence})
+    # Persist option observations separately from the stock qualification snapshot.
+    option_snapshot_count = 0
+    options_by_symbol: dict[str, list[dict[str, Any]]] = {}
+    for option in options:
+        options_by_symbol.setdefault(option["symbol"], []).append(option)
+    if options_by_symbol:
+        option_store = AirMonthlyPdStore()
+        try:
+            for symbol, symbol_options in options_by_symbol.items():
+                stock = next((row for row in stocks if row["symbol"] == symbol), None)
+                if not stock or not stock.get("levels") or not stock.get("reference_date"):
+                    continue
+                cycle = option_store.save_cycle(
+                    instrument_type="EQUITY", symbol=symbol,
+                    cycle_month=stock["cycle_month"], reference_date=stock["reference_date"],
+                    pml=stock["levels"]["pml"], pmh=stock["levels"]["pmh"], eq=stock["levels"]["eq"])
+                option_store.save_snapshot(
+                    cycle_id=cycle["cycle_id"], as_of_date=as_of,
+                    snapshot_type="OPTIONS_DAILY_EOD", support_status="STOCK_QUALIFIED",
+                    pattern=(stock.get("pattern") or {}).get("pattern", "NONE"),
+                    pattern_state=(stock.get("pattern") or {}).get("state", "INCOMPLETE"),
+                    evidence={"options": symbol_options,
+                              "disclosure": "EOD-only contract evidence; no bid/ask spread or intraday liquidity data."},
+                    forecast={"option_contract_count": len(symbol_options)}, actual={})
+                option_snapshot_count += 1
+        finally:
+            option_store.close()
     return {"status": "COMPLETED", "as_of_date": as_of, "timeframe": "DAILY_EOD",
         "universe": {"index_counts": registry["index_counts"],
                      "unique_symbol_count": registry["unique_symbol_count"]},
@@ -218,7 +245,7 @@ def scan_monthly_pd_universe(as_of_date: str | None = None) -> dict[str, Any]:
                      "ready": sum(x["coverage"]["status"] == "READY" for x in stocks),
                      "insufficient": sum(x["coverage"]["status"] != "READY" for x in stocks)},
         "stock_results": stocks, "qualified_stock_symbols": sorted(qualified_symbols),
-        "persisted_stock_snapshots": persisted,
+        "persisted_stock_snapshots": persisted, "persisted_option_snapshots": option_snapshot_count,
         "options_results": options,
         "options_disclosure": "Options are scanned only after stock qualification. EOD bhavcopy does not contain historical bid/ask; options are WATCH only until all required evidence is available.",
         "broker_orders_placed": False}
