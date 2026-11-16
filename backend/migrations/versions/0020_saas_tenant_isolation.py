@@ -240,6 +240,45 @@ def upgrade() -> None:
                 NULLIF(to_jsonb(NEW)->>'mobile_e164',''),
                 NULLIF(to_jsonb(NEW)->>'actor_customer_id','')
             );
+            IF TG_TABLE_NAME='air_device_sessions' AND row_customer IS NULL THEN
+                SELECT mobile_e164 INTO row_customer FROM air_access_requests
+                WHERE request_id=NEW.request_id LIMIT 1;
+                NEW.customer_id := row_customer;
+            ELSIF TG_TABLE_NAME='air_support_ticket_events' AND row_customer IS NULL THEN
+                SELECT customer_id INTO row_customer FROM air_support_tickets
+                WHERE ticket_id=NEW.ticket_id LIMIT 1;
+                NEW.customer_id := row_customer;
+            ELSIF TG_TABLE_NAME='order_ledger' AND row_customer IS NULL THEN
+                SELECT customer_id INTO row_customer FROM customer_trading_accounts
+                WHERE lower(broker)=lower(NEW.broker) AND account_id=NEW.account_id LIMIT 1;
+                NEW.customer_id := row_customer;
+            ELSIF TG_TABLE_NAME='order_ledger_events' AND row_customer IS NULL THEN
+                SELECT customer_id INTO row_customer FROM order_ledger
+                WHERE lower(broker)=lower(NEW.broker) AND account_id=NEW.account_id
+                  AND idempotency_key=NEW.idempotency_key LIMIT 1;
+                NEW.customer_id := row_customer;
+            ELSIF TG_TABLE_NAME='air_workflow_outbox' AND row_customer IS NULL THEN
+                SELECT customer_id INTO row_customer FROM air_workflow_events
+                WHERE event_id=NEW.event_id LIMIT 1;
+                NEW.customer_id := row_customer;
+            ELSIF TG_TABLE_NAME='air_workflow_runs' AND row_customer IS NULL THEN
+                SELECT customer_id INTO row_customer FROM air_workflow_definitions
+                WHERE workflow_id=NEW.workflow_id LIMIT 1;
+                IF row_customer IS NULL THEN
+                    SELECT customer_id INTO row_customer FROM air_workflow_events
+                    WHERE event_id=NEW.event_id LIMIT 1;
+                END IF;
+                NEW.customer_id := row_customer;
+            ELSIF TG_TABLE_NAME='air_workflow_run_steps' AND row_customer IS NULL THEN
+                SELECT customer_id INTO row_customer FROM air_workflow_runs
+                WHERE run_id=NEW.run_id LIMIT 1;
+                NEW.customer_id := row_customer;
+            ELSIF TG_TABLE_NAME IN ('air_workflow_definition_versions','air_workflow_audit')
+                  AND row_customer IS NULL THEN
+                SELECT customer_id INTO row_customer FROM air_workflow_definitions
+                WHERE workflow_id=NEW.workflow_id LIMIT 1;
+                NEW.customer_id := row_customer;
+            END IF;
             IF NEW.tenant_id IS NULL AND active_tenant IS NOT NULL THEN
                 NEW.tenant_id := active_tenant;
             END IF;
@@ -343,6 +382,10 @@ def downgrade() -> None:
         op.drop_index(f"ix_{table}_tenant_id", table_name=table)
         op.drop_column(table, "tenant_id")
     op.execute("DROP POLICY IF EXISTS air_tenant_members_scope ON air_tenant_members")
+    op.execute("DROP INDEX IF EXISTS uq_air_workflow_events_tenant_idempotency")
+    op.execute("DROP INDEX IF EXISTS uq_air_workflow_events_global_idempotency")
+    op.execute("ALTER TABLE air_workflow_events ADD CONSTRAINT air_workflow_events_idempotency_key_key UNIQUE (idempotency_key)")
+    op.execute("ALTER TABLE air_tenant_members NO FORCE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE air_tenant_members DISABLE ROW LEVEL SECURITY")
     op.drop_index("ix_air_tenant_members_tenant_status", table_name="air_tenant_members")
     op.drop_index("ix_air_tenant_members_customer", table_name="air_tenant_members")
