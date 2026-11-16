@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import contextmanager
 import sqlite3
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -50,11 +51,19 @@ class CommercialContractStore:
             Path(self.sqlite_path).parent.mkdir(parents=True, exist_ok=True)
             self._sqlite_schema()
 
+    @contextmanager
     def _sqlite(self):
         db = sqlite3.connect(self.sqlite_path, timeout=20)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA foreign_keys=ON")
-        return db
+        try:
+            yield db
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
 
     def _sqlite_schema(self):
         with self._sqlite() as db:
