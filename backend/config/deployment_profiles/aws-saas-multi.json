@@ -15,7 +15,7 @@
     "cache": "elasticache_redis",
     "message_broker": "amazon_mq_rabbitmq",
     "workflow_engine": "air_workflow",
-    "storage": "s3",
+    "storage": "efs_s3",
     "monitoring": "cloudwatch"
   },
   "services": {
