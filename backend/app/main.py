@@ -59,6 +59,7 @@ from app.commercial_catalogue import public_catalogue, resolve_entitlements
 from app.commercial_contracts_api import router as commercial_contracts_router
 from app.usage_metering_api import router as usage_metering_router
 from app.payment_providers_api import router as payment_providers_router
+from app.billing_api import router as billing_router
 
 app = FastAPI(title="AIR Model Engine API", version="0.3.0",
               description="Self-hosted AIR authentication, broker account and market-data gateway.")
@@ -74,6 +75,7 @@ app.include_router(internal_workspace_router)
 app.include_router(commercial_contracts_router)
 app.include_router(usage_metering_router)
 app.include_router(payment_providers_router)
+app.include_router(billing_router)
 _cors_origins = [
     origin.strip() for origin in os.getenv("AIR_CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
     if origin.strip()
