@@ -87,4 +87,4 @@ jobs:
 
       - name: Run admin and customer PostgreSQL integration tests
         working-directory: backend
-        run: python -m pytest -q tests/test_admin_auth_postgres_store.py tests/test_customer_auth_postgres.py tests/test_broker_persistence_postgres.py tests/test_qoc_postgres_store.py tests/test_market_instrument_postgres.py tests/test_market_data_source_postgres.py tests/test_execution_order_postgres.py tests/test_portfolio_postgres_store.py tests/test_support_center_postgres.py tests/test_workflow_runtime_postgres.py tests/test_usage_metering_postgres.py
+        run: python -m pytest -q tests/test_admin_auth_postgres_store.py tests/test_customer_auth_postgres.py tests/test_customer_credentials_postgres.py tests/test_broker_persistence_postgres.py tests/test_qoc_postgres_store.py tests/test_market_instrument_postgres.py tests/test_market_data_source_postgres.py tests/test_execution_order_postgres.py tests/test_portfolio_postgres_store.py tests/test_support_center_postgres.py tests/test_workflow_runtime_postgres.py tests/test_usage_metering_postgres.py
