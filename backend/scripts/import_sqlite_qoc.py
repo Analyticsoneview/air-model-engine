@@ -56,6 +56,9 @@ def run(source_data_dir: Path, dry_run: bool = False) -> dict[str, Any]:
     report = {"source_path": str(source_path), "source_rows": len(rows), "dry_run": dry_run}
 
     with psycopg.connect(driver_url, row_factory=dict_row) as connection:
+        # Migration/import jobs run with explicit administrative RLS context;
+        # every imported row is still assigned to a verified customer tenant.
+        connection.execute("SELECT set_config('air.is_admin','true',true)")
         marker = connection.execute(
             "SELECT source_manifest, imported_at FROM air_domain_store_imports "
             "WHERE import_name=%s", ("sqlite_qoc_observations_v1",)
@@ -76,11 +79,28 @@ def run(source_data_dir: Path, dry_run: bool = False) -> dict[str, Any]:
             )
 
         if not dry_run:
-            placeholders = ",".join(["%s"] * len(COLUMNS))
+            import_columns = COLUMNS + ("customer_id", "tenant_id")
+            placeholders = ",".join(["%s"] * len(import_columns))
             column_sql = ",".join(COLUMNS)
-            statement = f"INSERT INTO option_observations ({column_sql}) VALUES ({placeholders})"
+            statement = f"INSERT INTO option_observations ({','.join(import_columns)}) VALUES ({placeholders})"
             for row in rows:
-                connection.execute(statement, tuple(row[column] for column in COLUMNS))
+                owner = connection.execute("""
+                    SELECT a.customer_id,m.tenant_id
+                    FROM customer_trading_accounts a
+                    JOIN air_tenant_members m ON m.customer_id=a.customer_id AND m.status='ACTIVE'
+                    JOIN air_tenants t ON t.tenant_id=m.tenant_id AND t.status='ACTIVE'
+                    WHERE lower(a.broker)=lower(%s) AND a.account_id=%s
+                    LIMIT 1
+                """, (row["provider"], row["account_id"])).fetchone()
+                if not owner:
+                    raise RuntimeError(
+                        f"Cannot import QOC observations for {row['provider']}/{row['account_id']}: "
+                        "no active customer account-to-tenant mapping exists"
+                    )
+                connection.execute(
+                    statement,
+                    tuple(row[column] for column in COLUMNS) + (owner["customer_id"], owner["tenant_id"]),
+                )
             if rows:
                 connection.execute(
                     "SELECT setval(pg_get_serial_sequence('option_observations','id'), "
