@@ -11,7 +11,7 @@ AIR is one application codebase with three deployment profiles:
 ## Entry points
 
 - Windows: `AIRDEPLOY.ps1 -Profile onprem-single`
-- Linux: `./AIRDEPLOY.sh onprem-single`
+- Linux: `bash AIRDEPLOY.sh onprem-single`
 - Legacy local entry points `AIRSTART.ps1` and `AIRSTART.sh` remain supported.
 
 The profile validator is packaged in the backend source and uses Python's standard library only. The Deployment Manager invokes it through a disposable Python container, so a host Python installation is not required.
