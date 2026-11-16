@@ -689,6 +689,24 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
             "PARTIAL" if any(imported_dates.values()) else "FAILED"
         )
 
+        # Refresh the official constituent registry only after paired CM/FO
+        # session integrity has passed. Registry failure is visible and blocks
+        # downstream AIR universe scans; it does not corrupt the EOD import.
+        if state["status"] == "READY":
+            try:
+                from app.nse_index_universe import NSEIndexUniverseStore, refresh_nse_index_universe
+                universe_store = NSEIndexUniverseStore(_get_store().path)
+                state["index_universe"] = await refresh_nse_index_universe(universe_store)
+            except Exception as universe_exc:  # noqa: BLE001
+                state["index_universe"] = {
+                    "status": "DATA_INSUFFICIENT",
+                    "error": f"{type(universe_exc).__name__}: {str(universe_exc)[:200]}",
+                    "scanner_allowed": False,
+                }
+                log.exception("Official NSE index constituent refresh failed; universe scan blocked")
+        else:
+            state["index_universe"] = {"status": "DEFERRED_DATA_PARTIAL", "scanner_allowed": False}
+
         # Strategy replays must finish before expired FO rows are purged. This
         # runs after the initial bootstrap and every scheduled/recovery refresh.
         # A still-partial download is deliberately left intact for the next repair.
