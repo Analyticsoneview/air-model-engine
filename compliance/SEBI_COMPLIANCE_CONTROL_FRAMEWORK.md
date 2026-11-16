@@ -10,6 +10,29 @@ Approved product direction (programme decision; not a regulatory approval):
 
 The hybrid label does not determine regulatory status. Classification depends on actual activities, product design, customer journey, marketing, compensation, recommendations and execution behavior. A disclaimer cannot cure an activity that requires registration.
 
+
+## 1A. Internal personal-use technical-analysis mode
+
+AIR must support a clearly separated **Internal / Personal Analysis** workspace for the product owner's own technical analysis and trading decisions.
+
+Permitted product capabilities in this workspace, subject to broker, exchange, data-provider and other applicable rules:
+- Charts, indicators, screeners, price/volume/derivatives analytics and option-chain analysis.
+- User-authored SMC, ORB, Fibonacci, QOC and other strategy rules.
+- Private watchlists, alerts, research notes, simulations, backtests and paper trading.
+- Private signal calculations and order-ticket preparation for the user's own account.
+- Manual order placement only where the connected broker permits the specific workflow and the applicable algo/API requirements are satisfied.
+
+Boundary conditions:
+1. This workspace is for the user's own analysis and decisions. It must not be used to provide research services, recommendations, tips, model portfolios or investment advice to customers or other persons unless the relevant regulatory applicability, registration and controls have been satisfied.
+2. Do not distribute internal QOC outputs, security-specific buy/sell/hold calls, strike/entry/stop-loss/target recommendations, screenshots or derived reports to public channels, paid groups, customers or prospective customers as a service without first obtaining a written legal classification. Calling a recommendation "technical analysis", "education", "software output" or adding a disclaimer does not by itself create an exemption.
+3. SEBI's February 2026 Research Analyst FAQ clarifies that research services/recommendations on securities are not exempt merely because the methodology is technical analysis; the FAQ distinguishes technical analysis concerning demand and supply for a sector or index. Therefore, AIR must not assume that security-specific technical-analysis recommendations are exempt when shared with others.
+4. Keep personal-use data, notes, watchlists and broker credentials private and tenant-isolated. Do not reuse one user's personal data to create recommendations for another.
+5. Internal-use mode is not a blanket exemption from insider-trading, market-manipulation, exchange/broker terms, market-data licensing, privacy, tax, FEMA/LRS or retail algo requirements. Personal trading through APIs or automation requires a separate assessment of the exact broker workflow.
+6. The user's own account and own analysis must be clearly distinguished from any future AIR research entity's activity. If a regulated research entity/analyst is later established, its employee/analyst personal-trading restrictions, pre-clearance, restricted lists and conflict controls must be assessed and applied; do not assume personal use remains unrestricted.
+7. The mode must have a hard access boundary: owner-only role, no customer sharing/export/publication action by default, visible INTERNAL label on generated reports, and an audit record of exports/shares. A future sharing feature must route through the compliance publication workflow.
+
+This mode is a product control intended to keep personal analysis separate from customer-facing research. It is not a legal determination that every possible use is exempt. Obtain counsel confirmation before enabling any external distribution or API-based order flow.
+
 ## 2. Regulatory baseline and legal-review requirement
 
 This is an engineering control framework, not a legal opinion. Before launch, Indian securities counsel/compliance professional must prepare and sign a current applicability opinion against the exact AIR legal entity, customer segments, distribution channels, fees, research outputs and broker integrations.
@@ -22,7 +45,7 @@ The compliance register must track amendments and circulars, not only the base r
 - Applicable stock-exchange, broker, data-vendor, privacy, cyber-security, record-retention and cross-border rules.
 
 Official starting references:
-- SEBI regulations: https://www.sebi.gov.in/sebiweb/home/HomeAction.do?doListing=yes&sid=1&smid=0-4&ssid=3
+- SEBI regulations: https://www.sebi.gov.in/sebiweb/home/HomeAction.do?doListing=yes&sid=1&smid=0-4&ssid=3\n- SEBI Research Analyst FAQ (February 2026), including technical-analysis methodology clarification: https://www.sebi.gov.in/sebi_data/attachdocs/feb-2026/1770375507051.pdf
 - SEBI legal framework/circulars: https://www.sebi.gov.in/legal/circulars.html
 - SEBI retail algo circular: https://www.sebi.gov.in/legal/circulars/feb-2025/safer-participation-of-retail-investors-in-algorithmic-trading_91614.html
 - SEBI Investor Charter: https://investor.sebi.gov.in/Investor-charter.html
@@ -138,3 +161,14 @@ Official sources reviewed for this programme baseline:
 - NSE empanelled algo provider page and current operational references: https://betanseapi.nseindia.com/static/trade/empanelled-algo-providers-exchange
 
 This source list is not exhaustive. Compliance owner must verify later amendments, circulars, exchange notices, RBI/FEMA and foreign-market requirements before each relevant release.
+
+## 8. Internal-use mode acceptance criteria
+
+- Owner-only internal workspace exists and is not exposed to customer tenants.
+- All internally generated reports/signals are visibly marked INTERNAL / NOT FOR DISTRIBUTION.
+- External sharing, public posting, client delivery and paid distribution are disabled unless routed through the approved research compliance workflow.
+- No customer-specific advice workflow is exposed in internal-use mode.
+- Broker integration defaults to read-only; any order ticket requires explicit customer action and broker/API/legal permission.
+- No automated order submission, modification, cancellation or strategy execution.
+- Data licences permit the intended personal/internal use.
+- Counsel confirms the intended internal-use and personal trading workflow before production release.
