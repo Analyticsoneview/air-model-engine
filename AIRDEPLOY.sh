@@ -15,8 +15,11 @@ PROFILE_FILE="$ROOT/backend/config/deployment_profiles/$PROFILE.json"
 echo "Validating AIR deployment profile: $PROFILE"
 docker run --rm --mount "type=bind,source=$ROOT/backend,target=/app" -w /app python:3.12-slim python -m app.deployment_profiles --profile "$PROFILE" --require-cloud-env
 export AIR_DEPLOYMENT_PROFILE="$PROFILE"
-export AIR_DEPLOYMENT_MODE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["deployment"]["provider"])' "$PROFILE_FILE" 2>/dev/null || true)"
-export AIR_TENANCY_MODE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["deployment"]["tenancy"])' "$PROFILE_FILE" 2>/dev/null || true)"
+case "$PROFILE" in
+  onprem-single) export AIR_DEPLOYMENT_MODE="on_prem"; export AIR_TENANCY_MODE="single" ;;
+  aws-private-single) export AIR_DEPLOYMENT_MODE="aws"; export AIR_TENANCY_MODE="single" ;;
+  aws-saas-multi) export AIR_DEPLOYMENT_MODE="aws"; export AIR_TENANCY_MODE="multi" ;;
+esac
 
 if [[ "$PROFILE" == "onprem-single" ]]; then
   exec "$ROOT/AIRSTART.sh"
