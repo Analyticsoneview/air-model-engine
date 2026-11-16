@@ -135,6 +135,13 @@ class TenantRegistry:
                     (tenant_id,customer_id,role,status)
                     VALUES(:tenant,:customer,:role,'ACTIVE')"""),
                     {"tenant": tenant, "customer": customer, "role": role})
+                conn.execute(text("""INSERT INTO air_tenant_membership_events
+                    (event_id,tenant_id,customer_id,actor_id,event_type,from_role,to_role,
+                     idempotency_key,details,occurred_at)
+                    VALUES(:id,:tenant,:customer,'AIR_SYSTEM_ADMIN','ADMIN_MEMBER_ADDED',
+                           NULL,:role,:key,CAST(:details AS json),CURRENT_TIMESTAMP)"""),
+                    {"id": str(uuid4()), "tenant": tenant, "customer": customer, "role": role,
+                     "key": "admin-add:" + str(uuid4()), "details": json.dumps({"source": "tenant_registry"})})
         return {"tenant_id": tenant, "customer_id": customer, "role": role, "status": "ACTIVE"}
 
     def set_tenant_status(self, tenant_id: str, status: str) -> dict:
