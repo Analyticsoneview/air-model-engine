@@ -45,7 +45,9 @@ def _clear_database(url):
         with engine.begin() as conn:
             # TRUNCATE bypasses row-level append-only audit triggers in this disposable test database.
             conn.execute(text("TRUNCATE TABLE " + ", ".join(TABLES) + " RESTART IDENTITY CASCADE"))
-            # Recreate the system tenant used for administrator audit records.
+            # Recreate the system tenant using the same explicit admin context
+            # required by FORCE ROW LEVEL SECURITY in production.
+            conn.execute(text("SELECT set_config('air.is_admin','true',false)"))
             conn.execute(text("""
                 INSERT INTO air_tenants
                     (tenant_id,name,owner_customer_id,plan_code,status,storage_prefix,rabbitmq_vhost,
