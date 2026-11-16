@@ -59,3 +59,46 @@ def test_fastapi_strategy_dependency_returns_customer_after_entitlement_check(mo
     )
 
     assert subscription_access.require_strategy_access("customer-3") == "customer-3"
+
+
+def test_feature_entitlement_dependency_allows_exact_active_plan_feature(monkeypatch):
+    monkeypatch.delenv("AIR_OPERATOR_CUSTOMER_IDS", raising=False)
+    monkeypatch.setattr(subscription_access.access_store, "mobile_for_request_id", lambda _value: None)
+    monkeypatch.setattr(
+        subscription_access.access_store,
+        "get_subscription",
+        lambda _value: {"status": "ACTIVE", "plan_code": "B2C_TRADER_ANNUAL"},
+    )
+
+    dependency = subscription_access.require_feature_entitlement("options_analytics")
+    assert dependency("customer-feature") == "customer-feature"
+
+
+def test_feature_entitlement_dependency_denies_ungranted_feature(monkeypatch):
+    monkeypatch.delenv("AIR_OPERATOR_CUSTOMER_IDS", raising=False)
+    monkeypatch.setattr(subscription_access.access_store, "mobile_for_request_id", lambda _value: None)
+    monkeypatch.setattr(
+        subscription_access.access_store,
+        "get_subscription",
+        lambda _value: {"status": "ACTIVE", "plan_code": "B2C_ESSENTIAL_ANNUAL"},
+    )
+
+    dependency = subscription_access.require_feature_entitlement("options_analytics")
+    with pytest.raises(HTTPException) as error:
+        dependency("customer-feature")
+    assert error.value.status_code == 403
+
+
+def test_feature_entitlement_dependency_denies_restricted_capability(monkeypatch):
+    monkeypatch.delenv("AIR_OPERATOR_CUSTOMER_IDS", raising=False)
+    monkeypatch.setattr(subscription_access.access_store, "mobile_for_request_id", lambda _value: None)
+    monkeypatch.setattr(
+        subscription_access.access_store,
+        "get_subscription",
+        lambda _value: {"status": "ACTIVE", "plan_code": "B2C_ELITE_ANNUAL"},
+    )
+
+    dependency = subscription_access.require_feature_entitlement("broker_order_submission")
+    with pytest.raises(HTTPException) as error:
+        dependency("customer-feature")
+    assert error.value.status_code == 403
