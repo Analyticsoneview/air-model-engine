@@ -2722,6 +2722,22 @@ def _get_tenant_registry():
     return _tenant_registry
 
 
+_aws_tenant_provisioner = None
+
+
+def _get_aws_tenant_provisioner():
+    global _aws_tenant_provisioner
+    if os.getenv("AIR_DEPLOYMENT_PROFILE", "onprem-single") != "aws-saas-multi":
+        raise HTTPException(status_code=409, detail="AWS tenant provisioning requires the aws-saas-multi deployment profile")
+    if _aws_tenant_provisioner is None:
+        from app.aws_tenant_provisioner import AwsTenantProvisioner
+        try:
+            _aws_tenant_provisioner = AwsTenantProvisioner.from_environment()
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="AWS tenant provisioning adapter is not configured") from exc
+    return _aws_tenant_provisioner
+
+
 class TenantProvisionRequest(BaseModel):
     owner_customer_id: str = Field(min_length=9, max_length=128)
     name: str = Field(min_length=1, max_length=160)
@@ -2755,12 +2771,47 @@ async def admin_list_tenants(
 async def admin_create_tenant(body: TenantProvisionRequest, admin: dict = Depends(require_admin)) -> dict:
     _tenant_management_admin(admin)
     try:
+        provisioning_required = os.getenv("AIR_DEPLOYMENT_PROFILE", "onprem-single") == "aws-saas-multi"
         tenant = _get_tenant_registry().create_or_update_tenant(
             owner_customer_id=body.owner_customer_id, name=body.name, plan_code=body.plan_code,
+            status="PROVISIONING" if provisioning_required else "ACTIVE",
         )
-        return {"tenant": tenant, "status": "registered", "infrastructure_status": "NOT_PROVISIONED"}
+        return {
+            "tenant": tenant,
+            "status": "registered",
+            "infrastructure_status": "NOT_PROVISIONED" if provisioning_required else "NOT_APPLICABLE",
+            "next_action": "POST /api/v1/admin/tenants/{tenant_id}/provision" if provisioning_required else None,
+        }
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/admin/tenants/{tenant_id}/provision")
+async def admin_provision_tenant(tenant_id: str, admin: dict = Depends(require_admin)) -> dict:
+    _tenant_management_admin(admin)
+    registry = _get_tenant_registry()
+    try:
+        tenant = registry.get_tenant(tenant_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if tenant["status"] == "CLOSED":
+        raise HTTPException(status_code=409, detail="A CLOSED tenant cannot be provisioned")
+    provisioner = _get_aws_tenant_provisioner()
+    try:
+        infrastructure = provisioner.provision(tenant)
+        updated = registry.record_aws_provisioning(
+            tenant_id, infrastructure, status="ACTIVE",
+        )
+        return {"tenant": updated, "infrastructure": infrastructure}
+    except Exception as exc:
+        try:
+            registry.record_aws_provisioning_failure(tenant_id, type(exc).__name__)
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=502,
+            detail="AWS tenant provisioning failed; tenant remains PROVISIONING and can be retried",
+        ) from exc
 
 
 @app.get("/api/v1/admin/tenants/{tenant_id}")
@@ -2792,11 +2843,22 @@ async def admin_set_tenant_status(
 ) -> dict:
     _tenant_management_admin(admin)
     try:
-        return {"tenant": _get_tenant_registry().set_tenant_status(tenant_id, body.status)}
+        registry = _get_tenant_registry()
+        current = registry.get_tenant(tenant_id)
+        next_status = body.status.upper()
+        if os.getenv("AIR_DEPLOYMENT_PROFILE", "onprem-single") == "aws-saas-multi":
+            provisioner = _get_aws_tenant_provisioner()
+            if next_status in {"SUSPENDED", "CLOSED"}:
+                provisioner.set_tenant_access(current, enabled=False)
+            elif next_status == "ACTIVE":
+                provisioner.set_tenant_access(current, enabled=True)
+        return {"tenant": registry.set_tenant_status(tenant_id, next_status)}
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Tenant infrastructure lifecycle operation failed") from exc
 
 
 @app.get("/api/v1/tenant/context")
