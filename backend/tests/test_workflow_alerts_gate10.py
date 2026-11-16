@@ -16,7 +16,7 @@ class FakeStore:
             {
                 "worker_id": "worker-stale", "component": "workflow-runtime",
                 "status": "RUNNING",
-                "last_seen": (datetime(2026, 1, 1, tzinfo=timezone.utc)).isoformat(),
+                "last_seen": (datetime(2025, 12, 31, 23, 58, tzinfo=timezone.utc)).isoformat(),
             },
             {
                 "worker_id": "worker-degraded", "component": "workflow-runtime",
