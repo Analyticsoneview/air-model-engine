@@ -8,6 +8,20 @@ AIR is one product and one application codebase with deployment-specific profile
 | `aws-private-single` | Single tenant | AWS ECS | Dedicated AWS environment with RDS, ElastiCache, Amazon MQ, EFS and S3 |
 | `aws-saas-multi` | Multiple tenants | Shared AWS ECS runtime | Shared RDS PostgreSQL with tenant RLS, shared Redis with tenant-scoped keys/quotas, per-tenant S3 buckets, RabbitMQ vhosts/users and tenant Secrets Manager credentials |
 
+## Unified Deployment Manager
+
+The cross-platform Deployment Manager is `scripts/air_manager.py`; the root wrappers route to the same implementation:
+
+- Windows: `.\AIRDEPLOY.ps1 -DeploymentProfile onprem-single -Action doctor`
+- Linux/macOS: `bash AIRDEPLOY.sh onprem-single doctor`
+- Validate a profile without Docker or AWS credentials: `python scripts/air_manager.py --profile aws-private-single validate`
+- One-click on-prem install: `AIRDEPLOY.ps1 -DeploymentProfile onprem-single -Action install` or `bash AIRDEPLOY.sh onprem-single install`
+- Upgrade: use action `upgrade`; it refreshes PostgreSQL/Redis/RabbitMQ images, rebuilds the AIR API/worker/PWA and waits for full `/ready`.
+- Diagnostics: actions `status` and `diagnose`; diagnostic reports contain service/readiness metadata, not secret file contents.
+- Release bundle: action `package`, or run `python scripts/release/build_release.py --version VERSION` directly. The output includes a release manifest, SHA256SUMS and an archive checksum sidecar.
+
+The default root command installs `onprem-single`. For either AWS profile the default action is profile validation only. An AWS install action reports `DEFERRED` until an authorized AWS account, region, remote state, credentials, certificate and cost approval exist; it does not create resources.
+
 ## On-premises entry points
 
 - Windows: `.\AIRDEPLOY.ps1 -DeploymentProfile onprem-single`
