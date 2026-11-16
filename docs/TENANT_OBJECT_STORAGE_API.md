@@ -28,6 +28,7 @@ curl --fail-with-body \
 ## Tenant isolation and quota model
 
 - Tenant identity comes from the authenticated request context, never from a request field or URL.
+- OWNER, ADMIN and MEMBER roles may upload; READ_ONLY members may list and download but cannot upload.
 - PostgreSQL row-level security protects `air_tenant_objects`; tenant-scoped row locking serializes quota reservations.
 - `air_tenants.storage_used_bytes` is reserved transactionally before the S3 write. Concurrent uploads cannot both spend the same remaining quota.
 - Every object key is immutable. Reusing a key with identical size and SHA-256 is idempotent; different content at an existing key returns HTTP 409.
