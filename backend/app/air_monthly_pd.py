@@ -84,10 +84,10 @@ def classify_price_structure(bars: list[dict[str, Any]], tolerance_pct: float=2.
         if i2-i1>=4 and abs(h1-h2)/max(h1,h2)*100<=tolerance_pct:
             return {"pattern":"DOUBLE_TOP","state":"FORMING","confidence":60,"resistance":[h1,h2],"reason":"Comparable swing highs; monitor support"}
     n=len(closes); a=mean(closes[:n//3]); b=mean(closes[n//3:2*n//3]); c=mean(closes[2*n//3:])
-    if a>b and c>b and (c-b)/b>=.04:
-        return {"pattern":"U","state":"FORMING","confidence":60,"reason":"Rounded recovery candidate; needs higher low and resistance break"}
     if a>b and c>a and (c-b)/b>=.08:
         return {"pattern":"V","state":"FORMING","confidence":65,"reason":"Sharp recovery candidate; needs follow-through"}
+    if a>b and c>b and (c-b)/b>=.04:
+        return {"pattern":"U","state":"FORMING","confidence":60,"reason":"Rounded recovery candidate; needs higher low and resistance break"}
     if a<b and c>b and (c-b)/b>=.04:
         return {"pattern":"N","state":"FORMING","confidence":60,"reason":"Rally-pullback-renewed-rise candidate"}
     return {"pattern":"NONE","state":"INCOMPLETE","confidence":0,"reason":"No defined pattern met conservative rules"}
