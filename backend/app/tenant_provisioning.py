@@ -196,7 +196,7 @@ class TenantRegistry:
             with self.engine.connect() as conn:
                 tenant = conn.execute(text("""SELECT name,plan_code,status,storage_prefix,
                     rabbitmq_vhost,max_members,max_api_calls_per_day,max_storage_bytes,
-                    feature_flags_json FROM air_tenants WHERE tenant_id=:tenant"""),
+                    storage_used_bytes,feature_flags_json FROM air_tenants WHERE tenant_id=:tenant"""),
                     {"tenant": tenant_id}).mappings().first()
         if not tenant or tenant["status"] != "ACTIVE":
             raise KeyError("Customer has no active tenant")
@@ -205,6 +205,139 @@ class TenantRegistry:
             "membership_status": member["status"], **dict(tenant),
             "tenant_status": tenant["status"],
         }
+
+    @staticmethod
+    def _validate_object_key(object_key: str) -> str:
+        key = str(object_key or "")
+        if (
+            not key or len(key) > 512 or key.startswith("/")
+            or "\\" in key or "\x00" in key
+            or any(ord(char) < 32 or ord(char) == 127 for char in key)
+        ):
+            raise ValueError("A safe tenant object key of 1-512 characters is required")
+        if any(not part or part in {".", ".."} for part in key.split("/")):
+            raise ValueError("Tenant object key contains an unsafe path segment")
+        return key
+
+    def reserve_object_upload(
+        self, tenant_id: str, customer_id: str, object_key: str, *,
+        size_bytes: int, sha256: str, content_type: str,
+    ) -> dict:
+        tenant = str(tenant_id).strip()
+        customer = self._validate_customer(customer_id)
+        key = self._validate_object_key(object_key)
+        size = int(size_bytes)
+        digest = str(sha256 or "").lower()
+        media_type = str(content_type or "application/octet-stream").strip().lower()
+        if size < 1 or size > 25 * 1024 * 1024:
+            raise ValueError("Tenant object size must be between 1 byte and 25 MiB")
+        if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
+            raise ValueError("A valid SHA-256 digest is required")
+        if not media_type or len(media_type) > 255 or any(ord(ch) < 32 for ch in media_type):
+            raise ValueError("A valid content type is required")
+
+        with tenant_scope(tenant_id=tenant, customer_id=customer):
+            with self.engine.begin() as conn:
+                row = conn.execute(text("""
+                    SELECT status,max_storage_bytes,storage_used_bytes
+                    FROM air_tenants WHERE tenant_id=:tenant FOR UPDATE
+                """), {"tenant": tenant}).mappings().first()
+                if not row or row["status"] != "ACTIVE":
+                    raise PermissionError("Customer tenant is not active")
+                existing = conn.execute(text("""
+                    SELECT size_bytes,sha256,content_type,etag,status
+                    FROM air_tenant_objects
+                    WHERE tenant_id=:tenant AND object_key=:key
+                """), {"tenant": tenant, "key": key}).mappings().first()
+                if existing:
+                    if int(existing["size_bytes"]) != size or existing["sha256"] != digest:
+                        raise FileExistsError("Tenant object keys are immutable; choose a new key")
+                    if existing["status"] == "STORED":
+                        return {
+                            "already_stored": True, "tenant_id": tenant, "object_key": key,
+                            "size_bytes": size, "sha256": digest,
+                            "content_type": existing["content_type"], "etag": existing["etag"],
+                            "storage_used_bytes": int(row["storage_used_bytes"]),
+                            "max_storage_bytes": int(row["max_storage_bytes"]),
+                        }
+                    return {
+                        "already_stored": False, "resume_pending": True,
+                        "tenant_id": tenant, "object_key": key, "size_bytes": size,
+                        "sha256": digest, "content_type": media_type,
+                        "storage_used_bytes": int(row["storage_used_bytes"]),
+                        "max_storage_bytes": int(row["max_storage_bytes"]),
+                    }
+                used, limit = int(row["storage_used_bytes"]), int(row["max_storage_bytes"])
+                if used + size > limit:
+                    raise OverflowError("Tenant storage quota would be exceeded")
+                conn.execute(text("""
+                    UPDATE air_tenants SET storage_used_bytes=storage_used_bytes+:size,
+                        updated_at=CURRENT_TIMESTAMP
+                    WHERE tenant_id=:tenant AND status='ACTIVE'
+                """), {"size": size, "tenant": tenant})
+                conn.execute(text("""
+                    INSERT INTO air_tenant_objects
+                        (tenant_id,object_key,size_bytes,sha256,content_type,status)
+                    VALUES(:tenant,:key,:size,:sha256,:content_type,'PENDING')
+                """), {"tenant": tenant, "key": key, "size": size, "sha256": digest,
+                       "content_type": media_type})
+                return {
+                    "already_stored": False, "resume_pending": False,
+                    "tenant_id": tenant, "object_key": key, "size_bytes": size,
+                    "sha256": digest, "content_type": media_type,
+                    "storage_used_bytes": used + size, "max_storage_bytes": limit,
+                }
+
+    def complete_object_upload(self, tenant_id: str, customer_id: str, object_key: str, etag: str) -> dict:
+        tenant = str(tenant_id).strip()
+        customer = self._validate_customer(customer_id)
+        key = self._validate_object_key(object_key)
+        with tenant_scope(tenant_id=tenant, customer_id=customer):
+            with self.engine.begin() as conn:
+                row = conn.execute(text("""
+                    UPDATE air_tenant_objects SET status='STORED',etag=:etag,updated_at=CURRENT_TIMESTAMP
+                    WHERE tenant_id=:tenant AND object_key=:key AND status='PENDING'
+                    RETURNING tenant_id,object_key,size_bytes,sha256,content_type,etag,status,created_at
+                """), {"etag": str(etag or "")[:128], "tenant": tenant, "key": key}).mappings().first()
+                if row:
+                    return dict(row)
+                existing = conn.execute(text("""
+                    SELECT tenant_id,object_key,size_bytes,sha256,content_type,etag,status,created_at
+                    FROM air_tenant_objects WHERE tenant_id=:tenant AND object_key=:key
+                """), {"tenant": tenant, "key": key}).mappings().first()
+                if existing and existing["status"] == "STORED":
+                    return dict(existing)
+                raise KeyError("Pending tenant object reservation was not found")
+
+    def list_tenant_objects(
+        self, tenant_id: str, customer_id: str, *, limit: int = 100, offset: int = 0,
+    ) -> list[dict]:
+        tenant = str(tenant_id).strip()
+        customer = self._validate_customer(customer_id)
+        page_size, page_offset = max(1, min(int(limit), 500)), max(0, int(offset))
+        with tenant_scope(tenant_id=tenant, customer_id=customer):
+            with self.engine.connect() as conn:
+                rows = conn.execute(text("""
+                    SELECT object_key,size_bytes,sha256,content_type,etag,status,created_at
+                    FROM air_tenant_objects WHERE tenant_id=:tenant AND status='STORED'
+                    ORDER BY created_at DESC,object_key LIMIT :limit OFFSET :offset
+                """), {"tenant": tenant, "limit": page_size, "offset": page_offset}).mappings().all()
+        return [dict(row) for row in rows]
+
+    def get_tenant_object(self, tenant_id: str, customer_id: str, object_key: str) -> dict:
+        tenant = str(tenant_id).strip()
+        customer = self._validate_customer(customer_id)
+        key = self._validate_object_key(object_key)
+        with tenant_scope(tenant_id=tenant, customer_id=customer):
+            with self.engine.connect() as conn:
+                row = conn.execute(text("""
+                    SELECT object_key,size_bytes,sha256,content_type,etag,status,created_at
+                    FROM air_tenant_objects
+                    WHERE tenant_id=:tenant AND object_key=:key AND status='STORED'
+                """), {"tenant": tenant, "key": key}).mappings().first()
+        if not row:
+            raise KeyError("Tenant object does not exist")
+        return dict(row)
 
     def record_aws_provisioning(
         self, tenant_id: str, infrastructure: dict, *, status: str = "ACTIVE",
