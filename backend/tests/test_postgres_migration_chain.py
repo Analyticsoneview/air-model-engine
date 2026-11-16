@@ -33,6 +33,7 @@ EXPECTED_CHAIN = [
     "0026_customer_onboarding",
     "0027_organisation_memberships",
     "0028_enterprise_license",
+    "0029_customer_credentials",
 ]
 
 
