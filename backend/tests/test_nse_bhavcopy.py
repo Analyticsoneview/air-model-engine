@@ -73,6 +73,10 @@ class NSEBhavcopyTests(unittest.TestCase):
             "strategy_run": {"status": "COMPLETED"},
         }
         self.assertTrue(nse_bootstrap_is_ready(complete))
+        warning_coverage = dict(complete, symbol_coverage={
+            "status": "READY_WITH_WARNINGS", "expected_symbols": 500, "missing_count": 0,
+        })
+        self.assertTrue(nse_bootstrap_is_ready(warning_coverage))
         incomplete = dict(complete, archive_coverage_pct=99.9)
         self.assertFalse(nse_bootstrap_is_ready(incomplete))
         incomplete = dict(complete, paired_session_coverage_pct=99.9)
