@@ -515,11 +515,12 @@ class WorkflowStore:
             self.db.execute(
                 """INSERT INTO air_workflow_definition_versions
                    (workflow_id,version,name,description,trigger_type,trigger_config_json,
-                    workflow_spec_json,execution_mode,created_by,created_at)
-                   VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                    workflow_spec_json,execution_mode,created_by,created_at,customer_id)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                 (workflow_id, version, name, description, trigger_type,
                  json.dumps(trigger_config, allow_nan=False),
-                 json.dumps(workflow_spec, allow_nan=False), execution_mode, updated_by, now),
+                 json.dumps(workflow_spec, allow_nan=False), execution_mode, updated_by, now,
+                 current.get("customer_id") or current_customer_id()),
             )
             if bool(current["enabled"]):
                 self._append_audit(workflow_id, int(current["version"]), updated_by,
@@ -747,15 +748,18 @@ class WorkflowStore:
                 continue
             run_id = str(uuid4())
             now = _now()
+            run_customer = definition["customer_id"] or event["customer_id"]
+            run_tenant = definition["tenant_id"] or event["tenant_id"]
             with self.db:
                 self.db.execute(
                     """INSERT INTO air_workflow_runs
                        (run_id,workflow_id,workflow_version,event_id,status,execution_mode,
-                        started_at,completed_at,error)
-                       VALUES(?,?,?,?,?,?,?,?,?)
+                        started_at,completed_at,error,customer_id,tenant_id)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?)
                        ON CONFLICT(workflow_id,workflow_version,event_id) DO NOTHING""",
                     (run_id, definition["workflow_id"], definition["version"], event_id,
-                     "QUEUED", definition["execution_mode"], now, None, None),
+                     "QUEUED", definition["execution_mode"], now, None, None,
+                     run_customer, run_tenant),
                 )
             row = self.db.execute(
                 """SELECT * FROM air_workflow_runs
