@@ -19,6 +19,7 @@ import pika
 
 from app.workflow_engine import WorkflowStore
 from app.workflow_executor import execute_workflow_run
+from app.workflow_alerts import deliver_runtime_alerts, evaluate_runtime_alerts
 
 log = logging.getLogger("air.workflow.worker")
 EXCHANGE = "air.events"
@@ -358,6 +359,46 @@ def _consume(stop: threading.Event) -> None:
                 connection.close()
 
 
+
+def _monitor_runtime(stop: threading.Event) -> None:
+    """Poll durable runtime state and notify configured AIR operations destinations."""
+    while not stop.is_set():
+        store = None
+        connection = None
+        try:
+            store = WorkflowStore()
+            dispatch_depth = dead_letter_depth = None
+            try:
+                connection = _connection()
+                channel = connection.channel()
+                dispatch_depth = channel.queue_declare(queue=QUEUE, passive=True).method.message_count
+                dead_letter_depth = channel.queue_declare(queue=DEAD_QUEUE, passive=True).method.message_count
+            except Exception as exc:
+                log.warning("Workflow runtime monitor cannot inspect RabbitMQ (%s)", type(exc).__name__)
+                alerts = [{
+                    "key": "rabbitmq-unavailable",
+                    "title": "Workflow RabbitMQ unavailable",
+                    "detail": "The workflow operations monitor cannot reach RabbitMQ; event delivery may be delayed.",
+                }]
+            else:
+                alerts = evaluate_runtime_alerts(
+                    store, dispatch_depth=dispatch_depth,
+                    dead_letter_depth=dead_letter_depth,
+                )
+            if alerts:
+                result = deliver_runtime_alerts(alerts)
+                log.warning("Workflow runtime alerts evaluated=%d attempted=%d delivered=%d",
+                            len(alerts), result["attempted"], result["sent"])
+        except Exception as exc:
+            log.warning("Workflow runtime monitor will retry after %s", type(exc).__name__)
+        finally:
+            if connection and connection.is_open:
+                connection.close()
+            if store is not None:
+                store.close()
+        stop.wait(max(15, int(os.getenv("AIR_WORKFLOW_ALERT_POLL_SECONDS", "30"))))
+
+
 def _record_heartbeat(status: str, details: dict) -> None:
     store = WorkflowStore()
     try:
@@ -399,11 +440,13 @@ def main() -> None:
     publisher = threading.Thread(target=_publish_outbox, args=(stop,), name="workflow-outbox", daemon=True)
     scheduler = threading.Thread(target=_schedule_time_triggers, args=(stop,), name="workflow-scheduler", daemon=True)
     executor = threading.Thread(target=_execute_runs, args=(stop,), name="workflow-executor", daemon=True)
+    monitor = threading.Thread(target=_monitor_runtime, args=(stop,), name="workflow-operations-monitor", daemon=True)
     publisher.start()
     scheduler.start()
     executor.start()
+    monitor.start()
     heartbeat = threading.Thread(
-        target=_heartbeat_loop, args=(stop, [publisher, scheduler, executor]),
+        target=_heartbeat_loop, args=(stop, [publisher, scheduler, executor, monitor]),
         name="workflow-heartbeat", daemon=True,
     )
     heartbeat.start()
@@ -417,6 +460,7 @@ def main() -> None:
         publisher.join(timeout=5)
         scheduler.join(timeout=5)
         executor.join(timeout=5)
+        monitor.join(timeout=5)
         heartbeat.join(timeout=5)
 
 
