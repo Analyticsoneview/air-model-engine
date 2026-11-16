@@ -34,7 +34,7 @@ services:
     image: rabbitmq:4-management-alpine
     environment:
       RABBITMQ_CONFIG_FILE: /etc/rabbitmq/rabbitmq.conf
-    command: ["sh", "-ec", "export AIR_RABBITMQ_DEFAULT_PASSWORD=\\"$(cat /run/secrets/rabbitmq_password)\\"; exec rabbitmq-server"]
+    command: ["sh", "-ec", 'export AIR_RABBITMQ_DEFAULT_PASSWORD="$(cat /run/secrets/rabbitmq_password)"; exec rabbitmq-server']
     secrets:
       - rabbitmq_password
     volumes:
