@@ -72,7 +72,7 @@ class TenantMembershipStore:
                   AND l.status IN ('ACTIVE','GRACE')
                   AND l.valid_from<=CURRENT_DATE
                   AND (l.valid_until>CURRENT_DATE OR
-                       (l.status='GRACE' AND l.grace_until>=CURRENT_DATE))"""),
+                       l.grace_until>=CURRENT_DATE)"""),
                 {"tenant": tenant_id}).scalar_one_or_none()
             if licensed_seats is not None:
                 result["max_members"] = min(int(result["max_members"]), int(licensed_seats))
