@@ -1,0 +1,59 @@
+name: AIR Monthly Premium-Discount Acceptance
+
+on:
+  pull_request:
+    paths:
+      - 'backend/app/air_monthly_pd*.py'
+      - 'backend/app/workflow_engine.py'
+      - 'backend/app/workflow_executor.py'
+      - 'backend/app/air_monthly_pd_api.py'
+      - 'backend/migrations/versions/0019_air_monthly_pd.py'
+      - 'backend/tests/test_air_monthly_pd*.py'
+      - '.github/workflows/monthly-pd-acceptance.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  monthly-pd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: air
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: air_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U air -d air_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install backend dependencies
+        run: python -m pip install -r backend/requirements.txt pytest
+      - name: Compile changed modules
+        working-directory: backend
+        run: python -m compileall -q app/air_monthly_pd.py app/air_monthly_pd_store.py app/air_monthly_pd_api.py app/workflow_executor.py
+      - name: Run focused monthly PD tests
+        working-directory: backend
+        env:
+          AIR_MONTHLY_PD_DB_PATH: ":memory:"
+        run: python -m pytest -q tests/test_air_monthly_pd.py tests/test_air_monthly_pd_store.py
+      - name: Validate Alembic migration chain on PostgreSQL 16
+        working-directory: backend
+        env:
+          AIR_DATABASE_URL: postgresql://air:testpass@localhost:5432/air_test
+        run: |
+          python -m alembic upgrade head
+          python -m alembic downgrade 0018_workflow_run_leases
+          python -m alembic upgrade head
