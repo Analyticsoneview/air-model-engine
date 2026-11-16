@@ -88,7 +88,7 @@ resource "aws_mq_broker" "air" {
   auto_minor_version_upgrade = true
   subnet_ids                 = aws_subnet.private[*].id
   security_groups            = [aws_security_group.rabbitmq.id]
-  users {
+  user {
     username = "air"
     password = random_password.rabbitmq.result
   }
