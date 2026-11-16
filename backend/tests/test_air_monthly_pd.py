@@ -32,3 +32,56 @@ def test_support_confirmation_ignores_reference_day_and_prior_bars():
     bars=[{"date":"2026-11-23","low":90},{"date":"2026-11-24","low":101},{"date":"2026-11-25","low":100}]
     result=evaluate_support_acceptance(bars,100,2,"2026-11-23")
     assert result["status"]=="OPEN_FOR_BUY"
+
+
+def test_current_month_extremes_capture_discount_ml_and_premium_mh_without_future_bars():
+    from app.air_monthly_pd import current_month_extremes
+    bars = [
+        {"date": "2026-11-03", "low": 105, "high": 145},
+        {"date": "2026-11-18", "low": 90, "high": 155},
+        {"date": "2026-11-24", "low": 80, "high": 170},  # must be excluded
+    ]
+    result = current_month_extremes(bars, reference_date="2026-11-21", pml=100, pmh=150)
+    assert result["cml"] == 90 and result["cml_date"] == "2026-11-18"
+    assert result["cmh"] == 155 and result["cmh_date"] == "2026-11-18"
+    assert result["ml_candidate"] is True
+    assert result["mh_candidate"] is True
+    assert result["eq"] == 125
+
+
+def test_current_month_extremes_do_not_qualify_inside_previous_month_range():
+    from app.air_monthly_pd import current_month_extremes
+    result = current_month_extremes(
+        [{"date": "2026-11-20", "low": 110, "high": 140}],
+        reference_date="2026-11-23", pml=100, pmh=150,
+    )
+    assert result["ml_candidate"] is False
+    assert result["mh_candidate"] is False
+
+
+def test_current_month_low_acceptance_requires_two_sessions_and_rejects_wick():
+    from app.air_monthly_pd import evaluate_current_month_low_acceptance
+    bars = [
+        {"date": "2026-11-24", "low": 91},
+        {"date": "2026-11-25", "low": 90},
+    ]
+    assert evaluate_current_month_low_acceptance(bars, 90, reference_date="2026-11-23")["status"] == "ML_CONFIRMED"
+    bars[1]["low"] = 89.99
+    assert evaluate_current_month_low_acceptance(bars, 90, reference_date="2026-11-23")["status"] == "INVALIDATED"
+
+
+def test_current_month_high_rejection_requires_two_sessions():
+    from app.air_monthly_pd import evaluate_resistance_rejection
+    bars = [
+        {"date": "2026-11-24", "high": 154, "close": 153},
+        {"date": "2026-11-25", "high": 155, "close": 154},
+    ]
+    assert evaluate_resistance_rejection(bars, 155, reference_date="2026-11-23")["status"] == "REJECTION_CONFIRMED"
+    bars[1]["high"] = 155.01
+    assert evaluate_resistance_rejection(bars, 155, reference_date="2026-11-23")["status"] == "INVALIDATED"
+
+
+def test_current_month_extremes_missing_data_fails_closed():
+    from app.air_monthly_pd import current_month_extremes
+    result = current_month_extremes([], reference_date="2026-11-23", pml=100, pmh=150)
+    assert result["status"] == "DATA_INSUFFICIENT"
