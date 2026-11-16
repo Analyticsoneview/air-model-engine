@@ -90,6 +90,10 @@ class NSEBhavcopyTests(unittest.TestCase):
         self.assertFalse(nse_bootstrap_is_ready(incomplete))
         incomplete = dict(complete, monthly_pd_scan={"status": "DATA_INSUFFICIENT"})
         self.assertFalse(nse_bootstrap_is_ready(incomplete))
+        pending_reference = dict(complete, monthly_pd_scan={
+            "status": "WAITING_FOR_REFERENCE_SESSION",
+        })
+        self.assertTrue(nse_bootstrap_is_ready(pending_reference))
         incomplete = dict(complete, monthly_pd_scan={"status": "DATA_INSUFFICIENT"})
         self.assertFalse(nse_bootstrap_is_ready(incomplete))
         incomplete = dict(complete, symbol_coverage={
