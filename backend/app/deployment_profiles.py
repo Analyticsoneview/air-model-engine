@@ -77,6 +77,23 @@ def validate_profile(data: dict[str, Any], *, require_cloud_env: bool = False) -
     return data
 
 
+def load_runtime_profile() -> dict[str, Any]:
+    """Load the selected profile and ensure container environment matches it."""
+    profile = load_profile()
+    deployment = profile["deployment"]
+    expected = {
+        "AIR_DEPLOYMENT_MODE": deployment["provider"],
+        "AIR_TENANCY_MODE": deployment["tenancy"],
+    }
+    for key, value in expected.items():
+        configured = os.getenv(key)
+        if configured and configured != value:
+            raise DeploymentProfileError(
+                f"{key}={configured!r} conflicts with profile {profile['profile_id']!r} ({value!r})"
+            )
+    return profile
+
+
 def load_profile(profile_id: str | None = None, *, require_cloud_env: bool = False) -> dict[str, Any]:
     profile_id = profile_id or os.getenv("AIR_DEPLOYMENT_PROFILE", "onprem-single")
     if profile_id not in SUPPORTED_PROFILES:
