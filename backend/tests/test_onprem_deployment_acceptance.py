@@ -104,5 +104,31 @@ class OnPremDeploymentAcceptanceTests(unittest.TestCase):
         self.assertIn("docker stack deploy", deployer)
 
 
+    def test_nse_bootstrap_can_be_disabled_only_by_explicit_environment_override(self):
+        compose = read("compose.local.yml")
+        stack = read("docker-stack.yml")
+        self.assertIn("AIR_NSE_BOOTSTRAP_ENABLED: ${AIR_NSE_BOOTSTRAP_ENABLED:-true}", compose)
+        self.assertIn("AIR_NSE_BOOTSTRAP_ENABLED: ${AIR_NSE_BOOTSTRAP_ENABLED:-true}", stack)
+        self.assertIn("AIR_NSE_HISTORY_MONTHS: ${AIR_NSE_HISTORY_MONTHS:-12}", stack)
+
+    def test_ci_compose_smoke_checks_api_pwa_and_rabbitmq_worker_heartbeat(self):
+        smoke = read("scripts/ci/onprem-compose-runtime-smoke.sh")
+        self.assertIn("AIR_NSE_BOOTSTRAP_ENABLED=false", smoke)
+        self.assertIn("docker compose -f compose.local.yml up -d --build", smoke)
+        self.assertIn("http://127.0.0.1:8000/health", smoke)
+        self.assertIn("http://127.0.0.1:8080/health", smoke)
+        self.assertIn("workflow-runtime", smoke)
+        self.assertIn("rabbitmq_connected", smoke)
+        self.assertIn("docker compose -f compose.local.yml down --volumes", smoke)
+
+    def test_deployment_readme_matches_implemented_aws_profiles_and_deferrals(self):
+        docs = read("deploy/README.md")
+        self.assertIn("shared RDS PostgreSQL", docs)
+        self.assertIn("per-tenant S3 buckets", docs)
+        self.assertIn("RabbitMQ vhosts", docs)
+        self.assertIn("Live AWS provisioning is deferred", docs)
+        self.assertNotIn("adapters are delivered in the subsequent", docs)
+
+
 if __name__ == "__main__":
     unittest.main()
