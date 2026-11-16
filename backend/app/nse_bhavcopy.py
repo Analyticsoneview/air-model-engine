@@ -756,6 +756,9 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
             if strategy_run.get("status") == "COMPLETED":
                 state["expired_fo_cleanup"] = store.cleanup_expired_fo(today)
             else:
+                # Initial installation is not fully ready until the research
+                # replay has completed successfully; a later bootstrap retries it.
+                state["status"] = "PARTIAL"
                 state["expired_fo_cleanup"] = {
                     "status": "DEFERRED_STRATEGY_RUN_INCOMPLETE",
                     "removed_records": 0,
@@ -803,9 +806,11 @@ def nse_bootstrap_is_ready(bootstrap: dict[str, Any] | None) -> bool:
         and (indices.get(code) or {}).get("actual_count") == expected
         for code, expected in required.items()
     )
+    strategy_run = bootstrap.get("strategy_run") or {}
     return (
         months >= 12 and archive_coverage >= 100.0
         and paired_coverage >= 100.0 and universes_ready
+        and strategy_run.get("status") == "COMPLETED"
     )
 
 
