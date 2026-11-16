@@ -184,13 +184,13 @@ def upgrade() -> None:
         FROM air_tenant_members m WHERE m.customer_id=o.customer_id AND m.status='ACTIVE'
     """)
     op.execute("""
-        DO $
+        DO $air$
         BEGIN
             IF EXISTS (SELECT 1 FROM option_observations WHERE customer_id IS NULL OR tenant_id IS NULL) THEN
                 RAISE EXCEPTION 'AIR QOC observations contain account rows without a verified customer/tenant owner; reconcile broker account mappings before Gate 14 migration';
             END IF;
-        END
-        $
+        END;
+        $air$
     """)
     op.execute("ALTER TABLE option_observations ALTER COLUMN customer_id SET NOT NULL")
     op.execute("ALTER TABLE option_observations ALTER COLUMN tenant_id SET NOT NULL")
@@ -267,24 +267,24 @@ def upgrade() -> None:
     # be attributed to a verified tenant. Operators must reconcile these rows first.
     for table in _CUSTOMER_TABLES:
         op.execute(f"""
-            DO $
+            DO $air$
             BEGIN
                 IF EXISTS (SELECT 1 FROM {table} WHERE tenant_id IS NULL) THEN
                     RAISE EXCEPTION 'AIR tenant migration blocked: {table} contains rows without a verified tenant owner';
                 END IF;
-            END
-            $
+            END;
+            $air$
         """)
     for table in _WORKFLOW_TABLES:
         op.execute(f"""
-            DO $
+            DO $air$
             BEGIN
                 IF EXISTS (SELECT 1 FROM {table}
                            WHERE customer_id IS NOT NULL AND tenant_id IS NULL) THEN
                     RAISE EXCEPTION 'AIR tenant migration blocked: {table} contains customer-owned rows without a verified tenant owner';
                 END IF;
-            END
-            $
+            END;
+            $air$
         """)
 
     # Index every tenant partition key before enabling row-level security.
