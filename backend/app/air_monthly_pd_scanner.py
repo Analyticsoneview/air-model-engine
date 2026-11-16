@@ -15,7 +15,7 @@ from app.air_monthly_pd import (
     evaluate_current_month_low_acceptance, evaluate_resistance_rejection,
     evaluate_support_acceptance, monthly_levels, monthly_reference_session,
 )
-from app.nse_bhavcopy import nse_data_rows, _get_store
+from app.nse_bhavcopy import nse_data_rows_exact_symbol, _get_store
 from app.nse_index_universe import NSEIndexUniverseStore
 
 
@@ -123,7 +123,7 @@ def scan_monthly_pd_universe(as_of_date: str | None = None) -> dict[str, Any]:
     # 5,000 rows, which is ample per equity but not for the whole universe.
     for item in registry["constituents"]:
         symbol = item["symbol"]
-        by_symbol[symbol] = nse_data_rows("CM", symbol=symbol, start_date=start_month, end_date=as_of, limit=5000)
+        by_symbol[symbol] = nse_data_rows_exact_symbol("CM", symbol, start_date=start_month, end_date=as_of, limit=5000)
     expected = [d for d, status in sessions.items() if status == "TRADING_DAY" and start_month <= d <= as_of]
     stocks = []
     for item in registry["constituents"]:
@@ -132,7 +132,7 @@ def scan_monthly_pd_universe(as_of_date: str | None = None) -> dict[str, Any]:
     qualified_symbols = {x["symbol"] for x in stocks if x["qualification"] == "QUALIFIED"}
     fo_rows = []
     for symbol in sorted(qualified_symbols):
-        fo_rows.extend(nse_data_rows("FO", symbol=symbol, start_date=start_month, end_date=as_of, limit=5000))
+        fo_rows.extend(nse_data_rows_exact_symbol("FO", symbol, start_date=start_month, end_date=as_of, limit=5000))
     contracts: dict[tuple, list[dict[str, Any]]] = {}
     for row in fo_rows:
         if row["symbol"] in qualified_symbols and row.get("option_type") in {"CE", "PE"}:
