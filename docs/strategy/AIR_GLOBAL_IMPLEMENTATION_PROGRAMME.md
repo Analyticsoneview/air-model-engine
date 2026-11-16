@@ -248,3 +248,15 @@ The first implementation PR should deliver:
 - Documentation of what is not yet purchasable.
 
 It must not activate live payments or paid regulated research. Gate 17F-0 is a strategy and contract baseline; later slices implement the operational systems.
+
+
+## Execution update — 17 November 2026
+
+- Strategic baseline PR #76 has been merged to `main` (merge commit `1125e288945dafc387f7da4e27216c6f9ae4e1f5`).
+- Gate 17F-0 and the first Gate 17F-1 catalogue/entitlement contract slice are implemented on branch `gate17f/commercial-catalogue-entitlements`, pending PR validation.
+- Added a provider-neutral B2C/B2B annual catalogue. Public prices remain unpublished; no checkout or payment collection is enabled.
+- Added fail-closed entitlement resolution and a reusable FastAPI feature dependency. Legacy plan codes remain backward-compatible and are not silently mapped to paid commercial tiers.
+- Added `GET /api/v1/subscription/catalogue` and extended `GET /api/v1/subscription/me` with effective entitlements.
+- Updated the Flutter subscription screen to show the annual B2C pre-launch catalogue without purchase controls.
+- Added unit tests for annual-only terms, unpublished prices, legacy compatibility, unknown-plan denial and globally restricted capabilities.
+- This slice does not yet create the durable contract ledger, assign new commercial plan codes, implement metering or connect a payment provider. Those remain 17F-2 onward.
