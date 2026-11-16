@@ -125,7 +125,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: air-container-images-${{ github.sha }}
-          path: dist/images
+          path: dist
       - name: Upload complete AIR release artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -133,8 +133,8 @@ jobs:
           path: |
             dist/air-release-*.tar.gz
             dist/air-release-*.tar.gz.sha256
-            dist/images/air-container-images-*.tar.gz
-            dist/images/air-container-images-*.tar.gz.sha256
+            dist/air-container-images-*.tar.gz
+            dist/air-container-images-*.tar.gz.sha256
           if-no-files-found: error
           retention-days: 30
 
@@ -165,7 +165,7 @@ jobs:
             air-model-engine-pwa:local air-model-engine-pwa:lab "air-model-engine-pwa:$version" \
             postgres:16-alpine redis:7-alpine rabbitmq:4-management-alpine caddy:2-alpine \
             | gzip -1 > "dist/air-container-images-$version.tar.gz"
-          sha256sum "dist/air-container-images-$version.tar.gz" > "dist/air-container-images-$version.tar.gz.sha256"
+          (cd dist && sha256sum "air-container-images-$version.tar.gz" > "air-container-images-$version.tar.gz.sha256")
       - name: Upload verified runtime container images
         uses: actions/upload-artifact@v4
         with:
