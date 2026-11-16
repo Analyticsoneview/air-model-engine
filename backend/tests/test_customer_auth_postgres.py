@@ -465,6 +465,16 @@ def test_postgres_tenant_isolation_survives_pool_reuse_and_concurrent_requests(c
     tenant_b = customer_store.tenant_for_customer(customer_b)
     assert tenant_a and tenant_b and tenant_a != tenant_b
 
+    for customer, tenant in ((customer_a, tenant_a), (customer_b, tenant_b)):
+        with tenant_scope(tenant_id=tenant, customer_id=customer):
+            with customer_store.engine.begin() as conn:
+                conn.execute(text("""
+                    INSERT INTO air_tenant_objects
+                        (tenant_id,object_key,size_bytes,sha256,content_type,status)
+                    VALUES(:tenant,:key,1,:sha,'application/octet-stream','STORED')
+                """), {"tenant": tenant, "key": customer + "/object.bin",
+                       "sha": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881"})
+
     # A one-connection pool forces tenant A and tenant B to reuse the same
     # physical PostgreSQL connection. before_cursor_execute must reset all
     # three AIR GUCs before every statement.
@@ -506,12 +516,20 @@ def test_postgres_tenant_isolation_survives_pool_reuse_and_concurrent_requests(c
                         "SELECT DISTINCT mobile_e164 FROM air_access_requests ORDER BY mobile_e164"
                     )).scalars().all()
             assert visible == [customer]
+            with pooled_engine.connect() as conn:
+                object_keys = conn.execute(text(
+                    "SELECT object_key FROM air_tenant_objects ORDER BY object_key"
+                )).scalars().all()
+            assert object_keys == [customer + "/object.bin"]
 
         # Missing tenant context must fail closed for customer-owned rows.
         with tenant_scope():
             with pooled_engine.connect() as conn:
                 assert conn.execute(text(
                     "SELECT COUNT(*) FROM air_access_requests"
+                )).scalar_one() == 0
+                assert conn.execute(text(
+                    "SELECT COUNT(*) FROM air_tenant_objects"
                 )).scalar_one() == 0
 
         # A tenant cannot create a row for another tenant, even when it knows
@@ -524,6 +542,16 @@ def test_postgres_tenant_isolation_survives_pool_reuse_and_concurrent_requests(c
                             (request_id,mobile_e164,device_id,status)
                         VALUES ('cross-tenant-write',:customer,'cross-tenant-device','PENDING')
                     """), {"customer": customer_a})
+
+            with pytest.raises(Exception):
+                with pooled_engine.begin() as conn:
+                    conn.execute(text("""
+                        INSERT INTO air_tenant_objects
+                            (tenant_id,object_key,size_bytes,sha256,content_type,status)
+                        VALUES(:tenant,'cross-tenant/object.bin',1,
+                               '2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881',
+                               'application/octet-stream','STORED')
+                    """), {"tenant": tenant_a})
     finally:
         pooled_engine.dispose()
 
