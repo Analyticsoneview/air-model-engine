@@ -40,7 +40,7 @@ def test_runtime_alerts_cover_backlog_retry_exhaustion_dead_letter_and_worker_he
     keys = {item["key"] for item in alerts}
     assert keys == {
         "outbox-backlog", "outbox-retry-exhaustion", "dispatch-backlog",
-        "dead-letter-depth", "worker-unhealthy:worker-degraded",
+        "dead-letter-depth", "worker-unhealthy:worker-degraded",\n        "worker-unhealthy:worker-stale",
     }
 
 
