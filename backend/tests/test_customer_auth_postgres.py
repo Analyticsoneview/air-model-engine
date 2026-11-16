@@ -370,7 +370,8 @@ def test_tenant_storage_registry_enforces_membership_and_read_only_role(customer
     owner_a, owner_b, reader = "+919876543251", "+919876543252", "+919876543253"
     try:
         tenant_a = registry.create_or_update_tenant(
-            owner_customer_id=owner_a, name="AIR Storage Tenant A", status="ACTIVE",
+            owner_customer_id=owner_a, name="AIR Storage Tenant A",
+            plan_code="PAID", status="ACTIVE",
         )
         tenant_b = registry.create_or_update_tenant(
             owner_customer_id=owner_b, name="AIR Storage Tenant B", status="ACTIVE",
