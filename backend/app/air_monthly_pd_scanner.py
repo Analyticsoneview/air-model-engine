@@ -11,7 +11,7 @@ from statistics import mean
 from typing import Any
 
 from app.air_monthly_pd import (
-    classify_price_structure, classify_premium_discount, current_month_extremes,
+    classify_price_structure, evaluate_pattern_lifecycle, classify_premium_discount, current_month_extremes,
     evaluate_current_month_low_acceptance, evaluate_resistance_rejection,
     evaluate_support_acceptance, monthly_levels, monthly_reference_session,
 )
@@ -88,7 +88,7 @@ def _stock_record(symbol: str, memberships: list[str], raw_rows: list[dict[str, 
         mh = (evaluate_resistance_rejection(after, extremes["cmh"], 2, reference.isoformat())
               if extremes.get("mh_candidate") else {"status": "NOT_APPLICABLE"})
         last = bars[-1]
-        pattern = classify_price_structure(bars[-90:])
+        pattern = evaluate_pattern_lifecycle(classify_price_structure(bars[-90:]), bars[-90:])
         zone = classify_premium_discount(float(last["close"]), levels["pml"], levels["pmh"])
         qualified = support["status"] == "OPEN_FOR_BUY" or ml.get("status") == "ML_CONFIRMED"
         return {**base, "cycle_month": cycle_month, "reference_date": reference.isoformat(),
