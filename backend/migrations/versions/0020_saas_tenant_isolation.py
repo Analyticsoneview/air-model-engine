@@ -492,11 +492,13 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute("DROP POLICY IF EXISTS air_workflow_heartbeat_admin_only ON air_workflow_worker_heartbeats")
+    op.execute("ALTER TABLE air_workflow_worker_heartbeats NO FORCE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE air_workflow_worker_heartbeats DISABLE ROW LEVEL SECURITY")
     op.drop_index("uq_qoc_option_observation_tenant", table_name="option_observations")
     for table in _WORKFLOW_TABLES:
         op.execute(f"DROP TRIGGER IF EXISTS trg_{table}_assign_tenant ON {table}")
         op.execute(f"DROP POLICY IF EXISTS air_tenant_scope ON {table}")
+        op.execute(f"ALTER TABLE {table} NO FORCE ROW LEVEL SECURITY")
         op.execute(f"ALTER TABLE {table} DISABLE ROW LEVEL SECURITY")
         op.drop_index(f"ix_{table}_tenant_id", table_name=table)
         op.drop_column(table, "tenant_id")
@@ -524,6 +526,7 @@ def downgrade() -> None:
     op.execute("DROP POLICY IF EXISTS air_tenants_insert ON air_tenants")
     op.execute("DROP POLICY IF EXISTS air_tenants_admin_update ON air_tenants")
     op.execute("DROP POLICY IF EXISTS air_tenants_admin_delete ON air_tenants")
+    op.execute("ALTER TABLE air_tenants NO FORCE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE air_tenants DISABLE ROW LEVEL SECURITY")
     op.drop_index("ix_air_tenants_status_created", table_name="air_tenants")
     op.drop_table("air_tenants")
