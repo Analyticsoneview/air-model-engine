@@ -55,6 +55,15 @@ python scripts/release/build_release.py --version 1.0.0
 
 The release bundle includes the FastAPI backend and migrations, Flutter PWA source/build definition, PostgreSQL/Redis/RabbitMQ configuration, workflow worker and scheduler components, Compose/Swarm deployment files, profiles, installers and operations documentation. It includes a `RELEASE-MANIFEST.json`, `SHA256SUMS` and an archive `.sha256` sidecar. Runtime data, local environment files, secret files, database files and signing keys are excluded.
 
+The GitHub Actions release artifact also contains a separately checksummed `air-container-images-*.tar.gz` built from the successful ephemeral Compose runtime test. It includes the exact API/worker and PWA images plus PostgreSQL 16, Redis 7, RabbitMQ 4 and Caddy 2 images. Load those images on an offline/air-gapped host after verifying the sidecar:
+
+```bash
+sha256sum -c air-container-images-ci-VERSION.tar.gz.sha256
+gzip -dc air-container-images-ci-VERSION.tar.gz | docker load
+```
+
+The image archive carries `local`, `lab` and versioned tags for the AIR API/PWA images. Compose uses the `local` tags; the single-node Swarm stack defaults to `lab` unless immutable image references are configured.
+
 Verify a downloaded release before extraction:
 
 ```bash
