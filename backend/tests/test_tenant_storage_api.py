@@ -89,6 +89,7 @@ class FakeProvisioner:
 
 
 def _client(monkeypatch, *, limit=10):
+    monkeypatch.setenv("AIR_DEPLOYMENT_PROFILE", "aws-saas-multi")
     registry, provisioner = FakeRegistry(limit), FakeProvisioner()
     app = FastAPI()
     app.include_router(storage_api.router)
