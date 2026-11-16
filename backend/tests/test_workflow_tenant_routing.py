@@ -75,6 +75,37 @@ class WorkflowTenantRoutingTests(unittest.TestCase):
         registry.close.assert_called_once()
         boto_client.assert_called_once_with("secretsmanager", region_name="ap-south-1")
 
+    def test_cached_vhost_url_is_not_reused_after_tenant_suspension(self):
+        tenant_id = "11111111-2222-4333-8444-555555555555"
+        active = {
+            "tenant_id": tenant_id,
+            "status": "ACTIVE",
+            "rabbitmq_vhost": "air-tenant-a",
+            "metadata_json": {"aws_provisioning": {
+                "status": "PROVISIONED",
+                "credentials_secret_arn": "arn:aws:secretsmanager:ap-south-1:123456789012:secret:air/tenants/a",
+            }},
+        }
+        suspended = dict(active, status="SUSPENDED")
+        with patch.dict(os.environ, {
+            "AIR_RABBITMQ_URL": "amqps://air:admin-password@mq.example.test:5671/",
+            "AWS_REGION": "ap-south-1",
+        }, clear=False):
+            with patch("app.tenant_provisioning.TenantRegistry") as registry_class:
+                registry = registry_class.return_value
+                registry.get_tenant.side_effect = [active, suspended]
+                with patch("boto3.client") as boto_client:
+                    boto_client.return_value.get_secret_value.return_value = {
+                        "SecretString": json.dumps({
+                            "rabbitmq_username": "tenant-a",
+                            "rabbitmq_password": "tenant-password",
+                        })
+                    }
+                    self.assertIn("air-tenant-a", _tenant_rabbit_url(tenant_id))
+                    with self.assertRaisesRegex(RuntimeError, "not ACTIVE"):
+                        _tenant_rabbit_url(tenant_id)
+        self.assertEqual(registry.get_tenant.call_count, 2)
+
     def test_suspended_or_unprovisioned_tenants_cannot_open_vhost_connections(self):
         tenant_id = "11111111-2222-4333-8444-555555555555"
         tenant = {"tenant_id": tenant_id, "status": "SUSPENDED", "metadata_json": {}}
