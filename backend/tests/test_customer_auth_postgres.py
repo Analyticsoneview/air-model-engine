@@ -285,6 +285,12 @@ def test_tenant_object_storage_reservation_quota_and_retry(customer_store):
             content_type="text/csv",
         )
         assert duplicate["already_stored"]
+        with pytest.raises(FileExistsError):
+            registry.reserve_object_upload(
+                tenant_id, owner, "reports/daily.csv", size_bytes=5,
+                sha256="2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+                content_type="application/json",
+            )
         assert registry.list_tenant_objects(tenant_id, owner)[0]["object_key"] == "reports/daily.csv"
         assert registry.get_tenant_object(tenant_id, owner, "reports/daily.csv")["etag"] == "etag-1"
 
@@ -551,6 +557,20 @@ def test_postgres_tenant_isolation_survives_pool_reuse_and_concurrent_requests(c
                                '2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881',
                                'application/octet-stream','STORED')
                     """), {"tenant": tenant_a})
+
+        with tenant_scope(tenant_id=tenant_a, customer_id=customer_a):
+            with pooled_engine.begin() as conn:
+                conn.execute(text("""
+                    UPDATE air_tenants SET storage_used_bytes=storage_used_bytes+1
+                    WHERE tenant_id=:tenant
+                """), {"tenant": tenant_a})
+        with tenant_scope(tenant_id=tenant_b, customer_id=customer_b):
+            with pooled_engine.begin() as conn:
+                result = conn.execute(text("""
+                    UPDATE air_tenants SET storage_used_bytes=999
+                    WHERE tenant_id=:tenant
+                """), {"tenant": tenant_a})
+                assert result.rowcount == 0
     finally:
         pooled_engine.dispose()
 
