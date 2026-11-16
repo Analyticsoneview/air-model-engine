@@ -49,6 +49,8 @@ from app.market_intelligence import build_market_intelligence_pulse
 from app.security import create_access_token, create_admin_access_token, hash_password, require_customer, require_admin, verify_password
 from app.persistence import get_persistence_runtime
 from app.workflow_events import build_idempotency_key, emit_workflow_event
+from app.workflow_engine import WorkflowStore
+from app.installation_readiness import evaluate_workflow_runtime
 
 app = FastAPI(title="AIR Model Engine API", version="0.3.0",
               description="Self-hosted AIR authentication, broker account and market-data gateway.")
@@ -762,17 +764,32 @@ async def application_readiness() -> dict:
     }
     if symbol_coverage_summary:
         bootstrap_summary["symbol_coverage"] = symbol_coverage_summary
-    if dependency_failures or not nse_bootstrap_is_ready(bootstrap):
+    workflow_store = None
+    try:
+        workflow_store = WorkflowStore()
+        workflow_runtime = evaluate_workflow_runtime(workflow_store.list_worker_heartbeats(100))
+    except Exception as exc:
+        workflow_runtime = {
+            "status": "UNAVAILABLE", "healthy": False,
+            "error": type(exc).__name__,
+        }
+    finally:
+        if workflow_store is not None:
+            workflow_store.close()
+    if (dependency_failures or not nse_bootstrap_is_ready(bootstrap)
+            or not workflow_runtime.get("healthy")):
         raise HTTPException(status_code=503, detail={
             "status": "NOT_READY",
             "dependency_failures": dependency_failures,
             "dependencies": dependencies,
+            "workflow_runtime": workflow_runtime,
             "market_data": bootstrap_summary,
         })
     return {
         "status": "READY",
         "service": "air-model-engine-api",
         "dependencies": dependencies,
+        "workflow_runtime": workflow_runtime,
         "market_data": bootstrap_summary,
     }
 
