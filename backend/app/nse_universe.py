@@ -191,6 +191,68 @@ class NSEUniverseStore:
             """).fetchall()
         return [str(row["symbol"]) for row in rows]
 
+    def latest_universe(self) -> dict[str, Any]:
+        """Return the latest validated constituent union in the MPDSM scanner contract."""
+        status = self.status()
+        if status["status"] != "READY":
+            return {
+                "status": "DATA_INSUFFICIENT",
+                "reason": "One or more official NSE index snapshots are incomplete",
+                "index_counts": {}, "unique_symbol_count": 0, "constituents": [],
+            }
+        code_map = {
+            "NIFTY100": "NIFTY100",
+            "NIFTYMIDCAP150": "NIFTY_MIDCAP150",
+            "NIFTYSMALLCAP250": "NIFTY_SMALLCAP250",
+        }
+        members: dict[str, dict[str, Any]] = {}
+        index_counts: dict[str, int] = {}
+        with self._db() as db:
+            status_rows = db.execute(
+                "SELECT index_code, snapshot_date, actual_count FROM nse_index_universe_status WHERE status='READY'"
+            ).fetchall()
+            for item in status_rows:
+                internal_code = str(item["index_code"])
+                output_code = code_map.get(internal_code)
+                if not output_code:
+                    continue
+                rows = db.execute("""
+                    SELECT symbol, company_name, isin, industry, series, source_url
+                    FROM nse_index_constituent_snapshots
+                    WHERE index_code=? AND snapshot_date=? ORDER BY symbol
+                """, (internal_code, item["snapshot_date"])).fetchall()
+                if len(rows) != int(item["actual_count"]):
+                    return {
+                        "status": "DATA_INSUFFICIENT",
+                        "reason": f"{internal_code} latest snapshot count mismatch",
+                        "index_counts": index_counts, "unique_symbol_count": 0,
+                        "constituents": [],
+                    }
+                index_counts[output_code] = len(rows)
+                for row in rows:
+                    symbol = str(row["symbol"])
+                    member = members.setdefault(symbol, {
+                        "symbol": symbol, "company_name": row["company_name"],
+                        "isin": row["isin"], "index_memberships": [],
+                        "retrieved_at": {},
+                    })
+                    member["index_memberships"].append(output_code)
+                    member["retrieved_at"][output_code] = item["snapshot_date"]
+        if len(members) != 500:
+            return {
+                "status": "DATA_INSUFFICIENT",
+                "reason": f"Expected 500 unique symbols across the three indices; received {len(members)}",
+                "index_counts": index_counts, "unique_symbol_count": len(members),
+                "constituents": [],
+            }
+        return {
+            "status": "READY",
+            "source": "NSE Indices official constituent CSV",
+            "index_counts": index_counts,
+            "unique_symbol_count": len(members),
+            "constituents": [members[key] for key in sorted(members)],
+        }
+
     def status(self) -> dict[str, Any]:
         with self._db() as db:
             rows = db.execute(
