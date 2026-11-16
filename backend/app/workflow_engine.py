@@ -345,7 +345,7 @@ class WorkflowStore:
                 VALUES(?,?,?,?,?,?,?,?,?,?,?)""", (
                 workflow_id, 1, name, str(description)[:4000], trigger_type,
                 json.dumps(trigger_config, allow_nan=False), json.dumps(workflow_spec, allow_nan=False),
-                execution_mode, created_by, now,
+                execution_mode, created_by, now, customer_id,
             ))
             self._append_audit(workflow_id, 1, created_by, "CREATED",
                                {"name": name, "trigger_type": trigger_type, "execution_mode": execution_mode})
@@ -547,12 +547,18 @@ class WorkflowStore:
 
     def _append_audit(self, workflow_id: str, version: int, actor_id: str,
                       action: str, payload: dict | None = None) -> None:
+        owner = self.db.execute(
+            "SELECT customer_id FROM air_workflow_definitions WHERE workflow_id=?",
+            (str(workflow_id),),
+        ).fetchone()
+        customer_id = owner["customer_id"] if owner else current_customer_id()
         self.db.execute(
             """INSERT INTO air_workflow_audit
-               (audit_id,workflow_id,workflow_version,actor_id,action,payload_json,created_at)
-               VALUES(?,?,?,?,?,?,?)""",
+               (audit_id,workflow_id,workflow_version,actor_id,action,payload_json,created_at,customer_id)
+               VALUES(?,?,?,?,?,?,?,?)""",
             (str(uuid4()), str(workflow_id), int(version), str(actor_id)[:128],
-             str(action)[:48], json.dumps(_json_object(payload, "audit payload"), allow_nan=False), _now()),
+             str(action)[:48], json.dumps(_json_object(payload, "audit payload"), allow_nan=False),
+             _now(), customer_id),
         )
 
     def list_workflow_audit(self, workflow_id: str | None = None, limit: int = 100) -> list[dict]:
@@ -719,8 +725,12 @@ class WorkflowStore:
             workflow_chain = payload.get("workflow_chain")
             if isinstance(workflow_chain, list) and definition["workflow_id"] in workflow_chain:
                 continue
-            scoped_customer = config.get("customer_id")
-            if scoped_customer and str(payload.get("customer_id") or "") != str(scoped_customer):
+            definition_customer = definition["customer_id"] or config.get("customer_id")
+            definition_tenant = definition["tenant_id"]
+            event_tenant = event["tenant_id"]
+            if definition_tenant and event_tenant != definition_tenant:
+                continue
+            if definition_customer and payload.get("customer_id") and str(payload["customer_id"]) != str(definition_customer):
                 continue
             if trigger_type == "TIME":
                 matched = payload.get("workflow_id") == definition["workflow_id"]
@@ -756,7 +766,8 @@ class WorkflowStore:
                 created.append({
                     "run_id": row["run_id"], "workflow_id": row["workflow_id"],
                     "workflow_version": row["workflow_version"], "event_id": row["event_id"],
-                    "status": row["status"], "duplicate": row["run_id"] != run_id,
+                    "status": row["status"], "customer_id": row["customer_id"],
+                    "tenant_id": row["tenant_id"], "duplicate": row["run_id"] != run_id,
                 })
         return created
 
@@ -801,7 +812,8 @@ class WorkflowStore:
                     # SPECIAL_SESSION remains bounded by its explicit session hours.
                 due.append({
                     "workflow_id": row["workflow_id"], "name": row["name"],
-                    "customer_id": config.get("customer_id"),
+                    "customer_id": row["customer_id"] or config.get("customer_id"),
+                    "tenant_id": row["tenant_id"],
                     "local_time": scheduled.isoformat(), "scheduled_key": scheduled.strftime("%Y%m%d%H%M"),
                 })
         return due
@@ -814,6 +826,7 @@ class WorkflowStore:
         return [{
             "run_id": row["run_id"], "workflow_id": row["workflow_id"],
             "workflow_version": row["workflow_version"], "event_id": row["event_id"],
+            "customer_id": row["customer_id"], "tenant_id": row["tenant_id"],
             "status": row["status"], "execution_mode": row["execution_mode"],
             "started_at": row["started_at"], "completed_at": row["completed_at"], "error": row["error"],
         } for row in rows]
@@ -843,7 +856,7 @@ class WorkflowStore:
         if self.is_postgres:
             with self.db:
                 rows = self.db.execute(
-                    """SELECT run_id FROM air_workflow_runs
+                    """SELECT run_id,customer_id,tenant_id FROM air_workflow_runs
                        WHERE status IN ('QUEUED','RUNNING')
                          AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
                        ORDER BY started_at LIMIT ? FOR UPDATE SKIP LOCKED""", (now, limit),
@@ -858,7 +871,8 @@ class WorkflowStore:
                         (worker_id, now, lease_until, now, row["run_id"]),
                     ).fetchone()
                     claimed.append({"run_id": row["run_id"], "worker_id": worker_id,
-                                    "claim_version": version["claim_version"]})
+                                    "claim_version": version["claim_version"],
+                                    "customer_id": row["customer_id"], "tenant_id": row["tenant_id"]})
         else:
             # BEGIN IMMEDIATE serializes claimers before selecting candidates.
             self.db.execute("BEGIN IMMEDIATE")
