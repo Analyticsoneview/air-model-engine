@@ -44,7 +44,10 @@ def _calendar_sessions_for_range(store, start_date: date, end_date: date) -> dic
 
 
 def _coverage(symbol: str, bars: list[dict[str, Any]], expected_dates: list[str]) -> dict[str, Any]:
-    actual = {str(row["trade_date"]) for row in bars}
+    actual = {
+        str(row.get("trade_date") or row.get("date"))
+        for row in bars if row.get("trade_date") or row.get("date")
+    }
     missing = [day for day in expected_dates if day not in actual]
     ratio = len(actual.intersection(expected_dates)) / max(1, len(expected_dates))
     return {"status": "READY" if ratio >= 0.90 and len(bars) >= 12 else "DATA_INSUFFICIENT",
