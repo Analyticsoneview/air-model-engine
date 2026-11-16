@@ -37,6 +37,18 @@ def test_invoice_idempotency_and_tenant_isolation(tmp_path):
         create(billing,key="invoice-1",number="DIFFERENT")
 
 
+def test_invoice_idempotency_is_stable_when_database_returns_lines_in_different_order(tmp_path):
+    billing=store(tmp_path)
+    lines=[
+        {"description":"Zulu service","quantity":1,"unit_amount_minor":200,"tax_breakdown":[]},
+        {"description":"Alpha service","quantity":2,"unit_amount_minor":100,"tax_breakdown":[]},
+    ]
+    first=billing.create_invoice("tenant-a","customer-a","ORDER-1","INR",lines,"order-key","customer-a")
+    replay=billing.create_invoice("tenant-a","customer-a","ORDER-1","INR",list(reversed(lines)),"order-key","customer-a")
+    assert first["invoice_id"]==replay["invoice_id"]
+    assert replay["idempotent_replay"]
+
+
 def test_invoice_requires_explicit_valid_tax_breakdown(tmp_path):
     billing=store(tmp_path)
     with pytest.raises(ValueError):
