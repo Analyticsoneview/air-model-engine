@@ -81,7 +81,7 @@ app.add_middleware(
     allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "X-AIR-ADMIN-KEY"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-AIR-ADMIN-KEY", "Idempotency-Key"],
 )
 _market_health_task: asyncio.Task | None = None
 _master_refresh_task: asyncio.Task | None = None
