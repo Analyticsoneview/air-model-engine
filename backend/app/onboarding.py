@@ -126,11 +126,17 @@ class OnboardingStore:
             return dict(row) if row else None
 
     def _event(self, conn, tenant, onboarding_id, actor, kind, old, new, key, details):
-        conn.execute(text("""INSERT INTO air_customer_onboarding_events
-            (event_id,tenant_id,onboarding_id,actor_id,event_type,from_status,to_status,idempotency_key,details,occurred_at)
-            VALUES(:id,:t,:o,:actor,:kind,:old,:new,:key,:details,:now)"""),
-            {"id": str(uuid4()), "t": tenant, "o": onboarding_id, "actor": actor, "kind": kind,
-             "old": old, "new": new, "key": key, "details": json.dumps(details, sort_keys=True), "now": _now()})
+        values = {"id": str(uuid4()), "t": tenant, "o": onboarding_id, "actor": actor, "kind": kind,
+                  "old": old, "new": new, "key": key, "details": json.dumps(details, sort_keys=True), "now": _now()}
+        if self.engine.dialect.name == "postgresql":
+            statement = """INSERT INTO air_customer_onboarding_events
+                (event_id,tenant_id,onboarding_id,actor_id,event_type,from_status,to_status,idempotency_key,details,occurred_at)
+                VALUES(:id,:t,:o,:actor,:kind,:old,:new,:key,CAST(:details AS json),:now)"""
+        else:
+            statement = """INSERT INTO air_customer_onboarding_events
+                (event_id,tenant_id,onboarding_id,actor_id,event_type,from_status,to_status,idempotency_key,details,occurred_at)
+                VALUES(:id,:t,:o,:actor,:kind,:old,:new,:key,:details,:now)"""
+        conn.execute(text(statement), values)
 
     def create(self, tenant_id, customer_id, product_code, plan_code, idempotency_key, actor_id):
         if not all(str(x or "").strip() for x in (tenant_id, customer_id, product_code, plan_code, idempotency_key)):
