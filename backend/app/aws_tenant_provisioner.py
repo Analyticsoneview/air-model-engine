@@ -265,7 +265,7 @@ class AwsTenantProvisioner:
     def _validate_object_key(key: str) -> str:
         value = str(key or "")
         if (
-            not value or len(value) > 512 or value.startswith("/")
+            not value or len(value) > 512 or len(value.encode("utf-8")) > 1024 or value.startswith("/")
             or "\\" in value or "\x00" in value
             or any(ord(char) < 32 or ord(char) == 127 for char in value)
             or any(not part or part in {".", ".."} for part in value.split("/"))
