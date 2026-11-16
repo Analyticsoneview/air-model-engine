@@ -328,7 +328,11 @@ def upgrade() -> None:
     """)
     op.execute("""
         CREATE OR REPLACE FUNCTION air_assign_tenant_id()
-        RETURNS trigger LANGUAGE plpgsql AS $$
+        RETURNS trigger
+        LANGUAGE plpgsql
+        SECURITY DEFINER
+        SET search_path = pg_catalog, public
+        AS $
         DECLARE
             active_tenant text;
             row_customer text;
