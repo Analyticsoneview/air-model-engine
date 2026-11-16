@@ -1060,12 +1060,13 @@ class WorkflowStore:
                 self.db.execute(
                     """INSERT INTO air_workflow_run_steps
                        (step_record_id,run_id,step_key,step_index,action,status,input_json,
-                        output_json,error,attempts,started_at,completed_at)
-                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        output_json,error,attempts,started_at,completed_at,customer_id,tenant_id)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (str(uuid4()), run_id, step_key, step_index, action, status, input_json,
                      output_json, str(error)[:1000] if error else None, attempts,
                      now if status == "RUNNING" else None,
-                     now if status in {"SUCCEEDED", "FAILED", "SKIPPED"} else None),
+                     now if status in {"SUCCEEDED", "FAILED", "SKIPPED"} else None,
+                     current_customer_id(), current_tenant_id()),
                 )
         return self.get_run_step(run_id, step_key)
 
@@ -1079,6 +1080,7 @@ class WorkflowStore:
             "output": json.loads(row["output_json"]) if row["output_json"] else None,
             "error": row["error"], "attempts": row["attempts"],
             "started_at": row["started_at"], "completed_at": row["completed_at"],
+            "customer_id": row["customer_id"], "tenant_id": row["tenant_id"],
         }
 
     def list_run_steps(self, run_id: str) -> list[dict]:
