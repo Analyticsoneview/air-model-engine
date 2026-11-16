@@ -234,7 +234,7 @@ def main() -> None:
                  "--dbname", _pg_cli_url(source_url), "--file", "-", stdout=dump_file)
         with open(dump_path, "rb") as dump_file:
             _run("pg_restore", "--clean", "--if-exists", "--no-owner", "--no-acl",
-                 "--dbname", _pg_cli_url(restore_url), "-", stdin=dump_file)
+                 "--dbname", _pg_cli_url(restore_url), stdin=dump_file)
 
     _verify_records(restore_url, ids)
     print("PASS: PostgreSQL workflow backup/restore preserved definitions, versions, events, outbox, runs, steps, leases, audit, calendar, heartbeats and indexes.")
