@@ -39,7 +39,7 @@ class OnPremDeploymentAcceptanceTests(unittest.TestCase):
         ):
             self.assertIn(f"{key}: {value}", compose)
         worker = service_block(compose, "air-workflow-worker")
-        self.assertIn("python -m app.workflow_worker", worker)
+        self.assertIn('command: ["python", "-m", "app.workflow_worker"]', worker)
         self.assertIn("rabbitmq:", worker)
 
     def test_compose_persists_customer_data_and_uses_file_backed_secrets(self):
