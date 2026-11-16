@@ -18,6 +18,14 @@ class DeploymentProfileTests(unittest.TestCase):
             self.assertTrue(profile["services"]["fastapi"])
             self.assertTrue(profile["services"]["workflow_engine"])
 
+    def test_invalid_profile_shape_and_schema_version_fail_closed(self):
+        with self.assertRaisesRegex(DeploymentProfileError, "schema_version"):
+            validate_profile({"profile_id": "onprem-single", "schema_version": 2})
+        profile = load_profile("onprem-single")
+        profile["services"] = []
+        with self.assertRaisesRegex(DeploymentProfileError, "services must be an object"):
+            validate_profile(profile)
+
     def test_rabbitmq_cannot_be_disabled(self):
         profile = load_profile("onprem-single")
         profile["services"]["rabbitmq"] = False
