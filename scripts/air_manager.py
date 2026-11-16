@@ -168,6 +168,10 @@ def main() -> int:
         sub.add_parser(action)
     args = parser.parse_args()
 
+    if sys.version_info < (3, 12):
+        emit({"status": "ERROR", "message": "AIR Deployment Manager requires Python 3.12 or newer."})
+        return 2
+
     try:
         profile = validate(args.profile)
         provider = profile["provider"]
