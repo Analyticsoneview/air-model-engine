@@ -55,7 +55,7 @@ Last reviewed: 2026-11-17
 | PROD-02 | Deployment Manager installation/readiness consistency across Windows/Linux | COMPLETE — GATE 16 / PR #69 | Shared CLI actions, Windows/Linux wrappers, upgrade flow, status and diagnostic reporting; CI release artifacts verified |
 | PROD-03 | Multi-exchange historical market-data bootstrap and recovery | IN PROGRESS — GATE 17B | Download all available instruments/contracts from each enabled exchange/segment and licensed global-market provider; cover NSE/BSE/MCX/NCDEX plus US venues and NSE IX receipts; separate canonical ingestion catalogues from Nifty 500 and broker-specific research/access universes; validate source-specific archive integrity, session coverage, complete masters, corporate actions, FX provenance, licensing/entitlements, atomic recovery and per-market readiness |
 | PROD-04 | Deployment readiness report in the application/installer | OPEN — CODE WORK | Clear distinction between infrastructure, service health, data readiness and user onboarding |
-| PROD-05 | On-prem Grafana/Prometheus runtime integration | OPEN — CODE WORK | The profile declares `grafana_prometheus`, but Compose/Swarm do not yet ship a complete metrics/Grafana service set; do not claim monitoring is production-ready until implemented and tested |\n| PROD-06 | SEBI compliance controls and investor protection | IN PROGRESS — GATE 17E | Framework documented in `compliance/SEBI_COMPLIANCE_CONTROL_FRAMEWORK.md`; legal classification, registrations/applicability, broker API approvals, research disclosures, AI governance, investor charter/grievances and signed release authorization remain outstanding |
+| PROD-05 | On-prem Grafana/Prometheus runtime integration | OPEN — CODE WORK | The profile declares `grafana_prometheus`, but Compose/Swarm do not yet ship a complete metrics/Grafana service set; do not claim monitoring is production-ready until implemented and tested |\n| PROD-06 | SEBI compliance controls and investor protection | IN PROGRESS — GATE 17E | Framework documented in `compliance/SEBI_COMPLIANCE_CONTROL_FRAMEWORK.md`; includes owner-only internal personal technical-analysis mode. Legal classification, registrations/applicability, broker API approvals, research disclosures, AI governance, investor charter/grievances and signed release authorization remain outstanding |
 
 ## Programme rules
 
@@ -119,3 +119,15 @@ Last reviewed: 2026-11-17
 ### Gate sequencing and release policy
 
 Gate 17E may be developed in parallel with Gates 17B–17D, but its release exit occurs **after Gate 17D and before Gate 18**. Gate 18 cannot certify or release regulated functionality without SEBI-13. The compliance framework is an engineering baseline, not a legal opinion or SEBI certification. Revalidate applicable regulations and circulars at every release, including the Research Analysts amendment listed by SEBI on 10 October 2026.
+
+### Internal personal-use technical-analysis mode
+
+| Control ID | Requirement | Status | Evidence |
+|---|---|---|---|
+| INT-TA-01 | Owner-only private technical-analysis workspace (charts, indicators, screeners, SMC/ORB/Fibonacci/QOC, backtests, paper trading) | SPECIFIED — IMPLEMENTATION REQUIRED | Role/tenant isolation tests and owner-only access |
+| INT-TA-02 | Internal labels and block external distribution of security-specific recommendations by default | SPECIFIED — IMPLEMENTATION REQUIRED | INTERNAL / NOT FOR DISTRIBUTION label; export/share controls |
+| INT-TA-03 | Keep personal use separate from any future registered research entity activity | SPECIFIED — IMPLEMENTATION REQUIRED | Separate roles, data boundaries, personal-trading/conflict controls if applicable |
+| INT-TA-04 | Manual broker order approval only; no unattended order placement | SPECIFIED — IMPLEMENTATION REQUIRED | Exact-order confirmation audit and broker/legal permission evidence |
+| INT-TA-05 | Confirm internal-use, personal trading, data licence and broker API treatment | OPEN — COUNSEL / PROVIDER REVIEW | Written applicability opinion and provider/broker terms |
+
+SEBI's February 2026 Research Analyst FAQ clarifies that security-specific research services/recommendations are not exempt merely because the methodology is technical analysis. Therefore, internal personal analysis is separated from any external sharing or research service; security-specific outputs must not be distributed to customers or public channels until the applicable legal review and controls are complete. Official FAQ: https://www.sebi.gov.in/sebi_data/attachdocs/feb-2026/1770375507051.pdf
