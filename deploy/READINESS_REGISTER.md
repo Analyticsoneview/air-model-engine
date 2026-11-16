@@ -50,6 +50,7 @@ Last reviewed: 2026-11-16
 | PROD-02 | Deployment Manager installation/readiness consistency across Windows/Linux | IN PROGRESS — GATE 16 | Shared CLI actions, Windows/Linux wrappers, upgrade flow, status and diagnostic reporting |
 | PROD-03 | Initial NSE/CM/FO data bootstrap idempotency and resume behavior | OPEN — CODE WORK | Automated tests for partial download, retry, integrity and restart |
 | PROD-04 | Deployment readiness report in the application/installer | OPEN — CODE WORK | Clear distinction between infrastructure, service health, data readiness and user onboarding |
+| PROD-05 | On-prem Grafana/Prometheus runtime integration | OPEN — CODE WORK | The profile declares `grafana_prometheus`, but Compose/Swarm do not yet ship a complete metrics/Grafana service set; do not claim monitoring is production-ready until implemented and tested |
 
 ## Programme rules
 
