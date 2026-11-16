@@ -85,7 +85,11 @@ def onboarding_me(customer_id: str = Depends(require_customer)):
                 _store().transition(tenant, customer_id, item["onboarding_id"], "EXPIRED",
                                     customer_id, "trial-expire:" + item["onboarding_id"],
                                     {"reason": "trial_period_elapsed"})
-            except OnboardingConflict:
+                if item.get("contract_id"):
+                    with _contract_scope(tenant, customer_id):
+                        _contracts().transition(tenant, item["contract_id"], "EXPIRED",
+                            actor_id=customer_id, idempotency_key="trial-expire-contract:" + item["onboarding_id"])
+            except (OnboardingConflict, ContractConflict):
                 pass
             item = _store().get(tenant, customer_id)
     return {"onboarding": item, "consents": _store().consents(tenant, customer_id)}
