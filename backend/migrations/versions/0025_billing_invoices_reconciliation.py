@@ -1,12 +1,12 @@
 """Invoices, tax breakdowns, credit notes, settlements and reconciliation.
 
-Revision ID: 0025_billing_invoices_reconciliation
+Revision ID: 0025_billing_recon
 Revises: 0024_payment_webhook_sandbox
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0025_billing_invoices_reconciliation"
+revision = "0025_billing_recon"
 down_revision = "0024_payment_webhook_sandbox"
 branch_labels = None
 depends_on = None
