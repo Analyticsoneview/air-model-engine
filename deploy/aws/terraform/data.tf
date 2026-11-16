@@ -211,6 +211,14 @@ resource "aws_secretsmanager_secret_version" "rabbitmq" {
   secret_id     = aws_secretsmanager_secret.rabbitmq.id
   secret_string = "amqps://air:${random_password.rabbitmq.result}@${trimprefix(aws_mq_broker.air.instances[0].endpoints[0], "amqps://")}/"
 }
+resource "aws_secretsmanager_secret" "rabbitmq_admin_password" {
+  name = "${var.environment_name}/rabbitmq-admin-password"
+  tags = local.tags
+}
+resource "aws_secretsmanager_secret_version" "rabbitmq_admin_password" {
+  secret_id     = aws_secretsmanager_secret.rabbitmq_admin_password.id
+  secret_string = random_password.rabbitmq.result
+}
 resource "aws_secretsmanager_secret" "jwt" {
   name = "${var.environment_name}/jwt-secret"
   tags = local.tags

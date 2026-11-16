@@ -2699,3 +2699,176 @@ async def market_data_stream(websocket: WebSocket) -> None:
             await websocket.receive_text()
     except WebSocketDisconnect:
         await market_data_hub.disconnect(websocket)
+
+
+# Shared-schema SaaS tenant administration and customer context.
+_tenant_registry = None
+
+
+def _tenant_management_admin(admin: dict) -> dict:
+    if admin.get("role") not in {"SUPER_ADMIN", "ADMIN"}:
+        raise HTTPException(status_code=403, detail="Tenant administration permission is required")
+    return admin
+
+
+def _get_tenant_registry():
+    global _tenant_registry
+    if _tenant_registry is None:
+        from app.tenant_provisioning import TenantRegistry
+        try:
+            _tenant_registry = TenantRegistry()
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="SaaS tenant registry requires the PostgreSQL tenant migration") from exc
+    return _tenant_registry
+
+
+_aws_tenant_provisioner = None
+
+
+def _get_aws_tenant_provisioner():
+    global _aws_tenant_provisioner
+    if os.getenv("AIR_DEPLOYMENT_PROFILE", "onprem-single") != "aws-saas-multi":
+        raise HTTPException(status_code=409, detail="AWS tenant provisioning requires the aws-saas-multi deployment profile")
+    if _aws_tenant_provisioner is None:
+        from app.aws_tenant_provisioner import AwsTenantProvisioner
+        try:
+            _aws_tenant_provisioner = AwsTenantProvisioner.from_environment()
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="AWS tenant provisioning adapter is not configured") from exc
+    return _aws_tenant_provisioner
+
+
+class TenantProvisionRequest(BaseModel):
+    owner_customer_id: str = Field(min_length=9, max_length=128)
+    name: str = Field(min_length=1, max_length=160)
+    plan_code: str = Field(default="STANDARD", min_length=1, max_length=24)
+
+
+class TenantMemberRequest(BaseModel):
+    customer_id: str = Field(min_length=3, max_length=128)
+    role: str = Field(default="MEMBER", min_length=1, max_length=16)
+
+
+class TenantStatusRequest(BaseModel):
+    status: str = Field(min_length=1, max_length=16)
+
+
+@app.get("/api/v1/admin/tenants")
+async def admin_list_tenants(
+    status: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    admin: dict = Depends(require_admin),
+) -> dict:
+    _tenant_management_admin(admin)
+    try:
+        rows = _get_tenant_registry().list_tenants(status=status, limit=limit)
+        return {"tenants": rows, "count": len(rows)}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/admin/tenants")
+async def admin_create_tenant(body: TenantProvisionRequest, admin: dict = Depends(require_admin)) -> dict:
+    _tenant_management_admin(admin)
+    try:
+        provisioning_required = os.getenv("AIR_DEPLOYMENT_PROFILE", "onprem-single") == "aws-saas-multi"
+        tenant = _get_tenant_registry().create_or_update_tenant(
+            owner_customer_id=body.owner_customer_id, name=body.name, plan_code=body.plan_code,
+            status="PROVISIONING" if provisioning_required else "ACTIVE",
+        )
+        return {
+            "tenant": tenant,
+            "status": "registered",
+            "infrastructure_status": "NOT_PROVISIONED" if provisioning_required else "NOT_APPLICABLE",
+            "next_action": "POST /api/v1/admin/tenants/{tenant_id}/provision" if provisioning_required else None,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/admin/tenants/{tenant_id}/provision")
+async def admin_provision_tenant(tenant_id: str, admin: dict = Depends(require_admin)) -> dict:
+    _tenant_management_admin(admin)
+    registry = _get_tenant_registry()
+    try:
+        tenant = registry.get_tenant(tenant_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if tenant["status"] == "CLOSED":
+        raise HTTPException(status_code=409, detail="A CLOSED tenant cannot be provisioned")
+    provisioner = _get_aws_tenant_provisioner()
+    try:
+        infrastructure = provisioner.provision(tenant)
+        updated = registry.record_aws_provisioning(
+            tenant_id, infrastructure, status="ACTIVE",
+        )
+        return {"tenant": updated, "infrastructure": infrastructure}
+    except Exception as exc:
+        try:
+            registry.record_aws_provisioning_failure(tenant_id, type(exc).__name__)
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=502,
+            detail="AWS tenant provisioning failed; tenant remains PROVISIONING and can be retried",
+        ) from exc
+
+
+@app.get("/api/v1/admin/tenants/{tenant_id}")
+async def admin_get_tenant(tenant_id: str, admin: dict = Depends(require_admin)) -> dict:
+    _tenant_management_admin(admin)
+    try:
+        return {"tenant": _get_tenant_registry().get_tenant(tenant_id)}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/admin/tenants/{tenant_id}/members")
+async def admin_add_tenant_member(
+    tenant_id: str, body: TenantMemberRequest, admin: dict = Depends(require_admin),
+) -> dict:
+    _tenant_management_admin(admin)
+    try:
+        member = _get_tenant_registry().add_member(tenant_id, body.customer_id, body.role)
+        return {"member": member, "status": "added"}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ValueError, PermissionError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.patch("/api/v1/admin/tenants/{tenant_id}/status")
+async def admin_set_tenant_status(
+    tenant_id: str, body: TenantStatusRequest, admin: dict = Depends(require_admin),
+) -> dict:
+    _tenant_management_admin(admin)
+    try:
+        registry = _get_tenant_registry()
+        current = registry.get_tenant(tenant_id)
+        next_status = body.status.upper()
+        if os.getenv("AIR_DEPLOYMENT_PROFILE", "onprem-single") == "aws-saas-multi":
+            provisioner = _get_aws_tenant_provisioner()
+            if next_status in {"SUSPENDED", "CLOSED"}:
+                provisioner.set_tenant_access(current, enabled=False)
+            elif next_status == "ACTIVE":
+                infrastructure = provisioner.provision(current)
+                registry.record_aws_provisioning(tenant_id, infrastructure, status="ACTIVE")
+        return {"tenant": registry.set_tenant_status(tenant_id, next_status)}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Tenant infrastructure lifecycle operation failed") from exc
+
+
+@app.get("/api/v1/tenant/context")
+async def customer_tenant_context(customer_id: str = Depends(require_customer)) -> dict:
+    try:
+        context = _get_tenant_registry().get_customer_context(
+            access_store.mobile_for_request_id(customer_id) or customer_id
+        )
+        return {"tenant": context}
+    except KeyError as exc:
+        raise HTTPException(status_code=403, detail="Customer tenant membership is not active") from exc
+

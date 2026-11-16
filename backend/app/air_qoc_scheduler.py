@@ -24,10 +24,32 @@ from app.credential_vault import CredentialVault
 from app.air_qoc_universe import DETAILED_MASTER_URL, parse_dhan_instrument_master
 from app.market_data.runtime import market_data_instruments
 from app.market_data.customer_runtime import get_customer_market_data_service, invalidate_customer_market_data_service
+from app.tenant_context import tenant_scope
 import httpx
 
 log = logging.getLogger("air.qoc.scheduler")
 IST = ZoneInfo("Asia/Kolkata")
+
+def _tenant_for_customer(customer_id: str) -> str:
+    # Preserve the existing SQLite/on-prem single-tenant runtime. The registry
+    # lookup is required only when PostgreSQL tenant RLS is active.
+    database_configured = any(
+        os.getenv(name) or os.getenv(name + "_FILE")
+        for name in ("AIR_CUSTOMER_DATABASE_URL", "AIR_DATABASE_URL")
+    )
+    if not database_configured:
+        return customer_id
+    from app.tenant_provisioning import TenantRegistry
+
+    registry = TenantRegistry()
+    try:
+        tenant_id = registry.tenant_for_customer(customer_id)
+    finally:
+        registry.close()
+    if not tenant_id:
+        raise RuntimeError("QOC capture requires an active customer tenant")
+    return tenant_id
+
 
 
 def _configured_underlyings() -> list[dict]:
@@ -66,6 +88,7 @@ async def capture_dhan_eod_snapshots(*, force: bool = False, account_id_override
     owned = {(a.broker, a.account_id) for a in accounts.list_for_customer(customer_id)}
     if ("dhan", account_id) not in owned:
         raise RuntimeError("Selected Dhan account is not assigned to this customer")
+    tenant_id = _tenant_for_customer(customer_id)
     vault = CredentialVault()
     credentials = vault.get(customer_id, "dhan", account_id)
     client_id = credentials.get("client_id", account_id)
@@ -127,25 +150,27 @@ async def capture_dhan_eod_snapshots(*, force: bool = False, account_id_override
                         expiry=expiry,
                     )
                     observed_at = datetime.now(IST).isoformat()
-                    total += store.save_option_chain(
-                        account_id=account_id,
-                        underlying_scrip=underlying["security_id"],
-                        underlying_segment=underlying["segment"],
-                        expiry=expiry,
-                        underlying_price=chain.get("last_price"),
-                        observed_at=observed_at,
-                        chain=chain,
-                    )
+                    with tenant_scope(tenant_id=tenant_id, customer_id=customer_id):
+                        total += store.save_option_chain(
+                            account_id=account_id,
+                            underlying_scrip=underlying["security_id"],
+                            underlying_segment=underlying["segment"],
+                            expiry=expiry,
+                            underlying_price=chain.get("last_price"),
+                            observed_at=observed_at,
+                            chain=chain,
+                        )
                     expiry_count += 1
                     await asyncio.sleep(3.1)
             except Exception as exc:
                 errors.append({"underlying": underlying["label"], "error": type(exc).__name__})
                 log.exception("AIR QOC snapshot failed for %s", underlying["label"])
-        expiry_scan = scan_expiries(
-            store, account_id=account_id,
-            max_dte=int(os.getenv("AIR_EXPIRYSCAN_MAX_DTE", "45")),
-            limit=int(os.getenv("AIR_EXPIRYSCAN_MAX_ROWS", "2000")),
-        )
+        with tenant_scope(tenant_id=tenant_id, customer_id=customer_id):
+            expiry_scan = scan_expiries(
+                store, account_id=account_id,
+                max_dte=int(os.getenv("AIR_EXPIRYSCAN_MAX_DTE", "45")),
+                limit=int(os.getenv("AIR_EXPIRYSCAN_MAX_ROWS", "2000")),
+            )
         return {
             "status": "completed_with_errors" if errors else "completed",
             "underlyings": len(underlyings),
@@ -187,6 +212,7 @@ async def capture_selected_provider_option_chains(*, force: bool = False) -> dic
                 continue
             provider, account_id = selection["provider"], selection["account_id"]
             try:
+                tenant_id = _tenant_for_customer(customer_id)
                 if provider == "dhan":
                     result = await capture_dhan_eod_snapshots(
                         force=force, account_id_override=account_id,
@@ -225,23 +251,25 @@ async def capture_selected_provider_option_chains(*, force: bool = False) -> dic
                                 "INDEX" in str(row.get("instrument_type") or "").upper()
                                 for row in rows
                             ) else "NSE_FNO"
-                            captured += store.save_option_chain(
-                                provider=provider, account_id=account_id,
-                                underlying_scrip=symbol, underlying_segment=segment,
-                                expiry=expiry, underlying_price=snapshot.get("underlying_price"),
-                                observed_at=snapshot["observed_at"], chain=snapshot["chain"],
-                            )
+                            with tenant_scope(tenant_id=tenant_id, customer_id=customer_id):
+                                captured += store.save_option_chain(
+                                    provider=provider, account_id=account_id,
+                                    underlying_scrip=symbol, underlying_segment=segment,
+                                    expiry=expiry, underlying_price=snapshot.get("underlying_price"),
+                                    observed_at=snapshot["observed_at"], chain=snapshot["chain"],
+                                )
                         except Exception as exc:
                             errors += 1
                             failed.append({"symbol": symbol, "expiry": expiry,
                                            "error_type": type(exc).__name__})
                             log.exception("AIR option-chain capture failed for %s %s (%s)",
                                           symbol, expiry, customer_id)
-                    expiry_scan = scan_expiries(
-                        store, provider=provider, account_id=account_id,
-                        max_dte=int(os.getenv("AIR_EXPIRYSCAN_MAX_DTE", "45")),
-                        limit=int(os.getenv("AIR_EXPIRYSCAN_MAX_ROWS", "2000")),
-                    )
+                    with tenant_scope(tenant_id=tenant_id, customer_id=customer_id):
+                        expiry_scan = scan_expiries(
+                            store, provider=provider, account_id=account_id,
+                            max_dte=int(os.getenv("AIR_EXPIRYSCAN_MAX_DTE", "45")),
+                            limit=int(os.getenv("AIR_EXPIRYSCAN_MAX_ROWS", "2000")),
+                        )
                     results.append({
                         "customer_id": customer_id, "provider": provider, "account_id": account_id,
                         "status": "completed_with_errors" if errors else "completed",

@@ -14,6 +14,7 @@ from typing import Any
 from uuid import uuid4
 
 from app.db_compat import PostgresConnection, read_database_url
+from app.tenant_context import current_customer_id, current_tenant_id
 
 TRIGGER_TYPES = {"EVENT", "TIME", "STRATEGY", "CONDITION"}
 EXECUTION_MODES = {"RESEARCH_ONLY", "ALERT_NOTIFY"}
@@ -154,7 +155,8 @@ class WorkflowStore:
                 execution_mode TEXT NOT NULL DEFAULT 'RESEARCH_ONLY'
                     CHECK(execution_mode IN ('RESEARCH_ONLY','ALERT_NOTIFY','AUTHORIZED_EXECUTION')),
                 version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1), enabled INTEGER NOT NULL DEFAULT 0,
-                created_by TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+                created_by TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                customer_id TEXT, tenant_id TEXT
             );
             CREATE INDEX IF NOT EXISTS ix_air_workflow_enabled_trigger
                 ON air_workflow_definitions(enabled,trigger_type);
@@ -164,6 +166,7 @@ class WorkflowStore:
                 trigger_type TEXT NOT NULL, trigger_config_json TEXT NOT NULL DEFAULT '{}',
                 workflow_spec_json TEXT NOT NULL DEFAULT '{}', execution_mode TEXT NOT NULL,
                 created_by TEXT NOT NULL, created_at TEXT NOT NULL,
+                customer_id TEXT, tenant_id TEXT,
                 PRIMARY KEY(workflow_id,version)
             );
             CREATE INDEX IF NOT EXISTS ix_air_workflow_definition_versions_created
@@ -177,7 +180,8 @@ class WorkflowStore:
             CREATE TABLE IF NOT EXISTS air_workflow_events (
                 event_id TEXT PRIMARY KEY, event_type TEXT NOT NULL, source TEXT NOT NULL,
                 occurred_at TEXT NOT NULL, payload_json TEXT NOT NULL DEFAULT '{}',
-                idempotency_key TEXT NOT NULL UNIQUE, correlation_id TEXT, created_at TEXT NOT NULL
+                idempotency_key TEXT NOT NULL UNIQUE, correlation_id TEXT, created_at TEXT NOT NULL,
+                customer_id TEXT, tenant_id TEXT
             );
             CREATE INDEX IF NOT EXISTS ix_air_workflow_events_type_time
                 ON air_workflow_events(event_type,occurred_at);
@@ -185,7 +189,7 @@ class WorkflowStore:
                 outbox_id TEXT PRIMARY KEY, event_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'PENDING'
                     CHECK(status IN ('PENDING','PUBLISHED','FAILED')),
                 attempts INTEGER NOT NULL DEFAULT 0, available_at TEXT NOT NULL,
-                published_at TEXT, last_error TEXT
+                published_at TEXT, last_error TEXT, customer_id TEXT, tenant_id TEXT
             );
             CREATE INDEX IF NOT EXISTS ix_air_workflow_outbox_pending
                 ON air_workflow_outbox(status,available_at);
@@ -194,7 +198,7 @@ class WorkflowStore:
                 event_id TEXT NOT NULL, status TEXT NOT NULL, execution_mode TEXT NOT NULL,
                 started_at TEXT NOT NULL, completed_at TEXT, error TEXT,
                 claimed_by TEXT, claimed_at TEXT, lease_expires_at TEXT,
-                claim_version INTEGER NOT NULL DEFAULT 0,
+                claim_version INTEGER NOT NULL DEFAULT 0, customer_id TEXT, tenant_id TEXT,
                 UNIQUE(workflow_id,workflow_version,event_id)
             );
             CREATE INDEX IF NOT EXISTS ix_air_workflow_runs_status_time
@@ -205,6 +209,7 @@ class WorkflowStore:
                 status TEXT NOT NULL CHECK(status IN ('PENDING','RUNNING','SUCCEEDED','FAILED','SKIPPED')),
                 input_json TEXT NOT NULL DEFAULT '{}', output_json TEXT, error TEXT,
                 attempts INTEGER NOT NULL DEFAULT 0, started_at TEXT, completed_at TEXT,
+                customer_id TEXT, tenant_id TEXT,
                 UNIQUE(run_id,step_key)
             );
             CREATE INDEX IF NOT EXISTS ix_air_workflow_run_steps_order
@@ -213,7 +218,7 @@ class WorkflowStore:
                 audit_id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL,
                 workflow_version INTEGER NOT NULL, actor_id TEXT NOT NULL,
                 action TEXT NOT NULL, payload_json TEXT NOT NULL DEFAULT '{}',
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL, customer_id TEXT, tenant_id TEXT
             );
             CREATE INDEX IF NOT EXISTS ix_air_workflow_audit_workflow_time
                 ON air_workflow_audit(workflow_id,created_at);
@@ -256,6 +261,15 @@ class WorkflowStore:
                 self.db.execute(f"ALTER TABLE air_workflow_runs ADD COLUMN {name} {definition}")
         self.db.execute("""CREATE INDEX IF NOT EXISTS ix_air_workflow_runs_lease
             ON air_workflow_runs(status,lease_expires_at,started_at)""")
+        for table in (
+            "air_workflow_definitions", "air_workflow_definition_versions",
+            "air_workflow_events", "air_workflow_outbox", "air_workflow_runs",
+            "air_workflow_run_steps", "air_workflow_audit",
+        ):
+            existing = {row["name"] for row in self.db.execute(f"PRAGMA table_info({table})").fetchall()}
+            for column in ("customer_id", "tenant_id"):
+                if column not in existing:
+                    self.db.execute(f"ALTER TABLE {table} ADD COLUMN {column} TEXT")
         self.db.commit()
 
     def create_workflow(
@@ -276,6 +290,14 @@ class WorkflowStore:
         if execution_mode not in EXECUTION_MODES:
             raise ValueError("Unsupported workflow execution_mode")
         trigger_config = _json_object(trigger_config, "trigger_config")
+        request_customer = current_customer_id()
+        configured_customer = str(trigger_config.get("customer_id") or "").strip() or None
+        if request_customer and configured_customer and configured_customer != request_customer:
+            raise PermissionError("Workflow customer scope cannot be changed by the caller")
+        customer_id = configured_customer or request_customer
+        tenant_id = current_tenant_id()
+        if customer_id:
+            trigger_config["customer_id"] = customer_id
         workflow_spec = _json_object(workflow_spec, "workflow_spec")
         steps = workflow_spec.get("steps", [])
         if not isinstance(steps, list) or len(steps) > 20:
@@ -312,19 +334,19 @@ class WorkflowStore:
         with self.db:
             self.db.execute("""INSERT INTO air_workflow_definitions
                 (workflow_id,name,description,trigger_type,trigger_config_json,workflow_spec_json,
-                 execution_mode,version,enabled,created_by,created_at,updated_at)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""", (
+                 execution_mode,version,enabled,created_by,created_at,updated_at,customer_id,tenant_id)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
                 workflow_id, name, str(description)[:4000], trigger_type,
                 json.dumps(trigger_config, allow_nan=False), json.dumps(workflow_spec, allow_nan=False),
-                execution_mode, 1, False if self.is_postgres else 0, created_by, now, now,
+                execution_mode, 1, False if self.is_postgres else 0, created_by, now, now, customer_id, tenant_id,
             ))
             self.db.execute("""INSERT INTO air_workflow_definition_versions
                 (workflow_id,version,name,description,trigger_type,trigger_config_json,
-                 workflow_spec_json,execution_mode,created_by,created_at)
-                VALUES(?,?,?,?,?,?,?,?,?,?)""", (
+                 workflow_spec_json,execution_mode,created_by,created_at,customer_id,tenant_id)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""", (
                 workflow_id, 1, name, str(description)[:4000], trigger_type,
                 json.dumps(trigger_config, allow_nan=False), json.dumps(workflow_spec, allow_nan=False),
-                execution_mode, created_by, now,
+                execution_mode, created_by, now, customer_id, tenant_id,
             ))
             self._append_audit(workflow_id, 1, created_by, "CREATED",
                                {"name": name, "trigger_type": trigger_type, "execution_mode": execution_mode})
@@ -357,6 +379,7 @@ class WorkflowStore:
             "workflow_spec": json.loads(row["workflow_spec_json"]), "execution_mode": row["execution_mode"],
             "version": row["version"], "enabled": bool(row["enabled"]), "created_by": row["created_by"],
             "created_at": row["created_at"], "updated_at": row["updated_at"],
+            "customer_id": row["customer_id"], "tenant_id": row["tenant_id"],
         }
 
     def publish_event(
@@ -373,19 +396,26 @@ class WorkflowStore:
         if not idempotency_key or len(idempotency_key) > 200:
             raise ValueError("idempotency_key must contain 1-200 characters")
         payload = _json_object(payload, "payload")
+        request_customer = current_customer_id()
+        event_customer = str(payload.get("customer_id") or request_customer or "").strip() or None
+        event_tenant = current_tenant_id()
+        if request_customer and event_customer and event_customer != request_customer:
+            raise PermissionError("Workflow event tenant scope cannot be changed by the caller")
+        if event_customer:
+            payload["customer_id"] = event_customer
         event_id, now = str(uuid4()), _now()
         event_time = occurred_at or now
         try:
             with self.db:
                 self.db.execute("""INSERT INTO air_workflow_events
-                    (event_id,event_type,source,occurred_at,payload_json,idempotency_key,correlation_id,created_at)
-                    VALUES(?,?,?,?,?,?,?,?)""", (
+                    (event_id,event_type,source,occurred_at,payload_json,idempotency_key,correlation_id,created_at,customer_id,tenant_id)
+                    VALUES(?,?,?,?,?,?,?,?,?,?)""", (
                     event_id, event_type, source, event_time,
-                    json.dumps(payload, allow_nan=False), idempotency_key, correlation_id, now,
+                    json.dumps(payload, allow_nan=False), idempotency_key, correlation_id, now, event_customer, event_tenant,
                 ))
                 self.db.execute("""INSERT INTO air_workflow_outbox
-                    (outbox_id,event_id,status,attempts,available_at)
-                    VALUES(?,?,'PENDING',0,?)""", (str(uuid4()), event_id, now))
+                    (outbox_id,event_id,status,attempts,available_at,customer_id,tenant_id)
+                    VALUES(?,?,'PENDING',0,?,?,?)""", (str(uuid4()), event_id, now, event_customer, event_tenant))
         except Exception as exc:
             # A duplicate idempotency key is a successful replay, not a second event.
             existing = self.db.execute(
@@ -403,7 +433,8 @@ class WorkflowStore:
             "event_id": row["event_id"], "event_type": row["event_type"], "source": row["source"],
             "occurred_at": row["occurred_at"], "payload": json.loads(row["payload_json"]),
             "idempotency_key": row["idempotency_key"], "correlation_id": row["correlation_id"],
-            "created_at": row["created_at"], "duplicate": duplicate,
+            "created_at": row["created_at"], "customer_id": row["customer_id"],
+            "tenant_id": row["tenant_id"], "duplicate": duplicate,
         }
 
 
@@ -420,6 +451,7 @@ class WorkflowStore:
             "workflow_spec": json.loads(row["workflow_spec_json"]),
             "execution_mode": row["execution_mode"],
             "created_by": row["created_by"], "created_at": row["created_at"],
+            "customer_id": row["customer_id"], "tenant_id": row["tenant_id"],
         } for row in rows]
 
     def update_workflow(
@@ -440,6 +472,15 @@ class WorkflowStore:
         if trigger_type not in TRIGGER_TYPES or execution_mode not in EXECUTION_MODES:
             raise ValueError("Unsupported workflow trigger or execution mode")
         trigger_config = _json_object(trigger_config, "trigger_config")
+        request_customer = current_customer_id()
+        configured_customer = str(trigger_config.get("customer_id") or "").strip() or None
+        if request_customer and configured_customer and configured_customer != request_customer:
+            raise PermissionError("Workflow customer scope cannot be changed by the caller")
+        customer_id = current.get("customer_id") or configured_customer or request_customer
+        if current.get("customer_id") and configured_customer and configured_customer != current["customer_id"]:
+            raise PermissionError("Workflow ownership cannot be transferred by update")
+        if customer_id:
+            trigger_config["customer_id"] = customer_id
         workflow_spec = _json_object(workflow_spec, "workflow_spec")
         steps = workflow_spec.get("steps", [])
         if not isinstance(steps, list) or len(steps) > 20:
@@ -485,11 +526,12 @@ class WorkflowStore:
             self.db.execute(
                 """INSERT INTO air_workflow_definition_versions
                    (workflow_id,version,name,description,trigger_type,trigger_config_json,
-                    workflow_spec_json,execution_mode,created_by,created_at)
-                   VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                    workflow_spec_json,execution_mode,created_by,created_at,customer_id)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                 (workflow_id, version, name, description, trigger_type,
                  json.dumps(trigger_config, allow_nan=False),
-                 json.dumps(workflow_spec, allow_nan=False), execution_mode, updated_by, now),
+                 json.dumps(workflow_spec, allow_nan=False), execution_mode, updated_by, now,
+                 current.get("customer_id") or current_customer_id()),
             )
             if bool(current["enabled"]):
                 self._append_audit(workflow_id, int(current["version"]), updated_by,
@@ -517,12 +559,18 @@ class WorkflowStore:
 
     def _append_audit(self, workflow_id: str, version: int, actor_id: str,
                       action: str, payload: dict | None = None) -> None:
+        owner = self.db.execute(
+            "SELECT customer_id FROM air_workflow_definitions WHERE workflow_id=?",
+            (str(workflow_id),),
+        ).fetchone()
+        customer_id = owner["customer_id"] if owner else current_customer_id()
         self.db.execute(
             """INSERT INTO air_workflow_audit
-               (audit_id,workflow_id,workflow_version,actor_id,action,payload_json,created_at)
-               VALUES(?,?,?,?,?,?,?)""",
+               (audit_id,workflow_id,workflow_version,actor_id,action,payload_json,created_at,customer_id,tenant_id)
+               VALUES(?,?,?,?,?,?,?,?,?)""",
             (str(uuid4()), str(workflow_id), int(version), str(actor_id)[:128],
-             str(action)[:48], json.dumps(_json_object(payload, "audit payload"), allow_nan=False), _now()),
+             str(action)[:48], json.dumps(_json_object(payload, "audit payload"), allow_nan=False),
+             _now(), customer_id, current_tenant_id()),
         )
 
     def list_workflow_audit(self, workflow_id: str | None = None, limit: int = 100) -> list[dict]:
@@ -539,6 +587,7 @@ class WorkflowStore:
             ).fetchall()
         return [{
             "audit_id": row["audit_id"], "workflow_id": row["workflow_id"],
+            "customer_id": row["customer_id"], "tenant_id": row["tenant_id"],
             "workflow_version": row["workflow_version"], "actor_id": row["actor_id"],
             "action": row["action"], "payload": json.loads(row["payload_json"]),
             "created_at": row["created_at"],
@@ -636,7 +685,7 @@ class WorkflowStore:
         limit = max(1, min(int(limit), 500))
         rows = self.db.execute(
             """SELECT o.outbox_id,o.event_id,o.attempts,e.event_type,e.source,e.occurred_at,
-                      e.payload_json,e.idempotency_key,e.correlation_id
+                      e.payload_json,e.idempotency_key,e.correlation_id,e.customer_id,e.tenant_id
                FROM air_workflow_outbox o JOIN air_workflow_events e ON e.event_id=o.event_id
                WHERE o.status='PENDING' AND o.available_at<=?
                ORDER BY o.available_at LIMIT ?""", (_now(), limit),
@@ -647,6 +696,7 @@ class WorkflowStore:
             "source": row["source"], "occurred_at": row["occurred_at"],
             "payload": json.loads(row["payload_json"]),
             "idempotency_key": row["idempotency_key"], "correlation_id": row["correlation_id"],
+            "customer_id": row["customer_id"], "tenant_id": row["tenant_id"],
         } for row in rows]
 
     def mark_outbox_published(self, outbox_id: str) -> None:
@@ -688,8 +738,12 @@ class WorkflowStore:
             workflow_chain = payload.get("workflow_chain")
             if isinstance(workflow_chain, list) and definition["workflow_id"] in workflow_chain:
                 continue
-            scoped_customer = config.get("customer_id")
-            if scoped_customer and str(payload.get("customer_id") or "") != str(scoped_customer):
+            definition_customer = definition["customer_id"] or config.get("customer_id")
+            definition_tenant = definition["tenant_id"]
+            event_tenant = event["tenant_id"]
+            if definition_customer and event["customer_id"] != definition_customer:
+                continue
+            if definition_tenant and event_tenant != definition_tenant:
                 continue
             if trigger_type == "TIME":
                 matched = payload.get("workflow_id") == definition["workflow_id"]
@@ -706,15 +760,18 @@ class WorkflowStore:
                 continue
             run_id = str(uuid4())
             now = _now()
+            run_customer = definition["customer_id"] or event["customer_id"]
+            run_tenant = definition["tenant_id"] or event["tenant_id"]
             with self.db:
                 self.db.execute(
                     """INSERT INTO air_workflow_runs
                        (run_id,workflow_id,workflow_version,event_id,status,execution_mode,
-                        started_at,completed_at,error)
-                       VALUES(?,?,?,?,?,?,?,?,?)
+                        started_at,completed_at,error,customer_id,tenant_id)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?)
                        ON CONFLICT(workflow_id,workflow_version,event_id) DO NOTHING""",
                     (run_id, definition["workflow_id"], definition["version"], event_id,
-                     "QUEUED", definition["execution_mode"], now, None, None),
+                     "QUEUED", definition["execution_mode"], now, None, None,
+                     run_customer, run_tenant),
                 )
             row = self.db.execute(
                 """SELECT * FROM air_workflow_runs
@@ -725,7 +782,8 @@ class WorkflowStore:
                 created.append({
                     "run_id": row["run_id"], "workflow_id": row["workflow_id"],
                     "workflow_version": row["workflow_version"], "event_id": row["event_id"],
-                    "status": row["status"], "duplicate": row["run_id"] != run_id,
+                    "status": row["status"], "customer_id": row["customer_id"],
+                    "tenant_id": row["tenant_id"], "duplicate": row["run_id"] != run_id,
                 })
         return created
 
@@ -770,7 +828,8 @@ class WorkflowStore:
                     # SPECIAL_SESSION remains bounded by its explicit session hours.
                 due.append({
                     "workflow_id": row["workflow_id"], "name": row["name"],
-                    "customer_id": config.get("customer_id"),
+                    "customer_id": row["customer_id"] or config.get("customer_id"),
+                    "tenant_id": row["tenant_id"],
                     "local_time": scheduled.isoformat(), "scheduled_key": scheduled.strftime("%Y%m%d%H%M"),
                 })
         return due
@@ -783,6 +842,7 @@ class WorkflowStore:
         return [{
             "run_id": row["run_id"], "workflow_id": row["workflow_id"],
             "workflow_version": row["workflow_version"], "event_id": row["event_id"],
+            "customer_id": row["customer_id"], "tenant_id": row["tenant_id"],
             "status": row["status"], "execution_mode": row["execution_mode"],
             "started_at": row["started_at"], "completed_at": row["completed_at"], "error": row["error"],
         } for row in rows]
@@ -812,7 +872,7 @@ class WorkflowStore:
         if self.is_postgres:
             with self.db:
                 rows = self.db.execute(
-                    """SELECT run_id FROM air_workflow_runs
+                    """SELECT run_id,customer_id,tenant_id FROM air_workflow_runs
                        WHERE status IN ('QUEUED','RUNNING')
                          AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
                        ORDER BY started_at LIMIT ? FOR UPDATE SKIP LOCKED""", (now, limit),
@@ -827,13 +887,14 @@ class WorkflowStore:
                         (worker_id, now, lease_until, now, row["run_id"]),
                     ).fetchone()
                     claimed.append({"run_id": row["run_id"], "worker_id": worker_id,
-                                    "claim_version": version["claim_version"]})
+                                    "claim_version": version["claim_version"],
+                                    "customer_id": row["customer_id"], "tenant_id": row["tenant_id"]})
         else:
             # BEGIN IMMEDIATE serializes claimers before selecting candidates.
             self.db.execute("BEGIN IMMEDIATE")
             try:
                 rows = self.db.execute(
-                    """SELECT run_id FROM air_workflow_runs
+                    """SELECT run_id,customer_id,tenant_id FROM air_workflow_runs
                        WHERE status IN ('QUEUED','RUNNING')
                          AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
                        ORDER BY started_at LIMIT ?""", (now, limit),
@@ -854,7 +915,8 @@ class WorkflowStore:
                             (row["run_id"],),
                         ).fetchone()
                         claimed.append({"run_id": row["run_id"], "worker_id": worker_id,
-                                        "claim_version": version["claim_version"]})
+                                        "claim_version": version["claim_version"],
+                                        "customer_id": row["customer_id"], "tenant_id": row["tenant_id"]})
                 self.db.commit()
             except Exception:
                 self.db.rollback()
@@ -905,6 +967,7 @@ class WorkflowStore:
         return {
             "run_id": row["run_id"], "workflow_id": row["workflow_id"],
             "workflow_version": row["workflow_version"], "event_id": row["event_id"],
+            "customer_id": row["customer_id"], "tenant_id": row["tenant_id"],
             "status": row["status"], "execution_mode": row["execution_mode"],
             "workflow_name": row["name"], "workflow_spec": json.loads(row["workflow_spec_json"]),
             "trigger_config": json.loads(row["trigger_config_json"]),
@@ -1000,12 +1063,13 @@ class WorkflowStore:
                 self.db.execute(
                     """INSERT INTO air_workflow_run_steps
                        (step_record_id,run_id,step_key,step_index,action,status,input_json,
-                        output_json,error,attempts,started_at,completed_at)
-                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        output_json,error,attempts,started_at,completed_at,customer_id,tenant_id)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (str(uuid4()), run_id, step_key, step_index, action, status, input_json,
                      output_json, str(error)[:1000] if error else None, attempts,
                      now if status == "RUNNING" else None,
-                     now if status in {"SUCCEEDED", "FAILED", "SKIPPED"} else None),
+                     now if status in {"SUCCEEDED", "FAILED", "SKIPPED"} else None,
+                     current_customer_id(), current_tenant_id()),
                 )
         return self.get_run_step(run_id, step_key)
 
@@ -1019,6 +1083,7 @@ class WorkflowStore:
             "output": json.loads(row["output_json"]) if row["output_json"] else None,
             "error": row["error"], "attempts": row["attempts"],
             "started_at": row["started_at"], "completed_at": row["completed_at"],
+            "customer_id": row["customer_id"], "tenant_id": row["tenant_id"],
         }
 
     def list_run_steps(self, run_id: str) -> list[dict]:

@@ -7,6 +7,7 @@ from cryptography.fernet import Fernet
 from sqlalchemy import create_engine, text
 from app.brokers.customer_accounts import CustomerAccountDirectory, CustomerTradingAccount
 from app.credential_vault import CredentialVault
+from app.tenant_provisioning import TenantRegistry
 
 
 def _database_url() -> str:
@@ -21,8 +22,12 @@ def _database_url() -> str:
 @pytest.fixture
 def stores():
     url = _database_url()
+    registry = TenantRegistry(database_url=url)
+    registry.create_or_update_tenant(owner_customer_id="customer-1", name="Broker test customer 1")
+    registry.create_or_update_tenant(owner_customer_id="customer-2", name="Broker test customer 2")
     engine = create_engine(url)
     with engine.begin() as conn:
+        conn.execute(text("SELECT set_config('air.is_admin','true',true)"))
         conn.execute(text("DELETE FROM broker_credentials"))
         conn.execute(text("DELETE FROM customer_market_data_selection"))
         conn.execute(text("DELETE FROM customer_market_data_access"))
@@ -39,11 +44,13 @@ def stores():
             accounts.close()
     engine = create_engine(url)
     with engine.begin() as conn:
+        conn.execute(text("SELECT set_config('air.is_admin','true',true)"))
         conn.execute(text("DELETE FROM broker_credentials"))
         conn.execute(text("DELETE FROM customer_market_data_selection"))
         conn.execute(text("DELETE FROM customer_market_data_access"))
         conn.execute(text("DELETE FROM customer_trading_accounts"))
     engine.dispose()
+    registry.close()
 
 
 def test_postgres_account_ownership_and_order_permission(stores):
@@ -85,7 +92,8 @@ def test_postgres_credential_vault_encrypts_and_scopes_credentials(stores):
         vault.get("customer-2", "dhan", "D001")
     engine = create_engine(url)
     try:
-        with engine.connect() as conn:
+        with engine.begin() as conn:
+            conn.execute(text("SELECT set_config('air.is_admin','true',true)"))
             encrypted = conn.execute(text("""SELECT encrypted_payload FROM broker_credentials
                 WHERE customer_id='customer-1' AND broker='dhan' AND account_id='D001'""")).scalar_one()
         assert secret.encode() not in bytes(encrypted)

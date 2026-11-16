@@ -14,6 +14,7 @@ import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
 from sqlalchemy import create_engine, text
 
@@ -105,6 +106,47 @@ def migrate(source_path: str, database_url: str) -> dict[str, int]:
 
         # One target transaction: any conflict or schema error rolls back the entire import.
         with engine.begin() as target:
+            # This is an explicit administrative import. Establish tenant ownership
+            # for every legacy customer before inserting rows protected by RLS triggers.
+            target.execute(text("SELECT set_config('air.is_admin','true',true)"))
+            customer_ids: set[str] = set()
+            for table in TABLES:
+                if table not in existing_tables:
+                    continue
+                source_columns = {row["name"] for row in source.execute(f"PRAGMA table_info({table})").fetchall()}
+                for column in ("mobile_e164", "customer_id", "actor_customer_id"):
+                    if column in source_columns:
+                        customer_ids.update(
+                            str(row[0]).strip() for row in source.execute(
+                                f"SELECT DISTINCT {column} FROM {table} WHERE {column} IS NOT NULL"
+                            ).fetchall() if str(row[0]).strip()
+                        )
+            for customer_id in sorted(customer_ids):
+                tenant_id = str(uuid4())
+                target.execute(text("""
+                    INSERT INTO air_tenants
+                        (tenant_id,name,owner_customer_id,plan_code,status,storage_prefix,rabbitmq_vhost,
+                         max_members,max_api_calls_per_day,max_storage_bytes)
+                    VALUES(:tenant,:name,:owner,'STANDARD','ACTIVE',:prefix,:vhost,1,10000,1073741824)
+                    ON CONFLICT(owner_customer_id) DO NOTHING
+                """), {
+                    "tenant": tenant_id, "name": "AIR " + customer_id,
+                    "owner": customer_id, "prefix": f"tenants/{tenant_id}/",
+                    "vhost": "air-" + tenant_id.replace("-", ""),
+                })
+                existing_member = target.execute(text("""
+                    SELECT tenant_id FROM air_tenant_members WHERE customer_id=:customer
+                """), {"customer": customer_id}).scalar_one_or_none()
+                if not existing_member:
+                    owner_tenant = target.execute(text("""
+                        SELECT tenant_id FROM air_tenants WHERE owner_customer_id=:customer
+                    """), {"customer": customer_id}).scalar_one()
+                    target.execute(text("""
+                        INSERT INTO air_tenant_members(tenant_id,customer_id,role,status)
+                        VALUES(:tenant,:customer,'OWNER','ACTIVE')
+                        ON CONFLICT(customer_id) DO NOTHING
+                    """), {"tenant": owner_tenant, "customer": customer_id})
+
             for table, (primary_key, configured_columns) in TABLES.items():
                 if table not in existing_tables:
                     counts[table] = 0

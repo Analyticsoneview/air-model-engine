@@ -4,6 +4,7 @@ from uuid import uuid4
 import pytest
 
 from app.support_center import SupportStore
+from app.tenant_provisioning import TenantRegistry
 
 _DATABASE_CONFIGURED = bool(os.getenv("AIR_CUSTOMER_DATABASE_URL") or os.getenv("AIR_DATABASE_URL"))
 
@@ -12,6 +13,9 @@ _DATABASE_CONFIGURED = bool(os.getenv("AIR_CUSTOMER_DATABASE_URL") or os.getenv(
 def test_support_tickets_and_activity_use_postgres_with_customer_isolation():
     customer_a = "+91" + str(7000000000 + (uuid4().int % 999999999)).zfill(10)
     customer_b = "+91" + str(7000000000 + (uuid4().int % 999999999)).zfill(10)
+    registry = TenantRegistry()
+    registry.create_or_update_tenant(owner_customer_id=customer_a, name="Support test A")
+    registry.create_or_update_tenant(owner_customer_id=customer_b, name="Support test B")
     store = SupportStore()
     try:
         ticket = store.create(customer_a, "Cannot access portfolio", "ACCOUNT",
@@ -34,3 +38,4 @@ def test_support_tickets_and_activity_use_postgres_with_customer_isolation():
         assert store.get_customer_ticket(customer_a, ticket_id)["events"] == events
     finally:
         store.close()
+        registry.close()

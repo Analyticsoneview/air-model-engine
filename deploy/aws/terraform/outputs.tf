@@ -23,3 +23,9 @@ output "runtime_secret_arns" {
     jwt      = aws_secretsmanager_secret.jwt.arn
   }
 }
+
+output "tenant_s3_bucket_prefix" { value = local.tenant_bucket_prefix }
+output "tenant_secrets_prefix" { value = var.tenant_secrets_prefix }
+output "rabbitmq_management_url" {
+  value = replace(replace(aws_mq_broker.air.instances[0].endpoints[0], "amqps://", "https://"), ":5671", ":15671")
+}

@@ -24,6 +24,7 @@ EXPECTED_CHAIN = [
     "0017_workflow_runtime_heartbeat",
     "0018_workflow_run_leases",
     "0019_air_monthly_pd",
+    "0020_saas_tenant_isolation",
 ]
 
 

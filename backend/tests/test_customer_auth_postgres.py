@@ -7,14 +7,17 @@ from __future__ import annotations
 import os
 import sqlite3
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 
 from app.customer_auth_postgres import PostgresAccessStore
+from app.tenant_context import install_tenant_context, tenant_scope
 from app.scripts.migrate_customer_sqlite_to_postgres import migrate
 
 
@@ -22,7 +25,7 @@ TABLES = (
     "air_access_decision_history", "air_customer_subscription_history",
     "air_customer_lifecycle", "air_marketing_audit", "air_marketing_offers",
     "air_customer_marketing_preferences", "air_customer_subscriptions",
-    "air_device_sessions", "air_access_requests",
+    "air_device_sessions", "air_access_requests", "air_tenant_members", "air_tenants",
 )
 
 
@@ -44,6 +47,23 @@ def _clear_database(url):
         with engine.begin() as conn:
             # TRUNCATE bypasses row-level append-only audit triggers in this disposable test database.
             conn.execute(text("TRUNCATE TABLE " + ", ".join(TABLES) + " RESTART IDENTITY CASCADE"))
+            # Recreate the system tenant using the same explicit admin context
+            # required by FORCE ROW LEVEL SECURITY in production.
+            conn.execute(text("SELECT set_config('air.is_admin','true',false)"))
+            conn.execute(text("""
+                INSERT INTO air_tenants
+                    (tenant_id,name,owner_customer_id,plan_code,status,storage_prefix,rabbitmq_vhost,
+                     max_members,max_api_calls_per_day,max_storage_bytes)
+                VALUES
+                    ('00000000-0000-4000-8000-000000000000','AIR System Administration',
+                     'AIR_SYSTEM_ADMIN','ENTERPRISE','ACTIVE','system/','air-system-admin',
+                     1000,1000000,10737418240)
+            """))
+            conn.execute(text("""
+                INSERT INTO air_tenant_members(tenant_id,customer_id,role,status)
+                VALUES('00000000-0000-4000-8000-000000000000',
+                       'AIR_SYSTEM_ADMIN','OWNER','ACTIVE')
+            """))
     finally:
         engine.dispose()
 
@@ -68,39 +88,50 @@ def test_access_approval_session_and_block_revocation(customer_store):
     assert customer_store.review(request["request_id"], "APPROVED", "Verified by Admin",
                                   reviewer_admin_id="admin-test", reviewer_role="SUPER_ADMIN", totp_counter=60000001)
     session_id = customer_store.create_session(request["request_id"])
-    assert customer_store.is_session_active(session_id)
+    tenant_id = customer_store.tenant_for_customer("+919876543210")
+    with tenant_scope(tenant_id=tenant_id, customer_id="+919876543210"):
+        assert customer_store.is_session_active(session_id)
     assert customer_store.review(request["request_id"], "BLOCKED", "Access withdrawn",
                                   reviewer_admin_id="admin-test", reviewer_role="SUPER_ADMIN", totp_counter=60000002)
-    history = customer_store.decision_history(request["request_id"])
+    with tenant_scope(is_admin=True):
+        history = customer_store.decision_history(request["request_id"])
     assert [item["new_status"] for item in history] == ["APPROVED", "BLOCKED"]
     assert history[-1]["reviewer_admin_id"] == "admin-test"
-    assert not customer_store.is_session_active(session_id)
-    assert customer_store.list_requests("BLOCKED")[0]["request_id"] == request["request_id"]
+    with tenant_scope(tenant_id=tenant_id, customer_id="+919876543210"):
+        assert not customer_store.is_session_active(session_id)
+    with tenant_scope(is_admin=True):
+        assert customer_store.list_requests("BLOCKED")[0]["request_id"] == request["request_id"]
 
 
 def test_device_deduplication_consent_and_subscription_segmentation(customer_store):
     first = customer_store.request_access("+919876543211", "android-device-0002")
     second = customer_store.request_access("+919876543211", "android-device-0003")
     assert first["request_id"] != second["request_id"]
-    listed = {row["request_id"]: row for row in customer_store.list_requests()}
+    with tenant_scope(is_admin=True):
+        listed = {row["request_id"]: row for row in customer_store.list_requests()}
     assert listed[first["request_id"]]["customer_type"] == "NEW"
     assert listed[second["request_id"]]["customer_type"] == "EXISTING"
     customer_store.review(first["request_id"], "APPROVED", reviewer_admin_id="admin-test",
                             reviewer_role="SUPER_ADMIN", totp_counter=60000003)
     customer_store.set_marketing_consent("+919876543211", True)
-    customers = customer_store.list_marketing_customers()
+    with tenant_scope(is_admin=True):
+        customers = customer_store.list_marketing_customers()
     assert len(customers) == 1
     assert customers[0]["device_count"] == 2
     assert customers[0]["marketing_status"] == "OPTED_IN"
-    assert customer_store.marketing_segment_counts()["ELIGIBLE_FOR_PROMOTIONS"] == 1
+    with tenant_scope(is_admin=True):
+        assert customer_store.marketing_segment_counts()["ELIGIBLE_FOR_PROMOTIONS"] == 1
 
     now = datetime.now(timezone.utc)
-    customer_store.assign_subscription("+919876543211", "MONTHLY", now.isoformat(),
+    with tenant_scope(is_admin=True):
+        customer_store.assign_subscription("+919876543211", "MONTHLY", now.isoformat(),
                                         (now + timedelta(days=30)).isoformat())
-    assert customer_store.marketing_segment_counts()["ELIGIBLE_FOR_PROMOTIONS"] == 0
-    assert customer_store.list_marketing_customers("ACTIVE")[0]["plan_code"] == "MONTHLY"
+    with tenant_scope(is_admin=True):
+        assert customer_store.marketing_segment_counts()["ELIGIBLE_FOR_PROMOTIONS"] == 0
+        assert customer_store.list_marketing_customers("ACTIVE")[0]["plan_code"] == "MONTHLY"
     customer_store.set_marketing_consent("+919876543211", False)
-    assert customer_store.list_marketing_customers("OPTED_OUT")[0]["marketing_status"] == "OPTED_OUT"
+    with tenant_scope(is_admin=True):
+        assert customer_store.list_marketing_customers("OPTED_OUT")[0]["marketing_status"] == "OPTED_OUT"
 
 
 
@@ -114,7 +145,8 @@ def test_lifecycle_dates_subscription_history_and_immutable_decision_audit(custo
         verification_reference="verify-lifecycle-0001",
         request_context={"source": "admin-console", "ip": "127.0.0.1"},
     )
-    history = customer_store.decision_history(first["request_id"])
+    with tenant_scope(is_admin=True):
+        history = customer_store.decision_history(first["request_id"])
     assert len(history) == 1
     assert history[0]["reviewer_admin_id"] == "admin-lifecycle"
     assert history[0]["verification_reference"] == "verify-lifecycle-0001"
@@ -122,34 +154,40 @@ def test_lifecycle_dates_subscription_history_and_immutable_decision_audit(custo
     assert history[0]["device_id"] == "lifecycle-device-0001"
     assert history[0]["request_context"]["source"] == "admin-console"
 
-    customer = customer_store.list_marketing_customers(search="+919876543299")[0]
+    with tenant_scope(is_admin=True):
+        customer = customer_store.list_marketing_customers(search="+919876543299")[0]
     assert customer["device_count"] == 2
     assert customer["first_registered_at"] is not None
     assert customer["first_approved_at"] is not None
     assert customer["first_rejected_at"] is None
 
     now = datetime.now(timezone.utc)
-    customer_store.assign_subscription("+919876543299", "MONTHLY", now.isoformat(),
-                                        (now + timedelta(days=30)).isoformat())
-    first_plan_at = customer_store.list_marketing_customers(search="+919876543299")[0]["first_plan_availed_at"]
-    customer_store.assign_subscription("+919876543299", "YEARLY", now.isoformat(),
-                                        (now + timedelta(days=365)).isoformat())
-    refreshed = customer_store.list_marketing_customers(search="+919876543299")[0]
+    with tenant_scope(is_admin=True):
+        customer_store.assign_subscription("+919876543299", "MONTHLY", now.isoformat(),
+                                            (now + timedelta(days=30)).isoformat())
+        first_plan_at = customer_store.list_marketing_customers(search="+919876543299")[0]["first_plan_availed_at"]
+        customer_store.assign_subscription("+919876543299", "YEARLY", now.isoformat(),
+                                            (now + timedelta(days=365)).isoformat())
+        refreshed = customer_store.list_marketing_customers(search="+919876543299")[0]
     assert refreshed["first_plan_availed_at"] == first_plan_at
-    with customer_store.engine.connect() as conn:
-        assert conn.execute(text("""SELECT COUNT(*) FROM air_customer_subscription_history
+    with tenant_scope(is_admin=True):
+        with customer_store.engine.connect() as conn:
+            assert conn.execute(text("""SELECT COUNT(*) FROM air_customer_subscription_history
             WHERE customer_id='+919876543299'""")).scalar_one() == 2
-    with pytest.raises(Exception):
-        with customer_store.engine.begin() as conn:
-            conn.execute(text("""UPDATE air_access_decision_history SET note='tampered'
+    with tenant_scope(is_admin=True):
+        with pytest.raises(Exception):
+            with customer_store.engine.begin() as conn:
+                conn.execute(text("""UPDATE air_access_decision_history SET note='tampered'
                 WHERE request_id=:request"""), {"request": first["request_id"]})
-    with pytest.raises(Exception):
-        with customer_store.engine.begin() as conn:
-            conn.execute(text("""UPDATE air_customer_subscription_history SET plan_code='DAILY'
+    with tenant_scope(is_admin=True):
+        with pytest.raises(Exception):
+            with customer_store.engine.begin() as conn:
+                conn.execute(text("""UPDATE air_customer_subscription_history SET plan_code='DAILY'
                 WHERE customer_id='+919876543299'"""))
-    with pytest.raises(Exception):
-        with customer_store.engine.begin() as conn:
-            conn.execute(text("""DELETE FROM air_customer_subscription_history
+    with tenant_scope(is_admin=True):
+        with pytest.raises(Exception):
+            with customer_store.engine.begin() as conn:
+                conn.execute(text("""DELETE FROM air_customer_subscription_history
                 WHERE customer_id='+919876543299'"""))
 
 
@@ -161,10 +199,49 @@ def test_offer_requires_approval_and_can_be_revoked(customer_store):
         "New customers only", "admin-1",
     )
     assert offer["status"] == "DRAFT"
+    with tenant_scope(is_admin=True):
+        with customer_store.engine.connect() as conn:
+            audit_tenant = conn.execute(text("""
+                SELECT tenant_id FROM air_marketing_audit
+                WHERE actor_customer_id='admin-1'
+                  AND action='MARKETING_OFFER_CREATED'
+                  AND target_id=:offer_id
+            """), {"offer_id": offer["offer_id"]}).scalar_one()
+    assert audit_tenant == "00000000-0000-4000-8000-000000000000"
     approved = customer_store.approve_marketing_offer(offer["offer_id"], "super-admin-1")
     assert approved["status"] == "APPROVED"
     assert customer_store.revoke_marketing_offer(offer["offer_id"], "super-admin-1")
     assert customer_store.get_marketing_offer(offer["offer_id"])["status"] == "REVOKED"
+
+
+def test_tenant_registry_records_provisioning_before_activation(customer_store):
+    from app.tenant_provisioning import TenantRegistry
+
+    registry = TenantRegistry(database_url=os.environ["AIR_TEST_CUSTOMER_DATABASE_URL"])
+    try:
+        tenant = registry.create_or_update_tenant(
+            owner_customer_id="+919876543240",
+            name="AIR SaaS Provisioning Acceptance",
+            plan_code="PAID",
+            status="PROVISIONING",
+        )
+        assert tenant["status"] == "PROVISIONING"
+        provisioned = registry.record_aws_provisioning(
+            tenant["tenant_id"],
+            {
+                "status": "PROVISIONED",
+                "storage": {"provider": "s3", "bucket": "air-tenant-test"},
+                "messaging": {"provider": "amazon_mq_rabbitmq", "vhost": tenant["rabbitmq_vhost"]},
+                "credentials_secret_arn": "arn:aws:secretsmanager:ap-south-1:123456789012:secret:air/tenants/test",
+            },
+            status="ACTIVE",
+        )
+        assert provisioned["status"] == "ACTIVE"
+        assert provisioned["provisioned_at"] is not None
+        assert provisioned["metadata_json"]["aws_provisioning"]["status"] == "PROVISIONED"
+        assert provisioned["metadata_json"]["aws_provisioning"]["storage"]["bucket"] == "air-tenant-test"
+    finally:
+        registry.close()
 
 
 def test_state_persists_after_store_recreation(customer_store):
@@ -261,3 +338,106 @@ def test_sqlite_migration_is_idempotent_and_preserves_all_customer_rows(customer
                 assert conn.execute(text("SELECT COUNT(*) FROM air_marketing_audit WHERE event_id='event-1'")).scalar_one() == 1
         finally:
             engine.dispose()
+
+
+
+def test_postgres_tenant_isolation_survives_pool_reuse_and_concurrent_requests(customer_store):
+    """RLS must isolate two tenants on a reused connection and under concurrency."""
+    url = os.environ["AIR_TEST_CUSTOMER_DATABASE_URL"]
+    customer_a = "+919876543221"
+    customer_b = "+919876543222"
+    customer_store.request_access(customer_a, "tenant-a-device-0001")
+    customer_store.request_access(customer_b, "tenant-b-device-0001")
+    tenant_a = customer_store.tenant_for_customer(customer_a)
+    tenant_b = customer_store.tenant_for_customer(customer_b)
+    assert tenant_a and tenant_b and tenant_a != tenant_b
+
+    # A one-connection pool forces tenant A and tenant B to reuse the same
+    # physical PostgreSQL connection. before_cursor_execute must reset all
+    # three AIR GUCs before every statement.
+    # The CI database owner is a PostgreSQL superuser, which bypasses RLS even
+    # with FORCE ROW LEVEL SECURITY. Execute the acceptance checks as a separate
+    # least-privilege role so the test actually exercises PostgreSQL policies.
+    role_engine = create_engine(url, pool_pre_ping=True)
+    try:
+        with role_engine.begin() as conn:
+            conn.execute(text("""
+                DO $role$
+                BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='air_tenant_rls_test') THEN
+                        CREATE ROLE air_tenant_rls_test NOLOGIN NOSUPERUSER NOCREATEDB
+                            NOCREATEROLE NOINHERIT NOBYPASSRLS;
+                    END IF;
+                END;
+                $role$
+            """))
+            conn.execute(text("ALTER ROLE air_tenant_rls_test NOSUPERUSER NOBYPASSRLS"))
+            conn.execute(text("GRANT USAGE ON SCHEMA public TO air_tenant_rls_test"))
+            conn.execute(text("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO air_tenant_rls_test"))
+            conn.execute(text("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO air_tenant_rls_test"))
+    finally:
+        role_engine.dispose()
+
+    pooled_engine = create_engine(url, pool_size=1, max_overflow=0, pool_pre_ping=True)
+    install_tenant_context(pooled_engine)
+
+    def _assume_rls_role(connection, cursor, statement, parameters, context, executemany):
+        cursor.execute("SET ROLE air_tenant_rls_test")
+
+    event.listen(pooled_engine, "before_cursor_execute", _assume_rls_role, insert=True)
+    try:
+        for customer, tenant in ((customer_a, tenant_a), (customer_b, tenant_b)):
+            with tenant_scope(tenant_id=tenant, customer_id=customer):
+                with pooled_engine.connect() as conn:
+                    visible = conn.execute(text(
+                        "SELECT DISTINCT mobile_e164 FROM air_access_requests ORDER BY mobile_e164"
+                    )).scalars().all()
+            assert visible == [customer]
+
+        # Missing tenant context must fail closed for customer-owned rows.
+        with tenant_scope():
+            with pooled_engine.connect() as conn:
+                assert conn.execute(text(
+                    "SELECT COUNT(*) FROM air_access_requests"
+                )).scalar_one() == 0
+
+        # A tenant cannot create a row for another tenant, even when it knows
+        # the other customer's mobile number.
+        with tenant_scope(tenant_id=tenant_b, customer_id=customer_b):
+            with pytest.raises(Exception, match="tenant context mismatch"):
+                with pooled_engine.begin() as conn:
+                    conn.execute(text("""
+                        INSERT INTO air_access_requests
+                            (request_id,mobile_e164,device_id,status)
+                        VALUES ('cross-tenant-write',:customer,'cross-tenant-device','PENDING')
+                    """), {"customer": customer_a})
+    finally:
+        pooled_engine.dispose()
+
+    # Exercise simultaneous tenant scopes on separate pooled connections.
+    concurrent_engine = create_engine(url, pool_size=2, max_overflow=0, pool_pre_ping=True)
+    install_tenant_context(concurrent_engine)
+    event.listen(concurrent_engine, "before_cursor_execute", _assume_rls_role, insert=True)
+    barrier = Barrier(2)
+
+    def read_only_tenant(customer: str, tenant: str) -> list[str]:
+        observed = []
+        with tenant_scope(tenant_id=tenant, customer_id=customer):
+            barrier.wait(timeout=10)
+            for _ in range(20):
+                with concurrent_engine.connect() as conn:
+                    rows = conn.execute(text(
+                        "SELECT DISTINCT mobile_e164 FROM air_access_requests ORDER BY mobile_e164"
+                    )).scalars().all()
+                assert rows == [customer]
+                observed.extend(rows)
+        return observed
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            future_a = executor.submit(read_only_tenant, customer_a, tenant_a)
+            future_b = executor.submit(read_only_tenant, customer_b, tenant_b)
+            assert future_a.result(timeout=30) == [customer_a] * 20
+            assert future_b.result(timeout=30) == [customer_b] * 20
+    finally:
+        concurrent_engine.dispose()

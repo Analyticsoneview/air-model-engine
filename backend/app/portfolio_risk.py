@@ -14,6 +14,8 @@ from typing import Any
 from uuid import uuid4
 
 from app.db_compat import PostgresConnection, read_database_url
+from app.tenant_context import connection_customer_scope
+from functools import wraps
 
 
 def _first(row: dict, keys: tuple[str, ...]) -> Any:
@@ -163,6 +165,14 @@ def build_portfolio_snapshot(payload: dict, broker: str, account_id: str) -> dic
     }
 
 
+def _customer_scoped(method):
+    @wraps(method)
+    def wrapped(self, customer_id, *args, **kwargs):
+        with connection_customer_scope(self.db, customer_id):
+            return method(self, customer_id, *args, **kwargs)
+    return wrapped
+
+
 class PortfolioRiskStore:
     def __init__(self, db_path: str | None = None):
         url = None if db_path is not None else (read_database_url("AIR_CUSTOMER_DATABASE_URL") or read_database_url("AIR_DATABASE_URL"))
@@ -195,6 +205,7 @@ class PortfolioRiskStore:
                 ON air_portfolio_snapshots(customer_id,captured_at DESC)""")
             self.db.commit()
 
+    @_customer_scoped
     def save(self, customer_id: str, snapshot: dict) -> str:
         snapshot_id = str(uuid4())
         with self.db:
@@ -224,6 +235,7 @@ class PortfolioRiskStore:
             "holdings": json.loads(row["holdings_json"]),
         }
 
+    @_customer_scoped
     def latest(self, customer_id: str) -> list[dict]:
         rows = self.db.execute("""SELECT * FROM air_portfolio_snapshots
             WHERE customer_id=? ORDER BY captured_at DESC,created_at DESC LIMIT 5000""", (customer_id,)).fetchall()
@@ -233,6 +245,7 @@ class PortfolioRiskStore:
             latest_by_account.setdefault(key, self._decode(row))
         return list(latest_by_account.values())
 
+    @_customer_scoped
     def drawdowns(self, customer_id: str) -> dict[tuple[str, str], float]:
         rows = self.db.execute("""SELECT broker,account_id,captured_at,summary_json
             FROM air_portfolio_snapshots WHERE customer_id=?
@@ -265,6 +278,7 @@ class PortfolioRiskStore:
             result[key] = round(max_drawdown, 2)
         return result
 
+    @_customer_scoped
     def history(self, customer_id: str, limit: int = 100) -> list[dict]:
         rows = self.db.execute("""SELECT snapshot_id,broker,account_id,captured_at,summary_json
             FROM air_portfolio_snapshots WHERE customer_id=?
@@ -276,6 +290,7 @@ class PortfolioRiskStore:
             "summary": json.loads(row["summary_json"]),
         } for row in rows]
 
+    @_customer_scoped
     def overview(self, customer_id: str) -> dict:
         accounts = self.latest(customer_id)
         summaries = [item["summary"] for item in accounts]

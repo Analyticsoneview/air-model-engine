@@ -12,7 +12,7 @@ import socket
 import threading
 import time
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from datetime import datetime, timezone
 
 import pika
@@ -21,6 +21,7 @@ from app.deployment_profiles import load_runtime_profile
 from app.workflow_engine import WorkflowStore
 from app.workflow_executor import execute_workflow_run
 from app.workflow_alerts import deliver_runtime_alerts, evaluate_runtime_alerts
+from app.tenant_context import tenant_scope
 
 log = logging.getLogger("air.workflow.worker")
 EXCHANGE = "air.events"
@@ -30,6 +31,7 @@ DEAD_QUEUE = "air.workflow.dead"
 WORKER_ID = f"{socket.gethostname()}:{os.getpid()}"
 WORKER_STARTED_AT = datetime.now(timezone.utc).isoformat()
 _CONSUMER_CONNECTED = False
+_TENANT_RABBITMQ_URLS: dict[str, str] = {}
 
 
 def _rabbit_url() -> str:
@@ -47,8 +49,47 @@ def _rabbit_url() -> str:
     return f"amqp://{user}:{quote(password, safe='')}@{host}:{port}/{vhost}"
 
 
-def _connection() -> pika.BlockingConnection:
-    params = pika.URLParameters(_rabbit_url())
+def _tenant_rabbit_url(tenant_id: str) -> str:
+    from app.tenant_provisioning import TenantRegistry
+    registry = TenantRegistry()
+    try:
+        tenant = registry.get_tenant(tenant_id)
+    finally:
+        registry.close()
+    if tenant.get("status") != "ACTIVE":
+        raise RuntimeError("Tenant is not ACTIVE; workflow outbox remains deferred")
+    metadata = tenant.get("metadata_json") or {}
+    if isinstance(metadata, str):
+        metadata = json.loads(metadata)
+    provisioning = metadata.get("aws_provisioning") or {}
+    if provisioning.get("status") != "PROVISIONED":
+        raise RuntimeError("Tenant RabbitMQ vhost is not provisioned; workflow outbox remains deferred")
+    cached = _TENANT_RABBITMQ_URLS.get(tenant_id)
+    if cached:
+        return cached
+    secret_arn = provisioning.get("credentials_secret_arn")
+    if not secret_arn:
+        raise RuntimeError("Tenant RabbitMQ credentials secret is missing")
+    import boto3
+    region = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION")
+    secret = boto3.client("secretsmanager", region_name=region).get_secret_value(SecretId=secret_arn)
+    credentials = json.loads(secret["SecretString"])
+    base = urlsplit(_rabbit_url())
+    host = base.hostname
+    port = base.port or (5671 if base.scheme == "amqps" else 5672)
+    if not host:
+        raise RuntimeError("AIR_RABBITMQ_URL does not contain a broker hostname")
+    username = quote(str(credentials["rabbitmq_username"]), safe="")
+    password = quote(str(credentials["rabbitmq_password"]), safe="")
+    vhost = quote(str(tenant["rabbitmq_vhost"]), safe="")
+    url = f"{base.scheme}://{username}:{password}@{host}:{port}/{vhost}"
+    _TENANT_RABBITMQ_URLS[tenant_id] = url
+    return url
+
+
+def _connection(tenant_id: str | None = None) -> pika.BlockingConnection:
+    connection_url = _tenant_rabbit_url(tenant_id) if tenant_id else _rabbit_url()
+    params = pika.URLParameters(connection_url)
     params.heartbeat = 30
     params.blocked_connection_timeout = 30
     params.connection_attempts = 3
@@ -132,12 +173,14 @@ def _publish_batch(store: WorkflowStore, channel, items: list[dict]) -> None:
             )
             if confirmed is False:
                 raise RuntimeError("RabbitMQ did not confirm event publication")
-            store.mark_outbox_published(item["outbox_id"])
+            with tenant_scope(is_admin=True):
+                store.mark_outbox_published(item["outbox_id"])
         except Exception as exc:
             # Do not reset already-confirmed rows to PENDING when a later item
             # fails. The stable event ID and database uniqueness make any
             # unavoidable confirm/commit redelivery safe.
-            store.mark_outbox_failed(item["outbox_id"], item.get("attempts", 0), type(exc).__name__)
+            with tenant_scope(is_admin=True):
+                store.mark_outbox_failed(item["outbox_id"], item.get("attempts", 0), type(exc).__name__)
             log.warning("Workflow outbox item %s deferred after %s",
                         item.get("outbox_id"), type(exc).__name__)
 
@@ -151,28 +194,39 @@ def _publish_outbox(stop: threading.Event) -> None:
                 # start first, so database/schema availability must be retried.
                 if store is None:
                     store = WorkflowStore()
-                items = store.pending_outbox(100)
+                with tenant_scope(is_admin=True):
+                    items = store.pending_outbox(100)
                 if not items:
                     stop.wait(1.0)
                     continue
-                connection = None
-                try:
-                    connection = _connection()
-                    channel = connection.channel()
-                    _declare(channel)
-                    channel.confirm_delivery()
-                    _publish_batch(store, channel, items)
-                except Exception as exc:
-                    log.warning("Workflow outbox publish deferred: %s", type(exc).__name__)
-                    for item in items:
-                        try:
-                            store.mark_outbox_failed(item["outbox_id"], item["attempts"], type(exc).__name__)
-                        except Exception:
-                            log.exception("Could not update workflow outbox retry state")
-                    stop.wait(2.0)
-                finally:
-                    if connection and connection.is_open:
-                        connection.close()
+                grouped: dict[str | None, list[dict]] = {}
+                for item in items:
+                    grouped.setdefault(item.get("tenant_id"), []).append(item)
+                for tenant_id, tenant_items in grouped.items():
+                    connection = None
+                    try:
+                        connection = _connection(tenant_id)
+                        channel = connection.channel()
+                        _declare(channel)
+                        channel.confirm_delivery()
+                        _publish_batch(store, channel, tenant_items)
+                    except Exception as exc:
+                        message = str(exc)
+                        log.warning("Workflow outbox publish deferred for tenant %s: %s",
+                                    tenant_id or "SYSTEM", type(exc).__name__)
+                        # A suspended or not-yet-provisioned tenant retains pending
+                        # outbox rows; it must not exhaust retry attempts while offline.
+                        if "outbox remains deferred" not in message:
+                            for item in tenant_items:
+                                try:
+                                    with tenant_scope(is_admin=True):
+                                        store.mark_outbox_failed(item["outbox_id"], item["attempts"], type(exc).__name__)
+                                except Exception:
+                                    log.exception("Could not update workflow outbox retry state")
+                        stop.wait(2.0)
+                    finally:
+                        if connection and connection.is_open:
+                            connection.close()
             except Exception as exc:
                 log.warning("Workflow outbox runtime will retry after %s", type(exc).__name__)
                 if store is not None:
@@ -195,8 +249,11 @@ def _schedule_time_triggers(stop: threading.Event) -> None:
                 # Retry until the API has completed the workflow migrations.
                 if store is None:
                     store = WorkflowStore()
-                for item in store.due_time_workflows():
-                    store.publish_event(
+                with tenant_scope(is_admin=True):
+                    due_items = store.due_time_workflows()
+                for item in due_items:
+                    with tenant_scope(is_admin=True):
+                        store.publish_event(
                         event_type="workflow.time.triggered", source="workflow.scheduler",
                         payload={"workflow_id": item["workflow_id"], "workflow_name": item["name"],
                                  "customer_id": item.get("customer_id"),
@@ -224,27 +281,30 @@ def _execute_claim_with_heartbeat(store: WorkflowStore, claim: dict) -> dict | N
     lease_lost = threading.Event()
     run_id = claim["run_id"]
     claim_version = claim["claim_version"]
+    tenant_id = claim.get("tenant_id")
+    customer_id = claim.get("customer_id")
 
     def maintain_lease() -> None:
         heartbeat_store = None
         try:
-            heartbeat_store = WorkflowStore()
-            while not stop_heartbeat.is_set():
-                try:
-                    renewed = heartbeat_store.renew_run_lease(
-                        run_id, WORKER_ID, claim_version, lease_seconds=60,
-                    )
-                    if not renewed:
-                        current = heartbeat_store.run_context(run_id)
-                        if current and current.get("status") in {"SUCCEEDED", "FAILED", "CANCELLED"}:
+            with tenant_scope(tenant_id=tenant_id, customer_id=customer_id):
+                heartbeat_store = WorkflowStore()
+                while not stop_heartbeat.is_set():
+                    try:
+                        renewed = heartbeat_store.renew_run_lease(
+                            run_id, WORKER_ID, claim_version, lease_seconds=60,
+                        )
+                        if not renewed:
+                            current = heartbeat_store.run_context(run_id)
+                            if current and current.get("status") in {"SUCCEEDED", "FAILED", "CANCELLED"}:
+                                return
+                            lease_lost.set()
                             return
-                        lease_lost.set()
+                    except Exception as exc:
+                        log.warning("Workflow run %s lease heartbeat retrying after %s",
+                                    run_id, type(exc).__name__)
+                    if stop_heartbeat.wait(15.0):
                         return
-                except Exception as exc:
-                    log.warning("Workflow run %s lease heartbeat retrying after %s",
-                                run_id, type(exc).__name__)
-                if stop_heartbeat.wait(15.0):
-                    return
         except Exception as exc:
             log.warning("Workflow run %s lease heartbeat unavailable (%s)",
                         run_id, type(exc).__name__)
@@ -257,9 +317,10 @@ def _execute_claim_with_heartbeat(store: WorkflowStore, claim: dict) -> dict | N
     )
     heartbeat.start()
     try:
-        result = execute_workflow_run(
-            store, run_id, worker_id=WORKER_ID, claim_version=claim_version,
-        )
+        with tenant_scope(tenant_id=tenant_id, customer_id=customer_id):
+            result = execute_workflow_run(
+                store, run_id, worker_id=WORKER_ID, claim_version=claim_version,
+            )
         if lease_lost.is_set():
             raise RuntimeError("Workflow run lease was lost while executing")
         return result
@@ -275,13 +336,15 @@ def _execute_runs(stop: threading.Event) -> None:
             try:
                 if store is None:
                     store = WorkflowStore()
-                claims = store.claim_runnable_runs(WORKER_ID, 20, lease_seconds=60)
+                with tenant_scope(is_admin=True):
+                    claims = store.claim_runnable_runs(WORKER_ID, 20, lease_seconds=60)
                 for claim in claims:
                     if stop.is_set():
-                        store.release_run_claim(
-                            claim["run_id"], WORKER_ID, claim["claim_version"],
-                            "Worker shutting down before execution",
-                        )
+                        with tenant_scope(is_admin=True):
+                            store.release_run_claim(
+                                claim["run_id"], WORKER_ID, claim["claim_version"],
+                                "Worker shutting down before execution",
+                            )
                         continue
                     try:
                         result = _execute_claim_with_heartbeat(store, claim)
@@ -292,10 +355,11 @@ def _execute_runs(stop: threading.Event) -> None:
                         log.exception("AIR workflow run %s executor iteration failed (%s)",
                                       claim["run_id"], type(exc).__name__)
                         try:
-                            store.release_run_claim(
-                                claim["run_id"], WORKER_ID, claim["claim_version"],
-                                f"{type(exc).__name__}: {str(exc)[:800]}",
-                            )
+                            with tenant_scope(is_admin=True):
+                                store.release_run_claim(
+                                    claim["run_id"], WORKER_ID, claim["claim_version"],
+                                    f"{type(exc).__name__}: {str(exc)[:800]}",
+                                )
                         except Exception:
                             log.exception("Could not release workflow run claim %s", claim["run_id"])
                 stop.wait(1.0 if claims else 2.0)
@@ -313,13 +377,13 @@ def _execute_runs(stop: threading.Event) -> None:
             store.close()
 
 
-def _consume(stop: threading.Event) -> None:
+def _consume_vhost(stop: threading.Event, tenant_id: str | None = None) -> None:
     global _CONSUMER_CONNECTED
     while not stop.is_set():
         connection = None
         store = None
         try:
-            connection = _connection()
+            connection = _connection(tenant_id)
             channel = connection.channel()
             _declare(channel)
             _CONSUMER_CONNECTED = True
@@ -333,7 +397,8 @@ def _consume(stop: threading.Event) -> None:
                     event_id = str(message.get("event_id") or properties.message_id or "")
                     if not event_id:
                         raise ValueError("RabbitMQ event has no event_id")
-                    runs = store.process_event(event_id)
+                    with tenant_scope(is_admin=True):
+                        runs = store.process_event(event_id)
                     log.info("Processed workflow event %s; matched %d workflow(s)", event_id, len(runs))
                     ch.basic_ack(delivery_tag=method.delivery_tag)
                 except Exception:
@@ -361,6 +426,62 @@ def _consume(stop: threading.Event) -> None:
 
 
 
+def _consume(stop: threading.Event) -> None:
+    """Run one system consumer plus one isolated consumer per provisioned SaaS tenant."""
+    profile = load_runtime_profile()
+    if profile["profile_id"] != "aws-saas-multi":
+        _consume_vhost(stop)
+        return
+
+    global_thread = threading.Thread(
+        target=_consume_vhost, args=(stop, None), name="workflow-consumer-system", daemon=True,
+    )
+    tenant_threads: dict[str, tuple[threading.Event, threading.Thread]] = {}
+    global_thread.start()
+    try:
+        while not stop.is_set():
+            try:
+                from app.tenant_provisioning import TenantRegistry
+                registry = TenantRegistry()
+                try:
+                    tenants = registry.list_tenants(status="ACTIVE", limit=500)
+                finally:
+                    registry.close()
+                active_ids = set()
+                for tenant in tenants:
+                    metadata = tenant.get("metadata_json") or {}
+                    if isinstance(metadata, str):
+                        metadata = json.loads(metadata)
+                    provisioning = metadata.get("aws_provisioning") or {}
+                    if provisioning.get("status") != "PROVISIONED":
+                        continue
+                    tenant_id = str(tenant["tenant_id"])
+                    active_ids.add(tenant_id)
+                    if tenant_id not in tenant_threads:
+                        tenant_stop = threading.Event()
+                        thread = threading.Thread(
+                            target=_consume_vhost, args=(tenant_stop, tenant_id),
+                            name=f"workflow-consumer-{tenant_id[:8]}", daemon=True,
+                        )
+                        tenant_threads[tenant_id] = (tenant_stop, thread)
+                        thread.start()
+                for tenant_id in list(tenant_threads):
+                    if tenant_id not in active_ids:
+                        tenant_stop, thread = tenant_threads.pop(tenant_id)
+                        tenant_stop.set()
+                        thread.join(timeout=5.0)
+                        _TENANT_RABBITMQ_URLS.pop(tenant_id, None)
+            except Exception as exc:
+                log.warning("Tenant RabbitMQ consumer registry refresh deferred: %s", type(exc).__name__)
+            stop.wait(15.0)
+    finally:
+        for tenant_stop, thread in tenant_threads.values():
+            tenant_stop.set()
+            thread.join(timeout=5.0)
+        if global_thread.is_alive():
+            global_thread.join(timeout=5.0)
+
+
 def _monitor_runtime(stop: threading.Event) -> None:
     """Poll durable runtime state and notify configured AIR operations destinations."""
     while not stop.is_set():
@@ -383,10 +504,11 @@ def _monitor_runtime(stop: threading.Event) -> None:
                     "detail": "The workflow operations monitor cannot reach RabbitMQ; event delivery may be delayed.",
                 }]
             else:
-                alerts = evaluate_runtime_alerts(
-                    store, dispatch_depth=dispatch_depth,
-                    dead_letter_depth=dead_letter_depth,
-                )
+                with tenant_scope(is_admin=True):
+                    alerts = evaluate_runtime_alerts(
+                        store, dispatch_depth=dispatch_depth,
+                        dead_letter_depth=dead_letter_depth,
+                    )
             if alerts:
                 result = deliver_runtime_alerts(alerts)
                 log.warning("Workflow runtime alerts evaluated=%d attempted=%d delivered=%d",
@@ -404,10 +526,11 @@ def _monitor_runtime(stop: threading.Event) -> None:
 def _record_heartbeat(status: str, details: dict) -> None:
     store = WorkflowStore()
     try:
-        store.record_worker_heartbeat(
-            worker_id=WORKER_ID, component="workflow-runtime", status=status,
-            details=details, started_at=WORKER_STARTED_AT,
-        )
+        with tenant_scope(is_admin=True):
+            store.record_worker_heartbeat(
+                worker_id=WORKER_ID, component="workflow-runtime", status=status,
+                details=details, started_at=WORKER_STARTED_AT,
+            )
     finally:
         store.close()
 

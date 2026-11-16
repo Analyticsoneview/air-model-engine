@@ -13,6 +13,8 @@ from uuid import uuid4
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
+from app.tenant_context import install_tenant_context, tenant_scope, customer_tenant_scope
+from functools import wraps
 
 
 _E164 = re.compile(r"^\+[1-9][0-9]{7,14}$")
@@ -20,6 +22,22 @@ _PLANS = {"DAILY", "MONTHLY", "SIX_MONTHS", "YEARLY"}
 _SEGMENTS = {"ALL", "NEVER_SUBSCRIBED", "EXPIRED", "ACTIVE", "CANCELLED",
              "INACTIVE", "PENDING_ACCESS", "OPTED_OUT", "NOT_GRANTED"}
 _OFFER_STATUSES = {"DRAFT", "APPROVED", "REVOKED"}
+
+
+def _customer_scoped(method):
+    @wraps(method)
+    def wrapped(self, customer_id, *args, **kwargs):
+        with customer_tenant_scope(self.engine, customer_id):
+            return method(self, customer_id, *args, **kwargs)
+    return wrapped
+
+
+def _admin_scoped(method):
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        with tenant_scope(is_admin=True):
+            return method(self, *args, **kwargs)
+    return wrapped
 
 
 class PostgresAccessStore:
@@ -33,6 +51,7 @@ class PostgresAccessStore:
             ):
                 raise RuntimeError("AIR_CUSTOMER_DATABASE_URL must be configured with PostgreSQL")
             engine = create_engine(database_url, pool_pre_ping=True, future=True)
+        install_tenant_context(engine)
         self.engine = engine
 
     @staticmethod
@@ -66,30 +85,72 @@ class PostgresAccessStore:
         device = device_id.strip()
         if not device or len(device) > 128:
             raise ValueError("A valid device identifier is required")
-        with self.engine.begin() as conn:
-            conn.execute(text("""INSERT INTO air_access_requests
-                (request_id,mobile_e164,device_id,status)
-                VALUES(:id,:mobile,:device,'PENDING')
-                ON CONFLICT(mobile_e164,device_id) DO NOTHING"""),
-                {"id": str(uuid4()), "mobile": mobile, "device": device})
-            row = conn.execute(text("""SELECT request_id,mobile_e164,device_id,status,
-                created_at,reviewed_at,reviewer_note FROM air_access_requests
-                WHERE mobile_e164=:mobile AND device_id=:device"""),
-                {"mobile": mobile, "device": device}).mappings().one()
-            conn.execute(text("""INSERT INTO air_customer_lifecycle(customer_id,first_registered_at)
-                VALUES(:customer,CAST(:registered AS timestamptz))
-                ON CONFLICT(customer_id) DO UPDATE SET
-                first_registered_at=LEAST(air_customer_lifecycle.first_registered_at,EXCLUDED.first_registered_at),
-                updated_at=CURRENT_TIMESTAMP"""),
-                {"customer": mobile, "registered": row["created_at"]})
+        with tenant_scope(customer_id=mobile):
+            with self.engine.begin() as conn:
+                membership = conn.execute(text("""SELECT m.tenant_id,m.status
+                    FROM air_tenant_members m WHERE m.customer_id=:customer"""),
+                    {"customer": mobile}).mappings().first()
+                if membership and membership["status"] != "ACTIVE":
+                    raise PermissionError("Customer tenant membership is not active")
+                tenant_id = membership["tenant_id"] if membership else str(uuid4())
+                if not membership:
+                    conn.execute(text("""INSERT INTO air_tenants
+                        (tenant_id,name,owner_customer_id,plan_code,status,storage_prefix,rabbitmq_vhost,
+                         max_members,max_api_calls_per_day,max_storage_bytes)
+                        VALUES(:tenant,:name,:owner,'STANDARD','ACTIVE',:prefix,:vhost,1,10000,1073741824)"""),
+                        {"tenant": tenant_id, "name": "AIR " + mobile, "owner": mobile,
+                         "prefix": f"tenants/{tenant_id}/",
+                         "vhost": "air-" + tenant_id.replace("-", "")})
+                    conn.execute(text("""INSERT INTO air_tenant_members
+                        (tenant_id,customer_id,role,status)
+                        VALUES(:tenant,:customer,'OWNER','ACTIVE')"""),
+                        {"tenant": tenant_id, "customer": mobile})
+                with tenant_scope(tenant_id=tenant_id, customer_id=mobile):
+                    conn.execute(text("""INSERT INTO air_access_requests
+                        (request_id,mobile_e164,device_id,status)
+                        VALUES(:id,:mobile,:device,'PENDING')
+                        ON CONFLICT(mobile_e164,device_id) DO NOTHING"""),
+                        {"id": str(uuid4()), "mobile": mobile, "device": device})
+                    row = conn.execute(text("""SELECT request_id,mobile_e164,device_id,status,
+                        created_at,reviewed_at,reviewer_note FROM air_access_requests
+                        WHERE mobile_e164=:mobile AND device_id=:device"""),
+                        {"mobile": mobile, "device": device}).mappings().one()
+                    conn.execute(text("""INSERT INTO air_customer_lifecycle(customer_id,first_registered_at)
+                        VALUES(:customer,CAST(:registered AS timestamptz))
+                        ON CONFLICT(customer_id) DO UPDATE SET
+                        first_registered_at=LEAST(air_customer_lifecycle.first_registered_at,EXCLUDED.first_registered_at),
+                        updated_at=CURRENT_TIMESTAMP"""),
+                        {"customer": mobile, "registered": row["created_at"]})
         return dict(row)
 
+    def tenant_for_customer(self, customer_id: str) -> str | None:
+        customer = self.validate_mobile(customer_id)
+        with tenant_scope(customer_id=customer):
+            with self.engine.connect() as conn:
+                member = conn.execute(text("""SELECT tenant_id FROM air_tenant_members
+                    WHERE customer_id=:customer AND status='ACTIVE'"""),
+                    {"customer": customer}).first()
+        if not member:
+            return None
+        tenant_id = member[0]
+        with tenant_scope(tenant_id=tenant_id, customer_id=customer):
+            with self.engine.connect() as conn:
+                active = conn.execute(text("""SELECT 1 FROM air_tenants
+                    WHERE tenant_id=:tenant AND status='ACTIVE'"""),
+                    {"tenant": tenant_id}).first()
+        return tenant_id if active else None
+
     def get_request(self, mobile_e164: str, device_id: str):
-        with self.engine.connect() as conn:
-            row = conn.execute(text("""SELECT request_id,mobile_e164,device_id,status,
-                created_at,reviewed_at,reviewer_note FROM air_access_requests
-                WHERE mobile_e164=:mobile AND device_id=:device"""),
-                {"mobile": mobile_e164.strip(), "device": device_id.strip()}).mappings().first()
+        mobile = self.validate_mobile(mobile_e164)
+        tenant_id = self.tenant_for_customer(mobile)
+        if not tenant_id:
+            return None
+        with tenant_scope(tenant_id=tenant_id, customer_id=mobile):
+            with self.engine.connect() as conn:
+                row = conn.execute(text("""SELECT request_id,mobile_e164,device_id,status,
+                    created_at,reviewed_at,reviewer_note FROM air_access_requests
+                    WHERE mobile_e164=:mobile AND device_id=:device"""),
+                    {"mobile": mobile, "device": device_id.strip()}).mappings().first()
         return self._dict(row)
 
     def mobile_for_request_id(self, request_id: str) -> str | None:
@@ -97,6 +158,7 @@ class PostgresAccessStore:
             return conn.execute(text("SELECT mobile_e164 FROM air_access_requests WHERE request_id=:id"),
                                 {"id": request_id}).scalar_one_or_none()
 
+    @_admin_scoped
     def list_requests(self, status: str | None = None):
         statement = """SELECT r.request_id,r.mobile_e164,r.device_id,r.status,r.created_at,r.reviewed_at,
             r.reviewer_note,CASE WHEN r.request_id=(SELECT r2.request_id FROM air_access_requests r2
@@ -127,6 +189,7 @@ class PostgresAccessStore:
                 WHERE request_id=:id ORDER BY decided_at,decision_id"""), {"id": request_id}).mappings().all()
         return [dict(row) for row in rows]
 
+    @_admin_scoped
     def list_decisions(self, start_date: str | None = None, end_date: str | None = None):
         clauses, params = [], {}
         if start_date: clauses.append("decided_at::date >= CAST(:start_date AS date)"); params["start_date"] = start_date
@@ -138,6 +201,7 @@ class PostgresAccessStore:
                 where + " ORDER BY decided_at DESC,decision_id DESC"), params).mappings().all()
         return [dict(row) for row in rows]
 
+    @_admin_scoped
     def review(self, request_id: str, status: str, note: str = "", reviewer_admin_id: str = "",
                reviewer_role: str = "", totp_counter: int = -1, verification_reference: str | None = None,
                totp_verified_at=None, request_context: dict | None = None) -> bool:
@@ -183,6 +247,7 @@ class PostgresAccessStore:
                     conn.execute(text("UPDATE air_device_sessions SET active=false WHERE request_id=:id"), {"id": request_id})
         return result.rowcount > 0
 
+    @_admin_scoped
     def create_session(self, request_id: str) -> str:
         session_id = str(uuid4())
         with self.engine.begin() as conn:
@@ -201,6 +266,7 @@ class PostgresAccessStore:
                 {"sid": session_id}).first()
         return bool(row and row.active and row.status == "APPROVED")
 
+    @_admin_scoped
     def assign_subscription(self, customer_id: str, plan_code: str, starts_at: str, expires_at: str, assigned_by_admin_id: str | None = None):
         plan = plan_code.upper()
         if plan not in _PLANS:
@@ -234,6 +300,7 @@ class PostgresAccessStore:
                 updated_at=CURRENT_TIMESTAMP"""),
                 {"customer_id": customer_id, "mobile": customer_id, "assigned_at": assigned_at})
 
+    @_customer_scoped
     def get_subscription(self, customer_id: str):
         with self.engine.connect() as conn:
             row = conn.execute(text("""SELECT customer_id,plan_code,starts_at,expires_at,status
@@ -274,6 +341,7 @@ class PostgresAccessStore:
                 subscription["status"] = "EXPIRED"
         return subscription, dict(pref) if pref else None
 
+    @_admin_scoped
     def list_marketing_customers(self, segment: str = "ALL", search: str = "", limit: int = 200):
         segment = segment.upper()
         if segment not in _SEGMENTS:
@@ -324,6 +392,7 @@ class PostgresAccessStore:
                 if len(result) >= limit: break
         return result
 
+    @_customer_scoped
     def get_marketing_consent(self, customer_id: str):
         with self.engine.connect() as conn:
             row = conn.execute(text("""SELECT promotional_consent,consent_updated_at
@@ -334,6 +403,7 @@ class PostgresAccessStore:
                 "marketing_status": "OPTED_IN" if consent else ("OPTED_OUT" if row else "NOT_GRANTED"),
                 "consent_updated_at": row["consent_updated_at"] if row else None}
 
+    @_customer_scoped
     def set_marketing_consent(self, customer_id: str, enabled: bool):
         if not customer_id:
             raise ValueError("Customer identity is required")
@@ -351,6 +421,7 @@ class PostgresAccessStore:
                  "details": "OPTED_IN" if enabled else "OPTED_OUT"})
         return {"customer_id": customer_id, "promotional_consent": bool(enabled)}
 
+    @_admin_scoped
     def marketing_segment_counts(self):
         customers = self.list_marketing_customers("ALL", limit=500)
         counts = {"ALL": len(customers), "NEVER_SUBSCRIBED": 0, "EXPIRED": 0,
@@ -371,6 +442,7 @@ class PostgresAccessStore:
                 counts["ELIGIBLE_FOR_PROMOTIONS"] += 1
         return counts
 
+    @_admin_scoped
     def create_marketing_offer(self, name: str, offer_code: str, plan_code: str,
                                discount_percent: float, starts_at: str, expires_at: str,
                                terms: str, created_by: str):
@@ -417,6 +489,7 @@ class PostgresAccessStore:
             rows = conn.execute(text(query), params).mappings().all()
         return [dict(row) for row in rows]
 
+    @_admin_scoped
     def approve_marketing_offer(self, offer_id: str, approved_by: str):
         from datetime import datetime, timezone
         with self.engine.begin() as conn:
@@ -435,6 +508,7 @@ class PostgresAccessStore:
             self._audit(conn, approved_by, "MARKETING_OFFER_APPROVED", offer_id, "Super Admin approval")
         return self.get_marketing_offer(offer_id)
 
+    @_admin_scoped
     def revoke_marketing_offer(self, offer_id: str, actor: str):
         with self.engine.begin() as conn:
             result = conn.execute(text("""UPDATE air_marketing_offers SET status='REVOKED'

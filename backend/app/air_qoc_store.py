@@ -10,6 +10,7 @@ import sqlite3
 from pathlib import Path
 
 from app.db_compat import PostgresConnection, read_database_url
+from app.tenant_context import current_customer_id, current_tenant_id
 from typing import Any
 
 
@@ -93,30 +94,60 @@ class AirQocStore:
                     _number(item.get("implied_volatility")), observed_at,
                 ))
         with self.db:
-            self.db.executemany("""
-                INSERT INTO option_observations (
-                    provider,account_id,underlying_scrip,underlying_segment,expiry,
-                    underlying_price,strike,option_type,security_id,last_price,previous_close,volume,
-                    previous_volume,open_interest,previous_oi,bid_price,bid_quantity,
-                    ask_price,ask_quantity,implied_volatility,observed_at
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                ON CONFLICT(provider, account_id, underlying_scrip, expiry, strike, option_type, observed_at)
-                DO UPDATE SET
-                    underlying_segment=excluded.underlying_segment,
-                    underlying_price=excluded.underlying_price,
-                    security_id=excluded.security_id,
-                    last_price=excluded.last_price,
-                    previous_close=excluded.previous_close,
-                    volume=excluded.volume,
-                    previous_volume=excluded.previous_volume,
-                    open_interest=excluded.open_interest,
-                    previous_oi=excluded.previous_oi,
-                    bid_price=excluded.bid_price,
-                    bid_quantity=excluded.bid_quantity,
-                    ask_price=excluded.ask_price,
-                    ask_quantity=excluded.ask_quantity,
-                    implied_volatility=excluded.implied_volatility
-            """, rows)
+            if self._is_postgres:
+                customer_id, tenant_id = current_customer_id(), current_tenant_id()
+                if not tenant_id:
+                    raise PermissionError("QOC persistence requires a verified customer tenant context")
+                tenant_rows = [tuple(row) + (customer_id, tenant_id) for row in rows]
+                self.db.executemany("""
+                    INSERT INTO option_observations (
+                        provider,account_id,underlying_scrip,underlying_segment,expiry,
+                        underlying_price,strike,option_type,security_id,last_price,previous_close,volume,
+                        previous_volume,open_interest,previous_oi,bid_price,bid_quantity,
+                        ask_price,ask_quantity,implied_volatility,observed_at,customer_id,tenant_id
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    ON CONFLICT(tenant_id,provider,account_id,underlying_scrip,expiry,strike,option_type,observed_at)
+                    DO UPDATE SET
+                        underlying_segment=excluded.underlying_segment,
+                        underlying_price=excluded.underlying_price,
+                        security_id=excluded.security_id,
+                        last_price=excluded.last_price,
+                        previous_close=excluded.previous_close,
+                        volume=excluded.volume,
+                        previous_volume=excluded.previous_volume,
+                        open_interest=excluded.open_interest,
+                        previous_oi=excluded.previous_oi,
+                        bid_price=excluded.bid_price,
+                        bid_quantity=excluded.bid_quantity,
+                        ask_price=excluded.ask_price,
+                        ask_quantity=excluded.ask_quantity,
+                        implied_volatility=excluded.implied_volatility
+                """, tenant_rows)
+            else:
+                self.db.executemany("""
+                    INSERT INTO option_observations (
+                        provider,account_id,underlying_scrip,underlying_segment,expiry,
+                        underlying_price,strike,option_type,security_id,last_price,previous_close,volume,
+                        previous_volume,open_interest,previous_oi,bid_price,bid_quantity,
+                        ask_price,ask_quantity,implied_volatility,observed_at
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    ON CONFLICT(provider, account_id, underlying_scrip, expiry, strike, option_type, observed_at)
+                    DO UPDATE SET
+                        underlying_segment=excluded.underlying_segment,
+                        underlying_price=excluded.underlying_price,
+                        security_id=excluded.security_id,
+                        last_price=excluded.last_price,
+                        previous_close=excluded.previous_close,
+                        volume=excluded.volume,
+                        previous_volume=excluded.previous_volume,
+                        open_interest=excluded.open_interest,
+                        previous_oi=excluded.previous_oi,
+                        bid_price=excluded.bid_price,
+                        bid_quantity=excluded.bid_quantity,
+                        ask_price=excluded.ask_price,
+                        ask_quantity=excluded.ask_quantity,
+                        implied_volatility=excluded.implied_volatility
+                """, rows)
         return len(rows)
 
     def latest_observations(self, *, account_id: str, provider: str = "dhan",

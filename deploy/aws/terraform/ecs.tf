@@ -31,6 +31,7 @@ resource "aws_iam_role_policy" "ecs_secrets" {
         aws_secretsmanager_secret.postgres.arn,
         aws_secretsmanager_secret.redis.arn,
         aws_secretsmanager_secret.rabbitmq.arn,
+        aws_secretsmanager_secret.rabbitmq_admin_password.arn,
         aws_secretsmanager_secret.jwt.arn,
         aws_secretsmanager_secret.credential_key.arn,
         aws_secretsmanager_secret.admin_api_key.arn
@@ -51,7 +52,22 @@ resource "aws_iam_role_policy" "ecs_task_storage" {
     Statement = [
       { Effect = "Allow", Action = ["elasticfilesystem:ClientMount", "elasticfilesystem:ClientWrite", "elasticfilesystem:ClientRootAccess"], Resource = aws_efs_file_system.air.arn, Condition = { StringEquals = { "elasticfilesystem:AccessPointArn" = aws_efs_access_point.air.arn } } },
       { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], Resource = "${aws_s3_bucket.air.arn}/*" },
-      { Effect = "Allow", Action = ["s3:ListBucket"], Resource = aws_s3_bucket.air.arn }
+      { Effect = "Allow", Action = ["s3:ListBucket"], Resource = aws_s3_bucket.air.arn },
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "ecs_task_tenant_provisioning" {
+  count = var.deployment_profile == "aws-saas-multi" ? 1 : 0
+  name  = "${var.environment_name}-tenant-provisioning"
+  role  = aws_iam_role.ecs_task.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      { Effect = "Allow", Action = ["s3:CreateBucket"], Resource = "*" },
+      { Effect = "Allow", Action = ["s3:PutBucketPublicAccessBlock", "s3:PutEncryptionConfiguration", "s3:PutBucketVersioning", "s3:PutBucketTagging", "s3:PutBucketPolicy", "s3:PutBucketOwnershipControls", "s3:GetBucketLocation", "s3:ListBucket"], Resource = "arn:aws:s3:::${local.tenant_bucket_prefix}*" },
+      { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"], Resource = "arn:aws:s3:::${local.tenant_bucket_prefix}*/*" },
+      { Effect = "Allow", Action = ["secretsmanager:CreateSecret", "secretsmanager:DescribeSecret", "secretsmanager:GetSecretValue", "secretsmanager:PutSecretValue", "secretsmanager:TagResource"], Resource = "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${var.tenant_secrets_prefix}/*" }
     ]
   })
 }
@@ -166,14 +182,23 @@ resource "aws_ecs_task_definition" "api" {
     essential    = true
     portMappings = [{ containerPort = 8000, hostPort = 8000, protocol = "tcp" }]
     environment = [
-      { name = "AIR_DEPLOYMENT_PROFILE", value = "aws-private-single" },
+      { name = "AIR_DEPLOYMENT_PROFILE", value = var.deployment_profile },
       { name = "AIR_DEPLOYMENT_MODE", value = "aws" },
-      { name = "AIR_TENANCY_MODE", value = "single" },
+      { name = "AWS_REGION", value = var.aws_region },
+      { name = "AIR_TENANCY_MODE", value = var.tenancy_mode },
+      { name = "AIR_RABBITMQ_MANAGEMENT_URL", value = replace(replace(aws_mq_broker.air.instances[0].endpoints[0], "amqps://", "https://"), ":5671", ":15671") },
+      { name = "AIR_RABBITMQ_ADMIN_USER", value = "air" },
+      { name = "AIR_TENANT_S3_BUCKET_PREFIX", value = local.tenant_bucket_prefix },
+      { name = "AIR_TENANT_SECRETS_PREFIX", value = var.tenant_secrets_prefix },
     ]
     secrets = [
       { name = "AIR_DATABASE_URL", valueFrom = aws_secretsmanager_secret.postgres.arn },
+      { name = "AIR_CUSTOMER_DATABASE_URL", valueFrom = aws_secretsmanager_secret.postgres.arn },
+      { name = "AIR_ACCOUNT_DATABASE_URL", valueFrom = aws_secretsmanager_secret.postgres.arn },
+      { name = "AIR_CREDENTIAL_DATABASE_URL", valueFrom = aws_secretsmanager_secret.postgres.arn },
       { name = "AIR_REDIS_URL", valueFrom = aws_secretsmanager_secret.redis.arn },
       { name = "AIR_RABBITMQ_URL", valueFrom = aws_secretsmanager_secret.rabbitmq.arn },
+      { name = "AIR_RABBITMQ_ADMIN_PASSWORD", valueFrom = aws_secretsmanager_secret.rabbitmq_admin_password.arn },
       { name = "AIR_JWT_SECRET", valueFrom = aws_secretsmanager_secret.jwt.arn },
       { name = "AIR_CREDENTIAL_KEY", valueFrom = aws_secretsmanager_secret.credential_key.arn },
       { name = "AIR_ADMIN_API_KEY", valueFrom = aws_secretsmanager_secret.admin_api_key.arn }
@@ -216,12 +241,19 @@ resource "aws_ecs_task_definition" "worker" {
     command   = ["python", "-m", "app.workflow_worker"]
     essential = true
     environment = [
-      { name = "AIR_DEPLOYMENT_PROFILE", value = "aws-private-single" },
+      { name = "AIR_DEPLOYMENT_PROFILE", value = var.deployment_profile },
       { name = "AIR_DEPLOYMENT_MODE", value = "aws" },
-      { name = "AIR_TENANCY_MODE", value = "single" },
+      { name = "AIR_TENANCY_MODE", value = var.tenancy_mode },
+      { name = "AWS_REGION", value = var.aws_region },
+      { name = "AIR_TENANT_SECRETS_PREFIX", value = var.tenant_secrets_prefix },
     ]
     secrets = [
       { name = "AIR_DATABASE_URL", valueFrom = aws_secretsmanager_secret.postgres.arn },
+      { name = "AIR_CUSTOMER_DATABASE_URL", valueFrom = aws_secretsmanager_secret.postgres.arn },
+      { name = "AIR_ACCOUNT_DATABASE_URL", valueFrom = aws_secretsmanager_secret.postgres.arn },
+      { name = "AIR_CREDENTIAL_DATABASE_URL", valueFrom = aws_secretsmanager_secret.postgres.arn },
+      { name = "AIR_CREDENTIAL_KEY", valueFrom = aws_secretsmanager_secret.credential_key.arn },
+      { name = "AIR_REDIS_URL", valueFrom = aws_secretsmanager_secret.redis.arn },
       { name = "AIR_RABBITMQ_URL", valueFrom = aws_secretsmanager_secret.rabbitmq.arn }
     ]
     mountPoints      = [{ sourceVolume = "air-data", containerPath = "/var/lib/air", readOnly = false }]

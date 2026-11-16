@@ -162,3 +162,33 @@ variable "log_retention_days" {
   type    = number
   default = 30
 }
+
+variable "tenant_secrets_prefix" {
+  description = "AWS Secrets Manager namespace for per-tenant runtime credentials."
+  type        = string
+  default     = "air/tenants"
+  validation {
+    condition     = can(regex("^[A-Za-z0-9/_-]{3,80}$", var.tenant_secrets_prefix))
+    error_message = "tenant_secrets_prefix must be a valid 3-80 character Secrets Manager path prefix."
+  }
+}
+
+variable "deployment_profile" {
+  description = "AIR deployment profile hosted by this shared AWS stack."
+  type        = string
+  default     = "aws-private-single"
+  validation {
+    condition     = contains(["aws-private-single", "aws-saas-multi"], var.deployment_profile)
+    error_message = "deployment_profile must be aws-private-single or aws-saas-multi."
+  }
+}
+
+variable "tenancy_mode" {
+  description = "Tenant isolation mode for the selected AIR deployment profile."
+  type        = string
+  default     = "single"
+  validation {
+    condition     = (var.deployment_profile == "aws-private-single" && var.tenancy_mode == "single") || (var.deployment_profile == "aws-saas-multi" && var.tenancy_mode == "multi")
+    error_message = "aws-private-single requires tenancy_mode=single; aws-saas-multi requires tenancy_mode=multi."
+  }
+}

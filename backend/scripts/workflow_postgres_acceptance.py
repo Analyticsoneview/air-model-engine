@@ -60,7 +60,7 @@ def _seed_acceptance_records() -> dict:
         event = store.publish_event(
             event_type="gate10.acceptance." + suffix,
             source="gate10-acceptance",
-            payload={"acceptance_id": suffix, "customer_id": "gate10-acceptance"},
+            payload={"acceptance_id": suffix},
             idempotency_key="gate10-acceptance:" + suffix,
         )
         runs = store.process_event(event["event_id"])
@@ -187,7 +187,7 @@ def _concurrent_claim_acceptance() -> None:
         for index in range(40):
             event = store.publish_event(
                 event_type="gate10.load." + suffix, source="gate10-acceptance",
-                payload={"index": index, "customer_id": "gate10-acceptance"},
+                payload={"index": index},
                 idempotency_key=f"gate10-load:{suffix}:{index}",
             )
             matched = store.process_event(event["event_id"])

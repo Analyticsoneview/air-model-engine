@@ -18,12 +18,44 @@ import sqlite3
 from datetime import datetime, timedelta
 from email.message import EmailMessage
 from pathlib import Path
+from functools import wraps
+from inspect import iscoroutinefunction
+
+from app.tenant_context import connection_customer_scope, tenant_scope
 from typing import Any, Awaitable, Callable
 from zoneinfo import ZoneInfo
 
 from app.db_compat import PostgresConnection, read_database_url
 
 IST = ZoneInfo("Asia/Kolkata")
+
+
+def _customer_scoped(method):
+    if iscoroutinefunction(method):
+        @wraps(method)
+        async def async_wrapped(self, customer_id, *args, **kwargs):
+            with connection_customer_scope(self.db, customer_id):
+                return await method(self, customer_id, *args, **kwargs)
+        return async_wrapped
+    @wraps(method)
+    def wrapped(self, customer_id, *args, **kwargs):
+        with connection_customer_scope(self.db, customer_id):
+            return method(self, customer_id, *args, **kwargs)
+    return wrapped
+
+
+def _admin_scoped(method):
+    if iscoroutinefunction(method):
+        @wraps(method)
+        async def async_wrapped(self, *args, **kwargs):
+            with tenant_scope(is_admin=True):
+                return await method(self, *args, **kwargs)
+        return async_wrapped
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        with tenant_scope(is_admin=True):
+            return method(self, *args, **kwargs)
+    return wrapped
 
 
 class AccountReporting:
@@ -76,6 +108,7 @@ class AccountReporting:
             """)
             self.db.commit()
 
+    @_customer_scoped
     def recipient(self, customer_id: str) -> dict[str, Any] | None:
         row = self.db.execute(
             "SELECT email,verified,updated_at FROM report_recipients WHERE customer_id=?",
@@ -87,6 +120,7 @@ class AccountReporting:
         recipient["verified"] = bool(recipient["verified"])
         return recipient
 
+    @_customer_scoped
     def request_verification(self, customer_id: str, email: str) -> str:
         email = email.strip().lower()
         if len(email) > 254 or "@" not in email or email.startswith("@") or email.endswith("@"):
@@ -106,6 +140,7 @@ class AccountReporting:
                          f"Your AIR report email verification code is {code}. It expires in 10 minutes.")
         return email
 
+    @_customer_scoped
     def confirm_verification(self, customer_id: str, code: str) -> dict[str, Any]:
         row = self.db.execute(
             "SELECT email,otp_hash,otp_expires_at FROM report_recipients WHERE customer_id=?",
@@ -239,6 +274,7 @@ class AccountReporting:
         return [(base + ".pdf", pdf_bytes, "application/pdf"),
                 (base + ".csv", csv_bytes, "text/csv")]
 
+    @_customer_scoped
     async def report_account(self, customer_id: str, account: Any,
                             collector: Callable[[str, str, str], Awaitable[dict[str, Any]]],
                             report_date: str, force: bool = False) -> dict[str, Any]:
@@ -284,6 +320,7 @@ class AccountReporting:
         return {"broker": account.broker, "account_id": account.account_id,
                 "status": status, "detail": detail}
 
+    @_customer_scoped
     async def run_customer(self, customer_id: str, accounts: list[Any], collector,
                            report_date: str, force: bool = False) -> list[dict[str, Any]]:
         return await asyncio.gather(*[
@@ -291,6 +328,7 @@ class AccountReporting:
             for account in accounts
         ])
 
+    @_admin_scoped
     async def run_daily(self, account_directory, collector) -> None:
         now = datetime.now(IST)
         if now.weekday() >= 5 or (now.hour, now.minute) < (16, 0):
@@ -304,6 +342,7 @@ class AccountReporting:
             accounts = account_directory.list_for_customer(customer_id)
             await self.run_customer(customer_id, accounts, collector, report_date)
 
+    @_customer_scoped
     def history(self, customer_id: str, limit: int = 50) -> list[dict[str, Any]]:
         rows = self.db.execute("""
             SELECT broker,account_id,report_date,status,detail,created_at

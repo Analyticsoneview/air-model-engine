@@ -13,6 +13,9 @@ on:
       - 'backend/app/workflow_worker.py'
       - 'backend/config/deployment_profiles/**'
       - 'backend/tests/test_deployment_profiles.py'
+      - 'backend/tests/test_onprem_deployment_acceptance.py'
+      - 'deploy/deploy-swarm.sh'
+      - '.gitignore'
       - 'compose.local.yml'
       - 'docker-stack.yml'
       - 'deploy/README.md'
@@ -41,6 +44,29 @@ jobs:
         env:
           PYTHONPATH: backend
         run: python -m unittest discover -s backend/tests -p 'test_deployment_profiles.py' -v
+      - name: Run on-prem Compose and Swarm regression tests
+        env:
+          PYTHONPATH: backend
+        run: python -m unittest discover -s backend/tests -p 'test_onprem_deployment_acceptance.py' -v
+      - name: Render on-prem Compose and Swarm configurations
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p .air-secrets
+          cleanup() { rm -rf .air-secrets .air-local.env; }
+          trap cleanup EXIT
+          for secret in jwt_secret credential_key admin_api_key admin_mfa_key postgres_password redis_password database_url redis_url rabbitmq_password telegram_bot_token; do
+            printf 'acceptance-only-placeholder' > ".air-secrets/$secret"
+          done
+          : > .air-local.env
+          docker compose -f compose.local.yml config --quiet
+          AIR_OPERATOR_CUSTOMER_IDS='+919876543210' \
+          AIR_TELEGRAM_CHAT_IDS='-1001234567890' \
+          AIR_APP_DOMAIN='air.example.test' \
+          AIR_API_DOMAIN='api.example.test' \
+          AIR_TLS_EMAIL='ops@example.test' \
+          AIR_CORS_ORIGINS='https://air.example.test' \
+            docker compose -f docker-stack.yml config --quiet
       - name: Validate Linux launchers
         run: bash -n AIRDEPLOY.sh AIRSTART.sh
       - name: Parse Windows Deployment Manager
@@ -80,3 +106,13 @@ jobs:
           grep -q 'transit_encryption_enabled = true' data.tf
           grep -q 'block_public_acls' data.tf
           grep -q 'publicly_accessible        = false' data.tf
+      - name: Verify SaaS tenant provisioning infrastructure contract
+        run: |
+          grep -q 'aws_caller_identity' versions.tf
+          grep -q 'AIR_RABBITMQ_MANAGEMENT_URL' ecs.tf
+          grep -q 'AIR_RABBITMQ_ADMIN_PASSWORD' ecs.tf
+          grep -q 'AIR_TENANT_S3_BUCKET_PREFIX' ecs.tf
+          grep -q 'AIR_TENANT_SECRETS_PREFIX' ecs.tf
+          grep -q 's3:CreateBucket' ecs.tf
+          grep -q 'secretsmanager:CreateSecret' ecs.tf
+          grep -q '15671' security.tf
