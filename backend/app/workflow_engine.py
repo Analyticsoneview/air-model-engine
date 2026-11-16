@@ -17,7 +17,7 @@ from app.db_compat import PostgresConnection, read_database_url
 
 TRIGGER_TYPES = {"EVENT", "TIME", "STRATEGY", "CONDITION"}
 EXECUTION_MODES = {"RESEARCH_ONLY", "ALERT_NOTIFY"}
-WORKFLOW_ACTIONS = {"qoc.qualify", "qoc.backtest", "portfolio.overview", "notify.telegram", "event.emit"}
+WORKFLOW_ACTIONS = {"qoc.qualify", "qoc.backtest", "portfolio.overview", "notify.telegram", "event.emit", "monthly_pd.evaluate"}
 TELEGRAM_STRATEGIES = {"RECOVERED", "EXPIRY78", "EXPIRYSCAN", "AIR_QOC", "ORB", "PORTFOLIO_RISK", "AIR_WORKFLOW"}
 
 
