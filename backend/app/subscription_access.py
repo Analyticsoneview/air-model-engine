@@ -7,6 +7,7 @@ from fastapi import Depends, HTTPException
 
 from app.access_control import access_store
 from app.security import require_customer
+from app.commercial_catalogue import has_entitlement
 
 
 def is_operator_customer(customer_id: str) -> bool:
@@ -41,3 +42,21 @@ def require_strategy_access(customer_id: str = Depends(require_customer)) -> str
     """FastAPI dependency that returns the authenticated customer after entitlement validation."""
     require_strategy_subscription(customer_id)
     return customer_id
+
+
+def require_feature_entitlement(feature: str):
+    """Build a fail-closed dependency for a named catalogue feature."""
+    feature_key = str(feature or "").strip().lower()
+    if not feature_key:
+        raise ValueError("A non-empty feature key is required")
+
+    def dependency(customer_id: str = Depends(require_customer)) -> str:
+        subscription = active_subscription(customer_id)
+        if not has_entitlement(subscription, feature_key):
+            raise HTTPException(
+                status_code=403,
+                detail=f"An AIR plan with the '{feature_key}' entitlement is required.",
+            )
+        return customer_id
+
+    return dependency
