@@ -31,12 +31,18 @@ The initial history window is configured with `AIR_NSE_HISTORY_MONTHS`. The valu
 
 - Raw NSE ZIP archives are retained under the configured AIR data volume.
 - Expired FO contract rows inside the configured 12–60 month research-retention window remain queryable; only expired FO rows older than the retention cutoff are eligible for cleanup after strategy replay.
-- Each market/date archive has a persisted import status.
-- Existing verified archives are skipped on restart.
+- Each market/date archive has a persisted import status, attempt counter, source URL, byte size and SHA-256 checksum.
+- Existing reconciled archives are skipped on restart; only missing, failed or mismatched sessions are downloaded again.
+- Bootstrap runs have durable run IDs, status history, last-processed date and checkpoint timestamps in the NSE SQLite store.
+- A renewable SQLite lease enforces one bootstrap writer across processes sharing the AIR data volume. Startup, scheduled and operator-triggered runs wait for the lease instead of duplicating downloads.
+- Graceful shutdown records `INTERRUPTED`; an abrupt process loss is recovered after the 180-second lease expires. The startup coordinator retries lease acquisition for up to four minutes.
+- A previously READY bootstrap for the same end date and history window is a no-op on ordinary startup. A new EOD date or incomplete checkpoint starts a resumable run.
 - Failed or incomplete sessions are reconciled and repaired as a paired CM/FO session.
 - Missing expected archives and failed downloads prevent full readiness.
 - The current trading date is excluded before 21:00 Asia/Kolkata so an unpublished EOD archive is not misclassified as missing.
-- Dated index constituent snapshots are retained. A failed refresh does not overwrite the last successful snapshot, but the current bootstrap remains incomplete until all three current lists refresh and validate.
+- Dated index constituent snapshots are retained. A failed refresh never invalidates a previously validated exact-count snapshot; the last attempt status/error remains visible. A first-ever download without a valid snapshot remains incomplete.
+
+The status endpoint exposes recent `bootstrap_runs`, the active lease state and per-archive attempt/checksum metadata. The `/ready` response includes the current run ID, resume origin, last processed date, last checkpoint, expected/imported counts and failed/missing archive counts. This is diagnostic evidence; CI does not claim that a customer host has downloaded live NSE data.
 
 ## Per-symbol coverage policy
 
