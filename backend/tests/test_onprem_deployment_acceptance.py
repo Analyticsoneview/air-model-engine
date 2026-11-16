@@ -169,5 +169,14 @@ class OnPremDeploymentAcceptanceTests(unittest.TestCase):
         self.assertIn("air_rabbitmq_config", stack)
 
 
+    def test_readiness_register_separates_code_delivery_from_environment_gates(self):
+        register = read("deploy/READINESS_REGISTER.md")
+        self.assertIn("Gate 14 — tenant isolation and AWS SaaS provisioning foundation | COMPLETE", register)
+        self.assertIn("AWS live infrastructure | DEFERRED", register)
+        self.assertIn("Production on-prem installation | DEFERRED", register)
+        self.assertIn("PROD-01", register)
+        self.assertIn("Do not apply Terraform", register)
+
+
 if __name__ == "__main__":
     unittest.main()
