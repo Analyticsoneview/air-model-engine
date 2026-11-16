@@ -404,10 +404,7 @@ def upgrade() -> None:
         CREATE POLICY air_tenants_select ON air_tenants FOR SELECT
         USING (air_is_admin_context()
             OR tenant_id=NULLIF(current_setting('air.tenant_id',true),'')
-            OR owner_customer_id=NULLIF(current_setting('air.customer_id',true),'')
-            OR EXISTS (SELECT 1 FROM air_tenant_members m
-                       WHERE m.tenant_id=air_tenants.tenant_id
-                         AND m.customer_id=NULLIF(current_setting('air.customer_id',true),'')))
+            OR owner_customer_id=NULLIF(current_setting('air.customer_id',true),'')) 
     """)
     op.execute("""
         CREATE POLICY air_tenants_insert ON air_tenants FOR INSERT
