@@ -9,6 +9,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from app.tenant_context import current_customer_id, current_is_admin, current_tenant_id
+
 
 def read_database_url(name: str) -> str | None:
     secret_file = os.getenv(f"{name}_FILE")
@@ -29,12 +31,26 @@ class PostgresConnection:
         self._connection = psycopg.connect(driver_url, row_factory=dict_row, autocommit=True)
         self._transaction = None
 
+    def _apply_tenant_context(self) -> None:
+        self._connection.execute(
+            "SELECT set_config('air.tenant_id', %s, false), "
+            "set_config('air.customer_id', %s, false), "
+            "set_config('air.is_admin', %s, false)",
+            (
+                current_tenant_id() or "",
+                current_customer_id() or "",
+                "true" if current_is_admin() else "false",
+            ),
+        )
+
     def execute(self, statement: str, parameters: Any = ()):
         # These repositories use SQLite's qmark placeholders. Their SQL statements
         # are otherwise PostgreSQL-compatible after the migration-specific branches.
+        self._apply_tenant_context()
         return self._connection.execute(statement.replace("?", "%s"), parameters)
 
     def executemany(self, statement: str, parameter_rows):
+        self._apply_tenant_context()
         cursor = self._connection.cursor()
         cursor.executemany(statement.replace("?", "%s"), parameter_rows)
         return cursor
