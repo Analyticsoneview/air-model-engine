@@ -43,6 +43,7 @@ def _active_contract(store):
         conn.execute(text("""CREATE TABLE air_tenant_members(
             tenant_id TEXT NOT NULL, customer_id TEXT NOT NULL, status TEXT NOT NULL)"""))
         conn.execute(text("INSERT INTO air_tenant_members VALUES('tenant-a','owner-a','ACTIVE')"))
+        conn.execute(text("INSERT INTO air_tenant_members VALUES('tenant-a','member-2','ACTIVE')"))
         conn.execute(text("""CREATE TABLE air_tenant_invitations(
             tenant_id TEXT NOT NULL, status TEXT NOT NULL, expires_at TEXT NOT NULL)"""))
 
@@ -120,6 +121,23 @@ def test_enterprise_licence_seat_limit_cannot_exclude_existing_members(tmp_path,
         profile_id="onprem-single", fingerprint="hardware-fingerprint-0001")
     with pytest.raises(EnterpriseLicenseError, match="current reservations"):
         store.issue_and_bind(tenant_id="tenant-a", contract_id="contract-1",
-            deployment_id=deployment["deployment_id"], max_seats=0, max_deployments=1,
+            deployment_id=deployment["deployment_id"], max_seats=1, max_deployments=1,
             valid_from=date(2026,1,1), valid_until=date(2027,1,1), grace_until=None,
             actor_id="operator", idempotency_key="issue-too-few", private_key_b64=keypair[0])
+
+
+def test_issue_replay_returns_same_signed_license_and_rejects_changed_terms(tmp_path, keypair):
+    store = EnterpriseLicenseStore(database_url="", sqlite_path=str(tmp_path / "license.db"))
+    _active_contract(store)
+    deployment = store.register_deployment(tenant_id="tenant-a", instance_key="prod-1",
+        profile_id="onprem-single", fingerprint="hardware-fingerprint-0001")
+    args = dict(tenant_id="tenant-a", contract_id="contract-1",
+        deployment_id=deployment["deployment_id"], max_seats=25, max_deployments=1,
+        valid_from=date(2026,1,1), valid_until=date(2027,1,1), grace_until=None,
+        actor_id="operator", idempotency_key="issue-replay", private_key_b64=keypair[0])
+    first = store.issue_and_bind(**args)
+    replay = store.issue_and_bind(**args)
+    assert replay["idempotent_replay"] is True
+    assert replay["license_token"] == first["license_token"]
+    with pytest.raises(EnterpriseLicenseError, match="different binding terms"):
+        store.issue_and_bind(**(args | {"max_seats": 20}))
