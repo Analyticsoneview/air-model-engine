@@ -32,7 +32,7 @@ def _active_plan(customer_id,tenant_id):
         with tenant_scope(tenant_id=tenant_id,customer_id=customer_id):
             with store.engine.connect() as conn:
                 row=conn.execute(text("""SELECT plan_code FROM air_commercial_contracts
-                    WHERE tenant_id=:tenant AND status='ACTIVE' ORDER BY created_at DESC LIMIT 1"""),
+                    WHERE tenant_id=:tenant AND status='ACTIVE' AND start_date<=CURRENT_DATE AND end_date>CURRENT_DATE ORDER BY created_at DESC LIMIT 1"""),
                     {"tenant":tenant_id}).first()
         if row: return str(row[0])
     return "B2C_FREE"
