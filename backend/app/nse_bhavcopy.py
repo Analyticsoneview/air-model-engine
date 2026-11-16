@@ -554,6 +554,26 @@ class NSEBhavcopyStore:
             "by_symbol": by_symbol,
         }
 
+    def query_exact_symbol(self, market: str, symbol: str,
+                            start_date: str | None = None, end_date: str | None = None,
+                            limit: int = 5000) -> list[dict[str, Any]]:
+        clauses = ["market=?", "symbol=?"]
+        params: list[Any] = [market, symbol.strip().upper()]
+        if start_date:
+            clauses.append("trade_date>=?")
+            params.append(start_date)
+        if end_date:
+            clauses.append("trade_date<=?")
+            params.append(end_date)
+        params.append(max(1, min(limit, 5000)))
+        with self._db() as db:
+            rows = db.execute(
+                "SELECT * FROM nse_bhavcopy WHERE " + " AND ".join(clauses) +
+                " ORDER BY trade_date ASC, expiry ASC, strike ASC LIMIT ?",
+                params,
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def query(self, market: str, symbol: str | None = None,
               start_date: str | None = None, end_date: str | None = None,
               instrument_type: str | None = None, instrument_id: str | None = None,
@@ -931,6 +951,10 @@ def nse_bootstrap_is_ready(bootstrap: dict[str, Any] | None) -> bool:
         and strategy_run.get("status") == "COMPLETED"
         and monthly_pd_scan.get("status") in {"COMPLETED", "WAITING_FOR_REFERENCE_SESSION"}
     )
+
+
+def nse_data_rows_exact_symbol(market: str, symbol: str, **filters: Any) -> list[dict[str, Any]]:
+    return _get_store().query_exact_symbol(market, symbol, **filters)
 
 
 def nse_data_status() -> dict[str, Any]:
