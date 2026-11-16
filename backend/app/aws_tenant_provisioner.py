@@ -264,8 +264,8 @@ class AwsTenantProvisioner:
         self, tenant: dict, key: str, body: bytes, *, content_type: str = "application/octet-stream",
     ) -> dict:
         tenant_id = self._tenant_id(tenant)
-        object_key = str(key or "").lstrip("/")
-        if not object_key or ".." in object_key.split("/") or object_key.startswith("/"):
+        object_key = str(key or "")
+        if not object_key or object_key.startswith("/") or ".." in object_key.split("/"):
             raise ValueError("A safe tenant object key is required")
         size = len(body)
         used = self.enforce_storage_quota(tenant, size)
