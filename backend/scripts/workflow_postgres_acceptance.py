@@ -30,8 +30,17 @@ def _pg_cli_url(url: str) -> str:
     return url.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
-def _run(*args: str) -> None:
-    subprocess.run(args, check=True, text=True)
+def _run(*args: str, stdin=None, stdout=None) -> None:
+    """Run PostgreSQL client tools with a version-matched disposable client image."""
+    image = os.getenv("AIR_WORKFLOW_PG_CLIENT_DOCKER_IMAGE", "").strip()
+    command = list(args)
+    if image and command[0] in {"pg_dump", "pg_restore"}:
+        docker_args = ["docker", "run", "--rm", "--network", "host"]
+        if command[0] == "pg_restore":
+            docker_args.append("-i")
+        docker_args.extend(["-e", "PGPASSWORD", image, *command])
+        command = docker_args
+    subprocess.run(command, check=True, stdin=stdin, stdout=stdout)
 
 
 def _seed_acceptance_records() -> dict:
@@ -216,10 +225,12 @@ def main() -> None:
 
     with tempfile.TemporaryDirectory(prefix="air-workflow-backup-") as directory:
         dump_path = str(Path(directory) / "workflow-acceptance.dump")
-        _run("pg_dump", "--format=custom", "--no-owner", "--no-acl",
-             "--dbname", _pg_cli_url(source_url), "--file", dump_path)
-        _run("pg_restore", "--clean", "--if-exists", "--no-owner", "--no-acl",
-             "--dbname", _pg_cli_url(restore_url), dump_path)
+        with open(dump_path, "wb") as dump_file:
+            _run("pg_dump", "--format=custom", "--no-owner", "--no-acl",
+                 "--dbname", _pg_cli_url(source_url), "--file", "-", stdout=dump_file)
+        with open(dump_path, "rb") as dump_file:
+            _run("pg_restore", "--clean", "--if-exists", "--no-owner", "--no-acl",
+                 "--dbname", _pg_cli_url(restore_url), "-", stdin=dump_file)
 
     _verify_records(restore_url, ids)
     print("PASS: PostgreSQL workflow backup/restore preserved definitions, versions, events, outbox, runs, steps, leases, audit, calendar, heartbeats and indexes.")
