@@ -378,7 +378,6 @@ def upgrade() -> None:
         op.execute(f"""
             CREATE POLICY air_tenant_scope ON {table}
             USING (air_is_admin_context()
-                OR tenant_id IS NULL
                 OR tenant_id=NULLIF(current_setting('air.tenant_id',true),''))
             WITH CHECK (air_is_admin_context()
                 OR tenant_id IS NULL
