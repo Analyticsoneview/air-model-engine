@@ -3,7 +3,32 @@ from __future__ import annotations
 from app.brokers.customer_accounts import CustomerTradingAccount
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
-from app.tenant_context import install_tenant_context, tenant_scope
+from app.tenant_context import install_tenant_context, tenant_scope, customer_tenant_scope
+from functools import wraps
+
+def _customer_scoped(method):
+    @wraps(method)
+    def wrapped(self, customer_id, *args, **kwargs):
+        with customer_tenant_scope(self.engine, customer_id):
+            return method(self, customer_id, *args, **kwargs)
+    return wrapped
+
+
+def _account_scoped(method):
+    @wraps(method)
+    def wrapped(self, account, *args, **kwargs):
+        with customer_tenant_scope(self.engine, account.customer_id):
+            return method(self, account, *args, **kwargs)
+    return wrapped
+
+
+def _admin_scoped(method):
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        with tenant_scope(is_admin=True):
+            return method(self, *args, **kwargs)
+    return wrapped
+
 
 class PostgresCustomerAccountDirectory:
     def __init__(self, database_url: str, engine: Engine | None = None):
@@ -18,6 +43,7 @@ class PostgresCustomerAccountDirectory:
     def _account(row):
         return CustomerTradingAccount(row["customer_id"], row["broker"], row["account_id"], bool(row["enabled_for_orders"]))
 
+    @_account_scoped
     def add(self, account: CustomerTradingAccount) -> None:
         customer, broker, account_id = account.customer_id.strip(), account.broker.strip().lower(), account.account_id.strip()
         if not customer or not broker or not account_id:
@@ -31,12 +57,14 @@ class PostgresCustomerAccountDirectory:
         except IntegrityError as exc:
             raise ValueError("Broker account is already registered to a customer") from exc
 
+    @_admin_scoped
     def list_all(self) -> list[CustomerTradingAccount]:
         with self.engine.connect() as conn:
             rows = conn.execute(text("""SELECT customer_id,broker,account_id,enabled_for_orders
                 FROM customer_trading_accounts ORDER BY customer_id,broker,account_id""")).mappings().all()
         return [self._account(row) for row in rows]
 
+    @_customer_scoped
     def list_for_customer(self, customer_id: str) -> list[CustomerTradingAccount]:
         with self.engine.connect() as conn:
             rows = conn.execute(text("""SELECT customer_id,broker,account_id,enabled_for_orders
@@ -44,6 +72,7 @@ class PostgresCustomerAccountDirectory:
                 {"customer": customer_id.strip()}).mappings().all()
         return [self._account(row) for row in rows]
 
+    @_customer_scoped
     def set_order_permission(self, customer_id: str, broker: str, account_id: str, enabled: bool) -> None:
         with self.engine.begin() as conn:
             result = conn.execute(text("""UPDATE customer_trading_accounts SET enabled_for_orders=:enabled
@@ -52,6 +81,7 @@ class PostgresCustomerAccountDirectory:
         if result.rowcount != 1:
             raise PermissionError("Customer does not own this broker account")
 
+    @_customer_scoped
     def remove(self, customer_id: str, broker: str, account_id: str) -> None:
         params = {"customer": customer_id.strip(), "broker": broker.strip().lower(), "account": account_id.strip()}
         with self.engine.begin() as conn:
@@ -62,6 +92,7 @@ class PostgresCustomerAccountDirectory:
             conn.execute(text("""DELETE FROM customer_market_data_selection
                 WHERE customer_id=:customer AND provider=:broker AND account_id=:account"""), params)
 
+    @_customer_scoped
     def authorize_order_target(self, customer_id: str, broker: str, account_id: str) -> None:
         with self.engine.connect() as conn:
             row = conn.execute(text("""SELECT customer_id,enabled_for_orders FROM customer_trading_accounts
@@ -72,6 +103,7 @@ class PostgresCustomerAccountDirectory:
         if not row["enabled_for_orders"]:
             raise PermissionError("Order placement is disabled for this customer account")
 
+    @_customer_scoped
     def get_market_data_access(self, customer_id: str) -> dict:
         with self.engine.connect() as conn:
             row = conn.execute(text("""SELECT customer_id,tier,broker_data_enabled,updated_at
@@ -81,6 +113,7 @@ class PostgresCustomerAccountDirectory:
             return {"customer_id": customer_id.strip(), "tier": "STANDARD", "broker_data_enabled": False, "updated_at": None}
         return {**dict(row), "broker_data_enabled": bool(row["broker_data_enabled"])}
 
+    @_customer_scoped
     def set_market_data_access(self, customer_id: str, tier: str, broker_data_enabled: bool) -> dict:
         customer, tier = customer_id.strip(), tier.strip().upper()
         if not customer or tier not in {"STANDARD", "PAID"}:
@@ -96,6 +129,7 @@ class PostgresCustomerAccountDirectory:
                 conn.execute(text("DELETE FROM customer_market_data_selection WHERE customer_id=:customer"), {"customer": customer})
         return self.get_market_data_access(customer)
 
+    @_customer_scoped
     def get_market_data_selection(self, customer_id: str) -> dict | None:
         with self.engine.connect() as conn:
             row = conn.execute(text("""SELECT customer_id,provider,account_id,updated_at
@@ -103,6 +137,7 @@ class PostgresCustomerAccountDirectory:
                 {"customer": customer_id.strip()}).mappings().first()
         return dict(row) if row else None
 
+    @_customer_scoped
     def set_market_data_selection(self, customer_id: str, provider: str, account_id: str) -> dict:
         customer, provider, account = customer_id.strip(), provider.strip().lower(), account_id.strip()
         if not customer or not provider or not account:
@@ -124,6 +159,7 @@ class PostgresCustomerAccountDirectory:
                 {"customer": customer, "provider": provider, "account": account})
         return self.get_market_data_selection(customer) or {}
 
+    @_customer_scoped
     def clear_market_data_selection(self, customer_id: str) -> None:
         with self.engine.begin() as conn:
             conn.execute(text("DELETE FROM customer_market_data_selection WHERE customer_id=:customer"), {"customer": customer_id.strip()})
