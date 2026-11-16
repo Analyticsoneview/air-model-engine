@@ -51,6 +51,18 @@ def require_feature_entitlement(feature: str):
         raise ValueError("A non-empty feature key is required")
 
     def dependency(customer_id: str = Depends(require_customer)) -> str:
+        # When a signed enterprise licence is installed, it is authoritative.
+        # Invalid or expired licence data fails closed and never falls back to a
+        # personal subscription or an operator override.
+        if os.getenv("AIR_ENTERPRISE_LICENSE_TOKEN", "").strip():
+            from app.enterprise_licensing import runtime_enterprise_license, EnterpriseLicenseError
+            try:
+                licence = runtime_enterprise_license()
+            except EnterpriseLicenseError as exc:
+                raise HTTPException(status_code=403, detail=str(exc)) from exc
+            if not licence or feature_key not in set(licence.get("features", [])):
+                raise HTTPException(status_code=403, detail=f"Enterprise licence does not grant '{feature_key}'.")
+            return customer_id
         subscription = active_subscription(customer_id)
         if not has_entitlement(subscription, feature_key):
             raise HTTPException(
