@@ -15,6 +15,7 @@ import pytest
 from sqlalchemy import create_engine, text
 
 from app.customer_auth_postgres import PostgresAccessStore
+from app.tenant_context import tenant_scope
 from app.scripts.migrate_customer_sqlite_to_postgres import migrate
 
 
@@ -68,39 +69,50 @@ def test_access_approval_session_and_block_revocation(customer_store):
     assert customer_store.review(request["request_id"], "APPROVED", "Verified by Admin",
                                   reviewer_admin_id="admin-test", reviewer_role="SUPER_ADMIN", totp_counter=60000001)
     session_id = customer_store.create_session(request["request_id"])
-    assert customer_store.is_session_active(session_id)
+    tenant_id = customer_store.tenant_for_customer("+919876543210")
+    with tenant_scope(tenant_id=tenant_id, customer_id="+919876543210"):
+        assert customer_store.is_session_active(session_id)
     assert customer_store.review(request["request_id"], "BLOCKED", "Access withdrawn",
                                   reviewer_admin_id="admin-test", reviewer_role="SUPER_ADMIN", totp_counter=60000002)
-    history = customer_store.decision_history(request["request_id"])
+    with tenant_scope(is_admin=True):
+        history = customer_store.decision_history(request["request_id"])
     assert [item["new_status"] for item in history] == ["APPROVED", "BLOCKED"]
     assert history[-1]["reviewer_admin_id"] == "admin-test"
-    assert not customer_store.is_session_active(session_id)
-    assert customer_store.list_requests("BLOCKED")[0]["request_id"] == request["request_id"]
+    with tenant_scope(tenant_id=tenant_id, customer_id="+919876543210"):
+        assert not customer_store.is_session_active(session_id)
+    with tenant_scope(is_admin=True):
+        assert customer_store.list_requests("BLOCKED")[0]["request_id"] == request["request_id"]
 
 
 def test_device_deduplication_consent_and_subscription_segmentation(customer_store):
     first = customer_store.request_access("+919876543211", "android-device-0002")
     second = customer_store.request_access("+919876543211", "android-device-0003")
     assert first["request_id"] != second["request_id"]
-    listed = {row["request_id"]: row for row in customer_store.list_requests()}
+    with tenant_scope(is_admin=True):
+        listed = {row["request_id"]: row for row in customer_store.list_requests()}
     assert listed[first["request_id"]]["customer_type"] == "NEW"
     assert listed[second["request_id"]]["customer_type"] == "EXISTING"
     customer_store.review(first["request_id"], "APPROVED", reviewer_admin_id="admin-test",
                             reviewer_role="SUPER_ADMIN", totp_counter=60000003)
     customer_store.set_marketing_consent("+919876543211", True)
-    customers = customer_store.list_marketing_customers()
+    with tenant_scope(is_admin=True):
+        customers = customer_store.list_marketing_customers()
     assert len(customers) == 1
     assert customers[0]["device_count"] == 2
     assert customers[0]["marketing_status"] == "OPTED_IN"
-    assert customer_store.marketing_segment_counts()["ELIGIBLE_FOR_PROMOTIONS"] == 1
+    with tenant_scope(is_admin=True):
+        assert customer_store.marketing_segment_counts()["ELIGIBLE_FOR_PROMOTIONS"] == 1
 
     now = datetime.now(timezone.utc)
-    customer_store.assign_subscription("+919876543211", "MONTHLY", now.isoformat(),
+    with tenant_scope(is_admin=True):
+        customer_store.assign_subscription("+919876543211", "MONTHLY", now.isoformat(),
                                         (now + timedelta(days=30)).isoformat())
-    assert customer_store.marketing_segment_counts()["ELIGIBLE_FOR_PROMOTIONS"] == 0
-    assert customer_store.list_marketing_customers("ACTIVE")[0]["plan_code"] == "MONTHLY"
+    with tenant_scope(is_admin=True):
+        assert customer_store.marketing_segment_counts()["ELIGIBLE_FOR_PROMOTIONS"] == 0
+        assert customer_store.list_marketing_customers("ACTIVE")[0]["plan_code"] == "MONTHLY"
     customer_store.set_marketing_consent("+919876543211", False)
-    assert customer_store.list_marketing_customers("OPTED_OUT")[0]["marketing_status"] == "OPTED_OUT"
+    with tenant_scope(is_admin=True):
+        assert customer_store.list_marketing_customers("OPTED_OUT")[0]["marketing_status"] == "OPTED_OUT"
 
 
 
@@ -114,7 +126,8 @@ def test_lifecycle_dates_subscription_history_and_immutable_decision_audit(custo
         verification_reference="verify-lifecycle-0001",
         request_context={"source": "admin-console", "ip": "127.0.0.1"},
     )
-    history = customer_store.decision_history(first["request_id"])
+    with tenant_scope(is_admin=True):
+        history = customer_store.decision_history(first["request_id"])
     assert len(history) == 1
     assert history[0]["reviewer_admin_id"] == "admin-lifecycle"
     assert history[0]["verification_reference"] == "verify-lifecycle-0001"
@@ -122,34 +135,41 @@ def test_lifecycle_dates_subscription_history_and_immutable_decision_audit(custo
     assert history[0]["device_id"] == "lifecycle-device-0001"
     assert history[0]["request_context"]["source"] == "admin-console"
 
-    customer = customer_store.list_marketing_customers(search="+919876543299")[0]
+    with tenant_scope(is_admin=True):
+        with tenant_scope(is_admin=True):
+        customer = customer_store.list_marketing_customers(search="+919876543299")[0]
     assert customer["device_count"] == 2
     assert customer["first_registered_at"] is not None
     assert customer["first_approved_at"] is not None
     assert customer["first_rejected_at"] is None
 
     now = datetime.now(timezone.utc)
-    customer_store.assign_subscription("+919876543299", "MONTHLY", now.isoformat(),
-                                        (now + timedelta(days=30)).isoformat())
-    first_plan_at = customer_store.list_marketing_customers(search="+919876543299")[0]["first_plan_availed_at"]
-    customer_store.assign_subscription("+919876543299", "YEARLY", now.isoformat(),
-                                        (now + timedelta(days=365)).isoformat())
-    refreshed = customer_store.list_marketing_customers(search="+919876543299")[0]
+    with tenant_scope(is_admin=True):
+        customer_store.assign_subscription("+919876543299", "MONTHLY", now.isoformat(),
+                                            (now + timedelta(days=30)).isoformat())
+        first_plan_at = customer_store.list_marketing_customers(search="+919876543299")[0]["first_plan_availed_at"]
+        customer_store.assign_subscription("+919876543299", "YEARLY", now.isoformat(),
+                                            (now + timedelta(days=365)).isoformat())
+        refreshed = customer_store.list_marketing_customers(search="+919876543299")[0]
     assert refreshed["first_plan_availed_at"] == first_plan_at
-    with customer_store.engine.connect() as conn:
-        assert conn.execute(text("""SELECT COUNT(*) FROM air_customer_subscription_history
+    with tenant_scope(is_admin=True):
+        with customer_store.engine.connect() as conn:
+            assert conn.execute(text("""SELECT COUNT(*) FROM air_customer_subscription_history
             WHERE customer_id='+919876543299'""")).scalar_one() == 2
-    with pytest.raises(Exception):
-        with customer_store.engine.begin() as conn:
-            conn.execute(text("""UPDATE air_access_decision_history SET note='tampered'
+    with tenant_scope(is_admin=True):
+        with pytest.raises(Exception):
+            with customer_store.engine.begin() as conn:
+                conn.execute(text("""UPDATE air_access_decision_history SET note='tampered'
                 WHERE request_id=:request"""), {"request": first["request_id"]})
-    with pytest.raises(Exception):
-        with customer_store.engine.begin() as conn:
-            conn.execute(text("""UPDATE air_customer_subscription_history SET plan_code='DAILY'
+    with tenant_scope(is_admin=True):
+        with pytest.raises(Exception):
+            with customer_store.engine.begin() as conn:
+                conn.execute(text("""UPDATE air_customer_subscription_history SET plan_code='DAILY'
                 WHERE customer_id='+919876543299'"""))
-    with pytest.raises(Exception):
-        with customer_store.engine.begin() as conn:
-            conn.execute(text("""DELETE FROM air_customer_subscription_history
+    with tenant_scope(is_admin=True):
+        with pytest.raises(Exception):
+            with customer_store.engine.begin() as conn:
+                conn.execute(text("""DELETE FROM air_customer_subscription_history
                 WHERE customer_id='+919876543299'"""))
 
 
