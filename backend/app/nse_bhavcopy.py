@@ -47,6 +47,11 @@ def _configured_history_months() -> int:
     return max(12, min(requested, 60))
 
 
+def _bootstrap_end_date(now: datetime) -> date:
+    """Do not treat today's not-yet-published EOD archive as a missing session."""
+    return now.date() if now.hour >= 21 else now.date() - timedelta(days=1)
+
+
 def _date_range(start: date, end: date, holidays: set[str] | None = None):
     holidays = holidays or set()
     current = start
@@ -571,16 +576,18 @@ def _get_store() -> NSEBhavcopyStore:
 
 async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
     store = _get_store()
-    today = datetime.now(IST).date()
+    now = datetime.now(IST)
+    today = now.date()
+    end_date = _bootstrap_end_date(now)
     history_months = _configured_history_months()
-    history_start = _subtract_months(today, history_months)
+    history_start = _subtract_months(end_date, history_months)
     start = history_start
     days: list[date] = []
     archive_root = Path(os.getenv("AIR_NSE_ARCHIVE_DIR", "data/nse_archives"))
     state = {
         "status": "RUNNING", "started_at": datetime.now(IST).isoformat(),
         "start_date": start.isoformat(), "target_start_date": history_start.isoformat(),
-        "end_date": today.isoformat(), "history_months": history_months,
+        "end_date": end_date.isoformat(), "history_months": history_months,
         "calendar_months": history_months, "weekdays_to_check": len(days),
         "completed_files": 0, "imported_files": 0, "failed_files": 0,
         "no_file_days": 0, "records": {"CM": 0, "FO": 0},
@@ -605,7 +612,7 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
             except httpx.HTTPError:
                 log.warning("NSE homepage warm-up failed; attempting archive host directly")
             calendars = {}
-            for calendar_year in range(start.year, today.year + 1):
+            for calendar_year in range(start.year, end_date.year + 1):
                 calendars[str(calendar_year)] = await _refresh_trading_calendar(client, store, calendar_year)
             cm_holidays = {
                 item["date"] for year_calendar in calendars.values()
@@ -615,7 +622,7 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
                 item["date"] for year_calendar in calendars.values()
                 for item in year_calendar["segments"]["FO"]
             }
-            calendar = calendars[str(today.year)]
+            calendar = calendars[str(end_date.year)]
             # On restart, backfill from the last paired CM+FO session as well as
             # maintaining the rolling three-calendar-month minimum.
             with store._db() as db:
@@ -632,7 +639,7 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
                 # Always cover the full configured research window. If the last
                 # paired session is older, extend backward to include the gap.
                 start = min(history_start, recovery_start)
-            days = list(_date_range(start, today))
+            days = list(_date_range(start, end_date))
             expected_files = sum(
                 int(day.isoformat() not in cm_holidays) + int(day.isoformat() not in fo_holidays)
                 for day in days
@@ -643,6 +650,7 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
             )
             state.update({
                 "start_date": start.isoformat(),
+                "end_date": end_date.isoformat(),
                 "target_start_date": history_start.isoformat(),
                 "history_months": history_months,
                 "weekdays_to_check": len(days),
@@ -732,7 +740,7 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
                 from app.model_engine_orchestrator import run_post_import_strategy_cycle_async
                 from app.market_data.service import get_default_market_data_service
                 strategy_run = await run_post_import_strategy_cycle_async(
-                    today.isoformat(), get_default_market_data_service())
+                    end_date.isoformat(), get_default_market_data_service())
                 state["strategy_run"] = strategy_run
             except Exception as strategy_exc:  # noqa: BLE001
                 strategy_run = {
