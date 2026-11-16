@@ -240,11 +240,19 @@ def main() -> int:
             return 0
 
         if args.action == "install":
-            docker_doctor()
+            checks = docker_doctor()
+            if checks["disk_status"] != "OK":
+                raise ManagerError(
+                    f"Only {checks['free_disk_gb']} GB is free; AIR installation requires at least 5 GB."
+                )
             return invoke_installer(upgrade=False)
 
         if args.action == "upgrade":
-            docker_doctor()
+            checks = docker_doctor()
+            if checks["disk_status"] != "OK":
+                raise ManagerError(
+                    f"Only {checks['free_disk_gb']} GB is free; free at least 5 GB before upgrading AIR."
+                )
             return invoke_installer(upgrade=True)
 
         raise ManagerError(f"Unsupported action: {args.action}")
