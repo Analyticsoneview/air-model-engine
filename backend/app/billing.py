@@ -189,7 +189,7 @@ class BillingStore:
             for line in normalized:
                 conn.execute(text("""INSERT INTO air_billing_invoice_lines
                     (line_id,tenant_id,invoice_id,description,quantity,unit_amount_minor,tax_breakdown,line_subtotal_minor,line_tax_minor)
-                    VALUES(:id,:t,:invoice,:description,:quantity,:unit,:taxes,:subtotal,:tax)"""),
+                    VALUES(:id,:t,:invoice,:description,:quantity,:unit_amount_minor,:taxes,:subtotal,:tax)"""),
                     {"id":str(uuid4()),"t":tenant_id,"invoice":invoice_id,**line,
                      "taxes":json.dumps(line["tax_breakdown"])})
             self._audit(conn,tenant_id,"INVOICE",invoice_id,"INVOICE_CREATED",actor_id,key,
