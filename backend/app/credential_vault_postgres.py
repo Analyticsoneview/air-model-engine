@@ -6,7 +6,24 @@ from pathlib import Path
 from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
-from app.tenant_context import install_tenant_context, tenant_scope
+from app.tenant_context import install_tenant_context, tenant_scope, customer_tenant_scope
+from functools import wraps
+
+def _customer_scoped(method):
+    @wraps(method)
+    def wrapped(self, customer_id, *args, **kwargs):
+        with customer_tenant_scope(self.engine, customer_id):
+            return method(self, customer_id, *args, **kwargs)
+    return wrapped
+
+
+def _admin_scoped(method):
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        with tenant_scope(is_admin=True):
+            return method(self, *args, **kwargs)
+    return wrapped
+
 
 class PostgresCredentialVault:
     def __init__(self, database_url: str, engine: Engine | None = None):
@@ -25,6 +42,7 @@ class PostgresCredentialVault:
         install_tenant_context(engine)
         self.engine = engine
 
+    @_customer_scoped
     def put(self, customer_id: str, broker: str, account_id: str, credentials: dict) -> None:
         if not credentials or any(not isinstance(k, str) or not isinstance(v, str) or not v for k, v in credentials.items()):
             raise ValueError("Credentials must be a non-empty map of string keys and values")
@@ -37,6 +55,7 @@ class PostgresCredentialVault:
                 encrypted_payload=EXCLUDED.encrypted_payload,updated_at=CURRENT_TIMESTAMP"""),
                 {"customer": customer_id.strip(), "broker": broker.strip().lower(), "account": account_id.strip(), "payload": encrypted})
 
+    @_customer_scoped
     def get(self, customer_id: str, broker: str, account_id: str) -> dict:
         with self.engine.connect() as conn:
             row = conn.execute(text("""SELECT encrypted_payload FROM broker_credentials
@@ -49,18 +68,21 @@ class PostgresCredentialVault:
         except (InvalidToken, ValueError, TypeError) as exc:
             raise RuntimeError("Stored broker credentials cannot be decrypted") from exc
 
+    @_customer_scoped
     def delete(self, customer_id: str, broker: str, account_id: str) -> None:
         with self.engine.begin() as conn:
             conn.execute(text("""DELETE FROM broker_credentials WHERE customer_id=:customer
                 AND broker=:broker AND account_id=:account"""),
                 {"customer": customer_id.strip(), "broker": broker.strip().lower(), "account": account_id.strip()})
 
+    @_admin_scoped
     def list_for_all_customers(self) -> list[dict]:
         with self.engine.connect() as conn:
             rows = conn.execute(text("""SELECT customer_id,broker,account_id,updated_at
                 FROM broker_credentials ORDER BY customer_id,broker,account_id""")).mappings().all()
         return [dict(row) for row in rows]
 
+    @_customer_scoped
     def list_for_customer(self, customer_id: str) -> list[dict]:
         with self.engine.connect() as conn:
             rows = conn.execute(text("""SELECT broker,account_id,updated_at FROM broker_credentials
