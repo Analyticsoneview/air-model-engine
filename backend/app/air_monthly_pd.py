@@ -101,3 +101,72 @@ def classify_premium_discount(close: float, pml: float, pmh: float) -> str:
     if close <= eq: return "DISCOUNT"
     if close < pmh: return "PREMIUM"
     return "AT_OR_ABOVE_PMH"
+
+
+def current_month_extremes(
+    current_month_bars: list[dict[str, Any]],
+    *,
+    reference_date: str,
+    pml: float,
+    pmh: float,
+) -> dict[str, Any]:
+    """Freeze current-month low/high using completed bars through the reference session."""
+    if float(pmh) <= float(pml):
+        raise ValueError("PMH must be greater than PML")
+    cutoff = str(reference_date)[:10]
+    rows = [row for row in current_month_bars if str(row.get("date", ""))[:10] <= cutoff]
+    rows = sorted(rows, key=lambda row: str(row["date"]))
+    if not rows or any("low" not in row or "high" not in row for row in rows):
+        return {
+            "status": "DATA_INSUFFICIENT", "reference_date": cutoff,
+            "cml": None, "cml_date": None, "cmh": None, "cmh_date": None,
+            "ml_candidate": False, "mh_candidate": False,
+        }
+    lows = [(float(row["low"]), str(row["date"])[:10]) for row in rows]
+    highs = [(float(row["high"]), str(row["date"])[:10]) for row in rows]
+    if any(low <= 0 for low, _ in lows) or any(high <= 0 for high, _ in highs):
+        raise ValueError("Current-month OHLC values must be positive")
+    cml, cml_date = min(lows, key=lambda item: item[0])
+    cmh, cmh_date = max(highs, key=lambda item: item[0])
+    eq = (float(pml) + float(pmh)) / 2.0
+    discount_zone = cml <= eq
+    premium_zone = cmh >= eq
+    ml_candidate = cml < float(pml) and discount_zone
+    mh_candidate = cmh > float(pmh) and premium_zone
+    return {
+        "status": "REFERENCE_CAPTURED", "reference_date": cutoff,
+        "pml": float(pml), "pmh": float(pmh), "eq": eq,
+        "cml": cml, "cml_date": cml_date, "cml_zone": "DISCOUNT" if discount_zone else "PREMIUM",
+        "cmh": cmh, "cmh_date": cmh_date, "cmh_zone": "PREMIUM" if premium_zone else "DISCOUNT",
+        "ml_candidate": ml_candidate, "ml_status": "CANDIDATE" if ml_candidate else "NOT_QUALIFIED",
+        "mh_candidate": mh_candidate, "mh_status": "CANDIDATE" if mh_candidate else "NOT_QUALIFIED",
+        "disclosure": "Current-month extremes are reference candidates, not automatic reversal signals.",
+    }
+
+
+def evaluate_resistance_rejection(
+    bars: list[dict[str, Any]], cmh: float, required_sessions: int = 2,
+    reference_date: str | None = None,
+) -> dict[str, Any]:
+    """Confirm rejection only when subsequent completed sessions fail to exceed CMH and close below it."""
+    if required_sessions < 1:
+        raise ValueError("required_sessions must be positive")
+    eligible = [row for row in bars if reference_date is None or str(row["date"])[:10] > str(reference_date)[:10]]
+    observed = sorted(eligible, key=lambda row: str(row["date"]))[:required_sessions]
+    if len(observed) < required_sessions:
+        return {"status": "WAITING", "sessions_observed": len(observed), "required_sessions": required_sessions, "breach_date": None}
+    for row in observed:
+        if float(row["high"]) > float(cmh) or float(row["close"]) >= float(cmh):
+            return {"status": "INVALIDATED", "sessions_observed": len(observed), "required_sessions": required_sessions, "breach_date": str(row["date"])}
+    return {"status": "REJECTION_CONFIRMED", "sessions_observed": len(observed), "required_sessions": required_sessions, "breach_date": None}
+
+
+def evaluate_current_month_low_acceptance(
+    bars: list[dict[str, Any]], cml: float, required_sessions: int = 2,
+    reference_date: str | None = None,
+) -> dict[str, Any]:
+    """Require two subsequent completed sessions without an intraday wick below the candidate CML."""
+    result = evaluate_support_acceptance(bars, cml, required_sessions, reference_date)
+    if result["status"] == "OPEN_FOR_BUY":
+        result["status"] = "ML_CONFIRMED"
+    return result
