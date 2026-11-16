@@ -10,6 +10,7 @@ on:
       - 'backend/Dockerfile'
       - 'backend/app/deployment_profiles.py'
       - 'backend/app/main.py'
+      - 'backend/app/workflow_worker.py'
       - 'backend/config/deployment_profiles/**'
       - 'backend/tests/test_deployment_profiles.py'
       - 'compose.local.yml'
