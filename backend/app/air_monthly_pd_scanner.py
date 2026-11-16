@@ -118,17 +118,21 @@ def scan_monthly_pd_universe(as_of_date: str | None = None) -> dict[str, Any]:
         return {"status": "DATA_INSUFFICIENT", "reason": "Official NSE CM trading calendar unavailable"}
     sessions = _calendar_sessions(nse_store, date.fromisoformat(as_of).year)
     start_month = (date.fromisoformat(as_of).replace(day=1) - __import__("datetime").timedelta(days=90)).strftime("%Y-%m-%d")
-    all_rows = nse_data_rows("CM", start_date=start_month, end_date=as_of, limit=5000)
     by_symbol: dict[str, list[dict[str, Any]]] = {}
-    for row in all_rows:
-        by_symbol.setdefault(row["symbol"], []).append(row)
+    # Query per constituent: the underlying NSE query API caps each request at
+    # 5,000 rows, which is ample per equity but not for the whole universe.
+    for item in registry["constituents"]:
+        symbol = item["symbol"]
+        by_symbol[symbol] = nse_data_rows("CM", symbol=symbol, start_date=start_month, end_date=as_of, limit=5000)
     expected = [d for d, status in sessions.items() if status == "TRADING_DAY" and start_month <= d <= as_of]
     stocks = []
     for item in registry["constituents"]:
         stocks.append(_stock_record(item["symbol"], item["index_memberships"],
                                     by_symbol.get(item["symbol"], []), as_of, expected, sessions))
     qualified_symbols = {x["symbol"] for x in stocks if x["qualification"] == "QUALIFIED"}
-    fo_rows = nse_data_rows("FO", start_date=start_month, end_date=as_of, limit=5000)
+    fo_rows = []
+    for symbol in sorted(qualified_symbols):
+        fo_rows.extend(nse_data_rows("FO", symbol=symbol, start_date=start_month, end_date=as_of, limit=5000))
     contracts: dict[tuple, list[dict[str, Any]]] = {}
     for row in fo_rows:
         if row["symbol"] in qualified_symbols and row.get("option_type") in {"CE", "PE"}:
