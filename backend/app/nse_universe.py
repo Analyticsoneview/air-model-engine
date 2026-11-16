@@ -177,6 +177,20 @@ class NSEUniverseStore:
                     error=excluded.error, updated_at=CURRENT_TIMESTAMP
             """, (index_code, expected, error[:300]))
 
+    def symbols(self) -> list[str]:
+        """Return the union of the latest validated snapshots for all required indices."""
+        with self._db() as db:
+            rows = db.execute("""
+                SELECT DISTINCT snapshot.symbol
+                FROM nse_index_constituent_snapshots AS snapshot
+                JOIN nse_index_universe_status AS status
+                  ON status.index_code = snapshot.index_code
+                 AND status.snapshot_date = snapshot.snapshot_date
+                WHERE status.status='READY'
+                ORDER BY snapshot.symbol
+            """).fetchall()
+        return [str(row["symbol"]) for row in rows]
+
     def status(self) -> dict[str, Any]:
         with self._db() as db:
             rows = db.execute(
