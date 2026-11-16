@@ -199,7 +199,8 @@ def main() -> int:
             return 0
 
         if args.action == "doctor":
-            emit({"status": "READY" if docker_doctor()["disk_status"] == "OK" else "WARNING", **docker_doctor()})
+            checks = docker_doctor()
+            emit({"status": "READY" if checks["disk_status"] == "OK" else "WARNING", **checks})
             return 0
 
         if args.action == "status":
