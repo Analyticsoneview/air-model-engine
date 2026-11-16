@@ -1,9 +1,9 @@
 """NSE CM and F&O UDiFF bhavcopy bootstrap and query store.
 
-Downloads official NSE end-of-day CM and FO UDiFF ZIP archives for the
-previous three calendar months. Raw ZIPs are retained; normalized contract
-rows are indexed in SQLite for app queries. This is EOD data, not intraday
-ticks or full bid/ask option-chain snapshots.
+Downloads official NSE end-of-day CM and FO UDiFF ZIP archives for at least
+the configured initial history window (12 calendar months by default). Raw
+ZIPs are retained; normalized contract rows are indexed in SQLite for app
+queries. This is EOD data, not intraday ticks or full bid/ask snapshots.
 """
 from __future__ import annotations
 
@@ -36,6 +36,15 @@ def _subtract_months(value: date, months: int) -> date:
     month = month0 + 1
     import calendar
     return date(year, month, min(value.day, calendar.monthrange(year, month)[1]))
+
+
+def _configured_history_months() -> int:
+    """Initial AIR research history must never be configured below 12 months."""
+    try:
+        requested = int(os.getenv("AIR_NSE_HISTORY_MONTHS", "12"))
+    except (TypeError, ValueError):
+        requested = 12
+    return max(12, min(requested, 60))
 
 
 def _date_range(start: date, end: date, holidays: set[str] | None = None):
@@ -563,14 +572,16 @@ def _get_store() -> NSEBhavcopyStore:
 async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
     store = _get_store()
     today = datetime.now(IST).date()
-    three_month_start = _subtract_months(today, 3)
-    start = three_month_start
+    history_months = _configured_history_months()
+    history_start = _subtract_months(today, history_months)
+    start = history_start
     days: list[date] = []
     archive_root = Path(os.getenv("AIR_NSE_ARCHIVE_DIR", "data/nse_archives"))
     state = {
         "status": "RUNNING", "started_at": datetime.now(IST).isoformat(),
-        "start_date": start.isoformat(), "end_date": today.isoformat(),
-        "calendar_months": 3, "weekdays_to_check": len(days),
+        "start_date": start.isoformat(), "target_start_date": history_start.isoformat(),
+        "end_date": today.isoformat(), "history_months": history_months,
+        "calendar_months": history_months, "weekdays_to_check": len(days),
         "completed_files": 0, "imported_files": 0, "failed_files": 0,
         "no_file_days": 0, "records": {"CM": 0, "FO": 0},
     }
@@ -618,15 +629,24 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
                 """).fetchone()
             if last_pair and last_pair["last_date"]:
                 recovery_start = date.fromisoformat(last_pair["last_date"]) + timedelta(days=1)
-                start = min(three_month_start, recovery_start)
+                # Always cover the full configured research window. If the last
+                # paired session is older, extend backward to include the gap.
+                start = min(history_start, recovery_start)
             days = list(_date_range(start, today))
             expected_files = sum(
                 int(day.isoformat() not in cm_holidays) + int(day.isoformat() not in fo_holidays)
                 for day in days
             )
+            expected_paired_sessions = sum(
+                1 for day in days
+                if day.isoformat() not in cm_holidays and day.isoformat() not in fo_holidays
+            )
             state.update({
                 "start_date": start.isoformat(),
+                "target_start_date": history_start.isoformat(),
+                "history_months": history_months,
                 "weekdays_to_check": len(days),
+                "expected_paired_sessions": expected_paired_sessions,
                 "calendar_years": list(calendars.keys()),
                 "cm_holiday_dates": len(cm_holidays),
                 "fo_holiday_dates": len(fo_holidays),
@@ -684,10 +704,25 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
         }
         paired_sessions = len(imported_dates["CM"] & imported_dates["FO"])
         any_failed = state["failed_files"] > 0
-        state["paired_sessions"] = paired_sessions
-        state["status"] = "READY" if paired_sessions >= 45 and not any_failed else (
-            "PARTIAL" if any(imported_dates.values()) else "FAILED"
+        any_missing_archive = state["no_file_days"] > 0
+        expected_paired_sessions = int(state.get("expected_paired_sessions", 0))
+        complete_archive_set = (
+            state["completed_files"] == expected_files
+            and state["imported_files"] == expected_files
+            and not any_failed
+            and not any_missing_archive
         )
+        state["paired_sessions"] = paired_sessions
+        state["paired_session_coverage_pct"] = round(
+            paired_sessions / max(1, expected_paired_sessions) * 100, 1
+        )
+        state["archive_coverage_pct"] = round(
+            state["imported_files"] / max(1, expected_files) * 100, 1
+        )
+        state["status"] = "READY" if (
+            complete_archive_set and expected_paired_sessions > 0
+            and paired_sessions == expected_paired_sessions
+        ) else ("PARTIAL" if any(imported_dates.values()) else "FAILED")
 
         # Strategy replays must finish before expired FO rows are purged. This
         # runs after the initial bootstrap and every scheduled/recovery refresh.
@@ -724,9 +759,9 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
 
         state["finished_at"] = datetime.now(IST).isoformat()
         state["note"] = (
-            "At least three calendar months of paired CM and FO sessions are available."
+            f"Complete {history_months}-month NSE CM/FO EOD history downloaded and reconciled."
             if state["status"] == "READY" else
-            "Some NSE archive downloads failed or paired session coverage is incomplete. Retry bootstrap to fill gaps."
+            "Initial NSE history is incomplete: one or more expected archives are missing, failed, or unreconciled. Retry bootstrap to resume the missing sessions."
         )
         store.set_meta("bootstrap", state)
         return state
@@ -764,7 +799,7 @@ def trigger_nse_bootstrap() -> dict[str, Any]:
     if _bootstrap_task is not None and not _bootstrap_task.done():
         return {"status": "RUNNING", "message": "NSE CM/FO bootstrap is already running"}
     _bootstrap_task = asyncio.create_task(run_nse_bootstrap(force=True))
-    return {"status": "QUEUED", "message": "NSE CM/FO three-month bootstrap has been queued"}
+    return {"status": "QUEUED", "message": "NSE CM/FO initial-history bootstrap has been queued"}
 
 
 def start_nse_data_jobs() -> None:
