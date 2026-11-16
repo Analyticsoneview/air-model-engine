@@ -43,6 +43,7 @@ SERVICE_INVENTORY = [
     {"name": "fastapi", "image": "air-model-engine-api:{release}", "dockerfile": "backend/Dockerfile", "role": "AIR API and Alembic migrations"},
     {"name": "workflow-worker", "image": "air-model-engine-api:{release}", "dockerfile": "backend/Dockerfile", "command": "python -m app.workflow_worker", "components": ["outbox", "scheduler", "executor", "operations-monitor"]},
     {"name": "pwa", "image": "air-model-engine-pwa:{release}", "dockerfile": "deploy/pwa.Dockerfile", "role": "Flutter web application served by Nginx"},
+    {"name": "caddy", "image": "caddy:2-alpine", "role": "TLS reverse proxy for the Swarm installation"},
 ]
 
 
