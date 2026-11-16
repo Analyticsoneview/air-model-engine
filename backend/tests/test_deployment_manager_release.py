@@ -107,6 +107,10 @@ class ReleasePackageTests(unittest.TestCase):
             (root / ".air-local.env").write_text("SECRET=value", encoding="utf-8")
             (root / "backend" / "app" / "local.sqlite3").write_bytes(b"database")
             (root / "mobile" / "android" / "key.properties").write_text("storePassword=secret", encoding="utf-8")
+            (root / "backend" / "app" / "production.env").write_text("SECRET=value", encoding="utf-8")
+            (root / "deploy" / "aws" / "terraform" / "production.tfvars").write_text("secret=value", encoding="utf-8")
+            (root / "deploy" / ".terraform").mkdir(parents=True)
+            (root / "deploy" / ".terraform" / "provider.bin").write_bytes(b"provider")
 
             archive = self.builder.build_release("test-16.0", output, root=root)
             self.builder.verify_release(archive)
@@ -125,6 +129,9 @@ class ReleasePackageTests(unittest.TestCase):
                 self.assertNotIn(".air-local.env", joined)
                 self.assertNotIn("local.sqlite3", joined)
                 self.assertNotIn("key.properties", joined)
+                self.assertNotIn("production.env", joined)
+                self.assertNotIn("production.tfvars", joined)
+                self.assertNotIn(".terraform", joined)
             self.assertTrue(Path(str(archive) + ".sha256").is_file())
 
 
