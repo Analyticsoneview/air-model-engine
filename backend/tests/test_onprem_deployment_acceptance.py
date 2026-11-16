@@ -151,5 +151,19 @@ class OnPremDeploymentAcceptanceTests(unittest.TestCase):
         self.assertNotIn("AIR_API_BASE_URL: http://", pwa)
 
 
+    def test_rabbitmq_4_reads_password_from_docker_secret_without_legacy_file_env(self):
+        compose = read("compose.local.yml")
+        stack = read("docker-stack.yml")
+        rabbit_config = read("deploy/rabbitmq.conf")
+        self.assertNotIn("RABBITMQ_DEFAULT_PASS_FILE", compose)
+        self.assertNotIn("RABBITMQ_DEFAULT_PASS_FILE", stack)
+        self.assertIn("RABBITMQ_CONFIG_FILE: /etc/rabbitmq/rabbitmq.conf", compose)
+        self.assertIn("RABBITMQ_CONFIG_FILE: /etc/rabbitmq/rabbitmq.conf", stack)
+        self.assertIn("rabbitmq_password", compose)
+        self.assertIn("air_rabbitmq_password", stack)
+        self.assertIn("default_pass = $(AIR_RABBITMQ_DEFAULT_PASSWORD)", rabbit_config)
+        self.assertIn("air_rabbitmq_config", stack)
+
+
 if __name__ == "__main__":
     unittest.main()
