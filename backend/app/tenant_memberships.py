@@ -100,6 +100,26 @@ class TenantMembershipStore:
                 "pending_invitations": int(pending), "reserved_seats": reserved,
                 "max_members": maximum, "available_seats": max(0, maximum - reserved)}
 
+    def list_customer_organisations(self, customer_id: str) -> list[dict]:
+        with self._scope(), self.engine.connect() as conn:
+            rows = conn.execute(text("""SELECT t.tenant_id,t.name,t.plan_code,t.status,
+                m.role,m.joined_at FROM air_tenant_members m
+                JOIN air_tenants t ON t.tenant_id=m.tenant_id
+                WHERE m.customer_id=:customer AND m.status='ACTIVE' AND t.status='ACTIVE'
+                ORDER BY t.name,t.tenant_id"""), {"customer": customer_id}).mappings().all()
+        return [dict(row) for row in rows]
+
+    def list_customer_invitations(self, customer_id: str) -> list[dict]:
+        with self._scope(), self.engine.connect() as conn:
+            rows = conn.execute(text("""SELECT i.invitation_id,i.tenant_id,t.name AS organisation_name,
+                i.role,i.status,i.invited_by,i.created_at,i.expires_at
+                FROM air_tenant_invitations i JOIN air_tenants t ON t.tenant_id=i.tenant_id
+                WHERE i.invited_customer_id=:customer AND i.status='PENDING'
+                  AND i.expires_at>:now AND t.status='ACTIVE'
+                ORDER BY i.created_at DESC"""),
+                {"customer": customer_id, "now": _now()}).mappings().all()
+        return [dict(row) for row in rows]
+
     def list_members(self, tenant_id: str, actor_id: str) -> list[dict]:
         with self._scope(), self.engine.connect() as conn:
             self._actor(conn, tenant_id, actor_id)
