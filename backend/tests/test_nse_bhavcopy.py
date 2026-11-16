@@ -241,7 +241,7 @@ class NSEBhavcopyTests(unittest.TestCase):
     def test_cleanup_expired_fo_removes_expired_contracts_and_preserves_source_count_reconciliation(self):
         with tempfile.TemporaryDirectory() as folder:
             store = NSEBhavcopyStore(str(Path(folder) / "nse.sqlite3"))
-            day = "2026-11-06"
+            day = "2025-10-06"
             rows = [
                 {"FinInstrmId": "1", "TckrSymb": "NIFTY", "FinInstrmTp": "OPTIDX",
                  "XpryDt": "2026-10-29", "StrkPric": "26000", "OptnTp": "CE"},
@@ -274,8 +274,8 @@ class NSEBhavcopyTests(unittest.TestCase):
                 ledger.upsert("customer-1", {
                     "signal_id": "EXPIRY78:NIFTY:2026-10-29:26000:CE",
                     "classification": "EXPIRED",
-                    "signal_date": "2026-10-27",
-                    "entry_date": "2026-10-28",
+                    "signal_date": "2025-10-27",
+                    "entry_date": "2025-10-28",
                     "symbol": "NIFTY",
                     "instrument_type": "INDEX",
                     "option_type": "CE",
@@ -298,7 +298,7 @@ class NSEBhavcopyTests(unittest.TestCase):
                      "OpnPric": "5.5", "HghPric": "7", "LwPric": "5", "ClsPric": "6.5",
                      "TtlTradgVol": "1500", "UndrlygPric": "26020"},
                 ]
-                for day, raw in zip(("2026-10-27", "2026-10-28"), daily_rows):
+                for day, raw in zip(("2025-10-27", "2025-10-28"), daily_rows):
                     store.save_rows("FO", day, [raw])
                     store.set_file_status("FO", day, "IMPORTED", 1, source_record_count=1)
 
@@ -323,6 +323,24 @@ class NSEBhavcopyTests(unittest.TestCase):
                 else:
                     os.environ["AIR_MODEL_LEDGER_DB_PATH"] = previous_path
 
+
+    def test_cleanup_retains_expired_fo_records_inside_twelve_month_research_window(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = NSEBhavcopyStore(str(Path(folder) / "nse.sqlite3"))
+            day = "2026-10-27"
+            rows = [{
+                "FinInstrmId": "1", "TckrSymb": "NIFTY", "FinInstrmTp": "OPTIDX",
+                "XpryDt": "2026-10-29", "StrkPric": "26000", "OptnTp": "CE",
+                "ClsPric": "120", "TtlTradgVol": "500", "OpnIntrst": "1000",
+            }]
+            store.save_rows("FO", day, rows)
+            store.set_file_status("FO", day, "IMPORTED", 1, source_record_count=1)
+
+            cleanup = store.cleanup_expired_fo(date(2026, 11, 7))
+
+            self.assertEqual(cleanup["removed_records"], 0)
+            self.assertEqual(cleanup["retained_expired_records"], 1)
+            self.assertEqual(store.actual_record_count("FO", day), 1)
 
     def test_expired_fo_cleanup_is_idempotent_and_does_not_remove_expiry_day_contracts(self):
         with tempfile.TemporaryDirectory() as folder:
