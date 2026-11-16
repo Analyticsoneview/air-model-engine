@@ -67,6 +67,9 @@ class NSEBhavcopyTests(unittest.TestCase):
                     "NIFTYSMALLCAP250": {"status": "READY", "actual_count": 250},
                 },
             },
+            "symbol_coverage": {
+                "status": "READY", "expected_symbols": 500, "missing_count": 0,
+            },
             "strategy_run": {"status": "COMPLETED"},
         }
         self.assertTrue(nse_bootstrap_is_ready(complete))
@@ -79,6 +82,10 @@ class NSEBhavcopyTests(unittest.TestCase):
         incomplete = dict(complete, universe={"status": "FAILED", "indices": {}})
         self.assertFalse(nse_bootstrap_is_ready(incomplete))
         incomplete = dict(complete, strategy_run={"status": "FAILED"})
+        self.assertFalse(nse_bootstrap_is_ready(incomplete))
+        incomplete = dict(complete, symbol_coverage={
+            "status": "BLOCKED", "expected_symbols": 500, "missing_count": 1,
+        })
         self.assertFalse(nse_bootstrap_is_ready(incomplete))
 
     def test_per_symbol_coverage_blocks_missing_symbols_and_warns_on_short_history(self):
