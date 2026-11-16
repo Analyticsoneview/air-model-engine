@@ -197,6 +197,15 @@ def test_offer_requires_approval_and_can_be_revoked(customer_store):
         "New customers only", "admin-1",
     )
     assert offer["status"] == "DRAFT"
+    with tenant_scope(is_admin=True):
+        with customer_store.engine.connect() as conn:
+            audit_tenant = conn.execute(text("""
+                SELECT tenant_id FROM air_marketing_audit
+                WHERE actor_customer_id='admin-1'
+                  AND action='MARKETING_OFFER_CREATED'
+                  AND target_id=:offer_id
+            """), {"offer_id": offer["offer_id"]}).scalar_one()
+    assert audit_tenant == "00000000-0000-4000-8000-000000000000"
     approved = customer_store.approve_marketing_offer(offer["offer_id"], "super-admin-1")
     assert approved["status"] == "APPROVED"
     assert customer_store.revoke_marketing_offer(offer["offer_id"], "super-admin-1")
