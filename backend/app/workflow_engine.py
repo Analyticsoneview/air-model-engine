@@ -14,7 +14,7 @@ from typing import Any
 from uuid import uuid4
 
 from app.db_compat import PostgresConnection, read_database_url
-from app.tenant_context import current_customer_id
+from app.tenant_context import current_customer_id, current_tenant_id
 
 TRIGGER_TYPES = {"EVENT", "TIME", "STRATEGY", "CONDITION"}
 EXECUTION_MODES = {"RESEARCH_ONLY", "ALERT_NOTIFY"}
@@ -295,6 +295,7 @@ class WorkflowStore:
         if request_customer and configured_customer and configured_customer != request_customer:
             raise PermissionError("Workflow customer scope cannot be changed by the caller")
         customer_id = configured_customer or request_customer
+        tenant_id = current_tenant_id()
         if customer_id:
             trigger_config["customer_id"] = customer_id
         workflow_spec = _json_object(workflow_spec, "workflow_spec")
@@ -333,19 +334,19 @@ class WorkflowStore:
         with self.db:
             self.db.execute("""INSERT INTO air_workflow_definitions
                 (workflow_id,name,description,trigger_type,trigger_config_json,workflow_spec_json,
-                 execution_mode,version,enabled,created_by,created_at,updated_at,customer_id)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+                 execution_mode,version,enabled,created_by,created_at,updated_at,customer_id,tenant_id)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
                 workflow_id, name, str(description)[:4000], trigger_type,
                 json.dumps(trigger_config, allow_nan=False), json.dumps(workflow_spec, allow_nan=False),
-                execution_mode, 1, False if self.is_postgres else 0, created_by, now, now, customer_id,
+                execution_mode, 1, False if self.is_postgres else 0, created_by, now, now, customer_id, tenant_id,
             ))
             self.db.execute("""INSERT INTO air_workflow_definition_versions
                 (workflow_id,version,name,description,trigger_type,trigger_config_json,
-                 workflow_spec_json,execution_mode,created_by,created_at,customer_id)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?)""", (
+                 workflow_spec_json,execution_mode,created_by,created_at,customer_id,tenant_id)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""", (
                 workflow_id, 1, name, str(description)[:4000], trigger_type,
                 json.dumps(trigger_config, allow_nan=False), json.dumps(workflow_spec, allow_nan=False),
-                execution_mode, created_by, now, customer_id,
+                execution_mode, created_by, now, customer_id, tenant_id,
             ))
             self._append_audit(workflow_id, 1, created_by, "CREATED",
                                {"name": name, "trigger_type": trigger_type, "execution_mode": execution_mode})
@@ -397,6 +398,7 @@ class WorkflowStore:
         payload = _json_object(payload, "payload")
         request_customer = current_customer_id()
         event_customer = str(payload.get("customer_id") or request_customer or "").strip() or None
+        event_tenant = current_tenant_id()
         if request_customer and event_customer and event_customer != request_customer:
             raise PermissionError("Workflow event tenant scope cannot be changed by the caller")
         if event_customer:
@@ -406,14 +408,14 @@ class WorkflowStore:
         try:
             with self.db:
                 self.db.execute("""INSERT INTO air_workflow_events
-                    (event_id,event_type,source,occurred_at,payload_json,idempotency_key,correlation_id,created_at,customer_id)
-                    VALUES(?,?,?,?,?,?,?,?,?)""", (
+                    (event_id,event_type,source,occurred_at,payload_json,idempotency_key,correlation_id,created_at,customer_id,tenant_id)
+                    VALUES(?,?,?,?,?,?,?,?,?,?)""", (
                     event_id, event_type, source, event_time,
-                    json.dumps(payload, allow_nan=False), idempotency_key, correlation_id, now, event_customer,
+                    json.dumps(payload, allow_nan=False), idempotency_key, correlation_id, now, event_customer, event_tenant,
                 ))
                 self.db.execute("""INSERT INTO air_workflow_outbox
-                    (outbox_id,event_id,status,attempts,available_at,customer_id)
-                    VALUES(?,?,'PENDING',0,?,?)""", (str(uuid4()), event_id, now, event_customer))
+                    (outbox_id,event_id,status,attempts,available_at,customer_id,tenant_id)
+                    VALUES(?,?,'PENDING',0,?,?,?)""", (str(uuid4()), event_id, now, event_customer, event_tenant))
         except Exception as exc:
             # A duplicate idempotency key is a successful replay, not a second event.
             existing = self.db.execute(
