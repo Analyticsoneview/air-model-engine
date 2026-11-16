@@ -35,6 +35,7 @@ _CUSTOMER_TABLES = [
     "account_report_runs",
     "air_support_tickets",
     "air_support_ticket_events",
+    "option_observations",
 ]
 
 _WORKFLOW_TABLES = [
@@ -133,6 +134,7 @@ def upgrade() -> None:
     op.add_column("order_ledger", sa.Column("customer_id", sa.String(128), nullable=True))
     op.add_column("order_ledger_events", sa.Column("customer_id", sa.String(128), nullable=True))
     op.add_column("air_support_ticket_events", sa.Column("customer_id", sa.String(128), nullable=True))
+    op.add_column("option_observations", sa.Column("customer_id", sa.String(128), nullable=True))
     for table in _WORKFLOW_TABLES:
         op.add_column(table, sa.Column("customer_id", sa.String(128), nullable=True))
         op.add_column(table, sa.Column("tenant_id", sa.String(36), nullable=True))
@@ -170,6 +172,32 @@ def upgrade() -> None:
         UPDATE air_support_ticket_events e
         SET customer_id=t.customer_id,tenant_id=t.tenant_id
         FROM air_support_tickets t WHERE t.ticket_id=e.ticket_id
+    """)
+    op.execute("""
+        UPDATE option_observations o
+        SET customer_id=a.customer_id
+        FROM customer_trading_accounts a
+        WHERE lower(a.broker)=lower(o.provider) AND a.account_id=o.account_id
+    """)
+    op.execute("""
+        UPDATE option_observations o SET tenant_id=m.tenant_id
+        FROM air_tenant_members m WHERE m.customer_id=o.customer_id AND m.status='ACTIVE'
+    """)
+    op.execute("""
+        DO $
+        BEGIN
+            IF EXISTS (SELECT 1 FROM option_observations WHERE customer_id IS NULL OR tenant_id IS NULL) THEN
+                RAISE EXCEPTION 'AIR QOC observations contain account rows without a verified customer/tenant owner; reconcile broker account mappings before Gate 14 migration';
+            END IF;
+        END
+        $
+    """)
+    op.execute("ALTER TABLE option_observations ALTER COLUMN customer_id SET NOT NULL")
+    op.execute("ALTER TABLE option_observations ALTER COLUMN tenant_id SET NOT NULL")
+    op.execute("ALTER TABLE option_observations DROP CONSTRAINT uq_qoc_option_observation")
+    op.execute("""
+        CREATE UNIQUE INDEX uq_qoc_option_observation_tenant
+        ON option_observations(tenant_id,provider,account_id,underlying_scrip,expiry,strike,option_type,observed_at)
     """)
     op.execute("""
         UPDATE order_ledger l SET customer_id=a.customer_id,tenant_id=m.tenant_id
@@ -260,6 +288,10 @@ def upgrade() -> None:
             IF TG_TABLE_NAME='air_device_sessions' AND row_customer IS NULL THEN
                 SELECT mobile_e164 INTO row_customer FROM air_access_requests
                 WHERE request_id=NEW.request_id LIMIT 1;
+                NEW.customer_id := row_customer;
+            ELSIF TG_TABLE_NAME='option_observations' AND row_customer IS NULL THEN
+                SELECT customer_id INTO row_customer FROM customer_trading_accounts
+                WHERE lower(broker)=lower(NEW.provider) AND account_id=NEW.account_id LIMIT 1;
                 NEW.customer_id := row_customer;
             ELSIF TG_TABLE_NAME='air_support_ticket_events' AND row_customer IS NULL THEN
                 SELECT customer_id INTO row_customer FROM air_support_tickets
@@ -437,6 +469,10 @@ def downgrade() -> None:
     op.execute("DROP POLICY IF EXISTS air_tenant_members_admin_delete ON air_tenant_members")
     op.execute("DROP INDEX IF EXISTS uq_air_workflow_events_tenant_idempotency")
     op.execute("DROP INDEX IF EXISTS uq_air_workflow_events_global_idempotency")
+    op.drop_index("uq_qoc_option_observation_tenant", table_name="option_observations")
+    op.create_unique_constraint("uq_qoc_option_observation", "option_observations", ["provider","account_id","underlying_scrip","expiry","strike","option_type","observed_at"])
+    op.alter_column("option_observations", "tenant_id", nullable=True)
+    op.alter_column("option_observations", "customer_id", nullable=True)
     op.execute("ALTER TABLE air_workflow_events ADD CONSTRAINT air_workflow_events_idempotency_key_key UNIQUE (idempotency_key)")
     op.execute("ALTER TABLE air_tenant_members NO FORCE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE air_tenant_members DISABLE ROW LEVEL SECURITY")
@@ -456,3 +492,4 @@ def downgrade() -> None:
     op.drop_column("order_ledger_events", "customer_id")
     op.drop_column("order_ledger", "customer_id")
     op.drop_column("air_support_ticket_events", "customer_id")
+    op.drop_column("option_observations", "customer_id")
