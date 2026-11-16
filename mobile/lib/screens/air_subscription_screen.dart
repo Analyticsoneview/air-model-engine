@@ -28,7 +28,8 @@ class _AirSubscriptionScreenState extends State<AirSubscriptionScreen> {
       if (!mounted) return;
       final status = values[1] as Map<String, dynamic>;
       setState(() {
-        _plans = ((values[0] as Map<String, dynamic>)['b2c'] as List<dynamic>? ?? const [])\n            .whereType<Map<String, dynamic>>().toList(growable: false);
+        _plans = ((values[0] as Map<String, dynamic>)['b2c'] as List<dynamic>? ?? const [])
+            .whereType<Map<String, dynamic>>().toList(growable: false);
         _subscription = status['subscription'] as Map<String, dynamic>?;
         final preferences = values[2] as Map<String, dynamic>;
         _marketingConsent = preferences['promotional_consent'] == true;
