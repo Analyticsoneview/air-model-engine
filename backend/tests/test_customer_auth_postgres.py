@@ -316,6 +316,47 @@ def test_tenant_object_storage_reservation_quota_and_retry(customer_store):
         registry.close()
 
 
+def test_tenant_storage_quota_serializes_concurrent_upload_reservations(customer_store):
+    from app.tenant_provisioning import TenantRegistry
+
+    registry = TenantRegistry(database_url=os.environ["AIR_TEST_CUSTOMER_DATABASE_URL"])
+    owner = "+919876543242"
+    try:
+        tenant = registry.create_or_update_tenant(
+            owner_customer_id=owner, name="AIR Concurrent Storage Acceptance",
+            plan_code="STANDARD", status="ACTIVE",
+        )
+        tenant_id = tenant["tenant_id"]
+        with tenant_scope(is_admin=True):
+            with registry.engine.begin() as conn:
+                conn.execute(text("UPDATE air_tenants SET max_storage_bytes=5 WHERE tenant_id=:tenant"),
+                             {"tenant": tenant_id})
+        barrier = Barrier(2)
+
+        def reserve(key):
+            barrier.wait(timeout=5)
+            try:
+                return registry.reserve_object_upload(
+                    tenant_id, owner, key, size_bytes=4,
+                    sha256="2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+                    content_type="application/octet-stream",
+                )
+            except OverflowError:
+                return "QUOTA_REJECTED"
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(reserve, ["objects/one.bin", "objects/two.bin"]))
+        assert sum(result != "QUOTA_REJECTED" for result in results) == 1
+        with tenant_scope(tenant_id=tenant_id, customer_id=owner):
+            with registry.engine.connect() as conn:
+                used = conn.execute(text(
+                    "SELECT storage_used_bytes FROM air_tenants WHERE tenant_id=:tenant"
+                ), {"tenant": tenant_id}).scalar_one()
+        assert used == 4
+    finally:
+        registry.close()
+
+
 def test_state_persists_after_store_recreation(customer_store):
     request = customer_store.request_access("+919876543212", "android-device-0004")
     customer_store.review(request["request_id"], "APPROVED", reviewer_admin_id="admin-test",
