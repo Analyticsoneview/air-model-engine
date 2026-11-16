@@ -133,8 +133,11 @@ class UsageMeter:
                "s":start,"e":end,"status":status,"key":key,"actor":actor_id or customer,
                "metadata":json.dumps(metadata or {},sort_keys=True),"n":occurred})
             if inserted.rowcount==0:
-                old=conn.execute(text("""SELECT event_id,metric,quantity,unit,period,period_start,period_end,status,idempotency_key
+                old=conn.execute(text("""SELECT event_id,customer_id,metric,quantity,unit,period,period_start,period_end,status,idempotency_key
                   FROM air_usage_events WHERE tenant_id=:t AND idempotency_key=:key"""),{"t":tenant,"key":key}).mappings().one()
+                if (old["customer_id"] != customer or old["metric"] != name or int(old["quantity"]) != amount
+                    or old["period"] != period or str(old["period_start"]) != str(start)):
+                    raise ValueError("Idempotency key was already used for a different usage event")
                 return {**dict(old),"allowed":old["status"]=="ACCEPTED","idempotent_replay":True,"soft_limit_exceeded":False}
             if allowed:
                 conn.execute(text("""UPDATE air_usage_counters SET quantity=quantity+:q,updated_at=:n
@@ -178,8 +181,11 @@ class UsageMeter:
                "s":start,"e":end,"key":key,"actor":actor_id,
                "metadata":json.dumps({"reason":reason},sort_keys=True),"n":occurred})
             if inserted.rowcount==0:
-                old=conn.execute(text("SELECT event_id,metric,quantity,status,idempotency_key FROM air_usage_events WHERE tenant_id=:t AND idempotency_key=:k"),
+                old=conn.execute(text("SELECT event_id,customer_id,metric,quantity,event_type,status,idempotency_key FROM air_usage_events WHERE tenant_id=:t AND idempotency_key=:k"),
                                  {"t":tenant,"k":key}).mappings().one()
+                if (old["customer_id"] != customer or old["metric"] != name or int(old["quantity"]) != delta
+                    or old["event_type"] != "ADJUSTMENT"):
+                    raise ValueError("Idempotency key was already used for a different usage event")
                 return {**dict(old),"idempotent_replay":True}
             conn.execute(text("""UPDATE air_usage_counters SET quantity=quantity+:delta,updated_at=:n
               WHERE tenant_id=:t AND metric=:m AND period=:p AND period_start=:s"""),
