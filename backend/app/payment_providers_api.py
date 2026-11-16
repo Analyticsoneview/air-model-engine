@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.security import require_customer
 from app.payment_providers import (
-    PaymentProviderError, PaymentWebhookConflict, PaymentWebhookEventStore,
+    PaymentConfigurationError, PaymentProviderError, PaymentWebhookConflict, PaymentWebhookEventStore,
     get_payment_adapter, verify_webhook_signature, webhook_secret,
 )
 
