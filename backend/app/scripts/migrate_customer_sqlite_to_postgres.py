@@ -134,18 +134,14 @@ def migrate(source_path: str, database_url: str) -> dict[str, int]:
                     "owner": customer_id, "prefix": f"tenants/{tenant_id}/",
                     "vhost": "air-" + tenant_id.replace("-", ""),
                 })
-                existing_member = target.execute(text("""
-                    SELECT tenant_id FROM air_tenant_members WHERE customer_id=:customer
-                """), {"customer": customer_id}).scalar_one_or_none()
-                if not existing_member:
-                    owner_tenant = target.execute(text("""
-                        SELECT tenant_id FROM air_tenants WHERE owner_customer_id=:customer
-                    """), {"customer": customer_id}).scalar_one()
-                    target.execute(text("""
-                        INSERT INTO air_tenant_members(tenant_id,customer_id,role,status)
-                        VALUES(:tenant,:customer,'OWNER','ACTIVE')
-                        ON CONFLICT(customer_id) DO NOTHING
-                    """), {"tenant": owner_tenant, "customer": customer_id})
+                owner_tenant = target.execute(text("""
+                    SELECT tenant_id FROM air_tenants WHERE owner_customer_id=:customer
+                """), {"customer": customer_id}).scalar_one()
+                target.execute(text("""
+                    INSERT INTO air_tenant_members(tenant_id,customer_id,role,status)
+                    VALUES(:tenant,:customer,'OWNER','ACTIVE')
+                    ON CONFLICT(tenant_id,customer_id) DO NOTHING
+                """), {"tenant": owner_tenant, "customer": customer_id})
 
             for table, (primary_key, configured_columns) in TABLES.items():
                 if table not in existing_tables:
