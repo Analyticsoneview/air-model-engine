@@ -856,18 +856,91 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
     end_date = _bootstrap_end_date(now)
     history_months = _configured_history_months()
     history_start = _subtract_months(end_date, history_months)
-    start = history_start
-    days: list[date] = []
-    archive_root = Path(os.getenv("AIR_NSE_ARCHIVE_DIR", "data/nse_archives"))
-    state = {
-        "status": "RUNNING", "started_at": datetime.now(IST).isoformat(),
-        "start_date": start.isoformat(), "target_start_date": history_start.isoformat(),
-        "end_date": end_date.isoformat(), "history_months": history_months,
-        "calendar_months": history_months, "weekdays_to_check": len(days),
-        "completed_files": 0, "imported_files": 0, "failed_files": 0,
-        "no_file_days": 0, "records": {"CM": 0, "FO": 0},
+    previous_state = store.get_meta("bootstrap") or {}
+
+    already_ready = (
+        nse_bootstrap_is_ready(previous_state)
+        and previous_state.get("end_date") == end_date.isoformat()
+        and previous_state.get("target_start_date") == history_start.isoformat()
+        and int(previous_state.get("history_months", 0) or 0) >= history_months
+    )
+    if already_ready and not force:
+        return {**previous_state, "already_ready": True, "skipped": True}
+
+    owner = uuid4().hex
+    run_id = uuid4().hex
+    if not store.acquire_bootstrap_lease(owner, run_id=run_id, lease_seconds=180):
+        lease = store.bootstrap_lease_status()
+        return {
+            **previous_state, "status": "RUNNING", "already_running": True,
+            "lease_expires_at": lease.get("lease_expires_at"),
+            "message": "Another AIR instance currently owns the NSE bootstrap lease",
+        }
+
+    heartbeat_lost = asyncio.Event()
+
+    async def heartbeat() -> None:
+        while True:
+            await asyncio.sleep(30)
+            try:
+                renewed = store.renew_bootstrap_lease(owner, lease_seconds=180)
+            except Exception:
+                renewed = False
+            if not renewed:
+                heartbeat_lost.set()
+                log.error("NSE bootstrap lease renewal failed; this run will stop at its next checkpoint")
+                return
+
+    heartbeat_task = asyncio.create_task(heartbeat())
+
+    def checkpoint() -> None:
+        if heartbeat_lost.is_set() or not store.renew_bootstrap_lease(owner, lease_seconds=180):
+            raise RuntimeError("NSE bootstrap lease was lost; another process may own the run")
+        state["updated_at"] = datetime.now(IST).isoformat()
+        state["last_checkpoint_at"] = state["updated_at"]
+        store.set_meta("bootstrap", state)
+        store.record_bootstrap_run(state)
+
+    if previous_state.get("status") == "RUNNING" and previous_state.get("run_id"):
+        interrupted = {
+            **previous_state,
+            "status": "INTERRUPTED",
+            "error": "Previous process stopped before its last durable checkpoint",
+            "finished_at": datetime.now(IST).isoformat(),
+            "updated_at": datetime.now(IST).isoformat(),
+            "resume_available": True,
+        }
+        store.record_bootstrap_run(interrupted)
+
+    resumed = previous_state.get("status") in {"RUNNING", "INTERRUPTED", "FAILED", "PARTIAL"}
+    state: dict[str, Any] = {
+        "status": "RUNNING",
+        "run_id": run_id,
+        "resumed": resumed,
+        "resumed_from_run_id": previous_state.get("run_id") if resumed else None,
+        "resumed_from_date": (
+            previous_state.get("last_processed_date") or previous_state.get("last_checkpoint_date")
+        ) if resumed else None,
+        "resume_available": True,
+        "started_at": datetime.now(IST).isoformat(),
+        "updated_at": datetime.now(IST).isoformat(),
+        "start_date": history_start.isoformat(),
+        "target_start_date": history_start.isoformat(),
+        "end_date": end_date.isoformat(),
+        "history_months": history_months,
+        "calendar_months": history_months,
+        "weekdays_to_check": 0,
+        "completed_files": 0,
+        "imported_files": 0,
+        "failed_files": 0,
+        "no_file_days": 0,
+        "last_processed_date": None,
+        "last_checkpoint_at": None,
+        "records": {"CM": 0, "FO": 0},
     }
     store.set_meta("bootstrap", state)
+    store.record_bootstrap_run(state)
+    archive_root = Path(os.getenv("AIR_NSE_ARCHIVE_DIR", "data/nse_archives"))
     headers = {
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/132.0 Safari/537.36",
         "Accept": "application/zip,application/octet-stream,*/*",
@@ -879,15 +952,12 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
     try:
         async with httpx.AsyncClient(headers=headers, timeout=timeout,
                                      follow_redirects=True, http2=False) as client:
-            # Warm the NSE site once for installations where archive requests
-            # require the standard NSE session cookies. Static archive access
-            # may still work if this landing-page request is blocked.
             try:
                 await client.get("https://www.nseindia.com/", timeout=12.0)
             except httpx.HTTPError:
                 log.warning("NSE homepage warm-up failed; attempting archive host directly")
             calendars = {}
-            for calendar_year in range(start.year, end_date.year + 1):
+            for calendar_year in range(history_start.year, end_date.year + 1):
                 calendars[str(calendar_year)] = await _refresh_trading_calendar(client, store, calendar_year)
             cm_holidays = {
                 item["date"] for year_calendar in calendars.values()
@@ -898,8 +968,6 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
                 for item in year_calendar["segments"]["FO"]
             }
             calendar = calendars[str(end_date.year)]
-            # On restart, backfill from the last paired CM+FO session as well as
-            # maintaining the rolling three-calendar-month minimum.
             with store._db() as db:
                 last_pair = db.execute("""
                     SELECT MAX(cm.trade_date) AS last_date
@@ -909,10 +977,9 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
                      AND fo.market='FO' AND fo.status='IMPORTED'
                     WHERE cm.market='CM' AND cm.status='IMPORTED'
                 """).fetchone()
+            start = history_start
             if last_pair and last_pair["last_date"]:
                 recovery_start = date.fromisoformat(last_pair["last_date"]) + timedelta(days=1)
-                # Always cover the full configured research window. If the last
-                # paired session is older, extend backward to include the gap.
                 start = min(history_start, recovery_start)
             days = list(_date_range(start, end_date))
             expected_files = sum(
@@ -925,8 +992,8 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
             )
             state.update({
                 "start_date": start.isoformat(),
-                "end_date": end_date.isoformat(),
                 "target_start_date": history_start.isoformat(),
+                "end_date": end_date.isoformat(),
                 "history_months": history_months,
                 "weekdays_to_check": len(days),
                 "expected_paired_sessions": expected_paired_sessions,
@@ -938,7 +1005,8 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
                 "calendar_fetched_at": calendar["fetched_at"],
                 "recovery_start_date": start.isoformat(),
             })
-            store.set_meta("bootstrap", state)
+            checkpoint()
+
             integrity_checks = []
             for day in days:
                 stamp = day.isoformat()
@@ -958,7 +1026,8 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
             state["integrity_mismatches"] = [
                 item for item in integrity_checks if item["repair_triggered"]
             ]
-            store.set_meta("bootstrap", state)
+            checkpoint()
+
             for offset in range(0, len(days), 5):
                 batch = days[offset:offset + 5]
                 tasks = [
@@ -977,10 +1046,11 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
                     market: sum(item.get("records", 0) for item in results if item["market"] == market)
                     for market in MARKETS
                 }
+                state["last_processed_date"] = batch[-1].isoformat() if batch else state.get("last_processed_date")
                 state["progress_pct"] = round(len(results) / max(1, expected_files) * 100, 1)
-                state["updated_at"] = datetime.now(IST).isoformat()
-                store.set_meta("bootstrap", state)
+                checkpoint()
                 await asyncio.sleep(0.15)
+
         imported_dates = {
             market: {item["date"] for item in results if item["market"] == market and item["status"] in {"IMPORTED", "SKIPPED"}}
             for market in MARKETS
@@ -990,8 +1060,7 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
         any_missing_archive = state["no_file_days"] > 0
         expected_paired_sessions = int(state.get("expected_paired_sessions", 0))
         from app.nse_universe import NSEUniverseStore, run_nse_universe_bootstrap
-        universe_result = await run_nse_universe_bootstrap()
-        state["universe"] = universe_result
+        state["universe"] = await run_nse_universe_bootstrap()
         universe_store = NSEUniverseStore()
         universe_symbols = universe_store.symbols()
         expected_cm_sessions = sum(
@@ -1004,7 +1073,7 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
         )
         state["symbol_coverage"] = symbol_coverage
         universe_ready = (
-            universe_result.get("status") == "READY"
+            state["universe"].get("status") == "READY"
             and len(universe_symbols) == 500
             and symbol_coverage.get("status") in {"READY", "READY_WITH_WARNINGS"}
         )
@@ -1026,9 +1095,6 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
             and paired_sessions == expected_paired_sessions and universe_ready
         ) else ("PARTIAL" if any(imported_dates.values()) else "FAILED")
 
-        # Strategy replays must finish before expired FO rows are purged. This
-        # runs after the initial bootstrap and every scheduled/recovery refresh.
-        # A still-partial download is deliberately left intact for the next repair.
         if state["status"] == "READY":
             try:
                 from app.model_engine_orchestrator import run_post_import_strategy_cycle_async
@@ -1046,15 +1112,12 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
             if strategy_run.get("status") == "COMPLETED":
                 try:
                     from app.air_monthly_pd_scanner import scan_monthly_pd_universe
-                    scan_result = await asyncio.to_thread(
-                        scan_monthly_pd_universe, end_date.isoformat()
-                    )
+                    scan_result = await asyncio.to_thread(scan_monthly_pd_universe, end_date.isoformat())
                     state["monthly_pd_scan"] = {
                         key: scan_result.get(key) for key in (
                             "status", "as_of_date", "timeframe", "universe", "coverage",
-                            "qualified_stock_symbols", "persisted_stock_snapshots",
-                            "persisted_option_snapshots", "options_disclosure",
-                            "broker_orders_placed",
+                            "qualified_stock_symbols", "persisted_stock_snapshots", "persisted_option_snapshots",
+                            "options_disclosure", "broker_orders_placed",
                         ) if key in scan_result
                     }
                     if state["monthly_pd_scan"].get("status") not in {"COMPLETED", "WAITING_FOR_REFERENCE_SESSION"}:
@@ -1069,36 +1132,59 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
                 state["expired_fo_cleanup"] = store.cleanup_expired_fo(today)
             else:
                 state["monthly_pd_scan"] = {"status": "DEFERRED_STRATEGY_RUN_INCOMPLETE"}
-                # Initial installation is not fully ready until the research
-                # replay has completed successfully; a later bootstrap retries it.
                 state["status"] = "PARTIAL"
                 state["expired_fo_cleanup"] = {
                     "status": "DEFERRED_STRATEGY_RUN_INCOMPLETE",
-                    "removed_records": 0,
-                    "removed_contract_keys": 0,
+                    "removed_records": 0, "removed_contract_keys": 0,
                 }
         else:
             state["strategy_run"] = {"status": "DEFERRED_DATA_PARTIAL"}
             state["expired_fo_cleanup"] = {
-                "status": "DEFERRED_DATA_PARTIAL",
-                "removed_records": 0,
-                "removed_contract_keys": 0,
+                "status": "DEFERRED_DATA_PARTIAL", "removed_records": 0, "removed_contract_keys": 0,
             }
 
         state["finished_at"] = datetime.now(IST).isoformat()
+        state["updated_at"] = state["finished_at"]
+        state["resume_available"] = state["status"] != "READY"
         state["note"] = (
             f"Complete {history_months}-month NSE CM/FO EOD history downloaded and reconciled."
             if state["status"] == "READY" else
             "Initial NSE history is incomplete: one or more expected archives are missing, failed, or unreconciled. Retry bootstrap to resume the missing sessions."
         )
         store.set_meta("bootstrap", state)
+        store.record_bootstrap_run(state)
         return state
-    except Exception as exc:
-        state.update({"status": "FAILED", "error": f"{type(exc).__name__}: {str(exc)[:240]}",
-                      "finished_at": datetime.now(IST).isoformat()})
+    except asyncio.CancelledError:
+        state.update({
+            "status": "INTERRUPTED",
+            "error": "Bootstrap cancelled during shutdown; imported archive files are retained and will be reconciled on restart",
+            "finished_at": datetime.now(IST).isoformat(),
+            "updated_at": datetime.now(IST).isoformat(),
+            "resume_available": True,
+        })
         store.set_meta("bootstrap", state)
+        store.record_bootstrap_run(state)
+        raise
+    except Exception as exc:
+        state.update({
+            "status": "FAILED",
+            "error": f"{type(exc).__name__}: {str(exc)[:240]}",
+            "finished_at": datetime.now(IST).isoformat(),
+            "updated_at": datetime.now(IST).isoformat(),
+            "resume_available": True,
+        })
+        store.set_meta("bootstrap", state)
+        store.record_bootstrap_run(state)
         log.exception("NSE CM/FO bootstrap failed")
         return state
+    finally:
+        heartbeat_task.cancel()
+        try:
+            await heartbeat_task
+        except asyncio.CancelledError:
+            pass
+        store.release_bootstrap_lease(owner)
+
 
 
 def nse_bootstrap_is_ready(bootstrap: dict[str, Any] | None) -> bool:
