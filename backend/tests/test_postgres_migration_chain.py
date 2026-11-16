@@ -30,6 +30,7 @@ EXPECTED_CHAIN = [
     "0023_usage_metering_quotas",
     "0024_payment_webhook_sandbox",
     "0025_billing_recon",
+    "0026_customer_onboarding",
 ]
 
 
