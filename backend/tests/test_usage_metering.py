@@ -71,3 +71,21 @@ def test_adjustment_is_audited_idempotent_and_cannot_make_usage_negative(tmp_pat
     with pytest.raises(ValueError):
         store.adjust_usage("t1","customer-1","api_calls",-1,plan_code="B2C_FREE",
             idempotency_key="adjust-2",actor_id="admin-1",reason="Over correction")
+
+def test_idempotency_key_cannot_be_reused_for_different_quantity(tmp_path):
+    store=meter(tmp_path)
+    record(store,key="same-key",quantity=1)
+    with pytest.raises(ValueError):
+        record(store,key="same-key",quantity=2)
+
+
+def test_concurrent_usage_never_exceeds_hard_limit(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    store=meter(tmp_path)
+    store.set_quota_override("t1","api_calls","DAILY",soft_limit=3,hard_limit=5,actor_id="admin")
+    def consume(index):
+        return record(store,key=f"parallel-{index}")
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results=list(pool.map(consume,range(12)))
+    assert sum(1 for result in results if result["allowed"])==5
+    assert store.get_usage("t1","B2C_FREE")[0]["used"]==5
