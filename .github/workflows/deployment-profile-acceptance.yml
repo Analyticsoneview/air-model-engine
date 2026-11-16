@@ -1,6 +1,7 @@
 name: AIR Deployment Profile and AWS Terraform Acceptance
 
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - 'AIRDEPLOY.ps1'
