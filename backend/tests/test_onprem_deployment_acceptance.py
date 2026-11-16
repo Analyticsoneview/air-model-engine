@@ -164,7 +164,7 @@ class OnPremDeploymentAcceptanceTests(unittest.TestCase):
         self.assertIn("default_pass = $(AIR_RABBITMQ_DEFAULT_PASSWORD)", rabbit_config)
         self.assertIn("/usr/local/bin/docker-entrypoint.sh rabbitmq-server", compose)
         self.assertIn("/usr/local/bin/docker-entrypoint.sh rabbitmq-server", stack)
-        self.assertIn('PASSWORD="$(cat /run/secrets/rabbitmq_password)', compose)
+        self.assertIn('PASSWORD="$$(cat /run/secrets/rabbitmq_password)', compose)
         self.assertIn('PASSWORD="$(cat /run/secrets/air_rabbitmq_password)', stack)
         self.assertIn("air_rabbitmq_config", stack)
 
