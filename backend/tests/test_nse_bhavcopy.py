@@ -1,16 +1,135 @@
 import os
+import asyncio
 import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
+from unittest.mock import patch
 
 from app.model_engine_ledger import ModelEngineLedger
 from app.nse_bhavcopy import (
-    NSEBhavcopyStore, _archive_url, _normalize, _parse_nse_calendar, _subtract_months, _date_range, _configured_history_months, nse_bootstrap_is_ready, _bootstrap_end_date,
+    NSEBhavcopyStore, _archive_url, _normalize, _parse_nse_calendar, _subtract_months, _date_range, _configured_history_months, nse_bootstrap_is_ready, _bootstrap_end_date, run_nse_bootstrap, IST,
 )
 
 
 class NSEBhavcopyTests(unittest.TestCase):
+    def test_bootstrap_lease_is_single_writer_renewable_and_expires(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = NSEBhavcopyStore(str(Path(folder) / "nse.sqlite3"))
+            self.assertTrue(store.acquire_bootstrap_lease(
+                "owner-1", run_id="run-1", lease_seconds=60, now_epoch=1000,
+            ))
+            self.assertFalse(store.acquire_bootstrap_lease(
+                "owner-2", run_id="run-2", lease_seconds=60, now_epoch=1010,
+            ))
+            self.assertTrue(store.renew_bootstrap_lease(
+                "owner-1", lease_seconds=60, now_epoch=1020,
+            ))
+            self.assertFalse(store.acquire_bootstrap_lease(
+                "owner-2", run_id="run-2", lease_seconds=60, now_epoch=1079,
+            ))
+            self.assertTrue(store.acquire_bootstrap_lease(
+                "owner-2", run_id="run-2", lease_seconds=60, now_epoch=1081,
+            ))
+            self.assertFalse(store.release_bootstrap_lease("owner-1", now_epoch=1082))
+            self.assertTrue(store.release_bootstrap_lease("owner-2", now_epoch=1083))
+            self.assertFalse(store.bootstrap_lease_status(now_epoch=1084)["active"])
+
+    def test_archive_attempts_and_bootstrap_run_checkpoints_are_durable(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = NSEBhavcopyStore(str(Path(folder) / "nse.sqlite3"))
+            url = _archive_url("CM", date(2026, 11, 6))
+            self.assertEqual(store.begin_file_attempt("CM", "2026-11-06", url), 1)
+            self.assertEqual(store.begin_file_attempt("CM", "2026-11-06", url), 2)
+            store.set_file_status(
+                "CM", "2026-11-06", "IMPORTED", 2, "/archives/cm.zip", url,
+                source_record_count=2,
+                archive_sha256="a" * 64, archive_bytes=1024,
+            )
+            file_status = store.file_status("CM", "2026-11-06")
+            self.assertEqual(file_status["attempt_count"], 2)
+            self.assertEqual(file_status["archive_sha256"], "a" * 64)
+            self.assertEqual(file_status["archive_bytes"], 1024)
+
+            state = {
+                "run_id": "run-1", "status": "PARTIAL",
+                "start_date": "2025-11-06", "target_start_date": "2025-11-06",
+                "end_date": "2026-11-06", "history_months": 12,
+                "expected_archive_files": 500, "completed_files": 125,
+                "imported_files": 120, "failed_files": 5, "no_file_days": 0,
+                "last_processed_date": "2026-02-06", "last_checkpoint_at": "2026-02-06T18:00:00+05:30",
+                "started_at": "2026-02-06T10:00:00+05:30",
+                "updated_at": "2026-02-06T18:00:00+05:30",
+            }
+            store.record_bootstrap_run(state)
+            latest = store.latest_bootstrap_runs(1)[0]
+            self.assertEqual(latest["run_id"], "run-1")
+            self.assertEqual(latest["last_processed_date"], "2026-02-06")
+            self.assertEqual(latest["failed_files"], 5)
+
+    def test_ready_bootstrap_is_idempotent_for_same_history_target(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = NSEBhavcopyStore(str(Path(folder) / "nse.sqlite3"))
+            end_date = _bootstrap_end_date(datetime.now(IST))
+            months = _configured_history_months()
+            start_date = _subtract_months(end_date, months)
+            store.set_meta("bootstrap", {
+                "status": "READY", "history_months": months,
+                "target_start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "archive_coverage_pct": 100, "paired_session_coverage_pct": 100,
+                "universe": {
+                    "status": "READY",
+                    "indices": {
+                        "NIFTY100": {"status": "READY", "actual_count": 100},
+                        "NIFTYMIDCAP150": {"status": "READY", "actual_count": 150},
+                        "NIFTYSMALLCAP250": {"status": "READY", "actual_count": 250},
+                    },
+                },
+                "symbol_coverage": {
+                    "status": "READY", "expected_symbols": 500, "missing_count": 0,
+                },
+                "strategy_run": {"status": "COMPLETED"},
+                "monthly_pd_scan": {"status": "COMPLETED"},
+            })
+            with patch("app.nse_bhavcopy._get_store", return_value=store), \
+                 patch("app.nse_bhavcopy.httpx.AsyncClient", side_effect=AssertionError("network must not run")):
+                result = asyncio.run(run_nse_bootstrap())
+            self.assertTrue(result["skipped"])
+            self.assertTrue(result["already_ready"])
+            self.assertFalse(store.bootstrap_lease_status()["active"])
+
+    def test_cancelled_bootstrap_records_interrupted_run_and_releases_lease(self):
+        class CancelClient:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, traceback):
+                return False
+
+            async def get(self, *args, **kwargs):
+                raise asyncio.CancelledError()
+
+        with tempfile.TemporaryDirectory() as folder:
+            store = NSEBhavcopyStore(str(Path(folder) / "nse.sqlite3"))
+            store.set_meta("bootstrap", {
+                "status": "RUNNING", "run_id": "previous-run",
+                "last_processed_date": "2026-02-05",
+            })
+            with patch("app.nse_bhavcopy._get_store", return_value=store), \
+                 patch("app.nse_bhavcopy.httpx.AsyncClient", return_value=CancelClient()):
+                with self.assertRaises(asyncio.CancelledError):
+                    asyncio.run(run_nse_bootstrap())
+            state = store.get_meta("bootstrap")
+            self.assertEqual(state["status"], "INTERRUPTED")
+            self.assertTrue(state["resumed"])
+            self.assertEqual(state["resumed_from_run_id"], "previous-run")
+            self.assertEqual(state["resumed_from_date"], "2026-02-05")
+            self.assertFalse(store.bootstrap_lease_status()["active"])
+            runs = store.latest_bootstrap_runs(5)
+            self.assertTrue(any(item["run_id"] == "previous-run" and item["status"] == "INTERRUPTED" for item in runs))
+            self.assertTrue(any(item["run_id"] == state["run_id"] and item["status"] == "INTERRUPTED" for item in runs))
+
     def test_calendar_month_start_date_handles_short_months(self):
         self.assertEqual(_subtract_months(date(2026, 11, 30), 3), date(2026, 8, 30))
         self.assertEqual(_subtract_months(date(2026, 5, 31), 3), date(2026, 2, 28))
