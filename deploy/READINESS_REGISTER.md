@@ -9,7 +9,8 @@ Last reviewed: 2026-11-16
 | Area | Status | Evidence / exit condition |
 |---|---|---|
 | Gate 14 — tenant isolation and AWS SaaS provisioning foundation | COMPLETE — CODE DELIVERY | PR #64 merged to `main`; CI validated tenant isolation, provisioning adapter behavior and Terraform configuration. No AWS resources were created. |
-| Gate 15 — on-prem Compose/Swarm readiness | IN PROGRESS — CODE DELIVERY | PR #65; Compose runtime smoke is being validated in GitHub Actions. Customer-host Swarm acceptance remains deferred. |
+| Gate 15 — on-prem Compose/Swarm readiness | COMPLETE — CODE DELIVERY | PR #65 merged to `main`; ephemeral Compose runtime boot, service health and RabbitMQ-connected worker heartbeat passed CI. Customer-host Swarm acceptance remains deferred. |
+| Gate 16 — Deployment Manager and release packaging | IN PROGRESS — CODE DELIVERY | Cross-platform manager, upgrade/diagnostic commands, secret-free release bundle, checksums and CI artifact acceptance. |
 | AWS live infrastructure | DEFERRED — ENVIRONMENT NOT AVAILABLE | No AWS account, credentials, region, remote state or budget approval has been supplied. |
 | Production on-prem installation | DEFERRED — CUSTOMER HOST NOT AVAILABLE | No target customer host is connected for installation and operational acceptance. |
 | Initial market-data bootstrap | DEFERRED — INSTALLATION ACCEPTANCE | Must be verified during first installation; CI smoke intentionally skips the 12-month NSE history download. |
@@ -46,7 +47,7 @@ Last reviewed: 2026-11-16
 | ID | Activity | Status | Completion evidence |
 |---|---|---|---|
 | PROD-01 | Tenant object-upload API wired to S3 quota enforcement | OPEN — CODE WORK | API-level authorization, quota enforcement, object lifecycle and tests |
-| PROD-02 | Deployment Manager installation/readiness consistency across Windows/Linux | IN PROGRESS | Same profile validation, secret handling, service health and failure reporting |
+| PROD-02 | Deployment Manager installation/readiness consistency across Windows/Linux | IN PROGRESS — GATE 16 | Shared CLI actions, Windows/Linux wrappers, upgrade flow, status and diagnostic reporting |
 | PROD-03 | Initial NSE/CM/FO data bootstrap idempotency and resume behavior | OPEN — CODE WORK | Automated tests for partial download, retry, integrity and restart |
 | PROD-04 | Deployment readiness report in the application/installer | OPEN — CODE WORK | Clear distinction between infrastructure, service health, data readiness and user onboarding |
 
