@@ -1,0 +1,52 @@
+import tempfile
+import unittest
+from pathlib import Path
+
+from app.nse_universe import INDEX_UNIVERSES, NSEUniverseStore, parse_index_constituents
+
+
+class NSEUniverseTests(unittest.TestCase):
+    def _csv(self, count: int) -> str:
+        lines = ["Index Name,Index Industry,Symbol,Company Name,Series,ISIN Code"]
+        for i in range(count):
+            lines.append(f"NIFTY 100,Test Sector,STOCK{i:03d},Company {i},EQ,INE{i:010d}")
+        return "\n".join(lines)
+
+    def test_official_universe_counts_are_explicit(self):
+        self.assertEqual(INDEX_UNIVERSES["NIFTY100"]["expected_count"], 100)
+        self.assertEqual(INDEX_UNIVERSES["NIFTYMIDCAP150"]["expected_count"], 150)
+        self.assertEqual(INDEX_UNIVERSES["NIFTYSMALLCAP250"]["expected_count"], 250)
+
+    def test_parser_accepts_exact_nifty100_snapshot_and_normalizes_symbols(self):
+        rows = parse_index_constituents(self._csv(100), "NIFTY100")
+        self.assertEqual(len(rows), 100)
+        self.assertEqual(rows[0]["symbol"], "STOCK000")
+        self.assertEqual(rows[0]["company_name"], "Company 0")
+        self.assertEqual(rows[0]["series"], "EQ")
+
+    def test_parser_fails_closed_on_missing_or_duplicate_constituents(self):
+        with self.assertRaisesRegex(ValueError, "expected 100"):
+            parse_index_constituents(self._csv(99), "NIFTY100")
+        duplicate = self._csv(100).replace("STOCK099", "STOCK000")
+        with self.assertRaisesRegex(ValueError, "duplicate symbol"):
+            parse_index_constituents(duplicate, "NIFTY100")
+
+    def test_store_marks_ready_only_after_all_three_universes_are_validated(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = NSEUniverseStore(str(Path(folder) / "universe.sqlite3"))
+            self.assertEqual(store.status()["status"], "INCOMPLETE")
+            for code in INDEX_UNIVERSES:
+                rows = parse_index_constituents(
+                    self._csv(int(INDEX_UNIVERSES[code]["expected_count"])), code
+                )
+                store.save_snapshot(code, rows, "https://nsearchives.nseindia.com/test.csv")
+            status = store.status()
+            self.assertEqual(status["status"], "READY")
+            self.assertEqual(
+                {code: item["actual_count"] for code, item in status["required_indices"].items()},
+                {"NIFTY100": 100, "NIFTYMIDCAP150": 150, "NIFTYSMALLCAP250": 250},
+            )
+
+
+if __name__ == "__main__":
+    unittest.main()
