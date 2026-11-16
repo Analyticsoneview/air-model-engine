@@ -132,9 +132,19 @@ class NSEUniverseStore:
                     snapshot_date TEXT,
                     source_url TEXT,
                     error TEXT,
+                    last_attempt_status TEXT,
+                    last_attempt_error TEXT,
+                    last_attempt_at TEXT,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            status_columns = {row["name"] for row in db.execute("PRAGMA table_info(nse_index_universe_status)")}
+            if "last_attempt_status" not in status_columns:
+                db.execute("ALTER TABLE nse_index_universe_status ADD COLUMN last_attempt_status TEXT")
+            if "last_attempt_error" not in status_columns:
+                db.execute("ALTER TABLE nse_index_universe_status ADD COLUMN last_attempt_error TEXT")
+            if "last_attempt_at" not in status_columns:
+                db.execute("ALTER TABLE nse_index_universe_status ADD COLUMN last_attempt_at TEXT")
 
     def save_snapshot(self, index_code: str, rows: list[dict[str, str]], source_url: str) -> dict[str, Any]:
         snapshot_date = datetime.now(IST).date().isoformat()
@@ -152,12 +162,15 @@ class NSEUniverseStore:
             ) for row in rows])
             db.execute("""
                 INSERT INTO nse_index_universe_status
-                    (index_code, status, expected_count, actual_count, snapshot_date, source_url, error, updated_at)
-                VALUES (?, 'READY', ?, ?, ?, ?, NULL, CURRENT_TIMESTAMP)
+                    (index_code, status, expected_count, actual_count, snapshot_date, source_url,
+                     error,last_attempt_status,last_attempt_error,last_attempt_at,updated_at)
+                VALUES (?, 'READY', ?, ?, ?, ?, NULL, 'SUCCEEDED', NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 ON CONFLICT(index_code) DO UPDATE SET
                     status='READY', expected_count=excluded.expected_count,
                     actual_count=excluded.actual_count, snapshot_date=excluded.snapshot_date,
-                    source_url=excluded.source_url, error=NULL, updated_at=CURRENT_TIMESTAMP
+                    source_url=excluded.source_url, error=NULL,
+                    last_attempt_status='SUCCEEDED',last_attempt_error=NULL,
+                    last_attempt_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
             """, (index_code, expected, len(rows), snapshot_date, source_url))
         return {
             "status": "READY", "index_code": index_code,
@@ -167,15 +180,43 @@ class NSEUniverseStore:
 
     def record_failure(self, index_code: str, error: str) -> None:
         expected = int(INDEX_UNIVERSES[index_code]["expected_count"])
+        message = str(error or "NSE constituent refresh failed")[:300]
         with self._db() as db:
-            db.execute("""
-                INSERT INTO nse_index_universe_status
-                    (index_code, status, expected_count, actual_count, error, updated_at)
-                VALUES (?, 'FAILED', ?, 0, ?, CURRENT_TIMESTAMP)
-                ON CONFLICT(index_code) DO UPDATE SET
-                    status='FAILED', expected_count=excluded.expected_count,
-                    error=excluded.error, updated_at=CURRENT_TIMESTAMP
-            """, (index_code, expected, error[:300]))
+            existing = db.execute("""
+                SELECT status,actual_count,snapshot_date
+                FROM nse_index_universe_status WHERE index_code=?
+            """, (index_code,)).fetchone()
+            snapshot_count = 0
+            if existing and existing["snapshot_date"]:
+                snapshot_count = int(db.execute("""
+                    SELECT COUNT(*) FROM nse_index_constituent_snapshots
+                    WHERE index_code=? AND snapshot_date=?
+                """, (index_code, existing["snapshot_date"])).fetchone()[0])
+            has_last_good = bool(
+                existing and existing["snapshot_date"] and snapshot_count == expected
+                and int(existing["actual_count"] or 0) in {0, expected}
+            )
+            if has_last_good:
+                db.execute("""
+                    UPDATE nse_index_universe_status
+                    SET status='READY',expected_count=?,actual_count=?,
+                        error=?,last_attempt_status='FAILED',
+                        last_attempt_error=?,last_attempt_at=CURRENT_TIMESTAMP,
+                        updated_at=CURRENT_TIMESTAMP
+                    WHERE index_code=?
+                """, (expected, expected, message, message, index_code))
+            else:
+                db.execute("""
+                    INSERT INTO nse_index_universe_status
+                        (index_code,status,expected_count,actual_count,error,
+                         last_attempt_status,last_attempt_error,last_attempt_at,updated_at)
+                    VALUES(?,'FAILED',?,0,?,'FAILED',?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+                    ON CONFLICT(index_code) DO UPDATE SET
+                        status='FAILED',expected_count=excluded.expected_count,
+                        actual_count=0,error=excluded.error,
+                        last_attempt_status='FAILED',last_attempt_error=excluded.last_attempt_error,
+                        last_attempt_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+                """, (index_code, expected, message, message))
 
     def symbols(self) -> list[str]:
         """Return the union of the latest validated snapshots for all required indices."""
