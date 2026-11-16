@@ -33,12 +33,13 @@ services:
   rabbitmq:
     image: rabbitmq:4-management-alpine
     environment:
-      RABBITMQ_DEFAULT_USER: air
-      RABBITMQ_DEFAULT_PASS_FILE: /run/secrets/rabbitmq_password
+      RABBITMQ_CONFIG_FILE: /etc/rabbitmq/rabbitmq.conf
+    command: ["sh", "-ec", "export AIR_RABBITMQ_DEFAULT_PASSWORD=\\"$(cat /run/secrets/rabbitmq_password)\\"; exec rabbitmq-server"]
     secrets:
       - rabbitmq_password
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
+      - ./deploy/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
     ports:
       - "127.0.0.1:15672:15672"
     healthcheck:
