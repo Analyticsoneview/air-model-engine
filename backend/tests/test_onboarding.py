@@ -97,3 +97,10 @@ def test_customer_cannot_self_activate_a_commercial_contract():
     with pytest.raises(HTTPException) as exc:
         transition_contract("contract-1", body, customer_id="customer-1")
     assert exc.value.status_code == 403
+
+def test_trial_usage_is_recorded_and_cannot_be_reused(tmp_path):
+    store = make_store(tmp_path)
+    item = store.create("t1", "c1", "AIR_B2C", "B2C_TRADER_ANNUAL", "create-1", "c1")
+    assert store.has_used_trial("t1", "c1", "AIR_B2C") is False
+    store.transition("t1", "c1", item["onboarding_id"], "TRIAL", "c1", "trial-1")
+    assert store.has_used_trial("t1", "c1", "AIR_B2C") is True
