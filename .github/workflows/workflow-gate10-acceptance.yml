@@ -71,6 +71,12 @@ jobs:
           python -m alembic downgrade 0017_workflow_runtime_heartbeat
           python -m alembic upgrade head
       - name: Validate deployment and backup shell syntax
+        env:
+          AIR_OPERATOR_CUSTOMER_IDS: 00000000-0000-4000-8000-000000000001
+          AIR_APP_DOMAIN: air.example.test
+          AIR_API_DOMAIN: api.air.example.test
+          AIR_TLS_EMAIL: air-ci@example.test
+          AIR_CORS_ORIGINS: https://air.example.test
         run: |
           bash -n deploy/deploy-swarm.sh
           bash -n deploy/backup-workflow-postgres.sh
