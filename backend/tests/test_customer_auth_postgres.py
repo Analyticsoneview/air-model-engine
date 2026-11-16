@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 
 from app.customer_auth_postgres import PostgresAccessStore
 from app.tenant_context import install_tenant_context, tenant_scope
@@ -325,8 +325,36 @@ def test_postgres_tenant_isolation_survives_pool_reuse_and_concurrent_requests(c
     # A one-connection pool forces tenant A and tenant B to reuse the same
     # physical PostgreSQL connection. before_cursor_execute must reset all
     # three AIR GUCs before every statement.
+    # The CI database owner is a PostgreSQL superuser, which bypasses RLS even
+    # with FORCE ROW LEVEL SECURITY. Execute the acceptance checks as a separate
+    # least-privilege role so the test actually exercises PostgreSQL policies.
+    role_engine = create_engine(url, pool_pre_ping=True)
+    try:
+        with role_engine.begin() as conn:
+            conn.execute(text("""
+                DO $role$
+                BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='air_tenant_rls_test') THEN
+                        CREATE ROLE air_tenant_rls_test NOLOGIN NOSUPERUSER NOCREATEDB
+                            NOCREATEROLE NOINHERIT NOBYPASSRLS;
+                    END IF;
+                END;
+                $role$
+            """))
+            conn.execute(text("ALTER ROLE air_tenant_rls_test NOSUPERUSER NOBYPASSRLS"))
+            conn.execute(text("GRANT USAGE ON SCHEMA public TO air_tenant_rls_test"))
+            conn.execute(text("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO air_tenant_rls_test"))
+            conn.execute(text("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO air_tenant_rls_test"))
+    finally:
+        role_engine.dispose()
+
     pooled_engine = create_engine(url, pool_size=1, max_overflow=0, pool_pre_ping=True)
     install_tenant_context(pooled_engine)
+
+    def _assume_rls_role(connection, cursor, statement, parameters, context, executemany):
+        cursor.execute("SET ROLE air_tenant_rls_test")
+
+    event.listen(pooled_engine, "before_cursor_execute", _assume_rls_role, insert=True)
     try:
         for customer, tenant in ((customer_a, tenant_a), (customer_b, tenant_b)):
             with tenant_scope(tenant_id=tenant, customer_id=customer):
@@ -359,6 +387,7 @@ def test_postgres_tenant_isolation_survives_pool_reuse_and_concurrent_requests(c
     # Exercise simultaneous tenant scopes on separate pooled connections.
     concurrent_engine = create_engine(url, pool_size=2, max_overflow=0, pool_pre_ping=True)
     install_tenant_context(concurrent_engine)
+    event.listen(concurrent_engine, "before_cursor_execute", _assume_rls_role, insert=True)
     barrier = Barrier(2)
 
     def read_only_tenant(customer: str, tenant: str) -> list[str]:
