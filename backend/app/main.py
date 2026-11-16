@@ -2699,3 +2699,102 @@ async def market_data_stream(websocket: WebSocket) -> None:
             await websocket.receive_text()
     except WebSocketDisconnect:
         await market_data_hub.disconnect(websocket)
+
+
+# Shared-schema SaaS tenant administration and customer context.
+_tenant_registry = None
+
+
+def _get_tenant_registry():
+    global _tenant_registry
+    if _tenant_registry is None:
+        from app.tenant_provisioning import TenantRegistry
+        try:
+            _tenant_registry = TenantRegistry()
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="SaaS tenant registry requires the PostgreSQL tenant migration") from exc
+    return _tenant_registry
+
+
+class TenantProvisionRequest(BaseModel):
+    owner_customer_id: str = Field(min_length=9, max_length=128)
+    name: str = Field(min_length=1, max_length=160)
+    plan_code: str = Field(default="STANDARD", min_length=1, max_length=24)
+
+
+class TenantMemberRequest(BaseModel):
+    customer_id: str = Field(min_length=3, max_length=128)
+    role: str = Field(default="MEMBER", min_length=1, max_length=16)
+
+
+class TenantStatusRequest(BaseModel):
+    status: str = Field(min_length=1, max_length=16)
+
+
+@app.get("/api/v1/admin/tenants")
+async def admin_list_tenants(
+    status: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    admin: dict = Depends(require_admin),
+) -> dict:
+    try:
+        rows = _get_tenant_registry().list_tenants(status=status, limit=limit)
+        return {"tenants": rows, "count": len(rows)}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/admin/tenants")
+async def admin_create_tenant(body: TenantProvisionRequest, admin: dict = Depends(require_admin)) -> dict:
+    try:
+        tenant = _get_tenant_registry().create_or_update_tenant(
+            owner_customer_id=body.owner_customer_id, name=body.name, plan_code=body.plan_code,
+        )
+        return {"tenant": tenant, "status": "provisioned"}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/admin/tenants/{tenant_id}")
+async def admin_get_tenant(tenant_id: str, admin: dict = Depends(require_admin)) -> dict:
+    try:
+        return {"tenant": _get_tenant_registry().get_tenant(tenant_id)}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/admin/tenants/{tenant_id}/members")
+async def admin_add_tenant_member(
+    tenant_id: str, body: TenantMemberRequest, admin: dict = Depends(require_admin),
+) -> dict:
+    try:
+        member = _get_tenant_registry().add_member(tenant_id, body.customer_id, body.role)
+        return {"member": member, "status": "added"}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ValueError, PermissionError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.patch("/api/v1/admin/tenants/{tenant_id}/status")
+async def admin_set_tenant_status(
+    tenant_id: str, body: TenantStatusRequest, admin: dict = Depends(require_admin),
+) -> dict:
+    try:
+        return {"tenant": _get_tenant_registry().set_tenant_status(tenant_id, body.status)}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/tenant/context")
+async def customer_tenant_context(customer_id: str = Depends(require_customer)) -> dict:
+    try:
+        context = _get_tenant_registry().get_customer_context(
+            access_store.mobile_for_request_id(customer_id) or customer_id
+        )
+        return {"tenant": context}
+    except KeyError as exc:
+        raise HTTPException(status_code=403, detail="Customer tenant membership is not active") from exc
+
