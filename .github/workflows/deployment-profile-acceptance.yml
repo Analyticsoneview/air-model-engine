@@ -7,6 +7,9 @@ on:
       - 'AIRDEPLOY.sh'
       - 'AIRSTART.ps1'
       - 'AIRSTART.sh'
+      - 'deploy/DOCKER_SWARM.md'
+      - 'deploy/rabbitmq.conf'
+      - 'deploy/READINESS_REGISTER.md'
       - 'backend/Dockerfile'
       - 'backend/app/deployment_profiles.py'
       - 'backend/app/main.py'
@@ -14,6 +17,7 @@ on:
       - 'backend/config/deployment_profiles/**'
       - 'backend/tests/test_deployment_profiles.py'
       - 'backend/tests/test_onprem_deployment_acceptance.py'
+      - 'scripts/ci/onprem-compose-runtime-smoke.sh'
       - 'deploy/deploy-swarm.sh'
       - '.gitignore'
       - 'compose.local.yml'
@@ -81,6 +85,20 @@ jobs:
             $errors | ForEach-Object { Write-Error $_.Message }
             exit 1
           }
+
+
+  onprem-compose-runtime-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Docker Compose runtime
+        run: |
+          docker version
+          docker compose version
+      - name: Boot and verify the complete on-prem Compose service set
+        run: bash scripts/ci/onprem-compose-runtime-smoke.sh
+
 
   terraform-validate:
     runs-on: ubuntu-latest

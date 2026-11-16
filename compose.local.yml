@@ -33,12 +33,13 @@ services:
   rabbitmq:
     image: rabbitmq:4-management-alpine
     environment:
-      RABBITMQ_DEFAULT_USER: air
-      RABBITMQ_DEFAULT_PASS_FILE: /run/secrets/rabbitmq_password
+      RABBITMQ_CONFIG_FILE: /etc/rabbitmq/rabbitmq.conf
+    command: ["sh", "-ec", 'export AIR_RABBITMQ_DEFAULT_PASSWORD="$$(cat /run/secrets/rabbitmq_password)"; exec /usr/local/bin/docker-entrypoint.sh rabbitmq-server']
     secrets:
       - rabbitmq_password
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
+      - ./deploy/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
     ports:
       - "127.0.0.1:15672:15672"
     healthcheck:
@@ -83,7 +84,7 @@ services:
       AIR_MARKET_INSTRUMENT_DB_PATH: /var/lib/air/market_instruments.sqlite3
       AIR_NSE_DB_PATH: /var/lib/air/nse_bhavcopy.sqlite3
       AIR_NSE_ARCHIVE_DIR: /var/lib/air/nse_archives
-      AIR_NSE_BOOTSTRAP_ENABLED: "true"
+      AIR_NSE_BOOTSTRAP_ENABLED: ${AIR_NSE_BOOTSTRAP_ENABLED:-true}
       AIR_NSE_HISTORY_MONTHS: "12"
       AIR_NSE_UNIVERSE_DB_PATH: /var/lib/air/nse_universe.sqlite3
       AIR_TELEGRAM_BOT_TOKEN_FILE: /run/secrets/air_telegram_bot_token
@@ -162,8 +163,6 @@ services:
     build:
       context: .
       dockerfile: deploy/pwa.Dockerfile
-      args:
-        AIR_API_BASE_URL: http://localhost:8000
     image: air-model-engine-pwa:local
     depends_on:
       air-api:

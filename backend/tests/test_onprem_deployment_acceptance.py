@@ -104,5 +104,79 @@ class OnPremDeploymentAcceptanceTests(unittest.TestCase):
         self.assertIn("docker stack deploy", deployer)
 
 
+    def test_nse_bootstrap_can_be_disabled_only_by_explicit_environment_override(self):
+        compose = read("compose.local.yml")
+        stack = read("docker-stack.yml")
+        self.assertIn("AIR_NSE_BOOTSTRAP_ENABLED: ${AIR_NSE_BOOTSTRAP_ENABLED:-true}", compose)
+        self.assertIn("AIR_NSE_BOOTSTRAP_ENABLED: ${AIR_NSE_BOOTSTRAP_ENABLED:-true}", stack)
+        self.assertIn("AIR_NSE_HISTORY_MONTHS: ${AIR_NSE_HISTORY_MONTHS:-12}", stack)
+
+    def test_ci_compose_smoke_checks_api_pwa_and_rabbitmq_worker_heartbeat(self):
+        smoke = read("scripts/ci/onprem-compose-runtime-smoke.sh")
+        self.assertIn("AIR_NSE_BOOTSTRAP_ENABLED=false", smoke)
+        self.assertIn("docker compose -f compose.local.yml up -d --build", smoke)
+        self.assertIn("http://127.0.0.1:8000/health", smoke)
+        self.assertIn("http://127.0.0.1:8080/health", smoke)
+        self.assertIn("workflow-runtime", smoke)
+        self.assertIn("rabbitmq_connected", smoke)
+        self.assertIn("docker compose -f compose.local.yml down --volumes", smoke)
+
+    def test_deployment_readme_matches_implemented_aws_profiles_and_deferrals(self):
+        docs = read("deploy/README.md")
+        self.assertIn("Shared RDS PostgreSQL", docs)
+        self.assertIn("per-tenant S3 buckets", docs)
+        self.assertIn("RabbitMQ vhosts", docs)
+        self.assertIn("Live AWS provisioning is deferred", docs)
+        self.assertNotIn("adapters are delivered in the subsequent", docs)
+
+
+    def test_windows_installers_fail_on_native_docker_command_errors(self):
+        start = read("AIRSTART.ps1")
+        deploy = read("AIRDEPLOY.ps1")
+        self.assertIn("docker compose version", start)
+        self.assertGreaterEqual(start.count("$LASTEXITCODE -ne 0"), 4)
+        self.assertIn("docker info", deploy)
+        self.assertIn("$LASTEXITCODE -ne 0", deploy)
+
+    def test_swarm_guide_has_real_markdown_line_breaks(self):
+        guide = read("deploy/DOCKER_SWARM.md")
+        self.assertNotIn("\\n\\n", guide)
+        self.assertIn("## 2. Create Docker secrets", guide)
+
+
+    def test_local_pwa_does_not_bake_an_insecure_http_api_url(self):
+        compose = read("compose.local.yml")
+        pwa = service_block(compose, "air-pwa")
+        self.assertIn("dockerfile: deploy/pwa.Dockerfile", pwa)
+        self.assertNotIn("AIR_API_BASE_URL: http://", pwa)
+
+
+    def test_rabbitmq_4_reads_password_from_docker_secret_without_legacy_file_env(self):
+        compose = read("compose.local.yml")
+        stack = read("docker-stack.yml")
+        rabbit_config = read("deploy/rabbitmq.conf")
+        self.assertNotIn("RABBITMQ_DEFAULT_PASS_FILE", compose)
+        self.assertNotIn("RABBITMQ_DEFAULT_PASS_FILE", stack)
+        self.assertIn("RABBITMQ_CONFIG_FILE: /etc/rabbitmq/rabbitmq.conf", compose)
+        self.assertIn("RABBITMQ_CONFIG_FILE: /etc/rabbitmq/rabbitmq.conf", stack)
+        self.assertIn("rabbitmq_password", compose)
+        self.assertIn("air_rabbitmq_password", stack)
+        self.assertIn("default_pass = $(AIR_RABBITMQ_DEFAULT_PASSWORD)", rabbit_config)
+        self.assertIn("/usr/local/bin/docker-entrypoint.sh rabbitmq-server", compose)
+        self.assertIn("/usr/local/bin/docker-entrypoint.sh rabbitmq-server", stack)
+        self.assertIn('PASSWORD="$$(cat /run/secrets/rabbitmq_password)', compose)
+        self.assertIn('PASSWORD="$$(cat /run/secrets/air_rabbitmq_password)', stack)
+        self.assertIn("air_rabbitmq_config", stack)
+
+
+    def test_readiness_register_separates_code_delivery_from_environment_gates(self):
+        register = read("deploy/READINESS_REGISTER.md")
+        self.assertIn("Gate 14 — tenant isolation and AWS SaaS provisioning foundation | COMPLETE", register)
+        self.assertIn("AWS live infrastructure | DEFERRED", register)
+        self.assertIn("Production on-prem installation | DEFERRED", register)
+        self.assertIn("PROD-01", register)
+        self.assertIn("Do not apply Terraform", register)
+
+
 if __name__ == "__main__":
     unittest.main()

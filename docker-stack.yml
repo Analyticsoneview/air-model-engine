@@ -51,10 +51,13 @@ services:
   rabbitmq:
     image: rabbitmq:4-management-alpine
     environment:
-      RABBITMQ_DEFAULT_USER: air
-      RABBITMQ_DEFAULT_PASS_FILE: /run/secrets/air_rabbitmq_password
+      RABBITMQ_CONFIG_FILE: /etc/rabbitmq/rabbitmq.conf
+    command: ["sh", "-ec", 'export AIR_RABBITMQ_DEFAULT_PASSWORD="$$(cat /run/secrets/air_rabbitmq_password)"; exec /usr/local/bin/docker-entrypoint.sh rabbitmq-server']
     secrets:
       - air_rabbitmq_password
+    configs:
+      - source: air_rabbitmq_config
+        target: /etc/rabbitmq/rabbitmq.conf
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     networks:
@@ -314,6 +317,10 @@ volumes:
     driver: local
   caddy_config:
     driver: local
+
+configs:
+  air_rabbitmq_config:
+    file: ./deploy/rabbitmq.conf
 
 secrets:
   air_jwt_secret:
