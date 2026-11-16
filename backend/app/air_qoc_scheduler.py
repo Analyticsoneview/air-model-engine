@@ -31,6 +31,14 @@ log = logging.getLogger("air.qoc.scheduler")
 IST = ZoneInfo("Asia/Kolkata")
 
 def _tenant_for_customer(customer_id: str) -> str:
+    # Preserve the existing SQLite/on-prem single-tenant runtime. The registry
+    # lookup is required only when PostgreSQL tenant RLS is active.
+    database_configured = any(
+        os.getenv(name) or os.getenv(name + "_FILE")
+        for name in ("AIR_CUSTOMER_DATABASE_URL", "AIR_DATABASE_URL")
+    )
+    if not database_configured:
+        return customer_id
     from app.tenant_provisioning import TenantRegistry
 
     registry = TenantRegistry()
