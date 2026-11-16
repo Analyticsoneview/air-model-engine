@@ -1,4 +1,4 @@
-name: AIR Deployment Profile Acceptance
+name: AIR Deployment Profile and AWS Terraform Acceptance
 
 on:
   pull_request:
