@@ -99,6 +99,21 @@ class NSEBhavcopyTests(unittest.TestCase):
             self.assertTrue(result["already_ready"])
             self.assertFalse(store.bootstrap_lease_status()["active"])
 
+    def test_bootstrap_returns_running_when_another_process_holds_lease(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = NSEBhavcopyStore(str(Path(folder) / "nse.sqlite3"))
+            self.assertTrue(store.acquire_bootstrap_lease(
+                "other-process", run_id="other-run", lease_seconds=180,
+            ))
+            with patch("app.nse_bhavcopy._get_store", return_value=store), \
+                 patch("app.nse_bhavcopy.httpx.AsyncClient", side_effect=AssertionError("network must not run")):
+                result = asyncio.run(run_nse_bootstrap())
+            self.assertTrue(result["already_running"])
+            self.assertEqual(result["status"], "RUNNING")
+            self.assertTrue(store.bootstrap_lease_status()["active"])
+            store.release_bootstrap_lease("other-process")
+
+
     def test_cancelled_bootstrap_records_interrupted_run_and_releases_lease(self):
         class CancelClient:
             async def __aenter__(self):
