@@ -1,0 +1,39 @@
+name: AIR AWS Private Deployment Terraform Acceptance
+
+on:
+  pull_request:
+    paths:
+      - 'deploy/aws/terraform/**'
+      - 'backend/config/deployment_profiles/**'
+      - 'backend/app/deployment_profiles.py'
+      - '.github/workflows/aws-private-terraform.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  terraform-validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deploy/aws/terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.10.5'
+      - name: Check Terraform formatting
+        run: terraform fmt -check -recursive
+      - name: Initialize without remote backend
+        run: terraform init -backend=false -input=false
+      - name: Validate Terraform configuration
+        run: terraform validate -no-color
+      - name: Verify default plan is non-provisioning
+        run: |
+          grep -q 'default     = false' variables.tf
+          grep -q 'var.deploy_services ? 1 : 0' ecs.tf
+          grep -q 'deletion_protection' data.tf
+          grep -q 'transit_encryption_enabled = true' data.tf
+          grep -q 'block_public_acls' data.tf
+          grep -q 'publicly_accessible        = false' data.tf
