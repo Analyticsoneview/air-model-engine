@@ -22,6 +22,10 @@ class PaymentProviderError(ValueError):
     pass
 
 
+class PaymentConfigurationError(PaymentProviderError):
+    """Required payment verification configuration is missing or invalid."""
+
+
 class PaymentWebhookConflict(PaymentProviderError):
     pass
 
