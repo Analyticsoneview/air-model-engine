@@ -8,6 +8,7 @@ on:
       - 'AIRSTART.ps1'
       - 'AIRSTART.sh'
       - 'deploy/DOCKER_SWARM.md'
+      - 'deploy/rabbitmq.conf'
       - 'backend/Dockerfile'
       - 'backend/app/deployment_profiles.py'
       - 'backend/app/main.py'
