@@ -47,10 +47,16 @@ AIR_SMTP_PORT=587
 "@ | Set-Content -Path $envFile -Encoding ascii
     }
 
+    Write-Host "Validating the rendered AIR Compose configuration..." -ForegroundColor Cyan
+    docker compose -f compose.local.yml config --quiet
+    if ($LASTEXITCODE -ne 0) { throw "AIR Compose configuration validation failed." }
+
     if ($env:AIR_START_PULL_BASE_IMAGES -eq "true") {
-        Write-Host "Refreshing PostgreSQL, Redis and RabbitMQ base images before upgrade..." -ForegroundColor Cyan
+        Write-Host "Refreshing PostgreSQL, Redis, RabbitMQ and application build bases before upgrade..." -ForegroundColor Cyan
         docker compose -f compose.local.yml pull postgres redis rabbitmq
         if ($LASTEXITCODE -ne 0) { throw "Failed to refresh AIR base images." }
+        docker compose -f compose.local.yml build --pull air-api air-workflow-worker air-pwa
+        if ($LASTEXITCODE -ne 0) { throw "Failed to rebuild AIR application images from refreshed bases." }
     }
 
     Write-Host "Building and starting AIR API + PWA..." -ForegroundColor Cyan
