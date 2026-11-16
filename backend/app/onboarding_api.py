@@ -95,8 +95,13 @@ def onboarding_me(customer_id: str = Depends(require_customer)):
 def start_trial(body: TrialRequest, customer_id: str = Depends(require_customer)):
     tenant = _tenant(customer_id)
     plan = catalogue_plan(body.plan_code)
-    if not plan or plan["code"].startswith("B2B_") or plan["billing_period"] != "ANNUAL":
-        raise HTTPException(status_code=422, detail="A supported annual B2C plan is required for a trial")
+    if body.product_code != "AIR_B2C" or not plan or plan["code"].startswith("B2B_") or plan["billing_period"] != "ANNUAL":
+        raise HTTPException(status_code=422, detail="AIR_B2C and a supported annual B2C plan are required for a trial")
+    existing = _store().get(tenant, customer_id)
+    if _store().has_used_trial(tenant, customer_id, body.product_code) and not (
+        existing and existing.get("idempotency_key") == body.idempotency_key
+    ):
+        raise HTTPException(status_code=409, detail="This customer has already used the trial for this product")
     try:
         consents = [item.model_dump() for item in body.consents]
         _store().record_consents(tenant, customer_id, consents, body.idempotency_key)
