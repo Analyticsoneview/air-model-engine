@@ -55,7 +55,7 @@ VERIFY_SQL="DO \$\$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'ix_air_workflow_runs_lease') THEN
     RAISE EXCEPTION 'Restored database is missing workflow lease index';
   END IF;
-END \$\$;"
+END; \$\$;"
 
 docker exec "$POSTGRES_CONTAINER" sh -ec \
   'export PGPASSWORD="$(cat /run/secrets/air_postgres_password)"; exec psql -v ON_ERROR_STOP=1 -U air -d "$1" -c "$2"' \
