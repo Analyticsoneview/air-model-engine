@@ -77,6 +77,8 @@ async def upload_tenant_object(
     customer_id: str = Depends(require_customer),
 ) -> dict:
     tenant, tenant_id, owner = _context()
+    if tenant.get("role") not in {"OWNER", "ADMIN", "MEMBER"}:
+        raise HTTPException(status_code=403, detail="Tenant membership is read-only")
     maximum = _max_upload()
     declared = request.headers.get("content-length")
     if declared:
