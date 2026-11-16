@@ -1,9 +1,9 @@
-resource "random_password" "postgres" { length = 32 special = false }
-resource "random_password" "redis" { length = 48 special = false }
-resource "random_password" "rabbitmq" { length = 32 special = false }
-resource "random_password" "jwt" { length = 64 special = false }
-resource "random_password" "credential_key" { length = 64 special = false }
-resource "random_password" "admin_api_key" { length = 48 special = false }
+resource "random_password" "postgres" {\n  length  = 32\n  special = false\n}
+resource "random_password" "redis" {\n  length  = 48\n  special = false\n}
+resource "random_password" "rabbitmq" {\n  length  = 32\n  special = false\n}
+resource "random_password" "jwt" {\n  length  = 64\n  special = false\n}
+resource "random_password" "credential_key" {\n  length  = 64\n  special = false\n}
+resource "random_password" "admin_api_key" {\n  length  = 48\n  special = false\n}
 
 resource "aws_db_subnet_group" "air" {
   name       = "${var.environment_name}-db"
@@ -89,7 +89,7 @@ resource "aws_efs_file_system" "air" {
 
 resource "aws_efs_backup_policy" "air" {
   file_system_id = aws_efs_file_system.air.id
-  backup_policy { status = "ENABLED" }
+  backup_policy {\n    status = "ENABLED"\n  }
 }
 
 resource "aws_efs_mount_target" "air" {
@@ -101,10 +101,10 @@ resource "aws_efs_mount_target" "air" {
 
 resource "aws_efs_access_point" "air" {
   file_system_id = aws_efs_file_system.air.id
-  posix_user { uid = 1000 gid = 1000 }
+  posix_user {\n    uid = 1000\n    gid = 1000\n  }
   root_directory {
     path = "/air"
-    creation_info { owner_uid = 1000 owner_gid = 1000 permissions = "0750" }
+    creation_info {\n      owner_uid   = 1000\n      owner_gid   = 1000\n      permissions = "0750"\n    }
   }
   tags = local.tags
 }
@@ -123,12 +123,12 @@ resource "aws_s3_bucket_public_access_block" "air" {
 }
 resource "aws_s3_bucket_versioning" "air" {
   bucket = aws_s3_bucket.air.id
-  versioning_configuration { status = "Enabled" }
+  versioning_configuration {\n    status = "Enabled"\n  }
 }
 resource "aws_s3_bucket_server_side_encryption_configuration" "air" {
   bucket = aws_s3_bucket.air.id
   rule {
-    apply_server_side_encryption_by_default { sse_algorithm = "AES256" }
+    apply_server_side_encryption_by_default {\n      sse_algorithm = "AES256"\n    }
     bucket_key_enabled = true
   }
 }
@@ -136,40 +136,40 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "air" {
 resource "aws_ecr_repository" "backend" {
   name                 = "${var.environment_name}/backend"
   image_tag_mutability = "IMMUTABLE"
-  image_scanning_configuration { scan_on_push = true }
-  encryption_configuration { encryption_type = "AES256" }
+  image_scanning_configuration {\n    scan_on_push = true\n  }
+  encryption_configuration {\n    encryption_type = "AES256"\n  }
   tags = local.tags
 }
 resource "aws_ecr_repository" "pwa" {
   name                 = "${var.environment_name}/pwa"
   image_tag_mutability = "IMMUTABLE"
-  image_scanning_configuration { scan_on_push = true }
-  encryption_configuration { encryption_type = "AES256" }
+  image_scanning_configuration {\n    scan_on_push = true\n  }
+  encryption_configuration {\n    encryption_type = "AES256"\n  }
   tags = local.tags
 }
 
-resource "aws_secretsmanager_secret" "postgres" { name = "${var.environment_name}/postgres-url" tags = local.tags }
+resource "aws_secretsmanager_secret" "postgres" {\n  name = "${var.environment_name}/postgres-url"\n  tags = local.tags\n}
 resource "aws_secretsmanager_secret_version" "postgres" {
   secret_id     = aws_secretsmanager_secret.postgres.id
   secret_string = "postgresql://air:${random_password.postgres.result}@${aws_db_instance.air.address}:5432/air"
 }
-resource "aws_secretsmanager_secret" "redis" { name = "${var.environment_name}/redis-url" tags = local.tags }
+resource "aws_secretsmanager_secret" "redis" {\n  name = "${var.environment_name}/redis-url"\n  tags = local.tags\n}
 resource "aws_secretsmanager_secret_version" "redis" {
   secret_id     = aws_secretsmanager_secret.redis.id
   secret_string = "rediss://:${random_password.redis.result}@${aws_elasticache_replication_group.air.primary_endpoint_address}:6379/0"
 }
-resource "aws_secretsmanager_secret" "rabbitmq" { name = "${var.environment_name}/rabbitmq-url" tags = local.tags }
+resource "aws_secretsmanager_secret" "rabbitmq" {\n  name = "${var.environment_name}/rabbitmq-url"\n  tags = local.tags\n}
 resource "aws_secretsmanager_secret_version" "rabbitmq" {
   secret_id     = aws_secretsmanager_secret.rabbitmq.id
   secret_string = "amqps://air:${random_password.rabbitmq.result}@${trimprefix(aws_mq_broker.air.instances[0].endpoints[0], "amqps://")}/"
 }
-resource "aws_secretsmanager_secret" "jwt" { name = "${var.environment_name}/jwt-secret" tags = local.tags }
-resource "aws_secretsmanager_secret_version" "jwt" { secret_id = aws_secretsmanager_secret.jwt.id secret_string = random_password.jwt.result }
-resource "aws_secretsmanager_secret" "credential_key" { name = "${var.environment_name}/credential-key" tags = local.tags }
-resource "aws_secretsmanager_secret_version" "credential_key" { secret_id = aws_secretsmanager_secret.credential_key.id secret_string = random_password.credential_key.result }
-resource "aws_secretsmanager_secret" "admin_api_key" { name = "${var.environment_name}/admin-api-key" tags = local.tags }
-resource "aws_secretsmanager_secret_version" "admin_api_key" { secret_id = aws_secretsmanager_secret.admin_api_key.id secret_string = random_password.admin_api_key.result }
+resource "aws_secretsmanager_secret" "jwt" {\n  name = "${var.environment_name}/jwt-secret"\n  tags = local.tags\n}
+resource "aws_secretsmanager_secret_version" "jwt" {\n  secret_id     = aws_secretsmanager_secret.jwt.id\n  secret_string = random_password.jwt.result\n}
+resource "aws_secretsmanager_secret" "credential_key" {\n  name = "${var.environment_name}/credential-key"\n  tags = local.tags\n}
+resource "aws_secretsmanager_secret_version" "credential_key" {\n  secret_id     = aws_secretsmanager_secret.credential_key.id\n  secret_string = random_password.credential_key.result\n}
+resource "aws_secretsmanager_secret" "admin_api_key" {\n  name = "${var.environment_name}/admin-api-key"\n  tags = local.tags\n}
+resource "aws_secretsmanager_secret_version" "admin_api_key" {\n  secret_id     = aws_secretsmanager_secret.admin_api_key.id\n  secret_string = random_password.admin_api_key.result\n}
 
-resource "aws_cloudwatch_log_group" "api" { name = "/air/${var.environment_name}/api" retention_in_days = var.log_retention_days tags = local.tags }
-resource "aws_cloudwatch_log_group" "worker" { name = "/air/${var.environment_name}/worker" retention_in_days = var.log_retention_days tags = local.tags }
-resource "aws_cloudwatch_log_group" "pwa" { name = "/air/${var.environment_name}/pwa" retention_in_days = var.log_retention_days tags = local.tags }
+resource "aws_cloudwatch_log_group" "api" {\n  name              = "/air/${var.environment_name}/api"\n  retention_in_days = var.log_retention_days\n  tags              = local.tags\n}
+resource "aws_cloudwatch_log_group" "worker" {\n  name              = "/air/${var.environment_name}/worker"\n  retention_in_days = var.log_retention_days\n  tags              = local.tags\n}
+resource "aws_cloudwatch_log_group" "pwa" {\n  name              = "/air/${var.environment_name}/pwa"\n  retention_in_days = var.log_retention_days\n  tags              = local.tags\n}
