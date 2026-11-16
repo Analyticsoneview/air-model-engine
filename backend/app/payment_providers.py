@@ -14,7 +14,8 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from uuid import uuid4
 
-from sqlalchemy import create_engine, text\nfrom sqlalchemy.exc import IntegrityError
+from sqlalchemy import create_engine, text
+from sqlalchemy.exc import IntegrityError
 
 
 class PaymentProviderError(ValueError):
