@@ -56,6 +56,14 @@ def upgrade() -> None:
         sa.Column("owner_customer_id", sa.String(128), nullable=False, unique=True),
         sa.Column("plan_code", sa.String(24), nullable=False, server_default="STANDARD"),
         sa.Column("status", sa.String(16), nullable=False, server_default="ACTIVE"),
+        sa.Column("storage_prefix", sa.String(256), nullable=False, unique=True),
+        sa.Column("rabbitmq_vhost", sa.String(128), nullable=False, unique=True),
+        sa.Column("max_members", sa.Integer(), nullable=False, server_default="1"),
+        sa.Column("max_api_calls_per_day", sa.Integer(), nullable=False, server_default="10000"),
+        sa.Column("max_storage_bytes", sa.BigInteger(), nullable=False, server_default="1073741824"),
+        sa.Column("feature_flags_json", sa.JSON(), nullable=False, server_default=sa.text("'{}'::json")),
+        sa.Column("metadata_json", sa.JSON(), nullable=False, server_default=sa.text("'{}'::json")),
+        sa.Column("provisioned_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.CheckConstraint("status IN ('PROVISIONING','ACTIVE','SUSPENDED','CLOSED')",
@@ -99,9 +107,15 @@ def upgrade() -> None:
             UNION SELECT NULLIF(trigger_config_json::jsonb->>'customer_id','') FROM air_workflow_definitions
             UNION SELECT NULLIF(payload_json::jsonb->>'customer_id','') FROM air_workflow_events
         )
-        INSERT INTO air_tenants(tenant_id,name,owner_customer_id,plan_code,status)
-        SELECT gen_random_uuid()::text, 'AIR ' || customer_id, customer_id, 'STANDARD', 'ACTIVE'
-        FROM customer_ids
+        INSERT INTO air_tenants
+            (tenant_id,name,owner_customer_id,plan_code,status,storage_prefix,rabbitmq_vhost,
+             max_members,max_api_calls_per_day,max_storage_bytes,feature_flags_json,metadata_json)
+        SELECT tenant_id, 'AIR ' || customer_id, customer_id, 'STANDARD', 'ACTIVE',
+               'tenants/' || tenant_id || '/', 'air-' || replace(tenant_id,'-',''),
+               1, 10000, 1073741824, '{}'::json, '{}'::json
+        FROM (
+            SELECT gen_random_uuid()::text AS tenant_id, customer_id FROM customer_ids
+        ) seeded
         WHERE customer_id IS NOT NULL AND btrim(customer_id) <> ''
         ON CONFLICT(owner_customer_id) DO NOTHING
     """)
