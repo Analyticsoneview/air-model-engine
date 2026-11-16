@@ -1,5 +1,69 @@
 # AIR installation and operations
 
+## Unified AIR Deployment Manager
+
+AIR uses one cross-platform Deployment Manager. Python 3.12 is required for the manager; on-prem installation additionally requires Docker Desktop or Docker Engine with Docker Compose v2. No AWS account, credentials, Kubernetes or cloud service is required for the on-prem profile.
+
+Windows PowerShell:
+
+```powershell
+.\AIRDEPLOY.ps1 -DeploymentProfile onprem-single -Action validate
+.\AIRDEPLOY.ps1 -DeploymentProfile onprem-single -Action doctor
+.\AIRDEPLOY.ps1 -DeploymentProfile onprem-single -Action install
+```
+
+Linux/macOS:
+
+```bash
+bash AIRDEPLOY.sh onprem-single validate
+bash AIRDEPLOY.sh onprem-single doctor
+bash AIRDEPLOY.sh onprem-single install
+```
+
+Supported actions:
+
+| Action | Purpose |
+|---|---|
+| `validate` | Validate the selected deployment profile and required product files without provisioning resources |
+| `doctor` | Check Docker, Compose, daemon availability and local disk readiness |
+| `install` | Generate/preserve local secrets, start the full service set and wait for application `/ready` |
+| `upgrade` | Refresh PostgreSQL/Redis/RabbitMQ images, rebuild API/worker/PWA, apply startup migrations and wait for full `/ready` |
+| `status` | Report Compose service state plus API liveness, full readiness and PWA health |
+| `diagnose` | Write a local diagnostic JSON report without reading or exporting secret contents |
+| `package` | Build a versioned release archive with service manifest and SHA-256 checksums |
+
+The no-argument `AIRDEPLOY` command defaults to installing `onprem-single`. AWS profiles default to validation. Selecting an AWS profile does not apply Terraform or create cloud resources. AWS installation remains deferred until an authorized AWS account, region, deployment role, encrypted remote state, certificate and budget approval are available.
+
+### Safe upgrade procedure
+
+1. Confirm the currently installed AIR version and verify the latest backup.
+2. Back up the PostgreSQL database and persistent `air_data`, Redis and RabbitMQ volumes using the site's approved backup procedure.
+3. Run `AIRDEPLOY` with action `upgrade`. Existing named volumes and non-empty local secrets are preserved.
+4. The manager validates Compose configuration, refreshes the base service images, rebuilds the FastAPI/workflow-worker and Flutter PWA images, and starts the services.
+5. Wait for the full `/ready` response. A successful `/health` response alone is not installation acceptance.
+6. If readiness fails, run `AIRDEPLOY` with action `diagnose`, inspect the local service logs, and restore from the verified backup if required. Do not delete volumes or regenerate encryption/JWT secrets as a troubleshooting shortcut.
+
+The upgrade command does not automatically roll back database migrations. A restore must use a backup taken before the upgrade and the matching release/configuration. Test restore procedures before production upgrades.
+
+### Release artifacts
+
+Run `AIRDEPLOY` with action `package`, or execute:
+
+```bash
+python scripts/release/build_release.py --version 1.0.0
+```
+
+The release bundle includes the FastAPI backend and migrations, Flutter PWA source/build definition, PostgreSQL/Redis/RabbitMQ configuration, workflow worker and scheduler components, Compose/Swarm deployment files, profiles, installers and operations documentation. It includes a `RELEASE-MANIFEST.json`, `SHA256SUMS` and an archive `.sha256` sidecar. Runtime data, local environment files, secret files, database files and signing keys are excluded.
+
+Verify a downloaded release before extraction:
+
+```bash
+python scripts/release/build_release.py --verify dist/air-release-1.0.0.tar.gz
+```
+
+GitHub Actions also builds and uploads the versioned release bundle as a CI artifact. The artifact is a deployment source bundle; the Compose/Swarm runtime still builds the API and PWA images on the target host unless immutable registry images are configured.
+
+
 
 ## Market-data providers
 
