@@ -5,7 +5,7 @@ import pika
 import pytest
 
 from app.workflow_engine import WorkflowStore
-from app.workflow_worker import DEAD_QUEUE, QUEUE, EXCHANGE, _connection, _declare, _publish_batch
+from app.workflow_worker import DEAD_QUEUE, QUEUE, EXCHANGE, _connection, _declare, _publish_batch, _retry_or_dead_letter
 
 
 pytestmark = pytest.mark.skipif(
@@ -127,7 +127,7 @@ def test_unacked_message_redelivered_after_consumer_disconnect():
             second.close()
 
 
-def test_poison_message_reaches_dead_letter_queue_after_delivery_limit():
+def test_poison_message_reaches_dead_letter_queue_after_bounded_retries():
     connection = _connection()
     try:
         channel = connection.channel()
@@ -139,34 +139,25 @@ def test_poison_message_reaches_dead_letter_queue_after_delivery_limit():
         channel.basic_publish(
             exchange=EXCHANGE, routing_key="integration.poison",
             body=b'{"event_id":"integration-poison-message","invalid":true}',
-            properties=pika.BasicProperties(delivery_mode=2, message_id=event_id),
+            properties=pika.BasicProperties(
+                delivery_mode=2, message_id=event_id, content_type="application/json",
+            ),
             mandatory=True,
         )
-        deliveries = []
 
-        def reject_poison(ch, method, properties, body):
-            deliveries.append(method.delivery_tag)
-            # Exercise the same consumer-side negative acknowledgement path.
-            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
+        outcomes = []
+        for _ in range(5):
+            method, properties, body = channel.basic_get(queue=QUEUE, auto_ack=False)
+            assert method is not None, "Retry publication unexpectedly lost the poison event"
+            outcomes.append(_retry_or_dead_letter(channel, method, properties, body))
+        assert outcomes == ["retried", "retried", "retried", "retried", "dead-lettered"]
 
-        tag = channel.basic_consume(queue=QUEUE, on_message_callback=reject_poison, auto_ack=False)
-        import time
-        for _ in range(50):
-            connection.process_data_events(time_limit=0.1)
-            if len(deliveries) >= 8:
-                break
-        channel.basic_cancel(tag)
-        assert len(deliveries) >= 5, "Expected repeated consumer deliveries before dead-lettering"
-
-        dead = None
-        for _ in range(30):
-            dead, _, body = channel.basic_get(queue=DEAD_QUEUE, auto_ack=False)
-            if dead is not None:
-                break
-            time.sleep(0.1)
+        dead, properties, body = channel.basic_get(queue=DEAD_QUEUE, auto_ack=False)
         assert dead is not None, "Expected poison message in durable dead-letter queue"
         assert json.loads(body)["event_id"] == event_id
+        assert properties.headers["x-air-retry-count"] == 5
         channel.basic_ack(delivery_tag=dead.delivery_tag)
+        assert channel.basic_get(queue=QUEUE, auto_ack=True)[0] is None
     finally:
         if connection.is_open:
             connection.close()
