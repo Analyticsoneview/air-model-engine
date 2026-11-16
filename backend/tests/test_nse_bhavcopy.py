@@ -1,12 +1,17 @@
+import asyncio
+import io
 import os
 import tempfile
 import unittest
+import zipfile
 from datetime import date
 from pathlib import Path
 
 from app.model_engine_ledger import ModelEngineLedger
 from app.nse_bhavcopy import (
-    NSEBhavcopyStore, _archive_url, _normalize, _parse_nse_calendar, _subtract_months, _date_range, _configured_history_months, nse_bootstrap_is_ready, _bootstrap_end_date,
+    NSEBhavcopyStore, _archive_url, _archive_is_valid, _download_one, _normalize,
+    _parse_nse_calendar, _subtract_months, _date_range, _configured_history_months,
+    nse_bootstrap_is_ready, _bootstrap_end_date,
 )
 
 
@@ -383,6 +388,72 @@ class NSEBhavcopyTests(unittest.TestCase):
             self.assertEqual(store.save_rows("CM", day, [row, row]), 1)
             self.assertEqual(store.actual_record_count("CM", day), 1)
 
+
+
+    def test_archive_integrity_rejects_missing_and_corrupt_archives(self):
+        with tempfile.TemporaryDirectory() as folder:
+            missing = Path(folder) / "missing.zip"
+            corrupt = Path(folder) / "corrupt.zip"
+            corrupt.write_bytes(b"not-a-zip")
+            self.assertFalse(_archive_is_valid(missing))
+            self.assertFalse(_archive_is_valid(corrupt))
+
+            valid = Path(folder) / "valid.zip"
+            with zipfile.ZipFile(valid, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("BhavCopy.csv", "FinInstrmId,TckrSymb,FinInstrmTp\n1,INFY,STK\n")
+            self.assertTrue(_archive_is_valid(valid))
+
+    def test_bootstrap_redownloads_corrupt_archive_and_replaces_old_session_rows(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = NSEBhavcopyStore(str(Path(folder) / "nse.sqlite3"))
+            day = date(2026, 11, 6)
+            stamp = day.isoformat()
+            archive_path = Path(folder) / "CM" / (stamp + ".zip")
+            archive_path.parent.mkdir(parents=True)
+            archive_path.write_bytes(b"corrupt persisted archive")
+            store.save_rows("CM", stamp, [{
+                "FinInstrmId": "old", "TckrSymb": "OLD", "FinInstrmTp": "STK",
+            }])
+            store.set_file_status(
+                "CM", stamp, "IMPORTED", 1, archive_path=str(archive_path),
+                source_record_count=1,
+            )
+
+            payload = io.BytesIO()
+            with zipfile.ZipFile(payload, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr(
+                    "BhavCopy.csv",
+                    "FinInstrmId,TckrSymb,FinInstrmTp\nnew,INFY,STK\n",
+                )
+
+            class FakeResponse:
+                status_code = 200
+
+                def __init__(self, content):
+                    self.content = content
+
+                @staticmethod
+                def raise_for_status():
+                    return None
+
+            class FakeClient:
+                calls = 0
+
+                async def get(self, url):
+                    self.calls += 1
+                    return FakeResponse(payload.getvalue())
+
+            client = FakeClient()
+            result = asyncio.run(_download_one(
+                client, asyncio.Semaphore(1), store, "CM", day, Path(folder)
+            ))
+
+            self.assertEqual(client.calls, 1)
+            self.assertEqual(result["status"], "IMPORTED")
+            self.assertEqual(store.actual_record_count("CM", stamp), 1)
+            self.assertEqual(store.query("CM", symbol="OLD"), [])
+            self.assertEqual(len(store.query("CM", symbol="INFY")), 1)
+            self.assertTrue(_archive_is_valid(archive_path))
 
 if __name__ == "__main__":
     unittest.main()
