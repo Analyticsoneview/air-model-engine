@@ -4,7 +4,7 @@ resource "aws_ecs_cluster" "air" {
     name  = "containerInsights"
     value = "enabled"
   }
-  tags               = local.tags
+  tags = local.tags
 }
 
 resource "aws_iam_role" "ecs_execution" {
@@ -13,7 +13,7 @@ resource "aws_iam_role" "ecs_execution" {
     Version = "2012-10-17"
     Statement = [{ Effect = "Allow", Principal = { Service = "ecs-tasks.amazonaws.com" }, Action = "sts:AssumeRole" }]
   })
-  tags               = local.tags
+  tags = local.tags
 }
 resource "aws_iam_role_policy_attachment" "ecs_execution" {
   role       = aws_iam_role.ecs_execution.name
@@ -75,7 +75,7 @@ resource "aws_lb_target_group" "pwa" {
     path    = "/health"
     matcher = "200-399"
   }
-  tags               = local.tags
+  tags = local.tags
 }
 resource "aws_lb_target_group" "api" {
   name        = substr("${var.environment_name}-api", 0, 32)
@@ -87,7 +87,7 @@ resource "aws_lb_target_group" "api" {
     path    = "/health"
     matcher = "200-399"
   }
-  tags               = local.tags
+  tags = local.tags
 }
 resource "aws_lb_listener" "https" {
   count             = var.acm_certificate_arn != "" ? 1 : 0
@@ -162,7 +162,7 @@ resource "aws_ecs_task_definition" "api" {
   }
   container_definitions = jsonencode([{
     name         = "air-api"
-    image     = var.backend_image_uri
+    image        = var.backend_image_uri
     essential    = true
     portMappings = [{ containerPort = 8000, hostPort = 8000, protocol = "tcp" }]
     environment = [
@@ -188,7 +188,7 @@ resource "aws_ecs_task_definition" "api" {
       error_message = "backend_image_uri is required when deploy_services=true."
     }
   }
-  tags               = local.tags
+  tags = local.tags
 }
 resource "aws_ecs_task_definition" "worker" {
   count                    = var.deploy_services ? 1 : 0
@@ -233,7 +233,7 @@ resource "aws_ecs_task_definition" "worker" {
       error_message = "backend_image_uri is required when deploy_services=true."
     }
   }
-  tags               = local.tags
+  tags = local.tags
 }
 resource "aws_ecs_task_definition" "pwa" {
   count                    = var.deploy_services ? 1 : 0
@@ -257,7 +257,7 @@ resource "aws_ecs_task_definition" "pwa" {
       error_message = "pwa_image_uri is required when deploy_services=true."
     }
   }
-  tags               = local.tags
+  tags = local.tags
 }
 
 resource "aws_ecs_service" "api" {
@@ -279,7 +279,7 @@ resource "aws_ecs_service" "api" {
     container_port   = 8000
   }
   depends_on = [aws_lb_listener.https, aws_lb_listener.http, aws_iam_role_policy_attachment.ecs_execution, aws_iam_role_policy.ecs_secrets]
-  tags               = local.tags
+  tags       = local.tags
 }
 resource "aws_ecs_service" "worker" {
   count            = var.deploy_services ? 1 : 0
@@ -295,7 +295,7 @@ resource "aws_ecs_service" "worker" {
     assign_public_ip = false
   }
   depends_on = [aws_iam_role_policy_attachment.ecs_execution, aws_iam_role_policy.ecs_secrets]
-  tags               = local.tags
+  tags       = local.tags
 }
 resource "aws_ecs_service" "pwa" {
   count            = var.deploy_services ? 1 : 0
@@ -316,5 +316,5 @@ resource "aws_ecs_service" "pwa" {
     container_port   = 8080
   }
   depends_on = [aws_lb_listener.https, aws_lb_listener.http, aws_iam_role_policy_attachment.ecs_execution]
-  tags               = local.tags
+  tags       = local.tags
 }
