@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import io
+import hashlib
 import json
 import logging
 import os
@@ -789,6 +790,7 @@ async def _download_one(client: httpx.AsyncClient, semaphore: asyncio.Semaphore,
     if existing and existing["status"] == "IMPORTED" and existing["record_count"] > 0:
         return {"market": market, "date": stamp, "status": "SKIPPED", "records": existing["record_count"]}
     url = _archive_url(market, day)
+    store.begin_file_attempt(market, stamp, url)
     async with semaphore:
         response = None
         for attempt in range(3):
@@ -817,15 +819,19 @@ async def _download_one(client: httpx.AsyncClient, semaphore: asyncio.Semaphore,
                 rows = list(csv.DictReader(text))
         if not rows:
             raise ValueError("CSV contains no data rows")
-        count = store.save_rows(market, stamp, rows)
+        archive_sha256 = hashlib.sha256(response.content).hexdigest()
         folder = archive_root / market
         folder.mkdir(parents=True, exist_ok=True)
         archive_path = folder / f"{stamp}.zip"
         temp_path = folder / f"{stamp}.zip.part"
         temp_path.write_bytes(response.content)
+        count = store.save_rows(market, stamp, rows)
         temp_path.replace(archive_path)
-        store.set_file_status(market, stamp, "IMPORTED", count,
-                              str(archive_path), url, source_record_count=count)
+        store.set_file_status(
+            market, stamp, "IMPORTED", count, str(archive_path), url,
+            source_record_count=count, archive_sha256=archive_sha256,
+            archive_bytes=len(response.content),
+        )
         return {"market": market, "date": stamp, "status": "IMPORTED", "records": count}
     except (zipfile.BadZipFile, OSError, UnicodeError, csv.Error, ValueError) as exc:
         store.set_file_status(market, stamp, "FAILED", source_url=url,
