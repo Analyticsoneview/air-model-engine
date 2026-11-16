@@ -14,7 +14,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from uuid import uuid4
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text\nfrom sqlalchemy.exc import IntegrityError
 
 
 class PaymentProviderError(ValueError):
@@ -82,7 +82,7 @@ def webhook_secret() -> bytes:
     secret_file = os.getenv("AIR_PAYMENT_WEBHOOK_SECRET_FILE", "").strip()
     secret = Path(secret_file).read_bytes().strip() if secret_file else os.getenv("AIR_PAYMENT_WEBHOOK_SECRET", "").encode()
     if len(secret) < 32:
-        raise PaymentProviderError("A webhook secret of at least 32 bytes must be configured")
+        raise PaymentConfigurationError("A webhook secret of at least 32 bytes must be configured")
     return secret
 
 
@@ -137,18 +137,28 @@ class PaymentWebhookEventStore:
             raise PaymentProviderError("A bounded event type is required")
         digest = hashlib.sha256(raw_body).hexdigest()
         if self.engine:
-            with self.engine.begin() as conn:
-                row = conn.execute(text("""SELECT payload_sha256 FROM air_payment_webhook_events
-                    WHERE provider=:provider AND event_id=:event_id"""),
-                    {"provider": provider, "event_id": event_id}).first()
-                if row:
-                    if row[0] != digest:
-                        raise PaymentWebhookConflict("Webhook event ID was replayed with a different payload")
-                    return {"provider": provider, "event_id": event_id, "status": "DUPLICATE"}
-                conn.execute(text("""INSERT INTO air_payment_webhook_events
-                    (provider,event_id,event_type,payload_sha256,status)
-                    VALUES (:provider,:event_id,:event_type,:digest,'RECEIVED')"""),
-                    {"provider": provider, "event_id": event_id, "event_type": event_type, "digest": digest})
+            try:
+                with self.engine.begin() as conn:
+                    row = conn.execute(text("""SELECT payload_sha256 FROM air_payment_webhook_events
+                        WHERE provider=:provider AND event_id=:event_id"""),
+                        {"provider": provider, "event_id": event_id}).first()
+                    if row:
+                        if row[0] != digest:
+                            raise PaymentWebhookConflict("Webhook event ID was replayed with a different payload")
+                        return {"provider": provider, "event_id": event_id, "status": "DUPLICATE"}
+                    conn.execute(text("""INSERT INTO air_payment_webhook_events
+                        (provider,event_id,event_type,payload_sha256,status)
+                        VALUES (:provider,:event_id,:event_type,:digest,'RECEIVED')"""),
+                        {"provider": provider, "event_id": event_id, "event_type": event_type, "digest": digest})
+            except IntegrityError:
+                # A concurrent delivery may win the unique-key insert after our read.
+                with self.engine.connect() as conn:
+                    row = conn.execute(text("""SELECT payload_sha256 FROM air_payment_webhook_events
+                        WHERE provider=:provider AND event_id=:event_id"""),
+                        {"provider": provider, "event_id": event_id}).first()
+                if not row or row[0] != digest:
+                    raise PaymentWebhookConflict("Webhook event ID was concurrently reused with a different payload")
+                return {"provider": provider, "event_id": event_id, "status": "DUPLICATE"}
         else:
             with sqlite3.connect(self.sqlite_path, timeout=20) as db:
                 row = db.execute("""SELECT payload_sha256 FROM air_payment_webhook_events
