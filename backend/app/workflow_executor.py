@@ -66,6 +66,67 @@ def _execute_action(
     event_payload = context.get("event_payload") or {}
     source_output = _step_input(params, outputs)
 
+    if action == "monthly_pd.evaluate":
+        from app.air_monthly_pd import (
+            monthly_levels, evaluate_support_acceptance, expiry_tags,
+            classify_expiry_participation, classify_price_structure,
+        )
+        payload = source_output if source_output else event_payload
+        params = {**payload, **params}
+        previous_month_bars = params.get("previous_month_bars") or []
+        try:
+            levels = monthly_levels(previous_month_bars)
+        except (KeyError, TypeError, ValueError) as exc:
+            return {"status": "DATA_INSUFFICIENT", "reason": str(exc)}
+        support = evaluate_support_acceptance(
+            params.get("post_reference_bars") or [], levels["pml"],
+            required_sessions=int(params.get("required_sessions", 2)),
+            reference_date=params.get("reference_date"),
+        )
+        pattern = classify_price_structure(params.get("structure_bars") or [])
+        expiry = expiry_tags(__import__("datetime").date.fromisoformat(params["expiry_date"])) if params.get("expiry_date") else None
+        participation = classify_expiry_participation(
+            option_volume=params.get("option_volume"),
+            historical_volume_avg=params.get("historical_volume_avg"),
+            oi_change_pct=params.get("oi_change_pct"),
+            premium_change_pct=params.get("premium_change_pct"),
+            spread_pct=params.get("spread_pct"),
+            underlying_volume_ratio=params.get("underlying_volume_ratio"),
+        )
+        persisted = None
+        identity = {
+            "instrument_type": params.get("instrument_type"),
+            "symbol": params.get("symbol"),
+            "cycle_month": params.get("cycle_month"),
+            "reference_date": params.get("reference_date"),
+            "as_of_date": params.get("as_of_date"),
+        }
+        if all(identity.values()):
+            from app.air_monthly_pd_store import AirMonthlyPdStore
+            pd_store = AirMonthlyPdStore()
+            try:
+                cycle = pd_store.save_cycle(
+                    instrument_type=identity["instrument_type"], symbol=identity["symbol"],
+                    cycle_month=identity["cycle_month"], reference_date=identity["reference_date"],
+                    pml=levels["pml"], pmh=levels["pmh"], eq=levels["eq"],
+                )
+                persisted = pd_store.save_snapshot(
+                    cycle_id=cycle["cycle_id"], as_of_date=identity["as_of_date"],
+                    snapshot_type="WORKFLOW", support_status=support["status"],
+                    pattern=pattern["pattern"], pattern_state=pattern["state"],
+                    expiry_metadata=expiry or {},
+                    evidence={"support": support, "participation": participation},
+                    forecast={"pattern": pattern}, actual=params.get("actual") or {},
+                )
+            finally:
+                pd_store.close()
+        return {
+            "status": support["status"], "levels": levels, "support": support,
+            "pattern": pattern, "expiry": expiry, "participation": participation,
+            "persisted_snapshot": persisted,
+            "disclosure": "Research-only evaluation. Verified exchange calendar, completed bars and contract metadata must be supplied; no orders are placed.",
+        }
+
     if action == "qoc.qualify":
         from app.air_qoc_store import AirQocStore
         from app.air_qoc_qualification import qualify_option_observations
