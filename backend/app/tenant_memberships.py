@@ -19,6 +19,13 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _as_utc(value) -> datetime:
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=value.tzinfo or timezone.utc).astimezone(timezone.utc)
+    parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    return parsed.replace(tzinfo=parsed.tzinfo or timezone.utc).astimezone(timezone.utc)
+
+
 class TenantMembershipStore:
     """Transactional organisation membership operations over the tenant registry engine.
 
@@ -67,10 +74,11 @@ class TenantMembershipStore:
 
     def _event(self, conn, tenant_id, customer_id, actor_id, event_type,
                from_role, to_role, idempotency_key, details=None):
-        conn.execute(text("""INSERT INTO air_tenant_membership_events
+        details_sql = "CAST(:details AS json)" if self.engine.dialect.name == "postgresql" else ":details"
+        conn.execute(text(f"""INSERT INTO air_tenant_membership_events
             (event_id,tenant_id,customer_id,actor_id,event_type,from_role,to_role,
              idempotency_key,details,occurred_at)
-            VALUES(:id,:tenant,:customer,:actor,:kind,:old,:new,:key,:details,:now)"""),
+            VALUES(:id,:tenant,:customer,:actor,:kind,:old,:new,:key,{details_sql},:now)"""),
             {"id": str(uuid4()), "tenant": tenant_id, "customer": customer_id,
              "actor": actor_id, "kind": event_type, "old": from_role, "new": to_role,
              "key": idempotency_key, "details": json.dumps(details or {}, sort_keys=True),
@@ -185,7 +193,7 @@ class TenantMembershipStore:
             if row["status"] != "PENDING":
                 raise MembershipConflict("Invitation is no longer pending")
             now = _now()
-            if row["expires_at"] <= now:
+            if _as_utc(row["expires_at"]) <= now:
                 conn.execute(text("""UPDATE air_tenant_invitations SET status='EXPIRED'
                     WHERE tenant_id=:tenant AND invitation_id=:id"""),
                     {"tenant": tenant_id, "id": invitation_id})
