@@ -44,9 +44,32 @@ class FakeS3:
     def put_bucket_policy(self, **kwargs):
         self.calls.append(("policy", kwargs))
 
+    def head_object(self, **kwargs):
+        self.calls.append(("head_object", kwargs))
+        existing = getattr(self, "objects", {}).get(kwargs["Key"])
+        if existing is None:
+            raise FakeClientError("404")
+        return {"ContentLength": len(existing["Body"]), "Metadata": existing["Metadata"],
+                "ETag": '"test-etag"', "ContentType": existing["ContentType"]}
+
     def put_object(self, **kwargs):
         self.calls.append(("put_object", kwargs))
+        if not hasattr(self, "objects"):
+            self.objects = {}
+        self.objects[kwargs["Key"]] = {
+            "Body": kwargs["Body"], "Metadata": kwargs.get("Metadata", {}),
+            "ContentType": kwargs.get("ContentType", "application/octet-stream"),
+        }
         return {"ETag": '"test-etag"'}
+
+    def get_object(self, **kwargs):
+        self.calls.append(("get_object", kwargs))
+        value = self.objects.get(kwargs["Key"])
+        if value is None:
+            raise FakeClientError("404")
+        import io
+        return {"Body": io.BytesIO(value["Body"]), "ContentType": value["ContentType"],
+                "ETag": '"test-etag"'}
 
     def get_paginator(self, operation):
         class Paginator:
@@ -167,6 +190,29 @@ class AwsTenantProvisionerTests(unittest.TestCase):
         limited = dict(self.tenant, max_storage_bytes=100)
         with self.assertRaises(TenantInfrastructureError):
             self.provisioner.put_tenant_object(limited, "too-large.bin", b"x")
+
+    def test_immutable_upload_is_retry_safe_and_downloadable(self):
+        self.provisioner.provision(self.tenant)
+        first = self.provisioner.put_tenant_object(
+            self.tenant, "reports/daily.csv", b"alpha", content_type="text/csv",
+            sha256="8ed3f6ad685b959ead7022518e1af76cd816f8e8ec7ccdda1ed4018e8f2223f8",
+            quota_prevalidated=True,
+        )
+        self.assertFalse(first["already_present"])
+        retry = self.provisioner.put_tenant_object(
+            self.tenant, "reports/daily.csv", b"alpha", content_type="text/csv",
+            sha256="8ed3f6ad685b959ead7022518e1af76cd816f8e8ec7ccdda1ed4018e8f2223f8",
+            quota_prevalidated=True,
+        )
+        self.assertTrue(retry["already_present"])
+        self.assertEqual(first["etag"], retry["etag"])
+        downloaded = self.provisioner.get_tenant_object(self.tenant, "reports/daily.csv")
+        self.assertEqual(downloaded["body"], b"alpha")
+        self.assertEqual(downloaded["content_type"], "text/csv")
+        with self.assertRaises(TenantInfrastructureError):
+            self.provisioner.put_tenant_object(
+                self.tenant, "reports/daily.csv", b"other", quota_prevalidated=True,
+            )
 
     def test_suspend_revokes_tenant_user_permissions_without_deleting_data(self):
         self.provisioner.provision(self.tenant)
