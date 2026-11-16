@@ -166,9 +166,9 @@ resource "aws_ecs_task_definition" "api" {
     essential    = true
     portMappings = [{ containerPort = 8000, hostPort = 8000, protocol = "tcp" }]
     environment = [
-      { name = "AIR_DEPLOYMENT_PROFILE", value = "aws-private-single" },
+      { name = "AIR_DEPLOYMENT_PROFILE", value = var.deployment_profile },
       { name = "AIR_DEPLOYMENT_MODE", value = "aws" },
-      { name = "AIR_TENANCY_MODE", value = "single" },
+      { name = "AIR_TENANCY_MODE", value = var.tenancy_mode },
     ]
     secrets = [
       { name = "AIR_DATABASE_URL", valueFrom = aws_secretsmanager_secret.postgres.arn },
@@ -219,9 +219,9 @@ resource "aws_ecs_task_definition" "worker" {
     command   = ["python", "-m", "app.workflow_worker"]
     essential = true
     environment = [
-      { name = "AIR_DEPLOYMENT_PROFILE", value = "aws-private-single" },
+      { name = "AIR_DEPLOYMENT_PROFILE", value = var.deployment_profile },
       { name = "AIR_DEPLOYMENT_MODE", value = "aws" },
-      { name = "AIR_TENANCY_MODE", value = "single" },
+      { name = "AIR_TENANCY_MODE", value = var.tenancy_mode },
     ]
     secrets = [
       { name = "AIR_DATABASE_URL", valueFrom = aws_secretsmanager_secret.postgres.arn },
