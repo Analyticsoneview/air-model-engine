@@ -371,6 +371,7 @@ def _monitor_runtime(stop: threading.Event) -> None:
             try:
                 connection = _connection()
                 channel = connection.channel()
+                _declare(channel)
                 dispatch_depth = channel.queue_declare(queue=QUEUE, passive=True).method.message_count
                 dead_letter_depth = channel.queue_declare(queue=DEAD_QUEUE, passive=True).method.message_count
             except Exception as exc:
