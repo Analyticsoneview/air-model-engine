@@ -67,6 +67,8 @@ async def receive_payment_webhook(
         event_id = payload.get("event_id")
         event_type = payload.get("event_type")
         return _events().record(provider, event_id, event_type, raw_body)
+    except PaymentConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except PaymentWebhookConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (PaymentProviderError, ValueError, TypeError, json.JSONDecodeError) as exc:
