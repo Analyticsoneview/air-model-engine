@@ -177,9 +177,13 @@ class TenantMembershipStore:
                 "expires_at": expires, "idempotent_replay": False}
 
     def accept_invitation(self, tenant_id: str, invitation_id: str, customer_id: str) -> dict:
+        expired = False
+        result = None
         with self._scope(), self.engine.begin() as conn:
+            self._lock_tenant(conn, tenant_id)
+            suffix = " FOR UPDATE" if self.engine.dialect.name == "postgresql" else ""
             row = conn.execute(text("""SELECT * FROM air_tenant_invitations
-                WHERE tenant_id=:tenant AND invitation_id=:id"""),
+                WHERE tenant_id=:tenant AND invitation_id=:id""" + suffix),
                 {"tenant": tenant_id, "id": invitation_id}).mappings().first()
             if not row or row["invited_customer_id"] != customer_id:
                 raise KeyError("Invitation not found for this customer")
@@ -188,37 +192,42 @@ class TenantMembershipStore:
                     FROM air_tenant_members WHERE tenant_id=:tenant AND customer_id=:customer"""),
                     {"tenant": tenant_id, "customer": customer_id}).mappings().first()
                 if member and member["status"] == "ACTIVE":
-                    return dict(member) | {"idempotent_replay": True}
-                raise MembershipConflict("Accepted invitation no longer has an active membership")
-            if row["status"] != "PENDING":
+                    result = dict(member) | {"idempotent_replay": True}
+                else:
+                    raise MembershipConflict("Accepted invitation no longer has an active membership")
+            elif row["status"] != "PENDING":
                 raise MembershipConflict("Invitation is no longer pending")
-            now = _now()
-            if _as_utc(row["expires_at"]) <= now:
+            elif _as_utc(row["expires_at"]) <= _now():
                 conn.execute(text("""UPDATE air_tenant_invitations SET status='EXPIRED'
                     WHERE tenant_id=:tenant AND invitation_id=:id"""),
                     {"tenant": tenant_id, "id": invitation_id})
-                raise MembershipConflict("Invitation has expired")
-            self._lock_tenant(conn, tenant_id)
-            existing = conn.execute(text("""SELECT status FROM air_tenant_members
-                WHERE tenant_id=:tenant AND customer_id=:customer"""),
-                {"tenant": tenant_id, "customer": customer_id}).first()
-            if existing and existing[0] != "REMOVED":
-                raise MembershipConflict("Customer already belongs to this organisation")
-            if existing:
-                conn.execute(text("""DELETE FROM air_tenant_members
+                expired = True
+            else:
+                existing = conn.execute(text("""SELECT status FROM air_tenant_members
                     WHERE tenant_id=:tenant AND customer_id=:customer"""),
-                    {"tenant": tenant_id, "customer": customer_id})
-            conn.execute(text("""INSERT INTO air_tenant_members
-                (tenant_id,customer_id,role,status)
-                VALUES(:tenant,:customer,:role,'ACTIVE')"""),
-                {"tenant": tenant_id, "customer": customer_id, "role": row["role"]})
-            conn.execute(text("""UPDATE air_tenant_invitations SET status='ACCEPTED',accepted_at=:now
-                WHERE tenant_id=:tenant AND invitation_id=:id"""),
-                {"now": now, "tenant": tenant_id, "id": invitation_id})
-            self._event(conn, tenant_id, customer_id, customer_id, "INVITATION_ACCEPTED",
-                        None, row["role"], "accept:" + invitation_id, {"invitation_id": invitation_id})
-        return {"tenant_id": tenant_id, "customer_id": customer_id, "role": row["role"],
-                "status": "ACTIVE", "idempotent_replay": False}
+                    {"tenant": tenant_id, "customer": customer_id}).first()
+                if existing and existing[0] != "REMOVED":
+                    raise MembershipConflict("Customer already belongs to this organisation")
+                if existing:
+                    conn.execute(text("""DELETE FROM air_tenant_members
+                        WHERE tenant_id=:tenant AND customer_id=:customer"""),
+                        {"tenant": tenant_id, "customer": customer_id})
+                conn.execute(text("""INSERT INTO air_tenant_members
+                    (tenant_id,customer_id,role,status)
+                    VALUES(:tenant,:customer,:role,'ACTIVE')"""),
+                    {"tenant": tenant_id, "customer": customer_id, "role": row["role"]})
+                now = _now()
+                conn.execute(text("""UPDATE air_tenant_invitations SET status='ACCEPTED',accepted_at=:now
+                    WHERE tenant_id=:tenant AND invitation_id=:id"""),
+                    {"now": now, "tenant": tenant_id, "id": invitation_id})
+                self._event(conn, tenant_id, customer_id, customer_id, "INVITATION_ACCEPTED",
+                            None, row["role"], "accept:" + invitation_id, {"invitation_id": invitation_id})
+                result = {"tenant_id": tenant_id, "customer_id": customer_id, "role": row["role"],
+                          "status": "ACTIVE", "idempotent_replay": False}
+        if expired:
+            raise MembershipConflict("Invitation has expired")
+        return result
+
 
     def revoke_invitation(self, tenant_id: str, actor_id: str, invitation_id: str,
                           idempotency_key: str) -> dict:
