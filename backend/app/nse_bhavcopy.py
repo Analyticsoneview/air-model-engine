@@ -481,6 +481,66 @@ class NSEBhavcopyStore:
         "trading_calendar": self.get_meta(f"trading_calendar_{datetime.now(IST).year}") or {},
         }
 
+    def symbol_coverage(self, symbols: list[str], start_date: str, end_date: str,
+                        expected_sessions: int, minimum_sessions: int = 45) -> dict[str, Any]:
+        """Report CM EOD coverage for each current index constituent."""
+        unique_symbols = sorted({str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()})
+        if not unique_symbols:
+            return {
+                "status": "BLOCKED", "expected_symbols": 0, "observed_symbols": 0,
+                "missing_symbols": [], "below_minimum_symbols": [],
+                "minimum_sessions": minimum_sessions, "expected_sessions": expected_sessions,
+            }
+        placeholders = ",".join("?" for _ in unique_symbols)
+        with self._db() as db:
+            rows = db.execute(
+                f"""
+                SELECT symbol, COUNT(DISTINCT trade_date) AS sessions,
+                       MIN(trade_date) AS first_date, MAX(trade_date) AS last_date
+                FROM nse_bhavcopy
+                WHERE market='CM' AND instrument_type='STK'
+                  AND trade_date>=? AND trade_date<=?
+                  AND symbol IN ({placeholders})
+                GROUP BY symbol
+                """,
+                [start_date, end_date, *unique_symbols],
+            ).fetchall()
+        observed = {row["symbol"]: dict(row) for row in rows}
+        by_symbol = []
+        missing = []
+        below_minimum = []
+        for symbol in unique_symbols:
+            item = observed.get(symbol)
+            sessions = int(item["sessions"]) if item else 0
+            if sessions == 0:
+                missing.append(symbol)
+            elif sessions < minimum_sessions:
+                below_minimum.append(symbol)
+            by_symbol.append({
+                "symbol": symbol,
+                "sessions": sessions,
+                "coverage_pct": round(sessions / max(1, expected_sessions) * 100, 1),
+                "first_date": item["first_date"] if item else None,
+                "last_date": item["last_date"] if item else None,
+                "status": "MISSING" if sessions == 0 else (
+                    "INSUFFICIENT" if sessions < minimum_sessions else "READY"
+                ),
+            })
+        return {
+            "status": "BLOCKED" if missing else (
+                "READY_WITH_WARNINGS" if below_minimum else "READY"
+            ),
+            "expected_symbols": len(unique_symbols),
+            "observed_symbols": len(unique_symbols) - len(missing),
+            "missing_count": len(missing),
+            "missing_symbols": missing,
+            "below_minimum_count": len(below_minimum),
+            "below_minimum_symbols": below_minimum,
+            "minimum_sessions": minimum_sessions,
+            "expected_sessions": expected_sessions,
+            "by_symbol": by_symbol,
+        }
+
     def query(self, market: str, symbol: str | None = None,
               start_date: str | None = None, end_date: str | None = None,
               instrument_type: str | None = None, instrument_id: str | None = None,
@@ -714,10 +774,22 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
         any_failed = state["failed_files"] > 0
         any_missing_archive = state["no_file_days"] > 0
         expected_paired_sessions = int(state.get("expected_paired_sessions", 0))
-        from app.nse_universe import run_nse_universe_bootstrap
+        from app.nse_universe import NSEUniverseStore, run_nse_universe_bootstrap
         universe_result = await run_nse_universe_bootstrap()
         state["universe"] = universe_result
-        universe_ready = universe_result.get("status") == "READY"
+        universe_store = NSEUniverseStore()
+        universe_symbols = universe_store.symbols()
+        expected_cm_sessions = sum(1 for day in days if day.isoformat() not in cm_holidays)
+        symbol_coverage = store.symbol_coverage(
+            universe_symbols, history_start.isoformat(), end_date.isoformat(),
+            expected_sessions=expected_cm_sessions, minimum_sessions=45,
+        )
+        state["symbol_coverage"] = symbol_coverage
+        universe_ready = (
+            universe_result.get("status") == "READY"
+            and len(universe_symbols) == 500
+            and symbol_coverage.get("status") in {"READY", "READY_WITH_WARNINGS"}
+        )
         complete_archive_set = (
             state["completed_files"] == expected_files
             and state["imported_files"] == expected_files
@@ -806,10 +878,16 @@ def nse_bootstrap_is_ready(bootstrap: dict[str, Any] | None) -> bool:
         and (indices.get(code) or {}).get("actual_count") == expected
         for code, expected in required.items()
     )
+    symbol_coverage = bootstrap.get("symbol_coverage") or {}
+    coverage_ready = (
+        symbol_coverage.get("status") in {"READY", "READY_WITH_WARNINGS"}
+        and symbol_coverage.get("expected_symbols") == 500
+        and symbol_coverage.get("missing_count") == 0
+    )
     strategy_run = bootstrap.get("strategy_run") or {}
     return (
         months >= 12 and archive_coverage >= 100.0
-        and paired_coverage >= 100.0 and universes_ready
+        and paired_coverage >= 100.0 and universes_ready and coverage_ready
         and strategy_run.get("status") == "COMPLETED"
     )
 
