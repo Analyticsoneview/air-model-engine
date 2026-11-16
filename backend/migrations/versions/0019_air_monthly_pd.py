@@ -33,10 +33,10 @@ def upgrade() -> None:
         sa.Column("support_status",sa.String(32),nullable=False),
         sa.Column("pattern",sa.String(24),nullable=False),
         sa.Column("pattern_state",sa.String(24),nullable=False),
-        sa.Column("expiry_metadata",sa.JSON(),nullable=False,server_default=sa.text("'{}'")),
-        sa.Column("evidence",sa.JSON(),nullable=False,server_default=sa.text("'{}'")),
-        sa.Column("forecast",sa.JSON(),nullable=False,server_default=sa.text("'{}'")),
-        sa.Column("actual",sa.JSON(),nullable=False,server_default=sa.text("'{}'")),
+        sa.Column("expiry_metadata",sa.Text(),nullable=False,server_default="{}"),
+        sa.Column("evidence",sa.Text(),nullable=False,server_default="{}"),
+        sa.Column("forecast",sa.Text(),nullable=False,server_default="{}"),
+        sa.Column("actual",sa.Text(),nullable=False,server_default="{}"),
         sa.Column("created_at",sa.DateTime(timezone=True),nullable=False,server_default=sa.func.now()),
         sa.UniqueConstraint("cycle_id","as_of_date","snapshot_type",name="uq_air_monthly_pd_snapshot"))
     op.create_index("ix_air_monthly_pd_snapshot_date","air_monthly_pd_snapshots",["as_of_date","snapshot_type"])
