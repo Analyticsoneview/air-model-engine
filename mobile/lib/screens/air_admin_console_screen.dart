@@ -69,6 +69,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
   List<Map<String, dynamic>> _dailyReport = [];
   Map<String, dynamic> _segmentCounts = {};
   Map<String, dynamic> _customerSummary = {};
+  Map<String, dynamic>? _monthlyPdReport;
 
   Uri _uri(String path) => Uri.parse('$_apiBase$path');
   Map<String, String> _headers({bool auth = true}) => {
@@ -395,12 +396,64 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     if (_mustChangePassword) Card(color: Theme.of(context).colorScheme.errorContainer, child: ListTile(leading: const Icon(Icons.lock_reset), title: const Text('Password rotation required'), subtitle: const Text('Change the temporary password before using administrator functions.'), trailing: TextButton(onPressed: _changePassword, child: const Text('CHANGE')))),
     if (_error != null) Padding(padding: const EdgeInsets.all(12), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
     SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: [
-      for (final item in ['overview','admins','requests','audit', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'subscriptions', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'customers', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'offers', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'support', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'workflows'])
+      for (final item in ['overview','admins','requests','audit', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'subscriptions', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'customers', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'offers', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'support', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'workflows', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'monthly_pd'])
         Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: ChoiceChip(label: Text(item.toUpperCase()), selected: _tab == item, onSelected: (_) => setState(() => _tab = item))),
     ])),
-    Expanded(child: _tab == 'overview' ? _overview() : _tab == 'admins' ? _adminUsers() : _tab == 'requests' ? _accessRequests() : _tab == 'subscriptions' ? _subscriptions() : _tab == 'customers' ? _customerRegistry() : _tab == 'offers' ? _marketingOffers() : _tab == 'support' ? _supportQueue() : _tab == 'workflows' ? AirWorkflowStudioScreen(apiBase: _apiBase, accessToken: _token!, httpClient: _client) : _auditView()),
+    Expanded(child: _tab == 'overview' ? _overview() : _tab == 'admins' ? _adminUsers() : _tab == 'requests' ? _accessRequests() : _tab == 'subscriptions' ? _subscriptions() : _tab == 'customers' ? _customerRegistry() : _tab == 'offers' ? _marketingOffers() : _tab == 'support' ? _supportQueue() : _tab == 'workflows' ? AirWorkflowStudioScreen(apiBase: _apiBase, accessToken: _token!, httpClient: _client) : _tab == 'monthly_pd' ? _monthlyPdView() : _auditView()),
   ]);
 
+
+  Future<void> _runMonthlyPdScan() async {
+    setState(() { _busy = true; _error = null; });
+    try {
+      final report = await _request('POST', '/api/v1/admin/monthly-pd/scan');
+      if (mounted) setState(() => _monthlyPdReport = report);
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Widget _monthlyPdView() {
+    final report = _monthlyPdReport;
+    final stocks = (report?['stock_results'] as List? ?? const []).whereType<Map>().toList();
+    final options = (report?['options_results'] as List? ?? const []).whereType<Map>().toList();
+    Widget metric(String label, String value) => Card(child: Padding(
+      padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+        children: [Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+          Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold))])));
+    return ListView(padding: const EdgeInsets.all(16), children: [
+      const Text('AIR MONTHLY PREMIUM–DISCOUNT & SETTLEMENT MONITOR',
+        style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: .5)),
+      const SizedBox(height: 6),
+      const Text('Historical NSE daily EOD only. Stocks qualify first; options are evaluated separately. No broker orders.'),
+      const SizedBox(height: 12),
+      FilledButton.icon(onPressed: _busy ? null : _runMonthlyPdScan,
+        icon: const Icon(Icons.refresh), label: Text(_busy ? 'SCANNING…' : 'RUN EOD SCAN')),
+      if (report != null) ...[
+        const SizedBox(height: 12),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          metric('As of', report['as_of_date']?.toString() ?? '—'),
+          metric('Universe', report['universe']?['unique_symbol_count']?.toString() ?? '—'),
+          metric('Coverage ready', report['coverage']?['ready']?.toString() ?? '—'),
+          metric('Coverage insufficient', report['coverage']?['insufficient']?.toString() ?? '—'),
+        ]),
+        const SizedBox(height: 12),
+        const Text('STOCK QUALIFICATION', style: TextStyle(fontWeight: FontWeight.w900)),
+        for (final item in stocks.take(100)) Card(child: ListTile(
+          title: Text(item['symbol']?.toString() ?? '—'),
+          subtitle: Text('${item['qualification']} · ${item['premium_discount'] ?? item['reason'] ?? 'No additional detail'}'),
+          trailing: Text('${item['coverage']?['coverage_pct'] ?? 0}%'))),
+        const SizedBox(height: 12),
+        const Text('OPTIONS — SEPARATE RESULTS', style: TextStyle(fontWeight: FontWeight.w900)),
+        for (final item in options.take(150)) Card(child: ListTile(
+          title: Text('${item['symbol']} ${item['expiry'] ?? ''} ${item['strike'] ?? ''} ${item['option_type'] ?? ''}'),
+          subtitle: Text('Premium ₹${item['premium_close'] ?? '—'} · OI ${item['open_interest'] ?? '—'} · ${item['qualification_note']}'),
+          trailing: Text(item['qualification']?.toString() ?? '—'))),
+      ] else const Padding(padding: EdgeInsets.all(20), child: Text('Run the EOD scan to load stock and options research results.')),
+    ]);
+  }
 
   String _maskCustomer(String value) {
     if (value.length < 7) return '••••';
