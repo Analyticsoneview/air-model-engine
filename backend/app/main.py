@@ -740,6 +740,36 @@ async def health() -> dict:
         raise HTTPException(status_code=503, detail={"status": "degraded", "dependencies": dependencies})
     return {"status": "ok", "service": "air-model-engine-api", "dependencies": dependencies}
 
+@app.get("/ready")
+async def application_readiness() -> dict:
+    """Full installation readiness; unlike /health this waits for initial NSE history."""
+    dependencies = get_persistence_runtime().health()
+    dependency_failures = [
+        name for name, item in dependencies.items()
+        if item["configured"] and item["status"] != "ok"
+    ]
+    bootstrap = nse_data_status().get("bootstrap", {"status": "NOT_STARTED"})
+    bootstrap_summary = {
+        key: bootstrap.get(key) for key in (
+            "status", "history_months", "target_start_date", "start_date",
+            "end_date", "progress_pct", "archive_coverage_pct",
+            "paired_sessions", "expected_paired_sessions", "note",
+        ) if key in bootstrap
+    }
+    if dependency_failures or bootstrap.get("status") != "READY":
+        raise HTTPException(status_code=503, detail={
+            "status": "NOT_READY",
+            "dependency_failures": dependency_failures,
+            "dependencies": dependencies,
+            "market_data": bootstrap_summary,
+        })
+    return {
+        "status": "READY",
+        "service": "air-model-engine-api",
+        "dependencies": dependencies,
+        "market_data": bootstrap_summary,
+    }
+
 @app.get("/api/v1/customer/market-intelligence/pulse")
 async def customer_market_intelligence_pulse(customer_id: str = Depends(require_customer)) -> dict:
     """Return verified NSE EOD breadth; live indices/sectors remain unavailable until sourced."""
