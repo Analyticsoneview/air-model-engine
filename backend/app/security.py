@@ -9,6 +9,32 @@ from pwdlib import PasswordHash
 from app.tenant_context import tenant_scope
 
 _password_hash = PasswordHash.recommended()
+
+_tenant_quota_registry = None
+_tenant_api_quota_enforcer = None
+
+
+def _consume_tenant_api_quota(tenant_id: str) -> None:
+    global _tenant_quota_registry, _tenant_api_quota_enforcer
+    if os.getenv("AIR_DEPLOYMENT_PROFILE", "onprem-single") != "aws-saas-multi":
+        return
+    try:
+        from app.tenant_quotas import TenantApiQuotaEnforcer, TenantApiQuotaExceeded
+        if _tenant_quota_registry is None:
+            from app.tenant_provisioning import TenantRegistry
+            _tenant_quota_registry = TenantRegistry()
+        tenant = _tenant_quota_registry.get_tenant(tenant_id)
+        if tenant.get("status") != "ACTIVE":
+            raise HTTPException(status_code=403, detail="AIR tenant is not active")
+        if _tenant_api_quota_enforcer is None:
+            _tenant_api_quota_enforcer = TenantApiQuotaEnforcer.from_environment()
+        _tenant_api_quota_enforcer.consume(tenant_id, tenant["max_api_calls_per_day"])
+    except HTTPException:
+        raise
+    except TenantApiQuotaExceeded as exc:
+        raise HTTPException(status_code=429, detail="AIR tenant daily API quota has been exceeded") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="AIR tenant quota service is unavailable") from exc
 _bearer = HTTPBearer(auto_error=False)
 
 
@@ -83,6 +109,7 @@ async def require_customer(credentials: HTTPAuthorizationCredentials | None = De
         with tenant_scope(tenant_id=tenant_id, customer_id=owner_customer_id):
             if session_id and not access_store.is_session_active(session_id):
                 raise ValueError("Access has been revoked or is not approved")
+            _consume_tenant_api_quota(tenant_id)
     except HTTPException:
         raise
     except Exception as exc:
