@@ -10,7 +10,7 @@ The cross-platform `AIRDEPLOY` wrapper invokes `scripts/air_manager.py`. Its val
 
 The manager routes install and upgrade through the platform's `AIRSTART` implementation. Upgrade validates the Compose model, refreshes the PostgreSQL/Redis/RabbitMQ base images, rebuilds FastAPI/workflow-worker/PWA images and then uses the same full `/ready` acceptance gate as first install. Existing named volumes and non-empty secrets are preserved. Backups must be verified before upgrading because startup migrations are not automatically rolled back.
 
-The release builder creates a versioned source bundle with a service inventory, release manifest and SHA-256 checksums. It includes FastAPI/migrations, Flutter PWA source, PostgreSQL/Redis/RabbitMQ configuration, workflow worker/scheduler, installers and deployment profiles. It excludes local secrets, environment files, databases, runtime data and signing keys.
+The release builder creates a versioned source bundle with a service inventory, release manifest and SHA-256 checksums. CI combines it with a separately checksummed OCI image archive containing the tested FastAPI/worker and PWA images plus PostgreSQL, Redis, RabbitMQ and Caddy. The source bundle includes migrations, Flutter PWA source, configuration, workflow worker/scheduler, installers and deployment profiles. It excludes local secrets, environment files, databases, runtime data and signing keys.
 
 ## Mandatory first-install data
 
