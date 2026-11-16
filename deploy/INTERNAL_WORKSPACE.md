@@ -21,7 +21,13 @@ Keep this value in the deployment's secret/configuration management process; do 
 - The response labels content `INTERNAL — NOT FOR DISTRIBUTION`.
 - Customer sharing and publication are disabled.
 - Personalised investment advice, automated order execution and broker order submission are disabled.
-- The API is a policy/access guard foundation only. It does not yet provide workspace screens, private watchlist persistence, research-note storage, export auditing or integration of existing analysis endpoints. Those remain subsequent implementation work.
+- `GET/POST /watchlists`, `PUT/DELETE /watchlists/{item_id}`: owner-scoped private watchlists.
+- `GET/POST /notes`, `PUT/DELETE /notes/{item_id}`: owner-scoped private research notes.
+- `GET /audit`: owner-scoped create/update/delete audit events.
+- Every stored row is keyed by the authenticated administrator ID as well as item ID. A second owner cannot list, read, update or delete another owner's items.
+- SQLite persistence defaults to `data/internal_workspace.sqlite3`; configure `AIR_INTERNAL_WORKSPACE_DB_PATH` to a persistent mounted-volume path in deployment. Back up this database with the other application state.
+- Watchlist symbols are normalized to uppercase and deduplicated. Notes and watchlists receive the internal classification label on API reads.
+- No public/customer sharing, publication or export endpoint is provided. Export auditing and analysis-endpoint integration remain subsequent work.
 
 ## Regulatory boundary
 
@@ -38,3 +44,27 @@ Keep this value in the deployment's secret/configuration management process; do 
 3. An ADMIN or RESEARCH_ADMIN is rejected even if their email matches the configured owner.
 4. Missing owner configuration fails closed.
 5. Only the configured Super Admin receives the restrictive internal policy.
+
+## Private persistence API
+
+Example watchlist creation:
+
+```http
+POST /api/v1/internal-workspace/watchlists
+Authorization: Bearer <administrator-token>
+Content-Type: application/json
+
+{"name":"Index watch","symbols":["NIFTY","BANKNIFTY"]}
+```
+
+Example private note creation:
+
+```http
+POST /api/v1/internal-workspace/notes
+Authorization: Bearer <administrator-token>
+Content-Type: application/json
+
+{"title":"Session study","content":"Wait for price/volume confirmation.","tags":["ORB"],"related_symbols":["NIFTY"]}
+```
+
+The API deliberately does not expose a public URL, customer tenant route, share action or automated order action. Deployments must mount the configured database path on persistent storage and include it in backup/restore drills.

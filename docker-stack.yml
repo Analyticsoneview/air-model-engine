@@ -135,6 +135,8 @@ services:
       AIR_CREDENTIAL_KEY_FILE: /run/secrets/air_credential_key
       AIR_ADMIN_API_KEY_FILE: /run/secrets/air_admin_api_key
       AIR_ADMIN_MFA_KEY_FILE: /run/secrets/air_admin_mfa_key
+      AIR_INTERNAL_OWNER_EMAIL: ${AIR_INTERNAL_OWNER_EMAIL:-}
+      AIR_INTERNAL_WORKSPACE_DB_PATH: /var/lib/air/internal_workspace.sqlite3
       AIR_DATABASE_URL_FILE: /run/secrets/air_database_url
       AIR_QOC_DATABASE_URL_FILE: /run/secrets/air_database_url
       AIR_MARKET_INSTRUMENT_DATABASE_URL_FILE: /run/secrets/air_database_url
