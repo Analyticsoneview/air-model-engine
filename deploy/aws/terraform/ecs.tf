@@ -1,6 +1,9 @@
 resource "aws_ecs_cluster" "air" {
   name = var.environment_name
-  setting { name = "containerInsights" value = "enabled" }
+  setting {
+    name  = "containerInsights"
+    value = "enabled"
+  }
   tags = local.tags
 }
 
@@ -68,7 +71,10 @@ resource "aws_lb_target_group" "pwa" {
   protocol    = "HTTP"
   target_type = "ip"
   vpc_id      = aws_vpc.air.id
-  health_check { path = "/health" matcher = "200-399" }
+  health_check {
+    path    = "/health"
+    matcher = "200-399"
+  }
   tags = local.tags
 }
 resource "aws_lb_target_group" "api" {
@@ -77,7 +83,10 @@ resource "aws_lb_target_group" "api" {
   protocol    = "HTTP"
   target_type = "ip"
   vpc_id      = aws_vpc.air.id
-  health_check { path = "/health" matcher = "200-399" }
+  health_check {
+    path    = "/health"
+    matcher = "200-399"
+  }
   tags = local.tags
 }
 resource "aws_lb_listener" "https" {
@@ -87,28 +96,48 @@ resource "aws_lb_listener" "https" {
   protocol          = "HTTPS"
   certificate_arn   = var.acm_certificate_arn
   ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
-  default_action { type = "forward" target_group_arn = aws_lb_target_group.pwa.arn }
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.pwa.arn
+  }
 }
 resource "aws_lb_listener" "http" {
   count             = var.acm_certificate_arn == "" && var.allow_http ? 1 : 0
   load_balancer_arn = aws_lb.air.arn
   port              = 80
   protocol          = "HTTP"
-  default_action { type = "forward" target_group_arn = aws_lb_target_group.pwa.arn }
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.pwa.arn
+  }
 }
 resource "aws_lb_listener_rule" "api_https" {
   count        = var.acm_certificate_arn != "" ? 1 : 0
   listener_arn = aws_lb_listener.https[0].arn
   priority     = 10
-  action { type = "forward" target_group_arn = aws_lb_target_group.api.arn }
-  condition { path_pattern { values = ["/api/*", "/health", "/ready", "/openapi.json", "/docs*"] } }
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.api.arn
+  }
+  condition {
+    path_pattern {
+      values = ["/api/*", "/health", "/ready", "/openapi.json", "/docs*"]
+    }
+  }
 }
 resource "aws_lb_listener_rule" "api_http" {
   count        = var.acm_certificate_arn == "" && var.allow_http ? 1 : 0
   listener_arn = aws_lb_listener.http[0].arn
   priority     = 10
-  action { type = "forward" target_group_arn = aws_lb_target_group.api.arn }
-  condition { path_pattern { values = ["/api/*", "/health", "/ready", "/openapi.json", "/docs*"] } }
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.api.arn
+  }
+  condition {
+    path_pattern {
+      values = ["/api/*", "/health", "/ready", "/openapi.json", "/docs*"]
+    }
+  }
 }
 
 resource "aws_ecs_task_definition" "api" {
@@ -125,7 +154,10 @@ resource "aws_ecs_task_definition" "api" {
     efs_volume_configuration {
       file_system_id     = aws_efs_file_system.air.id
       transit_encryption = "ENABLED"
-      authorization_config { access_point_id = aws_efs_access_point.air.id iam = "ENABLED" }
+      authorization_config {
+        access_point_id = aws_efs_access_point.air.id
+        iam             = "ENABLED"
+      }
     }
   }
   container_definitions = jsonencode([{
@@ -150,7 +182,12 @@ resource "aws_ecs_task_definition" "api" {
     logConfiguration = { logDriver = "awslogs", options = { awslogs-group = aws_cloudwatch_log_group.api.name, awslogs-region = var.aws_region, awslogs-stream-prefix = "api" } }
     healthCheck = { command = ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)\""], interval = 30, timeout = 5, retries = 3, startPeriod = 30 }
   }])
-  lifecycle { precondition { condition = var.backend_image_uri != "" error_message = "backend_image_uri is required when deploy_services=true." } }
+  lifecycle {
+    precondition {
+      condition     = var.backend_image_uri != ""
+      error_message = "backend_image_uri is required when deploy_services=true."
+    }
+  }
   tags = local.tags
 }
 resource "aws_ecs_task_definition" "worker" {
@@ -167,7 +204,10 @@ resource "aws_ecs_task_definition" "worker" {
     efs_volume_configuration {
       file_system_id = aws_efs_file_system.air.id
       transit_encryption = "ENABLED"
-      authorization_config { access_point_id = aws_efs_access_point.air.id iam = "ENABLED" }
+      authorization_config {
+        access_point_id = aws_efs_access_point.air.id
+        iam             = "ENABLED"
+      }
     }
   }
   container_definitions = jsonencode([{
@@ -187,7 +227,12 @@ resource "aws_ecs_task_definition" "worker" {
     mountPoints = [{ sourceVolume = "air-data", containerPath = "/var/lib/air", readOnly = false }]
     logConfiguration = { logDriver = "awslogs", options = { awslogs-group = aws_cloudwatch_log_group.worker.name, awslogs-region = var.aws_region, awslogs-stream-prefix = "worker" } }
   }])
-  lifecycle { precondition { condition = var.backend_image_uri != "" error_message = "backend_image_uri is required when deploy_services=true." } }
+  lifecycle {
+    precondition {
+      condition     = var.backend_image_uri != ""
+      error_message = "backend_image_uri is required when deploy_services=true."
+    }
+  }
   tags = local.tags
 }
 resource "aws_ecs_task_definition" "pwa" {
@@ -206,7 +251,12 @@ resource "aws_ecs_task_definition" "pwa" {
     portMappings = [{ containerPort = 8080, hostPort = 8080, protocol = "tcp" }]
     logConfiguration = { logDriver = "awslogs", options = { awslogs-group = aws_cloudwatch_log_group.pwa.name, awslogs-region = var.aws_region, awslogs-stream-prefix = "pwa" } }
   }])
-  lifecycle { precondition { condition = var.pwa_image_uri != "" error_message = "pwa_image_uri is required when deploy_services=true." } }
+  lifecycle {
+    precondition {
+      condition     = var.pwa_image_uri != ""
+      error_message = "pwa_image_uri is required when deploy_services=true."
+    }
+  }
   tags = local.tags
 }
 
@@ -218,8 +268,16 @@ resource "aws_ecs_service" "api" {
   desired_count   = 1
   launch_type     = "FARGATE"
   platform_version = "LATEST"
-  network_configuration { subnets = aws_subnet.private[*].id security_groups = [aws_security_group.ecs.id] assign_public_ip = false }
-  load_balancer { target_group_arn = aws_lb_target_group.api.arn container_name = "air-api" container_port = 8000 }
+  network_configuration {
+    subnets          = aws_subnet.private[*].id
+    security_groups  = [aws_security_group.ecs.id]
+    assign_public_ip = false
+  }
+  load_balancer {
+    target_group_arn = aws_lb_target_group.api.arn
+    container_name   = "air-api"
+    container_port   = 8000
+  }
   depends_on = [aws_lb_listener.https, aws_lb_listener.http, aws_iam_role_policy_attachment.ecs_execution, aws_iam_role_policy.ecs_secrets]
   tags = local.tags
 }
@@ -231,7 +289,11 @@ resource "aws_ecs_service" "worker" {
   desired_count   = 1
   launch_type     = "FARGATE"
   platform_version = "LATEST"
-  network_configuration { subnets = aws_subnet.private[*].id security_groups = [aws_security_group.ecs.id] assign_public_ip = false }
+  network_configuration {
+    subnets          = aws_subnet.private[*].id
+    security_groups  = [aws_security_group.ecs.id]
+    assign_public_ip = false
+  }
   depends_on = [aws_iam_role_policy_attachment.ecs_execution, aws_iam_role_policy.ecs_secrets]
   tags = local.tags
 }
@@ -243,8 +305,16 @@ resource "aws_ecs_service" "pwa" {
   desired_count   = 1
   launch_type     = "FARGATE"
   platform_version = "LATEST"
-  network_configuration { subnets = aws_subnet.private[*].id security_groups = [aws_security_group.ecs.id] assign_public_ip = false }
-  load_balancer { target_group_arn = aws_lb_target_group.pwa.arn container_name = "air-pwa" container_port = 8080 }
+  network_configuration {
+    subnets          = aws_subnet.private[*].id
+    security_groups  = [aws_security_group.ecs.id]
+    assign_public_ip = false
+  }
+  load_balancer {
+    target_group_arn = aws_lb_target_group.pwa.arn
+    container_name   = "air-pwa"
+    container_port   = 8080
+  }
   depends_on = [aws_lb_listener.https, aws_lb_listener.http, aws_iam_role_policy_attachment.ecs_execution]
   tags = local.tags
 }
