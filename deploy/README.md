@@ -33,6 +33,8 @@ The private AWS profile uses dedicated infrastructure. The SaaS profile uses a s
 
 Deployment profile JSON files contain infrastructure choices only. Never store passwords, access keys, JWT secrets, database URLs or broker credentials in profile files or source control. On-premises credentials are supplied through file-backed Compose secrets or external Docker Swarm secrets. AWS runtime credentials are supplied through AWS Secrets Manager and task-role permissions.
 
+See [READINESS_REGISTER.md](READINESS_REGISTER.md) for the live programme register separating completed code/CI work from deferred AWS and customer-host acceptance.
+
 ## Release rules
 
 - Do not enable public customer signup by default.
