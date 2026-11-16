@@ -4,6 +4,14 @@
 
 AIRSTART is a one-click local installation entry point. Container liveness is not the same as full AIR readiness. The installer starts the application services, then waits for the initial NSE data and research bootstrap before opening the PWA.
 
+## Deployment Manager and release lifecycle
+
+The cross-platform `AIRDEPLOY` wrapper invokes `scripts/air_manager.py`. Its validate/doctor/install/upgrade/status/diagnose/package actions are shared by Windows PowerShell and Linux/macOS Bash wrappers. The `onprem-single` profile is self-hosted and does not require AWS. AWS profiles can be validated and packaged without AWS credentials; live cloud provisioning remains deferred until an approved AWS environment is available.
+
+The manager routes install and upgrade through the platform's `AIRSTART` implementation. Upgrade validates the Compose model, refreshes the PostgreSQL/Redis/RabbitMQ base images, rebuilds FastAPI/workflow-worker/PWA images and then uses the same full `/ready` acceptance gate as first install. Existing named volumes and non-empty secrets are preserved. Backups must be verified before upgrading because startup migrations are not automatically rolled back.
+
+The release builder creates a versioned source bundle with a service inventory, release manifest and SHA-256 checksums. CI combines it with a separately checksummed OCI image archive containing the tested FastAPI/worker and PWA images plus PostgreSQL, Redis, RabbitMQ and Caddy. The source bundle includes migrations, Flutter PWA source, configuration, workflow worker/scheduler, installers and deployment profiles. It excludes local secrets, environment files, databases, runtime data and signing keys.
+
 ## Mandatory first-install data
 
 - NSE CM UDiFF daily bhavcopy: minimum 12 calendar months.

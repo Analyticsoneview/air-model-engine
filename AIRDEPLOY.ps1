@@ -1,38 +1,43 @@
 [CmdletBinding()]
 param(
     [ValidateSet("onprem-single", "aws-private-single", "aws-saas-multi")]
-    [string]$DeploymentProfile = "onprem-single"
+    [string]$DeploymentProfile = "onprem-single",
+    [ValidateSet("validate", "doctor", "install", "upgrade", "status", "diagnose", "package")]
+    [string]$Action = "",
+    [string]$Version = "",
+    [string]$OutputDirectory = ""
 )
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$ProfilePath = Join-Path $Root "backend/config/deployment_profiles/$DeploymentProfile.json"
-if (!(Test-Path $ProfilePath)) { throw "AIR deployment profile not found: $ProfilePath" }
-if (!(Get-Command docker -ErrorAction SilentlyContinue)) { throw "Docker is required for AIR deployment." }
-docker info | Out-Null
-if ($LASTEXITCODE -ne 0) { throw "Docker daemon is not running. Start Docker Desktop/Engine and retry." }
-
-Write-Host "Validating AIR deployment profile: $DeploymentProfile" -ForegroundColor Cyan
-docker run --rm --env AWS_REGION --env AWS_DEFAULT_REGION --mount "type=bind,source=$(Join-Path $Root 'backend'),target=/app" -w /app python:3.12-slim python -m app.deployment_profiles --profile $DeploymentProfile --require-cloud-env
-if ($LASTEXITCODE -ne 0) { throw "AIR deployment profile validation failed." }
-
-$profileConfig = Get-Content $ProfilePath -Raw | ConvertFrom-Json
-$env:AIR_DEPLOYMENT_PROFILE = $DeploymentProfile
-$env:AIR_DEPLOYMENT_MODE = $profileConfig.deployment.provider
-$env:AIR_TENANCY_MODE = $profileConfig.deployment.tenancy
-
-switch ($DeploymentProfile) {
-    "onprem-single" {
-        Write-Host "Starting AIR on-premises single-tenant installation..." -ForegroundColor Cyan
-        & (Join-Path $Root "AIRSTART.ps1")
-        if ($LASTEXITCODE -ne 0) { throw "AIR on-premises startup failed." }
-    }
-    default {
-        $awsScript = Join-Path $Root "deploy/aws/AIRDEPLOY.ps1"
-        if (!(Test-Path $awsScript)) {
-            throw "The profile is valid, but its AWS provisioning adapter is delivered in the subsequent AWS deployment gate. No AWS resources were created."
+$python = Get-Command python -ErrorAction SilentlyContinue
+$pythonArgs = @()
+if ($python) {
+    $versionText = & $python.Source --version 2>&1
+    if ($versionText -notmatch "Python 3\.(1[0-9]|[2-9][0-9])") { $python = $null }
+}
+if (!$python) {
+    $python = Get-Command py -ErrorAction SilentlyContinue
+    if ($python) {
+        $pythonArgs += "-3"
+        $versionText = & $python.Source -3 --version 2>&1
+        if ($LASTEXITCODE -ne 0 -or $versionText -notmatch "Python 3\.(1[0-9]|[2-9][0-9])") {
+            throw "Python 3.10 or newer is required for AIR Deployment Manager."
         }
-        & $awsScript -Profile $DeploymentProfile
-        if ($LASTEXITCODE -ne 0) { throw "AIR AWS deployment failed." }
     }
 }
+if (!$python) { throw "Python 3.10 or newer is required for AIR Deployment Manager. Install Python and retry." }
+
+if (!$Action) {
+    if ($DeploymentProfile -eq "onprem-single") { $Action = "install" }
+    else { $Action = "validate" }
+}
+
+$pythonArgs += (Join-Path $Root "scripts/air_manager.py")
+$pythonArgs += @("--profile", $DeploymentProfile)
+if ($Version) { $pythonArgs += @("--version", $Version) }
+if ($OutputDirectory) { $pythonArgs += @("--output-dir", $OutputDirectory) }
+$pythonArgs += $Action
+
+& $python.Source @pythonArgs
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

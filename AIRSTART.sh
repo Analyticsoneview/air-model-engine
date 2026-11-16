@@ -3,6 +3,20 @@ set -Eeuo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
+PYTHON_BIN="${AIR_PYTHON:-}"
+if [[ -z "$PYTHON_BIN" ]]; then PYTHON_BIN="$(command -v python3 || command -v python || true)"; fi
+if [[ -z "$PYTHON_BIN" ]] || ! "$PYTHON_BIN" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)'; then
+  echo "Python 3.10 or newer is required for AIR installation." >&2
+  exit 1
+fi
+PROFILE="${AIR_DEPLOYMENT_PROFILE:-onprem-single}"
+if [[ "$PROFILE" != "onprem-single" ]]; then
+  echo "AIRSTART is the on-premises installer. Use AIRDEPLOY to validate AWS profiles; live AWS deployment is deferred." >&2
+  exit 2
+fi
+export AIR_DEPLOYMENT_PROFILE="$PROFILE"
+PYTHONPATH="$ROOT/backend" "$PYTHON_BIN" -m app.deployment_profiles --profile "$PROFILE"
+
 if ! command -v docker >/dev/null 2>&1; then
   echo "Docker is missing. Install Docker Desktop (macOS/Windows) or Docker Engine + Compose v2 (Linux), then retry." >&2
   exit 1
@@ -13,7 +27,7 @@ docker info >/dev/null 2>&1 || { echo "Docker daemon is not running. Start Docke
 mkdir -p .air-secrets
 chmod 700 .air-secrets
 echo "Checking and generating all required local-only AIR secrets..."
-docker run --rm --mount "type=bind,source=$ROOT/.air-secrets,target=/secrets" --mount "type=bind,source=$ROOT/scripts,target=/scripts,readonly" python:3.12-slim python /scripts/generate_local_secrets.py
+"$PYTHON_BIN" scripts/generate_local_secrets.py .air-secrets
 chmod 600 .air-secrets/*
 
 if [[ ! -f .air-local.env ]]; then
@@ -23,6 +37,15 @@ AIR_MARKET_DATA_POLL_SECONDS=3
 AIR_SMTP_PORT=587
 EOF
   chmod 600 .air-local.env
+fi
+
+echo "Validating the rendered AIR Compose configuration..."
+docker compose -f compose.local.yml config --quiet
+
+if [[ "${AIR_START_PULL_BASE_IMAGES:-false}" == "true" ]]; then
+  echo "Refreshing PostgreSQL, Redis, RabbitMQ and application build bases before upgrade..."
+  docker compose -f compose.local.yml pull postgres redis rabbitmq
+  docker compose -f compose.local.yml build --pull air-api air-workflow-worker air-pwa
 fi
 
 echo "Building and starting AIR API + PWA..."
@@ -64,13 +87,17 @@ if [[ "$all_healthy" != true ]]; then
 fi
 echo "PostgreSQL, Redis, RabbitMQ, FastAPI, workflow worker, PWA and initial market-data readiness are verified."
 docker compose -f compose.local.yml ps
-if command -v open >/dev/null 2>&1; then open http://localhost:8080
-elif command -v xdg-open >/dev/null 2>&1; then xdg-open http://localhost:8080
+if [[ "${AIR_START_SKIP_OPEN:-false}" != "true" ]]; then
+  if command -v open >/dev/null 2>&1; then open http://localhost:8080
+  elif command -v xdg-open >/dev/null 2>&1; then xdg-open http://localhost:8080
+  fi
 fi
 
-PROFILE_FILE="$HOME/.bashrc"
-if [[ "$(uname -s)" == "Darwin" ]]; then PROFILE_FILE="$HOME/.zshrc"; fi
-if ! grep -q 'function AIRSTART' "$PROFILE_FILE" 2>/dev/null; then
-  printf '\n# AIR one-command local startup\nfunction AIRSTART(){ bash "%s/AIRSTART.sh"; }\n' "$ROOT" >> "$PROFILE_FILE"
+if [[ "${AIR_START_SKIP_PROFILE:-false}" != "true" ]]; then
+  PROFILE_FILE="$HOME/.bashrc"
+  if [[ "$(uname -s)" == "Darwin" ]]; then PROFILE_FILE="$HOME/.zshrc"; fi
+  if ! grep -q 'function AIRSTART' "$PROFILE_FILE" 2>/dev/null; then
+    printf '\n# AIR one-command local startup\nfunction AIRSTART(){ bash "%s/AIRSTART.sh"; }\n' "$ROOT" >> "$PROFILE_FILE"
+  fi
+  echo "Next time, open a new terminal in this repository and type: AIRSTART"
 fi
-echo "Next time, open a new terminal in this repository and type: AIRSTART"

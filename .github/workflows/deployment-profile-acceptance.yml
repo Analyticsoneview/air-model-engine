@@ -18,6 +18,13 @@ on:
       - 'backend/tests/test_deployment_profiles.py'
       - 'backend/tests/test_onprem_deployment_acceptance.py'
       - 'scripts/ci/onprem-compose-runtime-smoke.sh'
+      - 'scripts/air_manager.py'
+      - 'scripts/release/**'
+      - 'backend/tests/test_deployment_manager_release.py'
+      - 'backend/tests/test_generate_local_secrets.py'
+      - 'scripts/generate_local_secrets.py'
+      - 'deploy/INSTALLATION.md'
+      - 'docs/AIR_INSTALLATION_READINESS.md'
       - 'deploy/deploy-swarm.sh'
       - '.gitignore'
       - 'compose.local.yml'
@@ -71,20 +78,65 @@ jobs:
           AIR_TLS_EMAIL='ops@example.test' \
           AIR_CORS_ORIGINS='https://air.example.test' \
             docker compose -f docker-stack.yml config --quiet
+      - name: Validate unified Deployment Manager profiles and Python syntax
+        run: |
+          for profile in onprem-single aws-private-single aws-saas-multi; do
+            python scripts/air_manager.py --profile "$profile" validate
+          done
+          python -m py_compile scripts/air_manager.py scripts/release/build_release.py
+      - name: Run Deployment Manager and release package tests
+        env:
+          PYTHONPATH: backend
+        run: |
+          python -m unittest discover -s backend/tests -p 'test_deployment_manager_release.py' -v
+          python -m unittest discover -s backend/tests -p 'test_generate_local_secrets.py' -v
       - name: Validate Linux launchers
-        run: bash -n AIRDEPLOY.sh AIRSTART.sh
-      - name: Parse Windows Deployment Manager
+        run: bash -n AIRDEPLOY.sh AIRSTART.sh deploy/deploy-swarm.sh
+      - name: Parse Windows Deployment Manager and startup scripts
         shell: pwsh
         run: |
-          $tokens = $null
-          $errors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile(
-            (Join-Path $PWD "AIRDEPLOY.ps1"), [ref]$tokens, [ref]$errors
-          ) | Out-Null
-          if ($errors.Count -gt 0) {
-            $errors | ForEach-Object { Write-Error $_.Message }
-            exit 1
+          foreach ($file in @("AIRDEPLOY.ps1", "AIRSTART.ps1")) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Join-Path $PWD $file), [ref]$tokens, [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error $_.Message }
+              exit 1
+            }
           }
+
+
+  release-package:
+    needs: onprem-compose-runtime-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build AIR release bundle and checksums
+        run: python scripts/release/build_release.py --version "ci-${GITHUB_SHA:0:12}" --output-dir dist
+      - name: Verify the generated release bundle
+        run: python scripts/release/build_release.py --verify "dist/air-release-ci-${GITHUB_SHA:0:12}.tar.gz"
+      - name: Download verified runtime container images
+        uses: actions/download-artifact@v4
+        with:
+          name: air-container-images-${{ github.sha }}
+          path: dist
+      - name: Upload complete AIR release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: air-release-${{ github.sha }}
+          path: |
+            dist/air-release-*.tar.gz
+            dist/air-release-*.tar.gz.sha256
+            dist/air-container-images-*.tar.gz
+            dist/air-container-images-*.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 30
 
 
   onprem-compose-runtime-smoke:
@@ -98,6 +150,31 @@ jobs:
           docker compose version
       - name: Boot and verify the complete on-prem Compose service set
         run: bash scripts/ci/onprem-compose-runtime-smoke.sh
+      - name: Package the verified API, PWA and infrastructure images
+        run: |
+          set -Eeuo pipefail
+          version="ci-${GITHUB_SHA:0:12}"
+          docker tag air-model-engine-api:local "air-model-engine-api:$version"
+          docker tag air-model-engine-api:local air-model-engine-api:lab
+          docker tag air-model-engine-pwa:local "air-model-engine-pwa:$version"
+          docker tag air-model-engine-pwa:local air-model-engine-pwa:lab
+          docker pull caddy:2-alpine
+          mkdir -p dist
+          docker save \
+            air-model-engine-api:local air-model-engine-api:lab "air-model-engine-api:$version" \
+            air-model-engine-pwa:local air-model-engine-pwa:lab "air-model-engine-pwa:$version" \
+            postgres:16-alpine redis:7-alpine rabbitmq:4-management-alpine caddy:2-alpine \
+            | gzip -1 > "dist/air-container-images-$version.tar.gz"
+          (cd dist && sha256sum "air-container-images-$version.tar.gz" > "air-container-images-$version.tar.gz.sha256")
+      - name: Upload verified runtime container images
+        uses: actions/upload-artifact@v4
+        with:
+          name: air-container-images-${{ github.sha }}
+          path: |
+            dist/air-container-images-*.tar.gz
+            dist/air-container-images-*.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 30
 
 
   terraform-validate:

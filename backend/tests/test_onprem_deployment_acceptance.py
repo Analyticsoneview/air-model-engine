@@ -135,8 +135,9 @@ class OnPremDeploymentAcceptanceTests(unittest.TestCase):
         deploy = read("AIRDEPLOY.ps1")
         self.assertIn("docker compose version", start)
         self.assertGreaterEqual(start.count("$LASTEXITCODE -ne 0"), 4)
-        self.assertIn("docker info", deploy)
-        self.assertIn("$LASTEXITCODE -ne 0", deploy)
+        self.assertIn("docker info", start)
+        self.assertIn("$LASTEXITCODE -ne 0", start)
+        self.assertIn("scripts/air_manager.py", deploy)
 
     def test_swarm_guide_has_real_markdown_line_breaks(self):
         guide = read("deploy/DOCKER_SWARM.md")
