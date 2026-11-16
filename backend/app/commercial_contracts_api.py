@@ -76,6 +76,10 @@ def contract_events(contract_id: str, customer_id: str = Depends(require_custome
 
 @router.post("/{contract_id}/transitions")
 def transition_contract(contract_id: str, body: ContractTransition, customer_id: str = Depends(require_customer)):
+    # Customer self-service is limited to cancellation; paid activation, grace,
+    # expiry and suspension are operator-controlled lifecycle decisions.
+    if body.to_status.upper() != "CANCELLED":
+        raise HTTPException(status_code=403, detail="This contract transition requires administrator approval")
     try:
         return _store().transition(_tenant_id(customer_id), contract_id, body.to_status, actor_id=customer_id,
                                    idempotency_key=body.idempotency_key, payload=body.payload)
