@@ -71,6 +71,10 @@ class DeploymentManagerTests(unittest.TestCase):
         self.assertIn("AIR_START_SKIP_PROFILE", powershell)
         self.assertIn("docker compose -f compose.local.yml config --quiet", shell)
         self.assertIn("docker compose -f compose.local.yml config --quiet", powershell)
+        self.assertNotIn("docker run --rm", shell)
+        self.assertNotIn("python:3.12-slim", shell)
+        self.assertIn("scripts/generate_local_secrets.py", shell)
+        self.assertIn("scripts/generate_local_secrets.py", powershell)
 
     def test_manager_help_exposes_lifecycle_and_diagnostic_actions(self):
         result = subprocess.run(
