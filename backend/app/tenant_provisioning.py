@@ -1,6 +1,7 @@
 """Tenant registry and provisioning operations for AIR shared-schema SaaS."""
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from uuid import uuid4
@@ -204,6 +205,48 @@ class TenantRegistry:
             "membership_status": member["status"], **dict(tenant),
             "tenant_status": tenant["status"],
         }
+
+    def record_aws_provisioning(
+        self, tenant_id: str, infrastructure: dict, *, status: str = "ACTIVE",
+    ) -> dict:
+        tenant = str(tenant_id).strip()
+        state = str(status).upper()
+        if state not in {"PROVISIONING", "ACTIVE", "SUSPENDED", "CLOSED"}:
+            raise ValueError("Unsupported tenant lifecycle status")
+        with tenant_scope(is_admin=True):
+            with self.engine.begin() as conn:
+                row = conn.execute(text(
+                    "SELECT metadata_json FROM air_tenants WHERE tenant_id=:tenant FOR UPDATE"
+                ), {"tenant": tenant}).first()
+                if not row:
+                    raise KeyError("Tenant does not exist")
+                metadata = row[0] or {}
+                if isinstance(metadata, str):
+                    metadata = json.loads(metadata)
+                if not isinstance(metadata, dict):
+                    metadata = {}
+                metadata["aws_provisioning"] = dict(infrastructure)
+                conn.execute(text("""
+                    UPDATE air_tenants
+                    SET metadata_json=CAST(:metadata AS json),
+                        status=:status,
+                        provisioned_at=CASE WHEN :provisioned THEN CURRENT_TIMESTAMP ELSE provisioned_at END,
+                        updated_at=CURRENT_TIMESTAMP
+                    WHERE tenant_id=:tenant
+                """), {
+                    "metadata": json.dumps(metadata, sort_keys=True),
+                    "status": state,
+                    "provisioned": infrastructure.get("status") == "PROVISIONED",
+                    "tenant": tenant,
+                })
+        return self.get_tenant(tenant)
+
+    def record_aws_provisioning_failure(self, tenant_id: str, error_code: str) -> dict:
+        return self.record_aws_provisioning(
+            tenant_id,
+            {"status": "FAILED", "error_code": str(error_code)[:80]},
+            status="PROVISIONING",
+        )
 
     def close(self) -> None:
         self.engine.dispose()
