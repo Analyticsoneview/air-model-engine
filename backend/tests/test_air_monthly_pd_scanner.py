@@ -25,3 +25,20 @@ def test_bar_normalization_requires_completed_ohlc_values():
     result = _bars(rows)
     assert len(result) == 1
     assert result[0]["date"] == "2026-11-02"
+
+
+
+def test_options_eod_candidate_requires_all_three_independent_evidence_checks():
+    from app.air_monthly_pd_scanner import classify_option_eod_evidence
+    result = classify_option_eod_evidence(
+        premium_change_pct=8, volume=1800, volume_avg=1000, oi_change_pct=9)
+    assert result["qualification"] == "EOD_CANDIDATE"
+    assert result["strong_participation"] is False
+
+
+def test_options_eod_missing_spread_does_not_get_fabricated_or_upgrade_to_strong():
+    from app.air_monthly_pd_scanner import classify_option_eod_evidence
+    result = classify_option_eod_evidence(
+        premium_change_pct=8, volume=1800, volume_avg=1000, oi_change_pct=None)
+    assert result["qualification"] == "DATA_INSUFFICIENT"
+    assert result["evidence_score"] is None
