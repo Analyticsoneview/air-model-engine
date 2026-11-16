@@ -28,6 +28,35 @@ def test_bar_normalization_requires_completed_ohlc_values():
 
 
 
+def test_stock_scan_waits_until_the_monthly_reference_session_is_completed():
+    from app.air_monthly_pd_scanner import _stock_record
+
+    raw_rows = []
+    expected_dates = []
+    for day in range(1, 13):
+        stamp = f"2026-10-{day:02d}"
+        expected_dates.append(stamp)
+        raw_rows.append({
+            "trade_date": stamp, "open": 100, "high": 105,
+            "low": 95, "close": 101, "volume": 1000,
+        })
+    for day in range(2, 10):
+        stamp = f"2026-11-{day:02d}"
+        expected_dates.append(stamp)
+        raw_rows.append({
+            "trade_date": stamp, "open": 101, "high": 106,
+            "low": 96, "close": 102, "volume": 1200,
+        })
+    sessions = {"2026-11-23": "TRADING_DAY"}
+    result = _stock_record(
+        "ABC", ["NIFTY100"], raw_rows, "2026-11-16",
+        expected_dates, sessions,
+    )
+    assert result["qualification"] == "DATA_INSUFFICIENT"
+    assert result["reference_date"] == "2026-11-23"
+    assert "has not completed" in result["reason"]
+
+
 def test_options_eod_candidate_requires_all_three_independent_evidence_checks():
     from app.air_monthly_pd_scanner import classify_option_eod_evidence
     result = classify_option_eod_evidence(
