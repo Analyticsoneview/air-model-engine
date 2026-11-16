@@ -47,6 +47,18 @@ def _call(fn, *args, **kwargs):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@router.get("/api/v1/organisations")
+async def customer_organisations(customer_id: str = Depends(require_customer)):
+    store, actor = _store(), _actor()
+    return {"organisations": _call(store.list_customer_organisations, actor)}
+
+
+@router.get("/api/v1/organisations/invitations/me")
+async def customer_organisation_invitations(customer_id: str = Depends(require_customer)):
+    store, actor = _store(), _actor()
+    return {"invitations": _call(store.list_customer_invitations, actor)}
+
+
 @router.get("/api/v1/organisations/{tenant_id}/members")
 async def organisation_members(tenant_id: str, customer_id: str = Depends(require_customer)):
     store, actor = _store(), _actor()
