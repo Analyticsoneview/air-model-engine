@@ -6,15 +6,34 @@ from pathlib import Path
 
 from app.model_engine_ledger import ModelEngineLedger
 from app.nse_bhavcopy import (
-    NSEBhavcopyStore, _archive_url, _normalize, _parse_nse_calendar, _subtract_months, _date_range,
+    NSEBhavcopyStore, _archive_url, _normalize, _parse_nse_calendar, _subtract_months, _date_range, _configured_history_months,
 )
 
 
 class NSEBhavcopyTests(unittest.TestCase):
-    def test_three_calendar_month_start_date_handles_short_months(self):
+    def test_calendar_month_start_date_handles_short_months(self):
         self.assertEqual(_subtract_months(date(2026, 11, 30), 3), date(2026, 8, 30))
         self.assertEqual(_subtract_months(date(2026, 5, 31), 3), date(2026, 2, 28))
 
+
+    def test_initial_history_configuration_defaults_to_at_least_twelve_months(self):
+        previous = os.environ.get("AIR_NSE_HISTORY_MONTHS")
+        try:
+            os.environ.pop("AIR_NSE_HISTORY_MONTHS", None)
+            self.assertEqual(_configured_history_months(), 12)
+            os.environ["AIR_NSE_HISTORY_MONTHS"] = "3"
+            self.assertEqual(_configured_history_months(), 12)
+            os.environ["AIR_NSE_HISTORY_MONTHS"] = "18"
+            self.assertEqual(_configured_history_months(), 18)
+            os.environ["AIR_NSE_HISTORY_MONTHS"] = "99"
+            self.assertEqual(_configured_history_months(), 60)
+            os.environ["AIR_NSE_HISTORY_MONTHS"] = "invalid"
+            self.assertEqual(_configured_history_months(), 12)
+        finally:
+            if previous is None:
+                os.environ.pop("AIR_NSE_HISTORY_MONTHS", None)
+            else:
+                os.environ["AIR_NSE_HISTORY_MONTHS"] = previous
 
     def test_nse_calendar_normalizes_cm_and_fo_separately(self):
         calendar = _parse_nse_calendar({
