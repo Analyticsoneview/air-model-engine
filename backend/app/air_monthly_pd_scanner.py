@@ -255,7 +255,12 @@ def scan_monthly_pd_universe(as_of_date: str | None = None) -> dict[str, Any]:
                 option_snapshot_count += 1
         finally:
             option_store.close()
-    return {"status": "COMPLETED", "as_of_date": as_of, "timeframe": "DAILY_EOD",
+    waiting_for_reference = bool(stocks) and all(
+        item.get("reason") == "Monthly reference session has not completed as of the requested scan date"
+        for item in stocks
+    )
+    scan_status = "WAITING_FOR_REFERENCE_SESSION" if waiting_for_reference else "COMPLETED"
+    return {"status": scan_status, "as_of_date": as_of, "timeframe": "DAILY_EOD",
         "universe": {"index_counts": registry["index_counts"],
                      "unique_symbol_count": registry["unique_symbol_count"]},
         "coverage": {"symbols": len(stocks),
