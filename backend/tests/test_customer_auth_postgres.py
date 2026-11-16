@@ -515,11 +515,10 @@ def test_postgres_tenant_isolation_survives_pool_reuse_and_concurrent_requests(c
                     visible = conn.execute(text(
                         "SELECT DISTINCT mobile_e164 FROM air_access_requests ORDER BY mobile_e164"
                     )).scalars().all()
+                    object_keys = conn.execute(text(
+                        "SELECT object_key FROM air_tenant_objects ORDER BY object_key"
+                    )).scalars().all()
             assert visible == [customer]
-            with pooled_engine.connect() as conn:
-                object_keys = conn.execute(text(
-                    "SELECT object_key FROM air_tenant_objects ORDER BY object_key"
-                )).scalars().all()
             assert object_keys == [customer + "/object.bin"]
 
         # Missing tenant context must fail closed for customer-owned rows.
