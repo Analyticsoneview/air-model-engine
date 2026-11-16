@@ -144,5 +144,12 @@ class OnPremDeploymentAcceptanceTests(unittest.TestCase):
         self.assertIn("## 2. Create Docker secrets", guide)
 
 
+    def test_local_pwa_does_not_bake_an_insecure_http_api_url(self):
+        compose = read("compose.local.yml")
+        pwa = service_block(compose, "air-pwa")
+        self.assertIn("dockerfile: deploy/pwa.Dockerfile", pwa)
+        self.assertNotIn("AIR_API_BASE_URL: http://", pwa)
+
+
 if __name__ == "__main__":
     unittest.main()
