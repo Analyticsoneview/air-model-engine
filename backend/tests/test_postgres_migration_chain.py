@@ -32,7 +32,7 @@ EXPECTED_CHAIN = [
     "0025_billing_recon",
     "0026_customer_onboarding",
     "0027_organisation_memberships",
-    "0028_enterprise_licensing_binding",
+    "0028_enterprise_license",
 ]
 
 
