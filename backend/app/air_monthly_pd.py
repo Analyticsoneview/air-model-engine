@@ -114,7 +114,7 @@ def current_month_extremes(
     if float(pmh) <= float(pml):
         raise ValueError("PMH must be greater than PML")
     cutoff = str(reference_date)[:10]
-    rows = [row for row in current_month_bars\n            if str(row.get("date", ""))[:7] == cutoff[:7]\n            and str(row.get("date", ""))[:10] <= cutoff]
+    rows = [\n        row for row in current_month_bars\n        if str(row.get("date", ""))[:7] == cutoff[:7]\n        and str(row.get("date", ""))[:10] <= cutoff\n    ]
     rows = sorted(rows, key=lambda row: str(row["date"]))
     if not rows or any("low" not in row or "high" not in row for row in rows):
         return {
