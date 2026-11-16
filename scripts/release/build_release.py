@@ -26,7 +26,7 @@ INCLUDE = (
 EXCLUDED_PARTS = {
     ".git", ".air-secrets", ".venv", "venv", "node_modules", ".dart_tool",
     "build", "dist", "__pycache__", ".pytest_cache", ".mypy_cache",
-    ".gradle", "Pods", "DerivedData", "coverage", ".idea", ".vscode",
+    ".gradle", ".terraform", "Pods", "DerivedData", "coverage", ".idea", ".vscode",
 }
 EXCLUDED_NAMES = {
     ".air-local.env", "key.properties", "terraform.tfstate",
@@ -34,7 +34,7 @@ EXCLUDED_NAMES = {
 }
 EXCLUDED_SUFFIXES = {
     ".pyc", ".sqlite", ".sqlite3", ".db", ".log", ".pem", ".key",
-    ".p12", ".pfx", ".jks", ".keystore", ".tfstate", ".tfvars",
+    ".p12", ".pfx", ".jks", ".keystore", ".p8", ".mobileprovision", ".secret", ".credentials", ".tfstate", ".tfvars",
 }
 SERVICE_INVENTORY = [
     {"name": "postgresql", "image": "postgres:16-alpine", "role": "persistent relational database", "persistent_volume": "postgres_data"},
@@ -59,7 +59,7 @@ def excluded(path: Path) -> bool:
         return True
     if path.name in EXCLUDED_NAMES or path.suffix.lower() in EXCLUDED_SUFFIXES:
         return True
-    if path.name.startswith(".env") or path.name.endswith((".bak", ".backup", ".dump")):
+    if path.name.startswith(".env") or path.suffix.lower() == ".env" or path.name.endswith((".bak", ".backup", ".dump")):
         return True
     return False
 
