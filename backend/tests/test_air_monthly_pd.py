@@ -85,3 +85,20 @@ def test_current_month_extremes_missing_data_fails_closed():
     from app.air_monthly_pd import current_month_extremes
     result = current_month_extremes([], reference_date="2026-11-23", pml=100, pmh=150)
     assert result["status"] == "DATA_INSUFFICIENT"
+
+
+
+def test_pattern_lifecycle_marks_double_bottom_failed_on_completed_close_below_support():
+    from app.air_monthly_pd import evaluate_pattern_lifecycle
+    pattern = {"pattern": "W", "state": "CONFIRMED", "support_lows": [100, 101]}
+    bars = [{"date": "2026-11-26", "close": 99, "low": 98, "high": 103}]
+    result = evaluate_pattern_lifecycle(pattern, bars)
+    assert result["state"] == "FAILED"
+    assert result["failed_date"] == "2026-11-26"
+
+
+def test_pattern_lifecycle_marks_double_top_failed_on_completed_close_above_resistance():
+    from app.air_monthly_pd import evaluate_pattern_lifecycle
+    pattern = {"pattern": "DOUBLE_TOP", "state": "FORMING", "resistance": [150, 151]}
+    bars = [{"date": "2026-11-26", "close": 152, "low": 149, "high": 153}]
+    assert evaluate_pattern_lifecycle(pattern, bars)["state"] == "FAILED"
