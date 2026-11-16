@@ -12,7 +12,7 @@ import socket
 import threading
 import time
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from datetime import datetime, timezone
 
 import pika
@@ -31,6 +31,7 @@ DEAD_QUEUE = "air.workflow.dead"
 WORKER_ID = f"{socket.gethostname()}:{os.getpid()}"
 WORKER_STARTED_AT = datetime.now(timezone.utc).isoformat()
 _CONSUMER_CONNECTED = False
+_TENANT_RABBITMQ_URLS: dict[str, str] = {}
 
 
 def _rabbit_url() -> str:
@@ -48,8 +49,47 @@ def _rabbit_url() -> str:
     return f"amqp://{user}:{quote(password, safe='')}@{host}:{port}/{vhost}"
 
 
-def _connection() -> pika.BlockingConnection:
-    params = pika.URLParameters(_rabbit_url())
+def _tenant_rabbit_url(tenant_id: str) -> str:
+    cached = _TENANT_RABBITMQ_URLS.get(tenant_id)
+    if cached:
+        return cached
+    from app.tenant_provisioning import TenantRegistry
+    registry = TenantRegistry()
+    try:
+        tenant = registry.get_tenant(tenant_id)
+    finally:
+        registry.close()
+    if tenant.get("status") != "ACTIVE":
+        raise RuntimeError("Tenant is not ACTIVE; workflow outbox remains deferred")
+    metadata = tenant.get("metadata_json") or {}
+    if isinstance(metadata, str):
+        metadata = json.loads(metadata)
+    provisioning = metadata.get("aws_provisioning") or {}
+    if provisioning.get("status") != "PROVISIONED":
+        raise RuntimeError("Tenant RabbitMQ vhost is not provisioned; workflow outbox remains deferred")
+    secret_arn = provisioning.get("credentials_secret_arn")
+    if not secret_arn:
+        raise RuntimeError("Tenant RabbitMQ credentials secret is missing")
+    import boto3
+    region = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION")
+    secret = boto3.client("secretsmanager", region_name=region).get_secret_value(SecretId=secret_arn)
+    credentials = json.loads(secret["SecretString"])
+    base = urlsplit(_rabbit_url())
+    host = base.hostname
+    port = base.port or (5671 if base.scheme == "amqps" else 5672)
+    if not host:
+        raise RuntimeError("AIR_RABBITMQ_URL does not contain a broker hostname")
+    username = quote(str(credentials["rabbitmq_username"]), safe="")
+    password = quote(str(credentials["rabbitmq_password"]), safe="")
+    vhost = quote(str(tenant["rabbitmq_vhost"]), safe="")
+    url = f"{base.scheme}://{username}:{password}@{host}:{port}/{vhost}"
+    _TENANT_RABBITMQ_URLS[tenant_id] = url
+    return url
+
+
+def _connection(tenant_id: str | None = None) -> pika.BlockingConnection:
+    connection_url = _tenant_rabbit_url(tenant_id) if tenant_id else _rabbit_url()
+    params = pika.URLParameters(connection_url)
     params.heartbeat = 30
     params.blocked_connection_timeout = 30
     params.connection_attempts = 3
@@ -159,25 +199,34 @@ def _publish_outbox(stop: threading.Event) -> None:
                 if not items:
                     stop.wait(1.0)
                     continue
-                connection = None
-                try:
-                    connection = _connection()
-                    channel = connection.channel()
-                    _declare(channel)
-                    channel.confirm_delivery()
-                    _publish_batch(store, channel, items)
-                except Exception as exc:
-                    log.warning("Workflow outbox publish deferred: %s", type(exc).__name__)
-                    for item in items:
-                        try:
-                            with tenant_scope(is_admin=True):
-                                store.mark_outbox_failed(item["outbox_id"], item["attempts"], type(exc).__name__)
-                        except Exception:
-                            log.exception("Could not update workflow outbox retry state")
-                    stop.wait(2.0)
-                finally:
-                    if connection and connection.is_open:
-                        connection.close()
+                grouped: dict[str | None, list[dict]] = {}
+                for item in items:
+                    grouped.setdefault(item.get("tenant_id"), []).append(item)
+                for tenant_id, tenant_items in grouped.items():
+                    connection = None
+                    try:
+                        connection = _connection(tenant_id)
+                        channel = connection.channel()
+                        _declare(channel)
+                        channel.confirm_delivery()
+                        _publish_batch(store, channel, tenant_items)
+                    except Exception as exc:
+                        message = str(exc)
+                        log.warning("Workflow outbox publish deferred for tenant %s: %s",
+                                    tenant_id or "SYSTEM", type(exc).__name__)
+                        # A suspended or not-yet-provisioned tenant retains pending
+                        # outbox rows; it must not exhaust retry attempts while offline.
+                        if "outbox remains deferred" not in message:
+                            for item in tenant_items:
+                                try:
+                                    with tenant_scope(is_admin=True):
+                                        store.mark_outbox_failed(item["outbox_id"], item["attempts"], type(exc).__name__)
+                                except Exception:
+                                    log.exception("Could not update workflow outbox retry state")
+                        stop.wait(2.0)
+                    finally:
+                        if connection and connection.is_open:
+                            connection.close()
             except Exception as exc:
                 log.warning("Workflow outbox runtime will retry after %s", type(exc).__name__)
                 if store is not None:
@@ -328,13 +377,13 @@ def _execute_runs(stop: threading.Event) -> None:
             store.close()
 
 
-def _consume(stop: threading.Event) -> None:
+def _consume_vhost(stop: threading.Event, tenant_id: str | None = None) -> None:
     global _CONSUMER_CONNECTED
     while not stop.is_set():
         connection = None
         store = None
         try:
-            connection = _connection()
+            connection = _connection(tenant_id)
             channel = connection.channel()
             _declare(channel)
             _CONSUMER_CONNECTED = True
@@ -375,6 +424,62 @@ def _consume(stop: threading.Event) -> None:
             if connection and connection.is_open:
                 connection.close()
 
+
+
+def _consume(stop: threading.Event) -> None:
+    """Run one system consumer plus one isolated consumer per provisioned SaaS tenant."""
+    profile = load_runtime_profile()
+    if profile["profile_id"] != "aws-saas-multi":
+        _consume_vhost(stop)
+        return
+
+    global_thread = threading.Thread(
+        target=_consume_vhost, args=(stop, None), name="workflow-consumer-system", daemon=True,
+    )
+    tenant_threads: dict[str, tuple[threading.Event, threading.Thread]] = {}
+    global_thread.start()
+    try:
+        while not stop.is_set():
+            try:
+                from app.tenant_provisioning import TenantRegistry
+                registry = TenantRegistry()
+                try:
+                    tenants = registry.list_tenants(status="ACTIVE", limit=500)
+                finally:
+                    registry.close()
+                active_ids = set()
+                for tenant in tenants:
+                    metadata = tenant.get("metadata_json") or {}
+                    if isinstance(metadata, str):
+                        metadata = json.loads(metadata)
+                    provisioning = metadata.get("aws_provisioning") or {}
+                    if provisioning.get("status") != "PROVISIONED":
+                        continue
+                    tenant_id = str(tenant["tenant_id"])
+                    active_ids.add(tenant_id)
+                    if tenant_id not in tenant_threads:
+                        tenant_stop = threading.Event()
+                        thread = threading.Thread(
+                            target=_consume_vhost, args=(tenant_stop, tenant_id),
+                            name=f"workflow-consumer-{tenant_id[:8]}", daemon=True,
+                        )
+                        tenant_threads[tenant_id] = (tenant_stop, thread)
+                        thread.start()
+                for tenant_id in list(tenant_threads):
+                    if tenant_id not in active_ids:
+                        tenant_stop, thread = tenant_threads.pop(tenant_id)
+                        tenant_stop.set()
+                        thread.join(timeout=5.0)
+                        _TENANT_RABBITMQ_URLS.pop(tenant_id, None)
+            except Exception as exc:
+                log.warning("Tenant RabbitMQ consumer registry refresh deferred: %s", type(exc).__name__)
+            stop.wait(15.0)
+    finally:
+        for tenant_stop, thread in tenant_threads.values():
+            tenant_stop.set()
+            thread.join(timeout=5.0)
+        if global_thread.is_alive():
+            global_thread.join(timeout=5.0)
 
 
 def _monitor_runtime(stop: threading.Event) -> None:
