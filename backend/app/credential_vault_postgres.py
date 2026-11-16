@@ -6,6 +6,7 @@ from pathlib import Path
 from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
+from app.tenant_context import install_tenant_context, tenant_scope
 
 class PostgresCredentialVault:
     def __init__(self, database_url: str, engine: Engine | None = None):
@@ -21,6 +22,7 @@ class PostgresCredentialVault:
             if not database_url.startswith(("postgresql://", "postgresql+psycopg://")):
                 raise RuntimeError("AIR_CREDENTIAL_DATABASE_URL must point to PostgreSQL")
             engine = create_engine(database_url, pool_pre_ping=True, future=True)
+            install_tenant_context(engine)
         self.engine = engine
 
     def put(self, customer_id: str, broker: str, account_id: str, credentials: dict) -> None:
