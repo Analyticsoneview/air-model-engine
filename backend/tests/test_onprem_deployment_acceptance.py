@@ -13,9 +13,9 @@ def read(path: str) -> str:
 
 
 def service_block(source: str, service_name: str) -> str:
-    heading = f"  {service_name}:\\n"
+    heading = f"  {service_name}:\n"
     start = source.index(heading)
-    match = re.search(r"\\n  [A-Za-z0-9_-]+:\\n", source[start + len(heading):])
+    match = re.search(r"\n  [A-Za-z0-9_-]+:\n", source[start + len(heading):])
     end = start + len(heading) + match.start() if match else len(source)
     return source[start:end]
 
