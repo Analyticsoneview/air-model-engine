@@ -1,5 +1,3 @@
-data "aws_caller_identity" "current" {}
-
 resource "random_password" "postgres" {
   length  = 32
   special = false
