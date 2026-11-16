@@ -6,7 +6,7 @@ locals {
     ManagedBy   = "Terraform"
     Deployment  = var.deployment_profile
   }
-  tenant_bucket_prefix = "${substr("${var.environment_name}-${data.aws_caller_identity.current.account_id}", 0, 28)}-t-"
+  tenant_bucket_prefix = "${substr(var.environment_name, 0, 10)}-${substr(sha256(var.environment_name), 0, 4)}-${data.aws_caller_identity.current.account_id}-t-"
 }
 
 resource "aws_vpc" "air" {
