@@ -137,12 +137,31 @@ class AwsTenantProvisioner:
         self.s3.put_bucket_versioning(
             Bucket=bucket, VersioningConfiguration={"Status": "Enabled"},
         )
+        self.s3.put_bucket_ownership_controls(
+            Bucket=bucket,
+            OwnershipControls={"Rules": [{"ObjectOwnership": "BucketOwnerEnforced"}]},
+        )
+        self.s3.put_bucket_policy(
+            Bucket=bucket,
+            Policy=json.dumps({
+                "Version": "2012-10-17",
+                "Statement": [{
+                    "Sid": "DenyInsecureTransport",
+                    "Effect": "Deny",
+                    "Principal": "*",
+                    "Action": "s3:*",
+                    "Resource": [f"arn:aws:s3:::{bucket}", f"arn:aws:s3:::{bucket}/*"],
+                    "Condition": {"Bool": {"aws:SecureTransport": "false"}},
+                }],
+            }),
+        )
         self.s3.put_bucket_tagging(
             Bucket=bucket,
             Tagging={"TagSet": [
                 {"Key": "Product", "Value": "AIR"},
                 {"Key": "TenantId", "Value": tenant_id},
                 {"Key": "ManagedBy", "Value": "AIR-Tenant-Provisioner"},
+                {"Key": "MaxStorageBytes", "Value": str(int(tenant.get("max_storage_bytes", 1073741824)))},
             ]},
         )
 
@@ -225,6 +244,40 @@ class AwsTenantProvisioner:
                 "max_storage_bytes": int(tenant.get("max_storage_bytes", 1073741824)),
             },
         }
+
+    def enforce_storage_quota(self, tenant: dict, additional_bytes: int = 0) -> int:
+        tenant_id = self._tenant_id(tenant)
+        bucket = self._bucket_name(tenant_id)
+        limit = int(tenant.get("max_storage_bytes", 1073741824))
+        requested = int(additional_bytes)
+        if requested < 0:
+            raise ValueError("additional_bytes cannot be negative")
+        paginator = self.s3.get_paginator("list_objects_v2")
+        used = 0
+        for page in paginator.paginate(Bucket=bucket):
+            used += sum(int(item.get("Size", 0)) for item in page.get("Contents", []))
+        if used + requested > limit:
+            raise TenantInfrastructureError("Tenant storage quota would be exceeded")
+        return used
+
+    def put_tenant_object(
+        self, tenant: dict, key: str, body: bytes, *, content_type: str = "application/octet-stream",
+    ) -> dict:
+        tenant_id = self._tenant_id(tenant)
+        object_key = str(key or "").lstrip("/")
+        if not object_key or ".." in object_key.split("/") or object_key.startswith("/"):
+            raise ValueError("A safe tenant object key is required")
+        size = len(body)
+        used = self.enforce_storage_quota(tenant, size)
+        bucket = self._bucket_name(tenant_id)
+        prefix = f"tenants/{tenant_id}/"
+        stored_key = prefix + object_key
+        result = self.s3.put_object(
+            Bucket=bucket, Key=stored_key, Body=body,
+            ContentType=content_type, ServerSideEncryption="AES256",
+        )
+        return {"bucket": bucket, "key": stored_key, "bytes": size, "previous_usage_bytes": used,
+                "etag": str(result.get("ETag", "")).strip('"')}
 
     def set_tenant_access(self, tenant: dict, *, enabled: bool) -> None:
         tenant_id = self._tenant_id(tenant)
