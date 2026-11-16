@@ -761,7 +761,7 @@ async def application_readiness() -> dict:
         key: bootstrap.get(key) for key in (
             "status", "history_months", "target_start_date", "start_date",
             "end_date", "progress_pct", "archive_coverage_pct",
-            "paired_sessions", "expected_paired_sessions", "universe", "strategy_run", "note",
+            "paired_sessions", "expected_paired_sessions", "universe", "strategy_run", "monthly_pd_scan", "note",
         ) if key in bootstrap
     }
     if symbol_coverage_summary:
