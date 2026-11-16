@@ -214,6 +214,36 @@ def test_offer_requires_approval_and_can_be_revoked(customer_store):
     assert customer_store.get_marketing_offer(offer["offer_id"])["status"] == "REVOKED"
 
 
+def test_tenant_registry_records_provisioning_before_activation(customer_store):
+    from app.tenant_provisioning import TenantRegistry
+
+    registry = TenantRegistry(database_url=os.environ["AIR_TEST_CUSTOMER_DATABASE_URL"])
+    try:
+        tenant = registry.create_or_update_tenant(
+            owner_customer_id="+919876543240",
+            name="AIR SaaS Provisioning Acceptance",
+            plan_code="PAID",
+            status="PROVISIONING",
+        )
+        assert tenant["status"] == "PROVISIONING"
+        provisioned = registry.record_aws_provisioning(
+            tenant["tenant_id"],
+            {
+                "status": "PROVISIONED",
+                "storage": {"provider": "s3", "bucket": "air-tenant-test"},
+                "messaging": {"provider": "amazon_mq_rabbitmq", "vhost": tenant["rabbitmq_vhost"]},
+                "credentials_secret_arn": "arn:aws:secretsmanager:ap-south-1:123456789012:secret:air/tenants/test",
+            },
+            status="ACTIVE",
+        )
+        assert provisioned["status"] == "ACTIVE"
+        assert provisioned["provisioned_at"] is not None
+        assert provisioned["metadata_json"]["aws_provisioning"]["status"] == "PROVISIONED"
+        assert provisioned["metadata_json"]["aws_provisioning"]["storage"]["bucket"] == "air-tenant-test"
+    finally:
+        registry.close()
+
+
 def test_state_persists_after_store_recreation(customer_store):
     request = customer_store.request_access("+919876543212", "android-device-0004")
     customer_store.review(request["request_id"], "APPROVED", reviewer_admin_id="admin-test",
