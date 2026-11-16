@@ -30,7 +30,7 @@ def test_official_index_csv_parser_fails_closed_on_wrong_count_and_duplicate():
         assert "expected 100" in str(exc)
     else:
         raise AssertionError("wrong-sized constituent list must fail")
-    duplicate = "Symbol,Company Name\\nABC,Alpha\\nABC,Alpha duplicate\\n"
+    duplicate = "Symbol,Company Name\nABC,Alpha\nABC,Alpha duplicate\n"
     try:
         parse_constituents(duplicate * 50, "NIFTY100")
     except ValueError as exc:
