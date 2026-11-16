@@ -163,6 +163,16 @@ variable "log_retention_days" {
   default = 30
 }
 
+variable "tenant_secrets_prefix" {
+  description = "AWS Secrets Manager namespace for per-tenant runtime credentials."
+  type        = string
+  default     = "air/tenants"
+  validation {
+    condition     = can(regex("^[A-Za-z0-9/_-]{3,80}$", var.tenant_secrets_prefix))
+    error_message = "tenant_secrets_prefix must be a valid 3-80 character Secrets Manager path prefix."
+  }
+}
+
 variable "deployment_profile" {
   description = "AIR deployment profile hosted by this shared AWS stack."
   type        = string
