@@ -31,6 +31,41 @@ class NSEUniverseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "duplicate symbol"):
             parse_index_constituents(duplicate, "NIFTY100")
 
+    def test_failed_refresh_preserves_last_good_universe_snapshot(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = NSEUniverseStore(str(Path(folder) / "universe.sqlite3"))
+            for code in INDEX_UNIVERSES:
+                rows = parse_index_constituents(
+                    self._csv(int(INDEX_UNIVERSES[code]["expected_count"]), code), code
+                )
+                store.save_snapshot(code, rows, "https://nsearchives.nseindia.com/test.csv")
+
+            store.record_failure("NIFTY100", "temporary NSE 503")
+            status = store.status()
+            self.assertEqual(status["status"], "READY")
+            failed_attempt = status["required_indices"]["NIFTY100"]
+            self.assertEqual(failed_attempt["status"], "READY")
+            self.assertEqual(failed_attempt["last_attempt_status"], "FAILED")
+            self.assertIn("temporary NSE 503", failed_attempt["last_attempt_error"])
+            self.assertEqual(len(store.symbols()), 500)
+            self.assertEqual(store.latest_universe()["status"], "READY")
+
+            refreshed = parse_index_constituents(self._csv(100, "NEW"), "NIFTY100")
+            store.save_snapshot("NIFTY100", refreshed, "https://nsearchives.nseindia.com/new.csv")
+            success = store.status()["required_indices"]["NIFTY100"]
+            self.assertEqual(success["last_attempt_status"], "SUCCEEDED")
+            self.assertIsNone(success["last_attempt_error"])
+
+    def test_failed_first_universe_download_does_not_mark_missing_snapshot_ready(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = NSEUniverseStore(str(Path(folder) / "universe.sqlite3"))
+            store.record_failure("NIFTY100", "both official sources unavailable")
+            status = store.status()["required_indices"]["NIFTY100"]
+            self.assertEqual(status["status"], "FAILED")
+            self.assertEqual(status["actual_count"], 0)
+            self.assertEqual(status["last_attempt_status"], "FAILED")
+
+
     def test_store_marks_ready_only_after_all_three_universes_are_validated(self):
         with tempfile.TemporaryDirectory() as folder:
             store = NSEUniverseStore(str(Path(folder) / "universe.sqlite3"))
