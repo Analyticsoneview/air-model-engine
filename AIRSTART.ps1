@@ -47,6 +47,12 @@ AIR_SMTP_PORT=587
 "@ | Set-Content -Path $envFile -Encoding ascii
     }
 
+    if ($env:AIR_START_PULL_BASE_IMAGES -eq "true") {
+        Write-Host "Refreshing PostgreSQL, Redis and RabbitMQ base images before upgrade..." -ForegroundColor Cyan
+        docker compose -f compose.local.yml pull postgres redis rabbitmq
+        if ($LASTEXITCODE -ne 0) { throw "Failed to refresh AIR base images." }
+    }
+
     Write-Host "Building and starting AIR API + PWA..." -ForegroundColor Cyan
     docker compose -f compose.local.yml up -d --build
     if ($LASTEXITCODE -ne 0) { docker compose -f compose.local.yml logs --tail 100; throw "AIR startup failed. Review the logs above." }
@@ -90,9 +96,13 @@ AIR_SMTP_PORT=587
     }
     Write-Host "PostgreSQL, Redis, RabbitMQ, FastAPI, workflow worker, PWA and initial market-data readiness are verified." -ForegroundColor Green
     docker compose -f compose.local.yml ps
-    Start-Process "http://localhost:8080"
+    if ($env:AIR_START_SKIP_OPEN -ne "true") { Start-Process "http://localhost:8080" }
 
-    if (!$env:AIR_START_PROFILE_INSTALLED) { Install-AirCommand }
-    Write-Host "Next time, open PowerShell in this repository and type: AIRSTART" -ForegroundColor Green
+    if ($env:AIR_START_SKIP_PROFILE -ne "true" -and !$env:AIR_START_PROFILE_INSTALLED) {
+        Install-AirCommand
+    }
+    if ($env:AIR_START_SKIP_PROFILE -ne "true") {
+        Write-Host "Next time, open PowerShell in this repository and type: AIRSTART" -ForegroundColor Green
+    }
 }
 finally { Pop-Location }
