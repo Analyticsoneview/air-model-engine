@@ -187,28 +187,23 @@ def admin_renew(body: AdminLifecycleAction, admin=Depends(require_admin)):
         old = _store().get(body.tenant_id, body.customer_id)
         if not old or old["onboarding_id"] != body.onboarding_id:
             raise HTTPException(status_code=404, detail="Onboarding record not found")
-        if old["status"] not in {"ACTIVE", "EXPIRED"}:
-            raise HTTPException(status_code=409, detail="Only active or expired customers can be renewed")
-        new_key = "renewal:" + body.idempotency_key
-        contract = _contracts().create_contract(tenant_id=body.tenant_id, customer_id=body.customer_id,
-            product_code=old["product_code"], plan_code=old["plan_code"], start_date=date.today(),
-            actor_id=admin["admin_id"], idempotency_key=new_key)
-        contract = _contracts().transition(body.tenant_id, contract["contract_id"], "ACTIVE",
-            actor_id=admin["admin_id"], idempotency_key=new_key + ":activate",
-            payload={"approval_reference": body.approval_reference, "reason": body.reason})
+        if old["status"] != "EXPIRED":
+            raise HTTPException(status_code=409, detail="Only an expired customer contract can be renewed")
+        key = "renewal:" + body.idempotency_key
+        with _contract_scope(body.tenant_id, body.customer_id, admin=True):
+            contract = _contracts().create_contract(tenant_id=body.tenant_id, customer_id=body.customer_id,
+                product_code=old["product_code"], plan_code=old["plan_code"], start_date=date.today(),
+                actor_id=admin["admin_id"], idempotency_key=key)
+            contract = _contracts().transition(body.tenant_id, contract["contract_id"], "ACTIVE",
+                actor_id=admin["admin_id"], idempotency_key=key + ":activate",
+                payload={"approval_reference": body.approval_reference, "reason": body.reason})
         new = _store().create(body.tenant_id, body.customer_id, old["product_code"], old["plan_code"],
             "onboarding-renewal:" + body.idempotency_key, admin["admin_id"])
-        new = _store().transition(body.tenant_id, body.customer_id, new["onboarding_id"], "TRIAL",
-            admin["admin_id"], "renewal-start-trial:" + body.idempotency_key,
-            {"contract_id": contract["contract_id"], "renewal": True}, trial_days=1)
         new = _store().transition(body.tenant_id, body.customer_id, new["onboarding_id"], "ACTIVE",
             admin["admin_id"], body.idempotency_key,
             {"approval_reference": body.approval_reference, "renewal": True})
-        with _store().engine.begin() as conn:
-            conn.execute(__import__("sqlalchemy").text("""UPDATE air_customer_onboarding
-                SET contract_id=:contract WHERE tenant_id=:tenant AND onboarding_id=:id"""),
-                {"contract": contract["contract_id"], "tenant": body.tenant_id, "id": new["onboarding_id"]})
-        return {"onboarding": _store().get(body.tenant_id, body.customer_id), "payment_collection_enabled": False}
+        new = _store().attach_contract(body.tenant_id, body.customer_id, new["onboarding_id"], contract["contract_id"])
+        return {"onboarding": new, "payment_collection_enabled": False}
     except (OnboardingConflict, ContractConflict) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (ValueError, RuntimeError) as exc:
