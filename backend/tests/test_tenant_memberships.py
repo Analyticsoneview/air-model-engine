@@ -28,6 +28,13 @@ def membership_store():
             actor_id TEXT NOT NULL, event_type TEXT NOT NULL, from_role TEXT, to_role TEXT,
             idempotency_key TEXT NOT NULL, details TEXT NOT NULL, occurred_at TEXT NOT NULL,
             UNIQUE(tenant_id,idempotency_key))"""))
+        conn.execute(text("""CREATE TABLE air_enterprise_licenses (
+            license_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, status TEXT NOT NULL,
+            max_seats INTEGER NOT NULL, valid_from TEXT NOT NULL, valid_until TEXT NOT NULL,
+            grace_until TEXT)"""))
+        conn.execute(text("""CREATE TABLE air_license_bindings (
+            binding_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, license_id TEXT NOT NULL,
+            deployment_id TEXT NOT NULL, status TEXT NOT NULL)"""))
         conn.execute(text("INSERT INTO air_tenants VALUES('org-a','Organisation A','STANDARD','ACTIVE',3),('org-b','Organisation B','STANDARD','ACTIVE',2)"))
         conn.execute(text("""INSERT INTO air_tenant_members(tenant_id,customer_id,role,status)
             VALUES('org-a','owner-a','OWNER','ACTIVE'),
@@ -128,3 +135,17 @@ def test_customer_invitation_inbox_only_returns_their_live_pending_invites(membe
     assert inbox[0]["invitation_id"] == invitation["invitation_id"]
     assert inbox[0]["organisation_name"] == "Organisation A"
     assert store.list_customer_invitations("customer-2") == []
+
+
+def test_enterprise_license_seat_ceiling_applies_to_invitation_and_seat_summary(membership_store):
+    store = membership_store
+    with store._scope(), store.engine.begin() as conn:
+        conn.execute(text("""INSERT INTO air_enterprise_licenses
+            VALUES('license-a','org-a','ACTIVE',1,'2026-01-01','2027-01-01',NULL)"""))
+        conn.execute(text("""INSERT INTO air_license_bindings
+            VALUES('binding-a','org-a','license-a','deployment-a','ACTIVE')"""))
+    usage = store.seat_usage("org-a", "owner-a")
+    assert usage["max_members"] == 1
+    assert usage["available_seats"] == 0
+    with pytest.raises(MembershipConflict, match="No organisation seats"):
+        store.invite("org-a", "owner-a", "customer-1", "MEMBER", "licence-seat-limit")
