@@ -64,7 +64,7 @@ def upgrade() -> None:
         sa.Column("occurred_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.UniqueConstraint("tenant_id", "idempotency_key", name="uq_air_tenant_membership_event_idempotency"),
         sa.CheckConstraint(
-            "event_type IN ('INVITED','INVITATION_ACCEPTED','INVITATION_REVOKED','ROLE_CHANGED','MEMBER_REMOVED')",
+            "event_type IN ('INVITED','INVITATION_ACCEPTED','INVITATION_REVOKED','ROLE_CHANGED','MEMBER_REMOVED','ADMIN_MEMBER_ADDED')",
             name="ck_air_tenant_membership_event_type",
         ),
     )
