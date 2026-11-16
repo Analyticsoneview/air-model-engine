@@ -108,7 +108,7 @@ jobs:
           grep -q 'publicly_accessible        = false' data.tf
       - name: Verify SaaS tenant provisioning infrastructure contract
         run: |
-          grep -q 'aws_caller_identity' data.tf
+          grep -q 'aws_caller_identity' versions.tf
           grep -q 'AIR_RABBITMQ_MANAGEMENT_URL' ecs.tf
           grep -q 'AIR_RABBITMQ_ADMIN_PASSWORD' ecs.tf
           grep -q 'AIR_TENANT_S3_BUCKET_PREFIX' ecs.tf
