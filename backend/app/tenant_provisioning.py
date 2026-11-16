@@ -79,10 +79,10 @@ class TenantRegistry:
         max_members, max_calls, max_storage = quotas[plan]
         with tenant_scope(is_admin=True):
             with self.engine.begin() as conn:
-                member = conn.execute(text("""SELECT tenant_id,status FROM air_tenant_members
-                    WHERE customer_id=:customer"""), {"customer": owner}).mappings().first()
+                member = conn.execute(text("""SELECT tenant_id FROM air_tenants
+                    WHERE owner_customer_id=:customer"""), {"customer": owner}).first()
                 if member:
-                    tenant_id = member["tenant_id"]
+                    tenant_id = member[0]
                     conn.execute(text("""UPDATE air_tenants SET name=:name,plan_code=:plan,
                         status=:status,max_members=:members,max_api_calls_per_day=:calls,
                         max_storage_bytes=:storage,updated_at=CURRENT_TIMESTAMP WHERE tenant_id=:tenant"""),
@@ -117,14 +117,20 @@ class TenantRegistry:
                     raise ValueError("Tenant must be ACTIVE before members can be added")
                 active_members = conn.execute(text("""SELECT COUNT(*) FROM air_tenant_members
                     WHERE tenant_id=:tenant AND status='ACTIVE'"""), {"tenant": tenant}).scalar_one()
-                if active_members >= state[1]:
-                    raise ValueError("Tenant member quota has been reached")
-                existing = conn.execute(text("SELECT tenant_id FROM air_tenant_members WHERE customer_id=:customer"),
-                                        {"customer": customer}).scalar_one_or_none()
-                if existing:
-                    if existing != tenant:
-                        raise ValueError("Customer already belongs to another tenant")
+                pending_invitations = conn.execute(text("""SELECT COUNT(*) FROM air_tenant_invitations
+                    WHERE tenant_id=:tenant AND status='PENDING' AND expires_at>CURRENT_TIMESTAMP"""),
+                    {"tenant": tenant}).scalar_one()
+                if int(active_members) + int(pending_invitations) >= int(state[1]):
+                    raise ValueError("Tenant member quota has been reached or seats are reserved by invitations")
+                existing = conn.execute(text("""SELECT status FROM air_tenant_members
+                    WHERE tenant_id=:tenant AND customer_id=:customer"""),
+                    {"tenant": tenant, "customer": customer}).scalar_one_or_none()
+                if existing and existing != "REMOVED":
                     raise ValueError("Customer is already a member of this tenant")
+                if existing == "REMOVED":
+                    conn.execute(text("""DELETE FROM air_tenant_members
+                        WHERE tenant_id=:tenant AND customer_id=:customer"""),
+                        {"tenant": tenant, "customer": customer})
                 conn.execute(text("""INSERT INTO air_tenant_members
                     (tenant_id,customer_id,role,status)
                     VALUES(:tenant,:customer,:role,'ACTIVE')"""),
