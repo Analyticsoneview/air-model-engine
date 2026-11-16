@@ -50,9 +50,6 @@ def _rabbit_url() -> str:
 
 
 def _tenant_rabbit_url(tenant_id: str) -> str:
-    cached = _TENANT_RABBITMQ_URLS.get(tenant_id)
-    if cached:
-        return cached
     from app.tenant_provisioning import TenantRegistry
     registry = TenantRegistry()
     try:
@@ -67,6 +64,9 @@ def _tenant_rabbit_url(tenant_id: str) -> str:
     provisioning = metadata.get("aws_provisioning") or {}
     if provisioning.get("status") != "PROVISIONED":
         raise RuntimeError("Tenant RabbitMQ vhost is not provisioned; workflow outbox remains deferred")
+    cached = _TENANT_RABBITMQ_URLS.get(tenant_id)
+    if cached:
+        return cached
     secret_arn = provisioning.get("credentials_secret_arn")
     if not secret_arn:
         raise RuntimeError("Tenant RabbitMQ credentials secret is missing")
