@@ -25,8 +25,10 @@ if ($InstallCommand) { Install-AirCommand; exit 0 }
 if (!(Get-Command docker -ErrorAction SilentlyContinue)) {
     throw "Docker is missing. Install Docker Desktop, start it, then run AIRSTART again."
 }
-try { docker compose version | Out-Null; docker info | Out-Null }
-catch { throw "Docker Desktop is not running or Docker Compose v2 is unavailable. Start Docker Desktop and retry." }
+docker compose version | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "Docker Compose v2 is unavailable. Install or update Docker Desktop and retry." }
+docker info | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "Docker Desktop/Engine is not running. Start Docker and retry." }
 
 Push-Location $Root
 try {
