@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 from datetime import datetime, timezone
 
 from app.tenant_quotas import TenantApiQuotaEnforcer, TenantApiQuotaExceeded
+from fastapi import HTTPException
+from app import security
 
 
 class FakePipeline:
@@ -59,6 +62,28 @@ class TenantApiQuotaTests(unittest.TestCase):
         quota.consume("tenant-a", 1, now=now)
         with self.assertRaises(TenantApiQuotaExceeded):
             quota.consume("tenant-a", 1, now=now)
+
+    def test_customer_auth_rejects_requests_after_saas_daily_limit(self):
+        class Registry:
+            def get_tenant(self, tenant_id):
+                return {"status": "ACTIVE", "max_api_calls_per_day": 1}
+
+        class Enforcer:
+            def consume(self, tenant_id, daily_limit):
+                raise TenantApiQuotaExceeded("limit reached")
+
+        original_registry = security._tenant_quota_registry
+        original_enforcer = security._tenant_api_quota_enforcer
+        security._tenant_quota_registry = Registry()
+        security._tenant_api_quota_enforcer = Enforcer()
+        try:
+            with patch.dict("os.environ", {"AIR_DEPLOYMENT_PROFILE": "aws-saas-multi"}, clear=False):
+                with self.assertRaises(HTTPException) as raised:
+                    security._consume_tenant_api_quota("tenant-a")
+            self.assertEqual(raised.exception.status_code, 429)
+        finally:
+            security._tenant_quota_registry = original_registry
+            security._tenant_api_quota_enforcer = original_enforcer
 
     def test_invalid_tenant_or_limit_is_rejected(self):
         quota = TenantApiQuotaEnforcer(FakeRedis())
