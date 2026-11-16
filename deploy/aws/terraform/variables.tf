@@ -111,6 +111,11 @@ variable "deploy_services" {
   description = "Create ECS task definitions and services after ECR images have been built and pushed."
   type        = bool
   default     = false
+
+  validation {
+    condition     = !var.deploy_services || var.acm_certificate_arn != "" || var.allow_http
+    error_message = "ECS services require an ACM certificate, or explicit allow_http=true for temporary non-production testing."
+  }
 }
 
 variable "backend_image_uri" {
@@ -156,10 +161,4 @@ variable "pwa_memory" {
 variable "log_retention_days" {
   type    = number
   default = 30
-}
-
-variable "enable_http_for_bootstrap" {
-  description = "Explicit acknowledgement that temporary HTTP is allowed without ACM TLS."
-  type        = bool
-  default     = false
 }
