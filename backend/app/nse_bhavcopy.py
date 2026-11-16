@@ -447,21 +447,26 @@ class NSEBhavcopyStore:
                         count: int = 0, archive_path: str | None = None,
                         source_url: str | None = None, error: str | None = None,
                         source_record_count: int | None = None,
-                        expired_removed_count: int = 0) -> None:
+                        expired_removed_count: int = 0,
+                        archive_sha256: str | None = None,
+                        archive_bytes: int | None = None) -> None:
         with self._db() as db:
             db.execute("""
                 INSERT INTO nse_bhavcopy_files
                     (market, trade_date, status, record_count, source_record_count,
-                     expired_removed_count, archive_path, source_url, error, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                     expired_removed_count, archive_path, source_url, error,
+                     archive_sha256, archive_bytes, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(market, trade_date) DO UPDATE SET
                     status=excluded.status, record_count=excluded.record_count,
                     source_record_count=excluded.source_record_count,
                     expired_removed_count=excluded.expired_removed_count,
                     archive_path=excluded.archive_path, source_url=excluded.source_url,
-                    error=excluded.error, updated_at=CURRENT_TIMESTAMP
+                    error=excluded.error, archive_sha256=excluded.archive_sha256,
+                    archive_bytes=excluded.archive_bytes, updated_at=CURRENT_TIMESTAMP
             """, (market, trade_date, status, count, source_record_count,
-                  expired_removed_count, archive_path, source_url, error))
+                  expired_removed_count, archive_path, source_url, error,
+                  archive_sha256, archive_bytes))
 
     def actual_record_count(self, market: str, trade_date: str) -> int:
         with self._db() as db:
@@ -654,13 +659,15 @@ class NSEBhavcopyStore:
             """).fetchall()
         return {
             "bootstrap": self.get_meta("bootstrap") or {"status": "NOT_STARTED"},
+            "bootstrap_runs": self.latest_bootstrap_runs(10),
+            "bootstrap_lease": self.bootstrap_lease_status(),
             "markets": {row["market"]: dict(row) for row in totals},
             "files": [dict(row) for row in file_rows],
             "expired_fo_cleanup": self.get_meta("expired_fo_cleanup") or {},
             "updated_at": datetime.now(IST).isoformat(),
             "source": "NSE UDiFF official end-of-day CM and F&O bhavcopy archives",
             "data_scope": "EOD bhavcopy; not intraday ticks or historical bid/ask snapshots",
-        "trading_calendar": self.get_meta(f"trading_calendar_{datetime.now(IST).year}") or {},
+            "trading_calendar": self.get_meta(f"trading_calendar_{datetime.now(IST).year}") or {},
         }
 
     def symbol_coverage(self, symbols: list[str], start_date: str, end_date: str,
