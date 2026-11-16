@@ -64,3 +64,42 @@ The catalogue must be source-driven and extensible. A segment is marked READY on
 - NCDEX bhavcopy: https://ncdex.com/markets/bhavcopy
 
 Exchange sources, archive retention, history depth and access terms must be verified per segment before marking it production-ready.
+
+
+## Global markets extension — United States and GIFT City
+
+US-listed instruments are a separate market-data domain, not an extension of Indian exchange bhavcopy files. An Indian broker's ability to offer a US security does not make that security an NSE/BSE listing, and broker availability must not be treated as proof of exchange-wide coverage.
+
+### Initial coverage targets
+
+| Market / venue | Required catalogue and data | Implementation boundary |
+|---|---|---|
+| Nasdaq-listed venues | All eligible listed common stocks, depositary receipts, ETFs and other explicitly supported instrument types | Use a licensed US-market data/reference-data provider or authorized exchange feed; preserve listing venue and US ticker |
+| NYSE | All eligible listed equities and supported ETFs | Independent venue mapping, sessions, holidays, corporate actions and symbol lifecycle |
+| NYSE Arca and other US venues | Eligible listed ETFs/equities where provider coverage and licence permit | Explicit venue allow-list and coverage reporting; do not imply every US venue is covered by Nasdaq/NYSE adapters |
+| NSE IX / GIFT City | US-stock receipts and other supported NSE IX instruments | Treat each receipt as a distinct exchange-traded instrument; retain underlying-security mapping and receipt ratio/corporate-action metadata |
+| India-broker global-access catalogues | US instruments available to each connected broker/account type | Broker-specific tradability catalogue only; never use it as the canonical US exchange instrument master |
+
+### US-market data requirements
+
+1. Maintain a global instrument identity with MIC/venue, ticker, issuer, instrument type, currency, listing/delisting dates, primary listing and stable provider/exchange identifiers. Preserve ticker changes and delisted instruments for historical resolution.
+2. Ingest daily OHLCV and available turnover/volume fields, split/dividend-adjusted series or adjustment factors, corporate actions, security master/reference data and venue trading calendars. Store raw and adjusted values distinctly.
+3. Keep US exchange-local timestamps and America/New_York session calendars, including daylight-saving transitions and market holidays. Do not assume India trading dates align with US sessions.
+4. Store native USD prices and FX observations (including source and timestamp) separately. Convert to INR only as a derived valuation; never overwrite native prices.
+5. Keep live, delayed and EOD feeds as separate data products with explicit provider, entitlement, latency/freshness and licence metadata. EOD availability does not imply live or intraday entitlement.
+6. Use provider/exchange agreements that explicitly permit AIR's intended storage, analytics, display, derived-data and redistribution use. A public webpage, broker screen or downloadable file is not by itself a commercial data licence.
+7. Report readiness independently by provider, venue, instrument type and data frequency. If coverage, history depth, fees, entitlement or redistribution rights are unresolved, mark the relevant scope BLOCKED/DEFERRED with a reason; never label the whole US market READY.
+8. Broker catalogues must include broker, country/account eligibility, instrument identifier, tradability state, restrictions, effective dates and last refresh. A security may exist in the global master while unavailable to a particular Indian broker.
+9. Add tests for symbol changes, delistings, splits, dividends, ADR/receipt mappings, duplicate tickers across venues, daylight-saving transitions, US holidays, missing sessions, provider outages, entitlement denial, stale broker catalogues and FX timestamp alignment.
+
+### GIFT City receipt identity
+
+NSE IX-listed US-stock receipts are not the same instrument as the underlying Nasdaq/NYSE shares. Store separate instrument records linked by an explicit underlying relationship, receipt ratio, currency, venue, trading calendar and corporate-action mapping. Do not merge their prices, volumes, liquidity or trading eligibility with the underlying US share.
+
+### Licensing and delivery gates
+
+Before enabling any US venue in a production installation, record the selected provider, supported venues/instrument classes, historical depth, update frequency, commercial usage rights, display/redistribution permissions, user-count constraints, fees and credentials/entitlements. Use adapter contract tests and sandbox/sample datasets until the provider agreement and credentials are approved. Live feed acceptance remains a separate gate from EOD bootstrap.
+
+### Research universe separation
+
+US equities/ETFs, GIFT City receipts and broker-accessible US instruments are independent filterable universes over the global instrument directory. They must not be limited by the Nifty 500 universe or by an Indian broker's current catalogue. Strategy eligibility may filter instruments; it must never constrain raw market-data ingestion.
