@@ -305,7 +305,10 @@ def upgrade() -> None:
         CREATE POLICY air_tenants_scope ON air_tenants
         USING (air_is_admin_context()
             OR tenant_id=NULLIF(current_setting('air.tenant_id',true),'')
-            OR owner_customer_id=NULLIF(current_setting('air.customer_id',true),''))
+            OR owner_customer_id=NULLIF(current_setting('air.customer_id',true),'')
+            OR EXISTS (SELECT 1 FROM air_tenant_members m
+                       WHERE m.tenant_id=air_tenants.tenant_id
+                         AND m.customer_id=NULLIF(current_setting('air.customer_id',true),'')))
         WITH CHECK (air_is_admin_context()
             OR owner_customer_id=NULLIF(current_setting('air.customer_id',true),''))
     """)
