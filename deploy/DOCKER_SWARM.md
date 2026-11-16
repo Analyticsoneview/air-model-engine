@@ -2,6 +2,8 @@
 
 This stack serves the Flutter PWA and API on a private overlay network. It is a **single-replica lab deployment**, not a highly available production cluster. PostgreSQL 16, Redis 7 and RabbitMQ 4 are provisioned with persistent volumes and Docker secrets. The separate workflow worker consumes RabbitMQ events and schedules durable time-trigger events; it does not place broker orders. The API container applies Alembic migrations before starting Uvicorn. Broker account ownership, market-data entitlements/selections and encrypted broker credentials use PostgreSQL through the shared `air_database_url` secret. Authentication, sessions, QOC, instruments and remaining repositories are still on their existing stores until their own migrations and tests are complete. Do not scale the API above one replica until repository migration and shared-state tests are complete.
 
+RabbitMQ 4 reads its bootstrap password from the mounted Docker secret through the checked-in `deploy/rabbitmq.conf` environment interpolation. The stack intentionally does not use the deprecated `RABBITMQ_DEFAULT_PASS_FILE` variable. Keep the external `air_rabbitmq_password` secret in place when recreating the RabbitMQ service.
+
 ## 1. Build images
 
 From the repository root:
