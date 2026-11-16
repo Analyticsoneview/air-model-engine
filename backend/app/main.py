@@ -90,3 +90,2810 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept", "X-AIR-ADMIN-KEY", "Idempotency-Key"],
+)
+_market_health_task: asyncio.Task | None = None
+_master_refresh_task: asyncio.Task | None = None
+set_default_market_data_service(market_data_service)
+auth_store = AuthStore()
+account_directory = CustomerAccountDirectory(os.getenv("AIR_ACCOUNT_DB_PATH", "data/customer_accounts.sqlite3"))
+_credential_vault: CredentialVault | None = None
+_upstox_oauth_states: dict[tuple[str, str], str] = {}
+_fyers_oauth_states: dict[tuple[str, str], str] = {}
+account_reporting = AccountReporting()
+portfolio_risk = PortfolioRiskStore()
+support_store = SupportStore()
+_report_scheduler_task: asyncio.Task | None = None
+
+
+def require_air_operator(customer_id: str = Depends(require_customer)) -> str:
+    allowed = {
+        value.strip() for value in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",")
+        if value.strip()
+    }
+    # New mobile tokens use the stable E.164 subject. Accept older beta
+    # tokens whose subject was the device request UUID by resolving it safely.
+    operator_identity = customer_id
+    if customer_id not in allowed:
+        operator_identity = access_store.mobile_for_request_id(customer_id) or ""
+    if not allowed or operator_identity not in allowed:
+        raise HTTPException(status_code=403, detail="AIR operator permission is required")
+    return customer_id
+
+
+def require_air_admin(x_air_admin_key: str | None = Header(default=None)) -> None:
+    key_file = os.getenv("AIR_ADMIN_API_KEY_FILE")
+    configured = open(key_file, encoding="utf-8").read().strip() if key_file else os.getenv("AIR_ADMIN_API_KEY", "")
+    if len(configured) < 32 or not x_air_admin_key or not secrets.compare_digest(x_air_admin_key, configured):
+        raise HTTPException(status_code=403, detail="AIR administrator approval is required")
+
+
+def require_admin_management(admin: dict = Depends(require_admin)) -> dict:
+    if admin["role"] not in {"SUPER_ADMIN", "ADMIN"}:
+        raise HTTPException(status_code=403, detail="Administrator management permission is required")
+    return admin
+
+
+def _market_adapter_for(operator_id: str, provider: str, account_id: str, hub=None):
+    """Build a verified broker adapter from operator-owned encrypted credentials."""
+    credentials = get_vault().get(operator_id, provider, account_id)
+    poll_seconds = max(2.0, float(os.getenv("AIR_MARKET_DATA_POLL_SECONDS", "3")))
+    hub = hub or market_data_hub
+    if provider == "custom_vendor":
+        required = ("base_url", "websocket_url", "api_key")
+        if any(not credentials.get(key) for key in required):
+            raise ValueError("Custom vendor requires base_url, websocket_url and api_key")
+        return GenericVendorMarketDataAdapter(account_id, credentials, hub)
+    if provider == "dhan":
+        access_token = credentials.get("access_token")
+        if not access_token:
+            raise ValueError("Dhan access token is missing")
+        return DhanMarketDataAdapter(credentials.get("client_id", account_id), access_token, hub)
+    if provider == "zerodha":
+        if not credentials.get("api_key") or not credentials.get("access_token"):
+            raise ValueError("Zerodha api_key and access_token are required")
+        return ZerodhaWebSocketAdapter(account_id, credentials["api_key"], credentials["access_token"], hub, poll_seconds)
+    if provider == "upstox":
+        if not credentials.get("access_token"):
+            raise ValueError("Upstox access_token is required")
+        return UpstoxWebSocketAdapter(account_id, credentials["access_token"], hub, poll_seconds)
+    if provider == "fyers":
+        if not credentials.get("app_id") or not credentials.get("access_token"):
+            raise ValueError("FYERS app_id and access_token are required")
+        return FyersWebSocketAdapter(account_id, credentials["app_id"], credentials["access_token"], hub, poll_seconds)
+    if provider == "angelone":
+        required = ("api_key", "jwt_token", "feed_token")
+        if any(not credentials.get(key) for key in required):
+            raise ValueError("Angel api_key, jwt_token and feed_token are required")
+        network = {
+            "client_local_ip": os.getenv("AIR_CLIENT_LOCAL_IP", ""),
+            "client_public_ip": os.getenv("AIR_CLIENT_PUBLIC_IP", ""),
+            "mac_address": os.getenv("AIR_CLIENT_MAC_ADDRESS", ""),
+        }
+        if not all(network.values()):
+            raise ValueError("Angel SmartAPI server network identity headers are not configured")
+        return AngelOneWebSocketAdapter(account_id, credentials, hub, network, poll_seconds)
+    raise ValueError("No market-data adapter is registered for this provider")
+
+
+@app.on_event("startup")
+async def start_air_qoc_jobs() -> None:
+    global _market_health_task, _master_refresh_task
+    load_runtime_profile()
+    configure_customer_market_data_runtime(
+        account_directory, market_data_instruments,
+        lambda customer_id, provider, account_id, hub: _market_adapter_for(
+            customer_id, provider, account_id, hub=hub
+        ),
+    )
+    start_nse_data_jobs()
+    await _restore_market_data_source_connections()
+    _market_health_task = asyncio.create_task(_market_data_health_loop(), name="air-market-data-health")
+    _master_refresh_task = asyncio.create_task(_broker_master_refresh_loop(), name="air-broker-master-refresh")
+    # Safe by default: the scheduler captures data only for selected, authenticated operator/PAID accounts.
+    start_qoc_scheduler(force=_has_enabled_customer_broker_sources())
+    start_telegram_scheduler()
+    global _report_scheduler_task
+    _report_scheduler_task = asyncio.create_task(_account_report_scheduler_loop(), name='air-account-report-scheduler')
+
+
+
+async def _collect_broker_account_statement(customer_id: str, broker: str, account_id: str) -> dict:
+    """Read-only statement fetch for one owned account; never places or modifies orders."""
+    credentials = get_vault().get(customer_id, broker, account_id)
+    client = None
+    try:
+        if broker == "dhan":
+            client = DhanHQClient(credentials.get("client_id", account_id), credentials["access_token"])
+        elif broker == "zerodha":
+            client = KiteConnectClient(credentials["api_key"], credentials["access_token"])
+        elif broker == "upstox":
+            client = UpstoxClient(credentials["access_token"])
+        elif broker == "fyers":
+            client = FyersClient(credentials["app_id"], credentials["access_token"])
+        elif broker == "angelone":
+            client = AngelSmartAPI(
+                credentials["api_key"], credentials.get("client_code", account_id),
+                client_local_ip=os.getenv("AIR_CLIENT_LOCAL_IP", ""),
+                client_public_ip=os.getenv("AIR_CLIENT_PUBLIC_IP", ""),
+                mac_address=os.getenv("AIR_CLIENT_MAC_ADDRESS", ""),
+                access_token=credentials["jwt_token"],
+            )
+        else:
+            raise ValueError("Broker statement adapter is not available")
+        profile = await client.profile()
+        if broker == "zerodha":
+            orders, positions, holdings = await asyncio.gather(
+                client.orders(), client.positions(), client.holdings()
+            )
+        elif broker == "dhan":
+            orders = await client.order_book()
+            positions = await client.positions()
+            holdings = []
+        else:
+            orders, positions, holdings = await asyncio.gather(
+                client.order_book(), client.positions(), client.holdings()
+            )
+        return {"profile": profile, "orders": orders, "positions": positions, "holdings": holdings,
+                "source": broker, "account_id": account_id, "fetched_at": datetime.now().astimezone().isoformat()}
+    finally:
+        if client is not None:
+            await client.close()
+
+
+async def _account_report_scheduler_loop() -> None:
+    while True:
+        try:
+            await account_reporting.run_daily(account_directory, _collect_broker_account_statement)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Report scheduling must not interrupt API service.
+            pass
+        await asyncio.sleep(60)
+
+
+class ReportEmailRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=254)
+
+
+class ReportEmailVerify(BaseModel):
+    code: str = Field(min_length=6, max_length=6)
+
+
+@app.get("/api/v1/customer/reports/email")
+async def get_report_email(customer_id: str = Depends(require_customer)) -> dict:
+    return {"recipient": account_reporting.recipient(customer_id),
+            "schedule": "DAILY_16_00_IST", "formats": ["PDF", "CSV"],
+            "delivery": "SEPARATE_PER_ACCOUNT"}
+
+
+@app.post("/api/v1/customer/reports/email/verification")
+async def request_report_email_verification(body: ReportEmailRequest,
+                                            customer_id: str = Depends(require_customer)) -> dict:
+    try:
+        email = await asyncio.to_thread(account_reporting.request_verification, customer_id, body.email)
+        return {"status": "verification_sent", "email": email, "expires_in_minutes": 10}
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=503 if isinstance(exc, RuntimeError) else 422,
+                            detail=str(exc)) from exc
+
+
+@app.post("/api/v1/customer/reports/email/verification/confirm")
+async def confirm_report_email_verification(body: ReportEmailVerify,
+                                            customer_id: str = Depends(require_customer)) -> dict:
+    try:
+        recipient = account_reporting.confirm_verification(customer_id, body.code)
+        return {"status": "verified", "recipient": recipient}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/customer/reports/history")
+async def customer_report_history(limit: int = Query(default=50, ge=1, le=200),
+                                  customer_id: str = Depends(require_customer)) -> dict:
+    return {"reports": account_reporting.history(customer_id, limit)}
+
+
+@app.post("/api/v1/customer/reports/run")
+async def run_account_reports(customer_id: str = Depends(require_customer)) -> dict:
+    recipient = account_reporting.recipient(customer_id)
+    if not recipient or not recipient.get("verified"):
+        raise HTTPException(status_code=409, detail="Verify a report email address before generating email reports")
+    accounts = account_directory.list_for_customer(customer_id)
+    if not accounts:
+        raise HTTPException(status_code=404, detail="No broker accounts are assigned to this customer")
+    from datetime import datetime
+    report_date = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
+    reports = await account_reporting.run_customer(customer_id, accounts,
+        _collect_broker_account_statement, report_date, force=True)
+    return {"reports": reports}
+
+@app.get("/api/v1/customer/portfolio")
+async def customer_portfolio_overview(customer_id: str = Depends(require_customer)) -> dict:
+    owner_id = access_store.mobile_for_request_id(customer_id) or customer_id
+    return portfolio_risk.overview(owner_id)
+
+
+@app.get("/api/v1/customer/portfolio/history")
+async def customer_portfolio_history(
+    limit: int = Query(default=100, ge=1, le=500),
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    owner_id = access_store.mobile_for_request_id(customer_id) or customer_id
+    return {"history": portfolio_risk.history(owner_id, limit)}
+
+
+@app.post("/api/v1/customer/portfolio/refresh")
+async def refresh_customer_portfolio(customer_id: str = Depends(require_customer)) -> dict:
+    """Refresh owned broker accounts using read-only profile/positions/holdings APIs."""
+    owner_id = access_store.mobile_for_request_id(customer_id) or customer_id
+    accounts = account_directory.list_for_customer(owner_id)
+    if not accounts:
+        raise HTTPException(status_code=404, detail="No broker accounts are assigned to this customer")
+    captured, failures = [], []
+    for account in accounts:
+        try:
+            payload = await _collect_broker_account_statement(owner_id, account.broker, account.account_id)
+            snapshot = build_portfolio_snapshot(payload, account.broker, account.account_id)
+            snapshot["snapshot_id"] = portfolio_risk.save(owner_id, snapshot)
+            captured.append({
+                "broker": account.broker, "account_id": account.account_id,
+                "snapshot_id": snapshot["snapshot_id"], "captured_at": snapshot["captured_at"],
+                "summary": snapshot["summary"],
+            })
+            await asyncio.to_thread(
+                emit_workflow_event,
+                event_type="portfolio.snapshot.updated", source="portfolio.risk",
+                payload={
+                    "customer_id": owner_id, "broker": account.broker,
+                    "account_id": account.account_id, "snapshot_id": snapshot["snapshot_id"],
+                    "captured_at": snapshot["captured_at"], "summary": snapshot["summary"],
+                },
+                idempotency_key=build_idempotency_key("portfolio", owner_id, account.broker, account.account_id, snapshot["captured_at"]),
+            )
+        except Exception as exc:
+            failures.append({
+                "broker": account.broker, "account_id": account.account_id,
+                "error": f"{type(exc).__name__}: {str(exc)[:240]}",
+            })
+    return {
+        "captured": captured, "failures": failures,
+        "status": "COMPLETE" if captured and not failures else "PARTIAL" if captured else "FAILED",
+        "portfolio": portfolio_risk.overview(owner_id),
+        "read_only": True,
+        "note": "Broker data only. Missing capital/equity history is not estimated; no orders are placed.",
+    }
+
+
+async def _market_data_health_loop() -> None:
+    while True:
+        try:
+            await market_data_service.health()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Health monitoring must never take down the API process.
+            pass
+        await asyncio.sleep(max(3.0, float(os.getenv("AIR_MARKET_HEALTH_INTERVAL_SECONDS", "5"))))
+
+
+def _has_enabled_customer_broker_sources() -> bool:
+    operator_ids = {
+        value.strip() for value in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",")
+        if value.strip()
+    }
+    for account in account_directory.list_all():
+        access = account_directory.get_market_data_access(account.customer_id)
+        eligible = account.customer_id in operator_ids or (
+            access.get("tier") == "PAID" and access.get("broker_data_enabled") is True
+        )
+        selection = account_directory.get_market_data_selection(account.customer_id)
+        if (eligible and selection
+                and selection.get("provider") == account.broker
+                and selection.get("account_id") == account.account_id):
+            return True
+    return False
+
+
+def _broker_master_headers(operator_id: str, provider: str, account_id: str) -> dict[str, str] | None:
+    if provider != "zerodha":
+        return None
+    credentials = get_vault().get(operator_id, provider, account_id)
+    api_key, access_token = credentials.get("api_key"), credentials.get("access_token")
+    if not api_key or not access_token:
+        raise ValueError("Zerodha API key/access token required to download the authenticated instrument master")
+    return {"Authorization": f"token {api_key}:{access_token}", "X-Kite-Version": "3"}
+
+
+async def _broker_master_refresh_loop() -> None:
+    """Refresh configured broker masters once per NSE trading date at 07:00 IST."""
+    from zoneinfo import ZoneInfo
+    from datetime import datetime
+    ist = ZoneInfo("Asia/Kolkata")
+    last_run = None
+    while True:
+        now = datetime.now(ist)
+        if now.weekday() < 5 and now.hour >= 7 and last_run != now.date():
+            refresher = BrokerMasterRefresher(market_data_instruments)
+            try:
+                # Refresh every assigned customer's broker-specific master, not only
+                # the operator's account. Tokens and master snapshots remain account-scoped.
+                for account in account_directory.list_all():
+                    if account.broker not in {"dhan", "zerodha", "upstox", "fyers", "angelone"}:
+                        continue
+                    try:
+                        headers = _broker_master_headers(
+                            account.customer_id, account.broker, account.account_id
+                        )
+                        await refresher.refresh(account.broker, account.account_id, headers=headers)
+                    except Exception:
+                        # Preserve the previous known-good master and report failure in status.
+                        continue
+            finally:
+                await refresher.close()
+            last_run = now.date()
+        await asyncio.sleep(60)
+
+
+async def _restore_market_data_source_connections() -> None:
+    """Restore enabled broker feeds after process restart; NSE EOD is disk-backed."""
+    selections = market_data_sources.selections()
+    operator_ids = [
+        value.strip() for value in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",")
+        if value.strip()
+    ]
+    for channel in ("historical", "live"):
+        selection = selections.get(channel)
+        if not selection or not selection.get("enabled"):
+            continue
+        provider = selection.get("provider")
+        account_id = selection.get("account_id")
+        if provider == "nse_bhavcopy" and channel == "historical":
+            try:
+                if not market_data_router.is_registered(provider, "official"):
+                    market_data_router.register("official", NSEBhavcopyMarketDataAdapter())
+                await market_data_router.set_source(channel, provider, "official")
+            except Exception:
+                continue
+            continue
+        if not provider or not account_id:
+            continue
+        for operator_id in operator_ids:
+            owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(operator_id)}
+            if (provider, account_id) not in owned:
+                continue
+            try:
+                if not market_data_router.is_registered(provider, account_id):
+                    adapter = _market_adapter_for(operator_id, provider, account_id)
+                    market_data_router.register(account_id, adapter)
+                await market_data_router.set_source(channel, provider, account_id)
+                break
+            except Exception:
+                # Keep API startup available if a provider token expired or a
+                # vendor endpoint is temporarily unreachable. Admin status shows
+                # the persisted selection separately from runtime connection.
+                continue
+
+    failover = market_data_sources.failover()
+    for channel in ("historical", "live"):
+        config = failover.get(channel) or {}
+        candidates = []
+        for item in config.get("candidates", []):
+            provider, account_id = item.get("provider"), item.get("account_id")
+            if provider == "nse_bhavcopy" and channel == "historical":
+                account_id = "official"
+                if not market_data_router.is_registered(provider, account_id):
+                    market_data_router.register(account_id, NSEBhavcopyMarketDataAdapter())
+            else:
+                if (provider, account_id) not in {
+                    (a.broker, a.account_id)
+                    for operator_id in operator_ids
+                    for a in account_directory.list_for_customer(operator_id)
+                }:
+                    continue
+                owner = next((oid for oid in operator_ids if (provider, account_id) in {
+                    (a.broker, a.account_id) for a in account_directory.list_for_customer(oid)
+                }), None)
+                if owner and not market_data_router.is_registered(provider, account_id):
+                    try:
+                        market_data_router.register(account_id, _market_adapter_for(owner, provider, account_id))
+                    except Exception:
+                        continue
+            candidates.append((provider, account_id))
+        try:
+            await market_data_router.configure_failover(
+                channel, candidates, bool(config.get("enabled")) and bool(candidates)
+            )
+        except Exception:
+            continue
+
+
+@app.on_event("shutdown")
+async def stop_air_qoc_jobs() -> None:
+    global _market_health_task, _master_refresh_task, _report_scheduler_task
+    if _report_scheduler_task is not None:
+        _report_scheduler_task.cancel()
+        try:
+            await _report_scheduler_task
+        except asyncio.CancelledError:
+            pass
+        _report_scheduler_task = None
+    await close_customer_market_data_runtimes()
+    if _master_refresh_task is not None:
+        _master_refresh_task.cancel()
+        try:
+            await _master_refresh_task
+        except asyncio.CancelledError:
+            pass
+        _master_refresh_task = None
+    if _market_health_task is not None:
+        _market_health_task.cancel()
+        try:
+            await _market_health_task
+        except asyncio.CancelledError:
+            pass
+        _market_health_task = None
+    for channel in ("historical", "live"):
+        try:
+            await market_data_router.clear_source(channel)
+        except Exception:
+            pass
+    stop_telegram_scheduler()
+    stop_qoc_scheduler()
+    stop_nse_data_jobs()
+    account_reporting.close()
+    portfolio_risk.close()
+
+
+@app.post("/api/v1/air-qoc/run-eod-capture", dependencies=[Depends(require_air_admin)])
+async def run_air_qoc_eod_capture() -> dict:
+    try:
+        return await capture_selected_provider_option_chains(force=True)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"AIR QOC data capture failed: {type(exc).__name__}") from exc
+
+
+def get_vault() -> CredentialVault:
+    global _credential_vault
+    if _credential_vault is None:
+        try:
+            _credential_vault = CredentialVault(os.getenv("AIR_CREDENTIAL_DB_PATH", "data/air_credentials.sqlite3"))
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail="Credential vault is not configured on the server") from exc
+    return _credential_vault
+
+
+class CustomerRegistration(BaseModel):
+    email: str = Field(min_length=5, max_length=254)
+    password: str = Field(min_length=12, max_length=256)
+
+
+class CustomerLogin(BaseModel):
+    email: str
+    password: str
+
+
+class MobileAccessRequest(BaseModel):
+    mobile_e164: str = Field(min_length=9, max_length=16)
+    device_id: str = Field(min_length=8, max_length=128)
+
+
+class SubscriptionAssignment(BaseModel):
+    customer_id: str = Field(min_length=9, max_length=100)
+    plan_code: str = Field(pattern="^(DAILY|MONTHLY|SIX_MONTHS|YEARLY)$")
+
+
+class MarketingConsentUpdate(BaseModel):
+    promotional_consent: bool
+
+
+class MarketingOfferCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    offer_code: str = Field(min_length=4, max_length=32, pattern="^[A-Za-z0-9_-]+$")
+    plan_code: str = Field(pattern="^(DAILY|MONTHLY|SIX_MONTHS|YEARLY)$")
+    discount_percent: float = Field(gt=0, le=90)
+    starts_at: str = Field(min_length=10, max_length=40)
+    expires_at: str = Field(min_length=10, max_length=40)
+    terms: str = Field(default="", max_length=1000)
+
+
+class AccessReview(BaseModel):
+    status: str = Field(pattern="^(APPROVED|REJECTED|BLOCKED)$")
+    note: str = Field(default="", max_length=500)
+    totp_code: str = Field(pattern=r"^\d{6}$")
+
+
+class TradingAccountCreate(BaseModel):
+    broker: str = Field(min_length=2, max_length=40)
+    account_id: str = Field(min_length=2, max_length=100)
+
+
+class AdminTradingAccountAssignment(TradingAccountCreate):
+    customer_id: str = Field(min_length=3, max_length=100)
+
+
+class ExecutionPolicyUpdate(BaseModel):
+    master_auto_enabled: bool = False
+    strategies: dict[str, bool] = Field(default_factory=dict)
+
+
+class OrderPermissionUpdate(BaseModel):
+    enabled: bool
+
+
+class CustomerMarketDataAccessUpdate(BaseModel):
+    tier: str = Field(pattern="^(STANDARD|PAID)$")
+    broker_data_enabled: bool = False
+
+
+class BrokerCredentialInput(BaseModel):
+    credentials: dict[str, str]
+
+
+class MainAccountSelection(BaseModel):
+    provider: str
+    account_id: str
+
+
+class MarketDataFailoverSelection(BaseModel):
+    enabled: bool = False
+    candidates: list[dict[str, str]] = Field(default_factory=list, max_length=5)
+
+
+class MarketDataSourceSelection(BaseModel):
+    provider: str = Field(min_length=2, max_length=40)
+    account_id: str | None = Field(default=None, max_length=100)
+    enabled: bool = True
+
+
+class TelegramDestinationInput(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    chat_id: str = Field(min_length=1, max_length=24)
+    destination_type: str = Field(pattern="^(PRIVATE|GROUP)$")
+    strategies: list[str] = Field(min_length=1, max_length=7)
+    customer_id: str | None = Field(default=None, max_length=128)
+    enabled: bool = True
+
+
+
+class ZerodhaTokenExchangeRequest(BaseModel):
+    request_token: str = Field(min_length=8, max_length=256)
+
+
+class UpstoxTokenExchangeRequest(BaseModel):
+    code: str = Field(min_length=4, max_length=512)
+    state: str = Field(min_length=8, max_length=256)
+
+
+class FyersTokenExchangeRequest(BaseModel):
+    auth_code: str = Field(min_length=8, max_length=2048)
+    state: str = Field(min_length=8, max_length=256)
+
+
+class AngelLoginRequest(BaseModel):
+    totp: str = Field(min_length=6, max_length=8)
+
+
+class DhanMarketFeedRequest(BaseModel):
+    mode: str = Field(pattern="^(ltp|ohlc|quote)$")
+    instruments: dict[str, list[int]]
+
+
+class MarketSubscriptionInstrument(BaseModel):
+    exchange: str = Field(min_length=2, max_length=20)
+    symbol: str = Field(min_length=1, max_length=100)
+    token: str = Field(min_length=1, max_length=30)
+    segment: str = Field(min_length=2, max_length=30)
+
+
+class MarketSubscriptionRequest(BaseModel):
+    instruments: list[MarketSubscriptionInstrument] = Field(min_length=1, max_length=5000)
+
+
+class MarketInstrumentMapping(BaseModel):
+    provider: str = Field(min_length=2, max_length=40)
+    account_id: str = Field(min_length=2, max_length=100)
+    exchange: str = Field(min_length=2, max_length=20)
+    symbol: str = Field(min_length=1, max_length=100)
+    token: str = Field(min_length=1, max_length=100)
+    segment: str = Field(min_length=2, max_length=30)
+    expiry: str | None = None
+    strike: str | None = None
+    option_type: str | None = None
+    lot_size: int | None = Field(default=None, ge=1)
+    instrument_type: str | None = None
+    tick_size: str | None = None
+    underlying_symbol: str | None = None
+
+
+class MarketInstrumentMappingItem(BaseModel):
+    exchange: str = Field(min_length=2, max_length=20)
+    symbol: str = Field(min_length=1, max_length=100)
+    token: str = Field(min_length=1, max_length=100)
+    segment: str = Field(min_length=2, max_length=30)
+    expiry: str | None = None
+    strike: str | None = None
+    option_type: str | None = None
+    lot_size: int | None = Field(default=None, ge=1)
+    instrument_type: str | None = None
+    tick_size: str | None = None
+
+
+class MarketInstrumentMappingBatch(BaseModel):
+    provider: str = Field(min_length=2, max_length=40)
+    account_id: str = Field(min_length=2, max_length=100)
+    instruments: list[MarketInstrumentMappingItem] = Field(min_length=1, max_length=5000)
+
+
+class MarketHistoricalRequest(BaseModel):
+    exchange: str = Field(min_length=2, max_length=20)
+    symbol: str = Field(min_length=1, max_length=100)
+    token: str = Field(min_length=1, max_length=100)
+    segment: str = Field(min_length=2, max_length=30)
+    start: str = Field(min_length=10, max_length=40)
+    end: str = Field(min_length=10, max_length=40)
+    interval: str = Field(min_length=1, max_length=12)
+
+
+class DhanHistoricalRequest(BaseModel):
+    security_id: str = Field(min_length=1, max_length=30)
+    exchange_segment: str = Field(min_length=2, max_length=30)
+    instrument: str = Field(min_length=2, max_length=30)
+    from_date: str
+    to_date: str
+    interval: int | None = Field(default=None, ge=1, le=60)
+    expiry_code: int = Field(default=0, ge=0, le=3)
+    oi: bool = False
+
+
+@app.get("/api/v1/brokers/catalog")
+async def broker_catalog(customer_id: str = Depends(require_customer)) -> dict:
+    return {
+        "brokers": get_broker_catalog(),
+        "note": "Catalog entries describe supported integration targets; none is live-authorized until its provider handshake is implemented and verified.",
+    }
+
+
+@app.get("/health")
+async def health() -> dict:
+    dependencies = get_persistence_runtime().health()
+    failures = [name for name, item in dependencies.items()
+                if item["configured"] and item["status"] != "ok"]
+    if failures:
+        raise HTTPException(status_code=503, detail={"status": "degraded", "dependencies": dependencies})
+    return {"status": "ok", "service": "air-model-engine-api", "dependencies": dependencies}
+
+@app.get("/ready")
+async def application_readiness() -> dict:
+    """Full installation readiness; unlike /health this waits for initial NSE history."""
+    profile = load_runtime_profile()
+    deployment_summary = {
+        "profile_id": profile["profile_id"],
+        "provider": profile["deployment"]["provider"],
+        "tenancy": profile["deployment"]["tenancy"],
+        "orchestrator": profile["deployment"]["orchestrator"],
+    }
+    dependencies = get_persistence_runtime().health()
+    dependency_failures = [
+        name for name, item in dependencies.items()
+        if item["configured"] and item["status"] != "ok"
+    ]
+    bootstrap = nse_data_status().get("bootstrap", {"status": "NOT_STARTED"})
+    symbol_coverage = bootstrap.get("symbol_coverage") or {}
+    symbol_coverage_summary = {
+        key: value for key, value in symbol_coverage.items() if key != "by_symbol"
+    }
+    bootstrap_summary = {
+        key: bootstrap.get(key) for key in (
+            "status", "history_months", "target_start_date", "start_date",
+            "end_date", "progress_pct", "archive_coverage_pct",
+            "paired_sessions", "expected_paired_sessions", "universe", "strategy_run", "monthly_pd_scan", "note",
+        ) if key in bootstrap
+    }
+    if symbol_coverage_summary:
+        bootstrap_summary["symbol_coverage"] = symbol_coverage_summary
+    workflow_store = None
+    try:
+        workflow_store = WorkflowStore()
+        workflow_runtime = evaluate_workflow_runtime(workflow_store.list_worker_heartbeats(100))
+    except Exception as exc:
+        workflow_runtime = {
+            "status": "UNAVAILABLE", "healthy": False,
+            "error": type(exc).__name__,
+        }
+    finally:
+        if workflow_store is not None:
+            workflow_store.close()
+    if (dependency_failures or not nse_bootstrap_is_ready(bootstrap)
+            or not workflow_runtime.get("healthy")):
+        raise HTTPException(status_code=503, detail={
+            "status": "NOT_READY",
+            "dependency_failures": dependency_failures,
+            "dependencies": dependencies,
+            "workflow_runtime": workflow_runtime,
+            "deployment": deployment_summary,
+            "market_data": bootstrap_summary,
+        })
+    return {
+        "status": "READY",
+        "service": "air-model-engine-api",
+        "dependencies": dependencies,
+        "workflow_runtime": workflow_runtime,
+        "deployment": deployment_summary,
+        "market_data": bootstrap_summary,
+    }
+
+@app.get("/api/v1/customer/market-intelligence/pulse")
+async def customer_market_intelligence_pulse(customer_id: str = Depends(require_customer)) -> dict:
+    """Return verified NSE EOD breadth; live indices/sectors remain unavailable until sourced."""
+    return build_market_intelligence_pulse()
+
+
+@app.get("/api/v1/nse-data/status")
+async def nse_bhavcopy_status(customer_id: str = Depends(require_customer)) -> dict:
+    return nse_data_status()
+
+
+@app.get("/api/v1/nse-data/rows")
+async def nse_bhavcopy_rows(
+    market: str = Query(pattern="^(CM|FO)$"),
+    symbol: str | None = Query(default=None, max_length=40),
+    start_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    instrument_type: str | None = Query(default=None, max_length=30),
+    limit: int = Query(default=100, ge=1, le=500),
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(status_code=422, detail="start_date must be before or equal to end_date")
+    rows = nse_data_rows(
+        market, symbol=symbol, start_date=start_date, end_date=end_date,
+        instrument_type=instrument_type, limit=limit,
+    )
+    return {"market": market, "count": len(rows), "rows": rows,
+            "source": "NSE official UDiFF bhavcopy", "data_type": "EOD"}
+
+
+@app.post("/api/v1/nse-data/bootstrap")
+async def trigger_nse_bhavcopy_bootstrap(
+    customer_id: str = Depends(require_air_operator),
+) -> dict:
+    return trigger_nse_bootstrap()
+
+
+
+@app.post("/api/v1/auth/mobile-login")
+async def mobile_login(body: MobileAccessRequest) -> dict:
+    try:
+        request = access_store.request_access(body.mobile_e164, body.device_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if request["status"] == "PENDING":
+        return {"status": "PENDING", "message": "Your AIR access request is awaiting administrator approval."}
+    if request["status"] != "APPROVED":
+        return {"status": request["status"], "message": "AIR access is not currently available for this request."}
+    session_id = access_store.create_session(request["request_id"])
+    # Use the approved E.164 identity as the stable customer/operator subject.
+    # Each device still has its own revocable session (jti) in AccessStore.
+    token = create_access_token(body.mobile_e164, expires_minutes=720, session_id=session_id)
+    return {"status": "APPROVED", "access_token": token, "token_type": "bearer",
+            "expires_in": 43200, "customer_id": body.mobile_e164}
+
+
+@app.get("/api/v1/subscription/plans")
+async def subscription_plans() -> dict:
+    return {"plans": [
+        {"code": "DAILY", "name": "Daily", "validity_days": 1},
+        {"code": "MONTHLY", "name": "Monthly", "validity_days": 30},
+        {"code": "SIX_MONTHS", "name": "6 Months", "validity_days": 180},
+        {"code": "YEARLY", "name": "1 Year", "validity_days": 365},
+    ], "activation": "Administrator activation during the initial rollout; online payment is not enabled."}
+
+
+@app.get("/api/v1/subscription/catalogue")
+async def subscription_catalogue() -> dict:
+    """Public pre-launch catalogue; it does not offer checkout or activate payments."""
+    return public_catalogue()
+
+
+@app.get("/api/v1/subscription/me")
+async def current_subscription(customer_id: str = Depends(require_customer)) -> dict:
+    subscription = access_store.get_subscription(customer_id)
+    entitlements = resolve_entitlements(subscription)
+    return {"customer_id": customer_id, "subscription": subscription,
+            "strategy_access": bool(subscription and subscription["status"] == "ACTIVE"),
+            "entitlements": entitlements}
+
+
+@app.post("/api/v1/admin/subscriptions/assign")
+async def assign_customer_subscription(
+    body: SubscriptionAssignment,
+    admin: dict = Depends(require_admin),
+) -> dict:
+    if admin.get("role") not in {"SUPER_ADMIN", "ADMIN"}:
+        raise HTTPException(status_code=403, detail="Administrator management permission is required")
+    durations = {"DAILY": 1, "MONTHLY": 30, "SIX_MONTHS": 180, "YEARLY": 365}
+    starts = datetime.now(timezone.utc)
+    expires = starts + timedelta(days=durations[body.plan_code])
+    customers = access_store.list_marketing_customers("ALL", search=body.customer_id, limit=500)
+    customer = next((item for item in customers if item["customer_id"] == body.customer_id), None)
+    if customer is None:
+        raise HTTPException(status_code=404, detail="Registered customer not found")
+    if customer["access_status"] != "APPROVED":
+        raise HTTPException(status_code=409, detail="Customer access must be approved before assigning a plan")
+    access_store.assign_subscription(
+        body.customer_id, body.plan_code, starts.isoformat(), expires.isoformat(),
+        assigned_by_admin_id=admin["admin_id"]
+    )
+    return {"customer_id": body.customer_id, "plan_code": body.plan_code,
+            "starts_at": starts.isoformat(), "expires_at": expires.isoformat(), "status": "ACTIVE"}
+
+
+@app.get("/api/v1/admin/marketing/customers")
+async def admin_marketing_customers(
+    segment: str = Query(default="ALL", pattern="^(ALL|NEVER_SUBSCRIBED|EXPIRED|ACTIVE|CANCELLED|INACTIVE|PENDING_ACCESS|OPTED_OUT|NOT_GRANTED)$"),
+    search: str = Query(default="", max_length=80),
+    limit: int = Query(default=200, ge=1, le=500),
+    admin: dict = Depends(require_admin),
+) -> dict:
+    if admin.get("role") not in {"SUPER_ADMIN", "ADMIN"}:
+        raise HTTPException(status_code=403, detail="Administrator customer-management permission is required")
+    try:
+        return {
+            "customers": [dict(row) for row in access_store.list_marketing_customers(segment, search, limit)],
+            "segment_counts": access_store.marketing_segment_counts(),
+            "segment": segment,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/admin/marketing/offers")
+async def admin_marketing_offers(
+    status: str | None = Query(default=None, pattern="^(DRAFT|APPROVED|REVOKED)$"),
+    admin: dict = Depends(require_admin),
+) -> dict:
+    if admin.get("role") not in {"SUPER_ADMIN", "ADMIN"}:
+        raise HTTPException(status_code=403, detail="Administrator offer-management permission is required")
+    return {"offers": access_store.list_marketing_offers(status)}
+
+
+@app.post("/api/v1/admin/marketing/offers")
+async def create_marketing_offer(
+    body: MarketingOfferCreate,
+    admin: dict = Depends(require_admin),
+) -> dict:
+    if admin.get("role") not in {"SUPER_ADMIN", "ADMIN"}:
+        raise HTTPException(status_code=403, detail="Administrator offer-management permission is required")
+    try:
+        offer = access_store.create_marketing_offer(
+            body.name, body.offer_code, body.plan_code, body.discount_percent,
+            body.starts_at, body.expires_at, body.terms,
+            str(admin.get("admin_id") or admin.get("email") or "admin"),
+        )
+        return {"offer": offer, "message": "Offer saved as DRAFT. Super Admin approval is required before it can be used."}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        if "UNIQUE" in str(exc).upper():
+            raise HTTPException(status_code=409, detail="Offer code already exists") from exc
+        raise
+
+
+@app.post("/api/v1/admin/marketing/offers/{offer_id}/approve")
+async def approve_marketing_offer(
+    offer_id: str,
+    admin: dict = Depends(require_admin),
+) -> dict:
+    if admin.get("role") != "SUPER_ADMIN":
+        raise HTTPException(status_code=403, detail="Only Super Admin can approve promotional offers")
+    try:
+        return {"offer": access_store.approve_marketing_offer(
+            offer_id, str(admin.get("admin_id") or admin.get("email") or "super-admin")
+        )}
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/admin/marketing/offers/{offer_id}/revoke")
+async def revoke_marketing_offer(
+    offer_id: str,
+    admin: dict = Depends(require_admin),
+) -> dict:
+    if admin.get("role") != "SUPER_ADMIN":
+        raise HTTPException(status_code=403, detail="Only Super Admin can revoke promotional offers")
+    if not access_store.revoke_marketing_offer(
+        offer_id, str(admin.get("admin_id") or admin.get("email") or "super-admin")
+    ):
+        raise HTTPException(status_code=404, detail="Approved offer not found")
+    return {"offer_id": offer_id, "status": "REVOKED"}
+
+
+@app.get("/api/v1/customer/marketing/preferences")
+async def get_customer_marketing_preferences(
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    return access_store.get_marketing_consent(customer_id)
+
+
+@app.put("/api/v1/customer/marketing/preferences")
+async def update_customer_marketing_preferences(
+    body: MarketingConsentUpdate,
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    return access_store.set_marketing_consent(customer_id, body.promotional_consent)
+
+
+@app.get("/api/v1/auth/mobile-status")
+async def mobile_access_status(mobile_e164: str = Query(min_length=9, max_length=16),
+                               device_id: str = Query(min_length=8, max_length=128)) -> dict:
+    try:
+        request = access_store.get_request(access_store.validate_mobile(mobile_e164), device_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if request is None:
+        return {"status": "NOT_SUBMITTED"}
+    return {"status": request["status"], "message": (
+        "Your AIR access request is awaiting administrator approval."
+        if request["status"] == "PENDING" else "AIR access request status: " + request["status"]
+    )}
+
+
+@app.get("/api/v1/auth/me")
+async def current_customer(customer_id: str = Depends(require_customer)) -> dict:
+    return {"customer_id": customer_id, "status": "APPROVED"}
+
+
+class AdminLoginRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=254)
+    password: str = Field(min_length=12, max_length=256)
+    totp_code: str = Field(pattern=r"^\d{6}$")
+
+
+class AdminPasswordChangeRequest(BaseModel):
+    current_password: str = Field(min_length=12, max_length=256)
+    new_password: str = Field(min_length=12, max_length=256)
+
+
+class AdminCreateRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=254)
+    role: str = Field(pattern="^(ADMIN|RESEARCH_ADMIN)$")
+
+
+class AdminStatusRequest(BaseModel):
+    active: bool
+
+
+class AdminRoleRequest(BaseModel):
+    role: str = Field(pattern="^(SUPER_ADMIN|ADMIN|RESEARCH_ADMIN)$")
+
+
+class SupportTicketCreate(BaseModel):
+    subject: str = Field(min_length=5, max_length=120)
+    category: str = Field(pattern="^(ACCOUNT|BILLING|BROKER|TECHNICAL|GENERAL)$")
+    message: str = Field(min_length=10, max_length=5000)
+
+
+class SupportTicketReply(BaseModel):
+    message: str = Field(min_length=10, max_length=5000)
+
+
+class SupportTicketAdminUpdate(BaseModel):
+    message: str = Field(default="", max_length=5000)
+    status: str | None = Field(default=None, pattern="^(OPEN|IN_PROGRESS|WAITING_CUSTOMER|RESOLVED|CLOSED)$")
+    priority: str | None = Field(default=None, pattern="^(LOW|NORMAL|HIGH|URGENT)$")
+    assigned_admin_id: str | None = Field(default=None, max_length=128)
+
+
+
+
+def _support_customer_identity(customer_id: str) -> str:
+    return access_store.mobile_for_request_id(customer_id) or customer_id
+
+
+@app.post("/api/v1/customer/support/tickets", status_code=201)
+async def create_customer_support_ticket(
+    body: SupportTicketCreate,
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    try:
+        ticket = support_store.create(_support_customer_identity(customer_id),
+                                      body.subject, body.category, body.message)
+        return {"ticket": ticket}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/customer/support/tickets")
+async def list_customer_support_tickets(
+    limit: int = Query(default=100, ge=1, le=200),
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    return {"tickets": support_store.list_customer(_support_customer_identity(customer_id), limit)}
+
+
+@app.get("/api/v1/customer/support/tickets/{ticket_id}")
+async def get_customer_support_ticket(
+    ticket_id: str,
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    ticket = support_store.get_customer_ticket(_support_customer_identity(customer_id), ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Support ticket not found")
+    return {"ticket": ticket}
+
+
+@app.post("/api/v1/customer/support/tickets/{ticket_id}/replies")
+async def reply_customer_support_ticket(
+    ticket_id: str,
+    body: SupportTicketReply,
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    try:
+        ticket = support_store.customer_reply(_support_customer_identity(customer_id), ticket_id, body.message)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Support ticket not found")
+    return {"ticket": ticket}
+
+
+@app.get("/api/v1/admin/support/tickets")
+async def admin_support_ticket_queue(
+    status: str | None = Query(default=None, pattern="^(OPEN|IN_PROGRESS|WAITING_CUSTOMER|RESOLVED|CLOSED)$"),
+    limit: int = Query(default=200, ge=1, le=500),
+    admin: dict = Depends(require_admin_management),
+) -> dict:
+    return {"tickets": support_store.list_admin(status, limit)}
+
+
+@app.put("/api/v1/admin/support/tickets/{ticket_id}")
+async def admin_update_support_ticket(
+    ticket_id: str,
+    body: SupportTicketAdminUpdate,
+    admin: dict = Depends(require_admin_management),
+) -> dict:
+    try:
+        ticket = support_store.admin_update(
+            ticket_id, admin["admin_id"], body.message, body.status,
+            body.priority, body.assigned_admin_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Support ticket not found")
+    return {"ticket": ticket}
+
+
+@app.post("/api/v1/admin/auth/login")
+async def admin_login(body: AdminLoginRequest, request: Request) -> dict:
+    try:
+        store = get_admin_auth_store()
+        client_host = request.client.host if request.client else "unknown"
+        admin = store.authenticate(body.email, body.password, body.totp_code,
+                                   rate_key=f"{body.email.strip().lower()}|{client_host}")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Administrator authentication is not configured") from exc
+    if not admin:
+        raise HTTPException(status_code=429, detail="Administrator login failed or temporarily locked. Try again later.")
+    token = create_admin_access_token(admin["admin_id"], admin["role"], admin["session_id"], expires_minutes=20)
+    return {"access_token": token, "token_type": "bearer", "expires_in": 1200,
+            "admin": {"admin_id": admin["admin_id"], "email": admin["email"], "role": admin["role"], "must_change_password": admin["must_change_password"]}}
+
+
+
+@app.put("/api/v1/admin/auth/password")
+async def admin_change_password(body: AdminPasswordChangeRequest,
+                                admin: dict = Depends(require_admin)) -> dict:
+    try:
+        get_admin_auth_store().change_password(
+            admin, body.current_password, body.new_password
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"status": "password_changed", "other_sessions_revoked": True}
+
+
+@app.get("/api/v1/admin/auth/me")
+async def admin_me(admin: dict = Depends(require_admin)) -> dict:
+    return {key: value for key, value in admin.items() if key != "session_id"}
+
+
+@app.post("/api/v1/admin/auth/logout")
+async def admin_logout(admin: dict = Depends(require_admin)) -> dict:
+    get_admin_auth_store().revoke(admin["session_id"])
+    return {"status": "signed_out"}
+
+
+
+@app.get("/api/v1/admin/users")
+async def admin_list_users(admin: dict = Depends(require_admin)) -> dict:
+    if admin["role"] != "SUPER_ADMIN":
+        raise HTTPException(status_code=403, detail="Only Super Admin can manage administrator accounts")
+    return {"admins": get_admin_auth_store().list_admins()}
+
+
+@app.post("/api/v1/admin/users", status_code=201)
+async def admin_create_user(body: AdminCreateRequest, admin: dict = Depends(require_admin)) -> dict:
+    try:
+        created, provisioning_uri = get_admin_auth_store().create_admin(admin, body.email, body.role)
+        return {"admin": {k: v for k, v in created.items() if k != "temporary_password"},
+                "temporary_password": created["temporary_password"],
+                "totp_provisioning_uri": provisioning_uri,
+                "note": "Share these one-time setup values securely. The authenticator secret is not retrievable later."}
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        if "UNIQUE constraint failed" in str(exc):
+            raise HTTPException(status_code=409, detail="Administrator email already exists") from exc
+        raise
+
+
+@app.put("/api/v1/admin/users/{target_admin_id}/status")
+async def admin_update_user_status(target_admin_id: str, body: AdminStatusRequest,
+                                   admin: dict = Depends(require_admin)) -> dict:
+    try:
+        updated = get_admin_auth_store().set_admin_status(admin, target_admin_id, body.active)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not updated:
+        raise HTTPException(status_code=404, detail="Administrator not found")
+    return {"admin_id": target_admin_id, "active": body.active, "updated": True}
+
+
+@app.put("/api/v1/admin/users/{target_admin_id}/role")
+async def admin_update_user_role(target_admin_id: str, body: AdminRoleRequest,
+                                 admin: dict = Depends(require_admin)) -> dict:
+    try:
+        updated = get_admin_auth_store().set_admin_role(admin, target_admin_id, body.role)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not updated:
+        raise HTTPException(status_code=404, detail="Administrator not found")
+    return {"admin_id": target_admin_id, "role": body.role, "updated": True, "sessions_revoked": True}
+
+
+@app.get("/api/v1/admin/audit")
+async def admin_audit(limit: int = Query(default=100, ge=1, le=500),
+                      admin: dict = Depends(require_admin)) -> dict:
+    if admin["role"] != "SUPER_ADMIN":
+        raise HTTPException(status_code=403, detail="Only Super Admin can view administrator audit events")
+    return {"events": get_admin_auth_store().audit_events(limit)}
+
+
+@app.get("/api/v1/admin/access-requests")
+async def list_access_requests(status: str | None = Query(default=None, pattern="^(PENDING|APPROVED|REJECTED|BLOCKED)$"), admin: dict = Depends(require_admin)) -> dict:
+    return {"requests": [dict(row) for row in access_store.list_requests(status)]}
+
+
+@app.put("/api/v1/admin/access-requests/{request_id}")
+async def review_access_request(request_id: str, body: AccessReview, request: Request, admin: dict = Depends(require_admin_management)) -> dict:
+    if not access_store.get_request_by_id(request_id):
+        raise HTTPException(status_code=404, detail="Access request not found")
+    try:
+        counter = get_admin_auth_store().verify_action_totp(
+            admin, body.totp_code, "CUSTOMER_ACCESS_" + body.status, request_id
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    verification_reference = str(uuid4())
+    request_context = {"client_host": request.client.host if request.client else None,
+                       "user_agent": request.headers.get("user-agent", "")[:256]}
+    updated = access_store.review(request_id, body.status, body.note, admin["admin_id"], admin["role"], counter,
+                                  verification_reference=verification_reference,
+                                  totp_verified_at=datetime.now(timezone.utc), request_context=request_context)
+    if not updated:
+        raise HTTPException(status_code=409, detail="Access request changed before the decision was recorded")
+    return {"request_id": request_id, "status": body.status, "updated": True,
+            "reviewed_by": admin["admin_id"], "totp_verified": True}
+
+
+@app.get("/api/v1/admin/access-requests/{request_id}/history")
+async def access_request_history(request_id: str, admin: dict = Depends(require_admin)) -> dict:
+    decisions = [dict(row) for row in access_store.decision_history(request_id)]
+    for decision in decisions:
+        for field in ("decided_at", "totp_verified_at"):
+            value = decision.get(field)
+            if value:
+                parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                decision[field + "_ist"] = parsed.astimezone(ZoneInfo("Asia/Kolkata")).isoformat()
+    return {"request_id": request_id, "decisions": decisions, "timezone": "Asia/Kolkata"}
+
+
+@app.get("/api/v1/admin/customers")
+async def admin_customer_register(
+    registered_from: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    registered_to: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    approved_from: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    approved_to: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    rejected_from: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    rejected_to: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    plan_from: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    plan_to: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    expiry_from: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    expiry_to: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    as_of_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    segment: str = Query(default="ALL", pattern="^(ALL|NEVER_SUBSCRIBED|EXPIRED|ACTIVE|CANCELLED|INACTIVE|PENDING_ACCESS|OPTED_OUT|NOT_GRANTED)$"),
+    search: str = Query(default="", max_length=100),
+    limit: int = Query(default=200, ge=1, le=500),
+    admin: dict = Depends(require_admin),
+) -> dict:
+    ranges = (
+        (registered_from, registered_to, "registration"),
+        (approved_from, approved_to, "approval"),
+        (rejected_from, rejected_to, "rejection"),
+        (plan_from, plan_to, "plan"),
+        (expiry_from, expiry_to, "expiry"),
+    )
+    from datetime import date
+    for start_date, end_date, label in ranges:
+        for candidate in (start_date, end_date):
+            if candidate:
+                try:
+                    date.fromisoformat(candidate)
+                except ValueError as exc:
+                    raise HTTPException(status_code=422, detail=f"{label} dates must be valid calendar dates") from exc
+        if start_date and end_date and start_date > end_date:
+            raise HTTPException(status_code=422, detail=f"{label} start date must be before or equal to end date")
+    if as_of_date:
+        try:
+            date.fromisoformat(as_of_date)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="as_of_date must be a valid calendar date") from exc
+    customers = access_store.list_marketing_customers(segment, search, limit)
+    all_customers = access_store.list_marketing_customers("ALL", limit=10000)
+    as_of_date = as_of_date or datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
+
+    def local_datetime(value):
+        if not value:
+            return None
+        parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(ZoneInfo("Asia/Kolkata"))
+
+    def local_day(value):
+        converted = local_datetime(value)
+        return converted.date().isoformat() if converted else None
+
+    summary = {
+        "new_customers": sum(1 for item in all_customers if local_day(item.get("first_registered_at") or item.get("registered_at")) == as_of_date),
+        "existing_customers": sum(1 for item in all_customers if (local_day(item.get("first_registered_at") or item.get("registered_at")) or "") < as_of_date),
+        "pending_approvals": sum(1 for item in all_customers if item.get("access_status") == "PENDING"),
+        "no_plan_availed": sum(1 for item in all_customers if item.get("subscription_status") == "NEVER_SUBSCRIBED"),
+        "as_of_date": as_of_date,
+    }
+    filtered = []
+    for raw in customers:
+        item = dict(raw)
+        item["first_registered_at"] = item.get("first_registered_at") or item.get("registered_at")
+        item["first_access_request_at"] = item["first_registered_at"]
+        for field in ("first_registered_at", "first_access_request_at", "first_approved_at",
+                      "first_rejected_at", "first_plan_availed_at", "subscription_expires_at"):
+            converted = local_datetime(item.get(field))
+            item[field + "_ist"] = converted.isoformat() if converted else None
+        registered_day = local_day(item.get("first_registered_at"))
+        approved_day = local_day(item.get("first_approved_at"))
+        rejected_day = local_day(item.get("first_rejected_at"))
+        plan_day = local_day(item.get("first_plan_availed_at"))
+        expiry_day = local_day(item.get("subscription_expires_at"))
+        item["customer_type"] = (
+            "NEW" if registered_day == as_of_date else
+            "EXISTING" if registered_day and registered_day < as_of_date else
+            "NOT_YET_REGISTERED"
+        )
+        if item["subscription_status"] == "NEVER_SUBSCRIBED":
+            item["subscription_status"] = "NO_PLAN_AVAILED"
+        checks = (
+            (registered_day, registered_from, registered_to),
+            (approved_day, approved_from, approved_to),
+            (rejected_day, rejected_from, rejected_to),
+            (plan_day, plan_from, plan_to),
+            (expiry_day, expiry_from, expiry_to),
+        )
+        if all((not lower or (day is not None and day >= lower)) and
+               (not upper or (day is not None and day <= upper))
+               for day, lower, upper in checks):
+            filtered.append(item)
+    return {
+        "customers": filtered, "count": len(filtered), "segment": segment, "as_of_date": as_of_date, "summary": summary,
+        "date_filters": {
+            "registered": [registered_from, registered_to],
+            "approved": [approved_from, approved_to],
+            "rejected": [rejected_from, rejected_to],
+            "first_plan_availed": [plan_from, plan_to],
+            "subscription_expiry": [expiry_from, expiry_to],
+        },
+    }
+
+
+@app.get("/api/v1/admin/customer-reports/daily")
+async def admin_customer_daily_report(
+    start_date: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end_date: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    admin: dict = Depends(require_admin),
+) -> dict:
+    from datetime import date, timedelta
+    if start_date > end_date:
+        raise HTTPException(status_code=422, detail="start_date must be before or equal to end_date")
+    try:
+        first, last = date.fromisoformat(start_date), date.fromisoformat(end_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="start_date and end_date must be valid calendar dates") from exc
+    if (last - first).days > 366:
+        raise HTTPException(status_code=422, detail="Daily report range cannot exceed 366 days")
+
+    def report_day(value):
+        if not value:
+            return None
+        parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(ZoneInfo("Asia/Kolkata")).date().isoformat()
+
+    requests = [dict(row) for row in access_store.list_requests()]
+    decisions = access_store.list_decisions()
+    customers = access_store.list_marketing_customers("ALL", limit=10000)
+    first_registration = {}
+    for row in requests:
+        registered_day = report_day(row.get("first_registered_at") or row.get("created_at"))
+        mobile = row["mobile_e164"]
+        if registered_day:
+            first_registration[mobile] = min(first_registration.get(mobile, registered_day), registered_day)
+
+    decisions_by_request = {}
+    decisions_by_customer = {}
+    for decision in decisions:
+        decision_day = report_day(decision.get("decided_at"))
+        record = {"day": decision_day, "status": decision["new_status"], "at": decision.get("decided_at")}
+        decisions_by_request.setdefault(decision["request_id"], []).append(record)
+        decisions_by_customer.setdefault(decision["mobile_e164"], []).append(record)
+
+    output = []
+    current = first
+    while current <= last:
+        day = current.isoformat()
+        registered = {mobile for mobile, registered_day in first_registration.items() if registered_day == day}
+        existing_requests = sum(
+            1 for row in requests
+            if report_day(row.get("created_at")) == day
+            and row.get("customer_type") == "EXISTING"
+        )
+        day_decisions = [decision for decision in decisions if report_day(decision.get("decided_at")) == day]
+        approved = sum(1 for decision in day_decisions if decision["new_status"] == "APPROVED")
+        rejected = sum(1 for decision in day_decisions if decision["new_status"] == "REJECTED")
+        # Revision 0008 introduced decision events. For older requests without
+        # an event row, reviewed_at is the only retained timestamp for the
+        # last legacy decision; count it once on that date.
+        requests_with_history = {decision["request_id"] for decision in decisions}
+        legacy_reviews = [
+            row for row in requests
+            if row["request_id"] not in requests_with_history
+            and row.get("reviewed_at")
+            and report_day(row.get("reviewed_at")) == day
+        ]
+        approved += sum(1 for row in legacy_reviews if row.get("status") == "APPROVED")
+        rejected += sum(1 for row in legacy_reviews if row.get("status") == "REJECTED")
+
+        # Reconstruct pending requests and customer access state as at the end of this IST date.
+        pending = 0
+        customer_request_states = {}
+        for row in requests:
+            created_day = report_day(row.get("created_at"))
+            if not created_day or created_day > day:
+                continue
+            history = [event for event in decisions_by_request.get(row["request_id"], [])
+                       if event["day"] is not None and event["day"] <= day]
+            latest = max(history, key=lambda event: str(event["at"] or "")) if history else None
+            if latest:
+                status = latest["status"]
+            elif row.get("reviewed_at") and report_day(row.get("reviewed_at")) <= day:
+                # Legacy records pre-dating the append-only event table.
+                status = row.get("status") or "PENDING"
+            else:
+                status = "PENDING"
+            if status == "PENDING":
+                pending += 1
+            customer_request_states.setdefault(row["mobile_e164"], []).append(status)
+
+        first_plan_days = {
+            item["customer_id"]: report_day(item.get("first_plan_availed_at"))
+            for item in customers
+        }
+        # The migration backfills first_approved_at for legacy approvals whose
+        # original decision event predates revision 0008 and therefore has no
+        # append-only decision-history row.
+        first_approval_days = {
+            item["customer_id"]: report_day(item.get("first_approved_at"))
+            for item in customers
+        }
+        approved_no_plan = 0
+        for customer_id, states in customer_request_states.items():
+            if "APPROVED" in states:
+                customer_status = "APPROVED"
+            elif "PENDING" in states:
+                customer_status = "PENDING"
+            elif "BLOCKED" in states:
+                customer_status = "BLOCKED"
+            else:
+                customer_status = "REJECTED"
+            approvals = [event for event in decisions_by_customer.get(customer_id, [])
+                         if event["status"] == "APPROVED" and event["day"] is not None and event["day"] <= day]
+            first_approved = min(
+                [event["day"] for event in approvals] +
+                ([first_approval_days.get(customer_id)] if first_approval_days.get(customer_id) else []),
+                default=None,
+            )
+            plan_day = first_plan_days.get(customer_id)
+            if customer_status == "APPROVED" and first_approved is not None and first_approved <= day:
+                if plan_day is None or plan_day > day:
+                    approved_no_plan += 1
+
+        first_plans = sum(1 for plan_day in first_plan_days.values() if plan_day == day)
+        cohort = [item for item in customers
+                  if first_registration.get(item["customer_id"]) == day]
+        cohort_approved = sum(
+            1 for item in cohort
+            if report_day(item.get("first_approved_at")) is not None
+            and report_day(item.get("first_approved_at")) <= day
+        )
+        cohort_plans = sum(
+            1 for item in cohort
+            if report_day(item.get("first_plan_availed_at")) is not None
+            and report_day(item.get("first_plan_availed_at")) <= day
+        )
+        def percent(numerator, denominator):
+            return round((numerator / denominator) * 100, 2) if denominator else 0.0
+        output.append({
+            "date": day,
+            "new_registrations": len(registered),
+            "existing_customer_requests": existing_requests,
+            "approved": approved,
+            "rejected": rejected,
+            "pending": pending,
+            "first_time_plans_availed": first_plans,
+            "approved_but_no_plan_availed": approved_no_plan,
+            "registration_cohort_approved": cohort_approved,
+            "registration_cohort_plan_availed": cohort_plans,
+            "registration_to_approval_pct": percent(cohort_approved, len(cohort)),
+            "registration_to_plan_pct": percent(cohort_plans, len(cohort)),
+            "approval_to_plan_pct": percent(cohort_plans, cohort_approved),
+        })
+        current += timedelta(days=1)
+    return {"timezone": "Asia/Kolkata", "start_date": start_date, "end_date": end_date, "daily": output}
+
+
+@app.get("/api/v1/admin/access-decisions")
+async def admin_access_decisions(
+    start_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    admin: dict = Depends(require_admin),
+) -> dict:
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(status_code=422, detail="start_date must be before or equal to end_date")
+    decisions = access_store.list_decisions()
+    filtered_decisions = []
+    for decision in decisions:
+        for field in ("decided_at", "totp_verified_at"):
+            value = decision.get(field)
+            if value:
+                parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                decision[field + "_ist"] = parsed.astimezone(ZoneInfo("Asia/Kolkata")).isoformat()
+        local_date = decision.get("decided_at_ist", "")[:10]
+        if (start_date and local_date < start_date) or (end_date and local_date > end_date):
+            continue
+        filtered_decisions.append(decision)
+    return {"decisions": filtered_decisions, "count": len(filtered_decisions), "timezone": "Asia/Kolkata"}
+
+
+@app.get("/api/v1/operator/access-requests")
+async def operator_list_access_requests(
+    status: str | None = Query(default=None, pattern="^(PENDING|APPROVED|REJECTED|BLOCKED)$"),
+    customer_id: str = Depends(require_air_operator),
+) -> dict:
+    return {"requests": [dict(row) for row in access_store.list_requests(status)]}
+
+
+# Customer access decisions are restricted to authenticated AIR administrators.
+# The former operator review endpoint is removed to prevent bypassing authenticator verification.
+
+
+@app.post("/api/v1/auth/register", status_code=410)
+async def register_customer() -> dict:
+    raise HTTPException(status_code=410, detail="Email/password registration is disabled. Use mobile access request.")
+
+
+@app.post("/api/v1/auth/login")
+async def login_customer(body: CustomerLogin) -> dict:
+    # Legacy operator login only. End customers must use the admin-approved mobile flow.
+    row = auth_store.get_by_email(body.email)
+    allowed = {
+        value.strip() for value in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",")
+        if value.strip()
+    }
+    if (row is None or not row["is_active"] or not verify_password(body.password, row["password_hash"])
+            or row["customer_id"] not in allowed):
+        raise HTTPException(status_code=401, detail="Invalid operator credentials")
+    token = create_access_token(row["customer_id"])
+    return {"access_token": token, "token_type": "bearer", "expires_in": 1800,
+            "customer_id": row["customer_id"], "role": "operator"}
+
+
+async def _verify_customer_market_data_connection(
+    customer_id: str, provider: str, account_id: str
+) -> None:
+    """Require a real provider handshake before a broker becomes the strategy source."""
+    adapter = _market_adapter_for(customer_id, provider, account_id, hub=MarketDataHub())
+    try:
+        await adapter.authenticate(account_id)
+    finally:
+        try:
+            await adapter.close()
+        except Exception:
+            pass
+
+
+@app.get("/api/v1/customer/market-data/access")
+async def customer_market_data_access(customer_id: str = Depends(require_customer)) -> dict:
+    access = account_directory.get_market_data_access(customer_id)
+    selection = account_directory.get_market_data_selection(customer_id)
+    operator_ids = {
+        value.strip() for value in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",")
+        if value.strip()
+    }
+    operator_identity = customer_id if customer_id in operator_ids else (
+        access_store.mobile_for_request_id(customer_id) or ""
+    )
+    operator = operator_identity in operator_ids
+    runtime_status = await get_customer_market_data_status(customer_id)
+    return {
+        "access": access,
+        "selection": selection,
+        "effective_source": runtime_status.get("effective_source", "NSE"),
+        "connection_status": runtime_status.get("connection_status"),
+        "market_data_source": runtime_status,
+        "note": "NSE EOD is the default and automatic fallback. Broker data is reported active only while its connection is available.",
+    }
+
+
+@app.put("/api/v1/customer/market-data/selection")
+async def customer_select_market_data_account(
+    selection: MainAccountSelection,
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    try:
+        access = account_directory.get_market_data_access(customer_id)
+        if access["tier"] != "PAID" or not access["broker_data_enabled"]:
+            raise PermissionError("Broker market data requires an enabled paid entitlement")
+        row = account_directory.set_market_data_selection(
+            customer_id, selection.provider, selection.account_id
+        )
+        await invalidate_customer_market_data_service(customer_id)
+        start_qoc_scheduler(force=True)
+        return {
+            "selection": row,
+            "market_data_source": await get_customer_market_data_status(customer_id),
+        }
+    except KeyError as exc:
+        raise HTTPException(status_code=409, detail="Broker credentials have not been saved") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Broker market-data authentication failed") from exc
+
+
+@app.delete("/api/v1/customer/market-data/selection")
+async def customer_clear_market_data_selection(
+    customer_id: str = Depends(require_customer),
+) -> dict:
+    account_directory.clear_market_data_selection(customer_id)
+    await invalidate_customer_market_data_service(customer_id)
+    return {"selection": None, "effective_source": "NSE"}
+
+
+@app.put("/api/v1/operator/customers/{target_customer_id}/market-data-access")
+async def operator_set_customer_market_data_access(
+    target_customer_id: str,
+    body: CustomerMarketDataAccessUpdate,
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    try:
+        access = account_directory.set_market_data_access(
+            target_customer_id, body.tier, body.broker_data_enabled
+        )
+        await invalidate_customer_market_data_service(target_customer_id)
+        return {"access": access, "updated": True}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.put("/api/v1/operator/customers/{target_customer_id}/market-data-selection")
+async def operator_set_customer_market_data_selection(
+    target_customer_id: str,
+    selection: MainAccountSelection,
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(target_customer_id)}
+    if (selection.provider.lower(), selection.account_id) not in owned:
+        raise HTTPException(status_code=404, detail="Broker account is not assigned to this customer")
+    try:
+        account_directory.set_market_data_access(target_customer_id, "PAID", True)
+        row = account_directory.set_market_data_selection(
+            target_customer_id, selection.provider, selection.account_id
+        )
+        await invalidate_customer_market_data_service(target_customer_id)
+        start_qoc_scheduler(force=True)
+        return {
+            "selection": row,
+            "access": account_directory.get_market_data_access(target_customer_id),
+            "market_data_source": await get_customer_market_data_status(target_customer_id),
+        }
+    except KeyError as exc:
+        raise HTTPException(status_code=409, detail="Broker credentials have not been saved") from exc
+    except (PermissionError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Broker market-data authentication failed") from exc
+
+
+@app.get("/api/v1/customer/accounts")
+async def list_customer_accounts(customer_id: str = Depends(require_customer)) -> dict:
+    accounts = account_directory.list_for_customer(customer_id)
+    try:
+        credentials = get_vault().list_for_customer(customer_id)
+        credential_keys = {(r["broker"], r["account_id"]) for r in credentials}
+        vault_configured = True
+    except HTTPException:
+        credential_keys = set()
+        vault_configured = False
+    return {"accounts": [
+        {"broker": a.broker, "account_id": a.account_id,
+         "order_enabled": a.enabled_for_orders,
+         "credentials_saved": (a.broker, a.account_id) in credential_keys}
+        for a in accounts
+    ], "credential_vault_configured": vault_configured}
+
+
+@app.post("/api/v1/customer/accounts", status_code=201)
+async def add_customer_account(body: TradingAccountCreate,
+                               customer_id: str = Depends(require_air_operator)) -> dict:
+    if not is_supported_broker(body.broker):
+        raise HTTPException(status_code=422, detail="Unsupported broker. Use the AIR broker catalog.")
+    try:
+        account_directory.add(CustomerTradingAccount(customer_id, body.broker, body.account_id, False))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"broker": body.broker.lower(), "account_id": body.account_id,
+            "order_enabled": False, "status": "registered"}
+
+
+@app.put("/api/v1/customer/accounts/{broker}/{account_id}/order-permission")
+async def set_customer_order_permission(broker: str, account_id: str, body: OrderPermissionUpdate,
+                                        customer_id: str = Depends(require_customer)) -> dict:
+    try:
+        if body.enabled:
+            # Permission enablement is intentionally blocked until an adapter and broker
+            # authorization verification flow are installed.
+            raise HTTPException(status_code=409, detail="Order permission requires verified broker authorization; not enabled yet")
+        account_directory.set_order_permission(customer_id, broker, account_id, False)
+    except PermissionError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"broker": broker.lower(), "account_id": account_id, "order_enabled": False}
+
+
+@app.put("/api/v1/customer/accounts/{broker}/{account_id}/credentials")
+async def save_customer_broker_credentials(broker: str, account_id: str, body: BrokerCredentialInput,
+                                           customer_id: str = Depends(require_air_operator)) -> dict:
+    try:
+        owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(customer_id)}
+        if (broker.lower(), account_id) not in owned:
+            raise PermissionError("Customer does not own this broker account")
+        get_vault().put(customer_id, broker, account_id, body.credentials)
+        await invalidate_customer_market_data_service(customer_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"broker": broker.lower(), "account_id": account_id, "credentials_saved": True}
+
+
+@app.delete("/api/v1/customer/accounts/{broker}/{account_id}")
+async def remove_customer_account(broker: str, account_id: str,
+                                  customer_id: str = Depends(require_air_operator)) -> dict:
+    vault = get_vault()
+    try:
+        vault.delete(customer_id, broker, account_id)
+        account_directory.remove(customer_id, broker, account_id)
+        await invalidate_customer_market_data_service(customer_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"status": "removed", "broker": broker.lower(), "account_id": account_id}
+
+
+
+# Broker account ownership and credential mutations are operator-only.
+# Customers can only read the accounts assigned to their own stable identity.
+@app.get("/api/v1/operator/broker-accounts")
+async def operator_list_broker_accounts(
+    customer_id: str = Depends(require_air_operator),
+) -> dict:
+    accounts = account_directory.list_all()
+    try:
+        credentials = get_vault().list_for_all_customers()
+        credential_keys = {(r["customer_id"], r["broker"], r["account_id"]) for r in credentials}
+        vault_configured = True
+    except HTTPException:
+        credential_keys = set()
+        vault_configured = False
+    runtime_status = {}
+    for target_id in {a.customer_id for a in accounts}:
+        try:
+            runtime_status[target_id] = await get_customer_market_data_status(target_id)
+        except Exception as exc:
+            runtime_status[target_id] = {
+                "requested_source": None,
+                "effective_source": "NSE",
+                "connection_status": "status_unavailable",
+                "fallback_active": True,
+                "fallback_reason": type(exc).__name__,
+            }
+    return {"accounts": [
+        {
+            "customer_id": a.customer_id, "broker": a.broker, "account_id": a.account_id,
+            "order_enabled": a.enabled_for_orders,
+            "credentials_saved": (a.customer_id, a.broker, a.account_id) in credential_keys,
+            "market_data_access": account_directory.get_market_data_access(a.customer_id),
+            "market_data_selection": account_directory.get_market_data_selection(a.customer_id),
+            "market_data_runtime": runtime_status.get(a.customer_id, {}),
+        }
+        for a in accounts
+    ], "credential_vault_configured": vault_configured}
+
+
+@app.post("/api/v1/operator/broker-accounts", status_code=201)
+async def operator_assign_broker_account(
+    body: AdminTradingAccountAssignment,
+    customer_id: str = Depends(require_air_operator),
+) -> dict:
+    if not is_supported_broker(body.broker):
+        raise HTTPException(status_code=422, detail="Unsupported broker. Use the AIR broker catalog.")
+    try:
+        account_directory.add(CustomerTradingAccount(
+            body.customer_id.strip(), body.broker, body.account_id, False
+        ))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"customer_id": body.customer_id.strip(), "broker": body.broker.lower(),
+            "account_id": body.account_id.strip(), "order_enabled": False, "status": "assigned"}
+
+
+@app.put("/api/v1/operator/broker-accounts/{customer_id}/{broker}/{account_id}/credentials")
+async def operator_save_broker_credentials(
+    customer_id: str, broker: str, account_id: str, body: BrokerCredentialInput,
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(customer_id)}
+    if (broker.lower(), account_id) not in owned:
+        raise HTTPException(status_code=404, detail="Assigned broker account not found")
+    try:
+        get_vault().put(customer_id, broker, account_id, body.credentials)
+        await invalidate_customer_market_data_service(customer_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"customer_id": customer_id, "broker": broker.lower(),
+            "account_id": account_id, "credentials_saved": True}
+
+
+@app.delete("/api/v1/operator/broker-accounts/{customer_id}/{broker}/{account_id}")
+async def operator_remove_broker_account(
+    customer_id: str, broker: str, account_id: str,
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    try:
+        get_vault().delete(customer_id, broker, account_id)
+        account_directory.remove(customer_id, broker, account_id)
+        await invalidate_customer_market_data_service(customer_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=404, detail="Assigned broker account not found") from exc
+    return {"status": "removed", "customer_id": customer_id,
+            "broker": broker.lower(), "account_id": account_id}
+
+
+
+def get_owned_account(customer_id: str, broker: str, account_id: str) -> None:
+    owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(customer_id)}
+    if (broker.lower(), account_id) not in owned:
+        raise HTTPException(status_code=404, detail="Broker account not found")
+
+
+
+
+@app.post("/api/v1/customer/accounts/angel-one/{account_id}/login")
+async def angel_login(account_id: str, body: AngelLoginRequest,
+                      customer_id: str = Depends(require_customer)) -> dict:
+    get_owned_account(customer_id, "angelone", account_id)
+    try:
+        credentials = get_vault().get(customer_id, "angelone", account_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=409, detail="Save Angel API key and PIN first") from exc
+    api_key, pin = credentials.get("api_key"), credentials.get("pin")
+    network = {
+        "client_local_ip": os.getenv("AIR_CLIENT_LOCAL_IP", ""),
+        "client_public_ip": os.getenv("AIR_CLIENT_PUBLIC_IP", ""),
+        "mac_address": os.getenv("AIR_CLIENT_MAC_ADDRESS", ""),
+    }
+    if not api_key or not pin or not all(network.values()):
+        raise HTTPException(status_code=503, detail="Angel API credentials or required server network identity headers are not configured")
+    client = AngelSmartAPI(api_key, account_id, **network)
+    try:
+        session = await client.login(pin, body.totp)
+        profile = await client.profile()
+        if str(profile.get("clientcode", "")).upper() != account_id.upper():
+            raise HTTPException(status_code=409, detail="Angel profile client code does not match registered account")
+        credentials["jwt_token"] = session["jwtToken"]
+        credentials["refresh_token"] = session.get("refreshToken", "")
+        credentials["feed_token"] = session.get("feedToken", "")
+        get_vault().put(customer_id, "angelone", account_id, credentials)
+        await invalidate_customer_market_data_service(customer_id)
+        return {"broker": "angelone", "account_id": account_id, "verified": True,
+                "feed_token_saved": bool(session.get("feedToken")),
+                "note": "Angel session verified and tokens stored encrypted. Session normally expires at midnight; TOTP was not stored. Live order permission remains disabled."}
+    except AngelAPIError as exc:
+        raise HTTPException(status_code=502 if exc.status_code >= 500 else 401,
+                            detail="Angel SmartAPI login or profile verification failed") from exc
+    finally:
+        await client.close()
+
+
+@app.get("/api/v1/customer/accounts/fyers/{account_id}/login-url")
+async def fyers_login(account_id: str, customer_id: str = Depends(require_customer)) -> dict:
+    get_owned_account(customer_id, "fyers", account_id)
+    try:
+        credentials = get_vault().get(customer_id, "fyers", account_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=409, detail="Save FYERS app_id, app_secret and redirect_uri first") from exc
+    app_id, redirect_uri = credentials.get("app_id"), credentials.get("redirect_uri")
+    if not app_id or not credentials.get("app_secret") or not redirect_uri:
+        raise HTTPException(status_code=422, detail="FYERS app credentials are incomplete")
+    state = secrets.token_urlsafe(24)
+    _fyers_oauth_states[(customer_id, account_id)] = state
+    return {"login_url": fyers_login_url(app_id, redirect_uri, state), "state": state,
+            "note": "Complete FYERS login and submit auth_code with the returned state. State is one-time and process-local."}
+
+
+@app.post("/api/v1/customer/accounts/fyers/{account_id}/exchange")
+async def fyers_exchange(account_id: str, body: FyersTokenExchangeRequest,
+                         customer_id: str = Depends(require_customer)) -> dict:
+    get_owned_account(customer_id, "fyers", account_id)
+    expected_state = _fyers_oauth_states.pop((customer_id, account_id), None)
+    if not expected_state or not secrets.compare_digest(expected_state, body.state):
+        raise HTTPException(status_code=400, detail="Invalid or expired FYERS OAuth state")
+    try:
+        credentials = get_vault().get(customer_id, "fyers", account_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=409, detail="FYERS app credentials are not saved") from exc
+    app_id, app_secret = credentials.get("app_id"), credentials.get("app_secret")
+    if not app_id or not app_secret:
+        raise HTTPException(status_code=422, detail="FYERS app_id and app_secret are required")
+    client = FyersClient(app_id)
+    try:
+        session = await client.exchange_auth_code(body.auth_code, app_secret)
+        profile = await client.profile()
+        credentials["access_token"] = session["access_token"]
+        get_vault().put(customer_id, "fyers", account_id, credentials)
+        await invalidate_customer_market_data_service(customer_id)
+        return {"broker": "fyers", "account_id": account_id, "verified": True,
+                "profile": profile.get("data", profile), "access_token_saved": True,
+                "note": "FYERS profile verified and token stored encrypted. Standard access tokens expire daily at 6:30 AM. Trading-app static IP eligibility is separate; AIR order permission remains disabled."}
+    except FyersAPIError as exc:
+        raise HTTPException(status_code=502 if exc.status_code >= 500 else 401,
+                            detail="FYERS authorization-code exchange or profile verification failed") from exc
+    finally:
+        await client.close()
+
+
+@app.get("/api/v1/customer/accounts/zerodha/{account_id}/login-url")
+async def zerodha_login_url(account_id: str, customer_id: str = Depends(require_customer)) -> dict:
+    get_owned_account(customer_id, "zerodha", account_id)
+    try:
+        credentials = get_vault().get(customer_id, "zerodha", account_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=409, detail="Save Zerodha api_key and api_secret first") from exc
+    api_key = credentials.get("api_key")
+    if not api_key or not credentials.get("api_secret"):
+        raise HTTPException(status_code=422, detail="Zerodha api_key and api_secret are required")
+    return {"login_url": kite_login_url(api_key), "redirect_uri_must_be_registered": True,
+            "note": "Complete login in the broker page and submit the short-lived request_token to the exchange endpoint immediately."}
+
+
+@app.post("/api/v1/customer/accounts/zerodha/{account_id}/exchange")
+async def zerodha_exchange_token(account_id: str, body: ZerodhaTokenExchangeRequest,
+                                 customer_id: str = Depends(require_customer)) -> dict:
+    get_owned_account(customer_id, "zerodha", account_id)
+    try:
+        credentials = get_vault().get(customer_id, "zerodha", account_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=409, detail="Save Zerodha api_key and api_secret first") from exc
+    api_key, api_secret = credentials.get("api_key"), credentials.get("api_secret")
+    if not api_key or not api_secret:
+        raise HTTPException(status_code=422, detail="Zerodha api_key and api_secret are required")
+    client = KiteConnectClient(api_key)
+    try:
+        session = await client.exchange_request_token(body.request_token, api_secret)
+        profile = await client.profile()
+        broker_user_id = str(profile.get("user_id", ""))
+        if broker_user_id and broker_user_id != account_id:
+            raise HTTPException(status_code=409, detail="Authenticated Zerodha user does not match registered account ID")
+        credentials["access_token"] = session["access_token"]
+        get_vault().put(customer_id, "zerodha", account_id, credentials)
+        await invalidate_customer_market_data_service(customer_id)
+        return {"broker": "zerodha", "account_id": account_id, "verified": True,
+                "user_id": broker_user_id, "access_token_saved": True,
+                "note": "Token is stored encrypted. Kite access tokens expire at the next daily session boundary; repeat the login flow when expired. Order permission remains disabled."}
+    except KiteAPIError as exc:
+        raise HTTPException(status_code=502 if exc.status_code >= 500 else 401,
+                            detail="Zerodha token exchange or profile verification failed") from exc
+    finally:
+        await client.close()
+
+
+def get_dhan_client(customer_id: str, account_id: str) -> DhanHQClient:
+    try:
+        credentials = get_vault().get(customer_id, "dhan", account_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=409, detail="Dhan credentials have not been saved") from exc
+    client_id = credentials.get("client_id", account_id)
+    access_token = credentials.get("access_token")
+    if not access_token:
+        raise HTTPException(status_code=422, detail="Saved Dhan credentials require client_id and access_token")
+    return DhanHQClient(client_id, access_token)
+
+
+
+@app.get("/api/v1/customer/accounts/upstox/{account_id}/login-url")
+async def upstox_login(account_id: str, customer_id: str = Depends(require_customer)) -> dict:
+    get_owned_account(customer_id, "upstox", account_id)
+    try:
+        credentials = get_vault().get(customer_id, "upstox", account_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=409, detail="Save Upstox client_id, client_secret and redirect_uri first") from exc
+    client_id, redirect_uri = credentials.get("client_id"), credentials.get("redirect_uri")
+    if not client_id or not credentials.get("client_secret") or not redirect_uri:
+        raise HTTPException(status_code=422, detail="Upstox OAuth app credentials are incomplete")
+    state = secrets.token_urlsafe(24)
+    _upstox_oauth_states[(customer_id, account_id)] = state
+    return {"login_url": upstox_login_url(client_id, redirect_uri, state), "state": state,
+            "note": "Complete login at Upstox and submit the returned single-use code and state. State expires when replaced or the server restarts."}
+
+
+@app.post("/api/v1/customer/accounts/upstox/{account_id}/exchange")
+async def upstox_exchange(account_id: str, body: UpstoxTokenExchangeRequest,
+                          customer_id: str = Depends(require_customer)) -> dict:
+    get_owned_account(customer_id, "upstox", account_id)
+    expected_state = _upstox_oauth_states.pop((customer_id, account_id), None)
+    if not expected_state or not secrets.compare_digest(expected_state, body.state):
+        raise HTTPException(status_code=400, detail="Invalid or expired Upstox OAuth state")
+    try:
+        credentials = get_vault().get(customer_id, "upstox", account_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=409, detail="Upstox app credentials are not saved") from exc
+    client_id, client_secret, redirect_uri = (
+        credentials.get("client_id"), credentials.get("client_secret"), credentials.get("redirect_uri")
+    )
+    if not all((client_id, client_secret, redirect_uri)):
+        raise HTTPException(status_code=422, detail="Upstox OAuth app credentials are incomplete")
+    client = UpstoxClient()
+    try:
+        session = await client.exchange_code(body.code, client_id, client_secret, redirect_uri)
+        profile_data = await client.profile()
+        profile = profile_data.get("user_id") or profile_data.get("user_name")
+        credentials["access_token"] = session["access_token"]
+        get_vault().put(customer_id, "upstox", account_id, credentials)
+        await invalidate_customer_market_data_service(customer_id)
+        return {"broker": "upstox", "account_id": account_id, "verified": True,
+                "broker_user": profile, "access_token_saved": True,
+                "note": "Authorization code exchanged and token stored encrypted. Standard access tokens expire at 3:30 AM the following day; order permission remains disabled."}
+    except UpstoxAPIError as exc:
+        raise HTTPException(status_code=502 if exc.status_code >= 500 else 401,
+                            detail="Upstox authorization-code exchange failed") from exc
+    finally:
+        await client.close()
+
+
+@app.post("/api/v1/customer/accounts/dhan/{account_id}/verify")
+async def verify_dhan_account(account_id: str, customer_id: str = Depends(require_customer)) -> dict:
+    owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(customer_id)}
+    if ("dhan", account_id) not in owned:
+        raise HTTPException(status_code=404, detail="Dhan account not found")
+    client = get_dhan_client(customer_id, account_id)
+    try:
+        profile = await client.profile()
+        return {
+            "broker": "dhan", "account_id": account_id, "verified": True,
+            "token_validity": profile.get("tokenValidity"),
+            "data_plan": profile.get("dataPlan"),
+            "data_validity": profile.get("dataValidity"),
+            "active_segments": profile.get("activeSegment"),
+            "order_permission_enabled": False,
+            "note": "Token and client ID verified. Live order permission remains disabled.",
+        }
+    except DhanAPIError as exc:
+        raise HTTPException(status_code=502 if exc.status_code >= 500 else 401,
+                            detail="Dhan verification failed; check token validity and API entitlement") from exc
+    finally:
+        await client.close()
+
+
+@app.post("/api/v1/customer/accounts/dhan/{account_id}/market-feed")
+async def dhan_market_feed(account_id: str, body: DhanMarketFeedRequest,
+                           customer_id: str = Depends(require_air_operator)) -> dict:
+    active = market_data_router.status().get("live_source")
+    if active != {"provider": "dhan", "account_id": account_id}:
+        raise HTTPException(status_code=409, detail="Dhan is not the selected live data source")
+    client = get_dhan_client(customer_id, account_id)
+    try:
+        return await client.market_feed(body.mode, body.instruments)
+    except DhanAPIError as exc:
+        raise HTTPException(status_code=502 if exc.status_code >= 500 else 401,
+                            detail="Dhan market-data request failed; verify Data API entitlement") from exc
+    finally:
+        await client.close()
+
+
+@app.post("/api/v1/customer/accounts/dhan/{account_id}/historical")
+async def dhan_historical(account_id: str, body: DhanHistoricalRequest,
+                          customer_id: str = Depends(require_air_operator)) -> dict:
+    active = market_data_router.status().get("historical_source")
+    if active != {"provider": "dhan", "account_id": account_id}:
+        raise HTTPException(status_code=409, detail="Dhan is not the selected historical data source")
+    client = get_dhan_client(customer_id, account_id)
+    try:
+        if body.interval is None:
+            return await client.historical_daily(
+                security_id=body.security_id, exchange_segment=body.exchange_segment,
+                instrument=body.instrument, from_date=body.from_date,
+                to_date=body.to_date, expiry_code=body.expiry_code, oi=body.oi,
+            )
+        return await client.historical_intraday(
+            security_id=body.security_id, exchange_segment=body.exchange_segment,
+            instrument=body.instrument, interval=body.interval,
+            from_date=body.from_date, to_date=body.to_date, oi=body.oi,
+        )
+    except DhanAPIError as exc:
+        raise HTTPException(status_code=502 if exc.status_code >= 500 else 401,
+                            detail="Dhan historical-data request failed; verify Data API entitlement") from exc
+    finally:
+        await client.close()
+
+
+
+@app.get("/api/v1/market-data/instruments/search")
+async def search_market_instruments(
+    q: str = Query(min_length=1, max_length=100),
+    limit: int = Query(default=50, ge=1, le=500),
+    segment: str | None = Query(default=None, max_length=30),
+    customer_id: str = Depends(require_air_operator),
+) -> dict:
+    resolved = market_data_router.resolve("historical")
+    if not resolved:
+        resolved = market_data_router.resolve("live")
+    if not resolved:
+        raise HTTPException(status_code=409, detail="No connected market-data adapter")
+    provider, account_id, adapter = resolved[0]
+    mapped = market_data_instruments.search(provider, account_id, q, limit)
+    if mapped:
+        instruments = [
+            MarketInstrument(
+                exchange=row["exchange"], symbol=row["symbol"], token=row["token"],
+                segment=row["segment"], expiry=row.get("expiry"),
+                strike=Decimal(row["strike"]) if row.get("strike") else None,
+                option_type=row.get("option_type"),
+                lot_size=row.get("lot_size"), instrument_type=row.get("instrument_type"),
+                tick_size=Decimal(str(row["tick_size"])) if row.get("tick_size") else None,
+            )
+            for row in mapped
+            if not segment or row["segment"].upper() == segment.upper()
+        ]
+        return {"provider": provider, "account_id": account_id,
+                "count": len(instruments), "instruments": instruments,
+                "source": "admin_instrument_directory"}
+    try:
+        rows = await market_data_service.search_instruments(q, limit=limit, exchange_segment=segment)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Instrument master lookup failed: {type(exc).__name__}") from exc
+    return {"provider": provider, "account_id": account_id, "count": len(rows), "instruments": rows}
+
+
+@app.post("/api/v1/market-data/subscribe")
+async def subscribe_market_data(body: MarketSubscriptionRequest,
+                                 customer_id: str = Depends(require_air_operator)) -> dict:
+    resolved = market_data_router.resolve("live")
+    if not resolved:
+        raise HTTPException(status_code=409, detail="No connected Main Account market-data adapter")
+    provider, account_id, adapter = resolved[0]
+    try:
+        instruments = [
+            MarketInstrument(
+                exchange=item.exchange, symbol=item.symbol, token=item.token,
+                segment=item.segment,
+            )
+            for item in body.instruments
+        ]
+        result = await market_data_service.subscribe(instruments)
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"provider": result["provider"], "account_id": result["account_id"],
+            "subscribed_count": len(instruments), "status": "subscription_sent"}
+
+
+
+
+@app.get("/api/v1/operator/market-data/instruments")
+async def operator_list_market_instruments(
+    provider: str | None = None,
+    account_id: str | None = None,
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    rows = market_data_instruments.list_all(provider, account_id)
+    return {"instruments": rows, "count": len(rows)}
+
+
+@app.post("/api/v1/operator/market-data/instruments", status_code=201)
+async def operator_save_market_instrument(
+    body: MarketInstrumentMapping,
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(operator_id)}
+    if (body.provider.lower(), body.account_id) not in owned:
+        raise HTTPException(status_code=404, detail="Provider account is not assigned to this operator")
+    try:
+        row = market_data_instruments.upsert(
+            body.provider, body.account_id, exchange=body.exchange, symbol=body.symbol,
+            token=body.token, segment=body.segment, expiry=body.expiry,
+            strike=body.strike, option_type=body.option_type, lot_size=body.lot_size,
+            instrument_type=body.instrument_type, tick_size=body.tick_size,
+            underlying_symbol=body.underlying_symbol,
+        )
+        return {"instrument": row, "status": "saved"}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/operator/market-data/instruments/bulk", status_code=201)
+async def operator_bulk_save_market_instruments(
+    body: MarketInstrumentMappingBatch,
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(operator_id)}
+    if (body.provider.lower(), body.account_id) not in owned:
+        raise HTTPException(status_code=404, detail="Provider account is not assigned to this operator")
+    saved = 0
+    try:
+        for item in body.instruments:
+            market_data_instruments.upsert(
+                body.provider, body.account_id, exchange=item.exchange,
+                symbol=item.symbol, token=item.token, segment=item.segment,
+                expiry=item.expiry, strike=item.strike, option_type=item.option_type,
+                lot_size=item.lot_size, instrument_type=item.instrument_type,
+                tick_size=item.tick_size, underlying_symbol=item.underlying_symbol,
+            )
+            saved += 1
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"provider": body.provider, "account_id": body.account_id,
+            "saved_count": saved, "status": "saved"}
+
+
+@app.delete("/api/v1/operator/market-data/instruments/{provider}/{account_id}/{token}")
+async def operator_delete_market_instrument(
+    provider: str, account_id: str, token: str,
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(operator_id)}
+    if (provider.lower(), account_id) not in owned:
+        raise HTTPException(status_code=404, detail="Provider account is not assigned to this operator")
+    if not market_data_instruments.delete(provider, account_id, token):
+        raise HTTPException(status_code=404, detail="Instrument mapping not found")
+    return {"status": "removed", "provider": provider, "account_id": account_id, "token": token}
+
+
+@app.post("/api/v1/market-data/historical")
+async def market_data_historical(
+    body: MarketHistoricalRequest,
+    customer_id: str = Depends(require_air_operator),
+) -> dict:
+    resolved = market_data_router.resolve("historical")
+    if not resolved:
+        raise HTTPException(status_code=409, detail="No connected historical market-data source")
+    provider, account_id, adapter = resolved[0]
+    from datetime import datetime
+    try:
+        instrument = MarketInstrument(
+            exchange=body.exchange, symbol=body.symbol, token=body.token,
+            segment=body.segment,
+        )
+        start = datetime.fromisoformat(body.start.replace("Z", "+00:00"))
+        end = datetime.fromisoformat(body.end.replace("Z", "+00:00"))
+        if start >= end:
+            raise ValueError("Historical start must be before end")
+        bars = await market_data_service.historical(instrument, start, end, body.interval)
+        return {
+            "provider": provider, "account_id": account_id,
+            "symbol": body.symbol, "interval": body.interval,
+            "count": len(bars),
+            "bars": [{
+                "time": bar.start_time.isoformat(), "open": str(bar.open),
+                "high": str(bar.high), "low": str(bar.low), "close": str(bar.close),
+                "volume": bar.volume, "open_interest": bar.open_interest,
+            } for bar in bars],
+        }
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Historical data request failed: {type(exc).__name__}") from exc
+
+
+@app.post("/api/v1/operator/market-data/verify/{channel}")
+async def operator_verify_market_data_source(
+    channel: str,
+    wait_seconds: int = Query(default=12, ge=1, le=30),
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    if channel not in ("historical", "live"):
+        raise HTTPException(status_code=422, detail="Channel must be historical or live")
+    resolved = market_data_router.resolve(channel)
+    if not resolved:
+        raise HTTPException(status_code=409, detail=f"No connected {channel} source")
+    provider, account_id, adapter = resolved[0]
+    mappings = market_data_instruments.list_all(provider, account_id, limit=1)
+    if not mappings:
+        return {"provider": provider, "account_id": account_id,
+                "status": "AUTHENTICATED_MAPPING_REQUIRED", "verified": False,
+                "note": "Provider authentication succeeded, but add an official instrument-token mapping to test data delivery."}
+    item = mappings[0]
+    instrument = MarketInstrument(
+        exchange=item["exchange"], symbol=item["symbol"], token=item["token"],
+        segment=item["segment"], expiry=item.get("expiry"),
+        strike=Decimal(str(item["strike"])) if item.get("strike") else None,
+        option_type=item.get("option_type"), lot_size=item.get("lot_size"),
+        instrument_type=item.get("instrument_type"))
+    if channel == "historical":
+        from datetime import datetime, timedelta, timezone
+        end = datetime.now(timezone.utc)
+        try:
+            bars = await market_data_service.historical(instrument, end - timedelta(days=7), end, "day")
+        except Exception as exc:
+            return {"provider": provider, "account_id": account_id,
+                    "status": "HISTORICAL_FAILED", "verified": False,
+                    "error_type": type(exc).__name__}
+        return {"provider": provider, "account_id": account_id,
+                "status": "HISTORICAL_VERIFIED" if bars else "NO_HISTORICAL_BARS",
+                "verified": bool(bars), "instrument": instrument.symbol,
+                "bars_received": len(bars), "interval": "day"}
+    before = market_data_hub.tick_count_for(instrument.token)
+    try:
+        await market_data_service.subscribe([instrument])
+        deadline = asyncio.get_running_loop().time() + wait_seconds
+        while asyncio.get_running_loop().time() < deadline:
+            if market_data_hub.tick_count_for(instrument.token) > before:
+                return {"provider": provider, "account_id": account_id,
+                        "status": "LIVE_TICK_VERIFIED", "verified": True,
+                        "instrument": instrument.symbol,
+                        "ticks_received": market_data_hub.tick_count_for(instrument.token) - before}
+            await asyncio.sleep(0.25)
+        health = adapter.health() if hasattr(adapter, "health") else {}
+        return {"provider": provider, "account_id": account_id,
+                "status": "SUBSCRIBED_WAITING_FOR_TICK", "verified": False,
+                "instrument": instrument.symbol, "wait_seconds": wait_seconds,
+                "provider_health": health,
+                "note": "No tick arrived during this check. Retry during market hours and verify provider entitlements."}
+    except Exception as exc:
+        await market_data_router.mark_unhealthy("live", "subscription_failed")
+        return {"provider": provider, "account_id": account_id,
+                "status": "LIVE_SUBSCRIPTION_FAILED", "verified": False,
+                "error_type": type(exc).__name__}
+
+
+@app.get("/api/v1/market-data/status")
+async def market_data_status(customer_id: str = Depends(require_air_operator)) -> dict:
+    health = await market_data_service.health()
+    return {
+        "routing": market_data_router.status(),
+        "provider_health": health,
+        "stream": market_data_hub.status(),
+        "note": "Historical and live channels can use different providers. Instrument subscriptions and fresh ticks must still be checked.",
+    }
+
+
+@app.put("/api/v1/market-data/main-account")
+async def select_main_account(selection: MainAccountSelection,
+                              customer_id: str = Depends(require_air_operator)) -> dict:
+    try:
+        owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(customer_id)}
+        if (selection.provider.lower(), selection.account_id) not in owned:
+            raise HTTPException(status_code=404, detail="Customer does not own this Main Account")
+        provider = selection.provider.strip().lower()
+        if not market_data_router.is_registered(provider, selection.account_id):
+            adapter = _market_adapter_for(customer_id, provider, selection.account_id)
+            market_data_router.register(selection.account_id, adapter)
+        await market_data_router.set_main_account(provider, selection.account_id)
+        market_data_sources.set_source("historical", provider, selection.account_id, True)
+        market_data_sources.set_source("live", provider, selection.account_id, True)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"routing": market_data_router.status()}
+
+
+@app.delete("/api/v1/market-data/main-account")
+async def disconnect_main_account(customer_id: str = Depends(require_air_operator)) -> dict:
+    try:
+        await market_data_router.clear_main_account()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"routing": market_data_router.status()}
+
+
+
+@app.get("/api/v1/operator/execution-policy")
+async def get_execution_policy(operator_id: str = Depends(require_air_operator)) -> dict:
+    return execution_policy.get()
+
+
+@app.put("/api/v1/operator/execution-policy")
+async def update_execution_policy(
+    body: ExecutionPolicyUpdate,
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    try:
+        return execution_policy.update(body.master_auto_enabled, body.strategies)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/operator/market-data/master-status")
+async def get_broker_master_status(operator_id: str = Depends(require_air_operator)) -> dict:
+    refresher = BrokerMasterRefresher(market_data_instruments)
+    try:
+        urls = {provider: bool(refresher.url_for(provider))
+                for provider in ("dhan", "zerodha", "upstox", "fyers", "angelone")}
+    finally:
+        await refresher.close()
+    return {"masters": market_data_instruments.master_status(),
+            "refresh_time_ist": "07:00 weekdays", "configured_urls": urls}
+
+
+@app.post("/api/v1/operator/market-data/masters/refresh")
+async def refresh_broker_masters(operator_id: str = Depends(require_air_operator)) -> dict:
+    refresher = BrokerMasterRefresher(market_data_instruments)
+    results = []
+    try:
+        for account in account_directory.list_all():
+            if account.broker not in {"dhan", "zerodha", "upstox", "fyers", "angelone"}:
+                continue
+            try:
+                headers = _broker_master_headers(account.customer_id, account.broker, account.account_id)
+                results.append(await refresher.refresh(account.broker, account.account_id, headers=headers))
+            except Exception as exc:
+                results.append({"customer_id": account.customer_id, "provider": account.broker,
+                                "account_id": account.account_id,
+                                "status": "FAILED", "error_type": type(exc).__name__})
+    finally:
+        await refresher.close()
+    return {"results": results, "masters": market_data_instruments.master_status()}
+
+
+@app.get("/api/v1/operator/market-data/sources")
+async def operator_market_data_sources(
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    return {
+        "providers": market_data_sources.catalog(),
+        "selections": market_data_sources.selections(),
+        "runtime": market_data_router.status(),
+        "failover": market_data_sources.failover(),
+        "channels": ["historical", "live"],
+        "note": "Historical and live sources are selected independently. Only providers with verified adapters can be enabled; catalog entries are not a claim of a working adapter.",
+    }
+
+
+@app.put("/api/v1/operator/market-data/sources/{channel}")
+async def operator_select_market_data_source(
+    channel: str,
+    body: MarketDataSourceSelection,
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    if channel not in ("historical", "live"):
+        raise HTTPException(status_code=422, detail="Channel must be historical or live")
+    provider = body.provider.strip().lower()
+    account_id = (body.account_id or "").strip() or None
+    if not body.enabled:
+        if channel in ("historical", "live"):
+            await market_data_router.clear_source(channel)
+        selected = market_data_sources.set_source(channel, provider, account_id, False)
+        return {"selection": selected, "runtime": market_data_router.status()}
+
+    if provider == "nse_bhavcopy":
+        if channel != "historical":
+            raise HTTPException(status_code=422, detail="NSE Bhavcopy is an EOD historical source only")
+        await market_data_router.clear_source("historical")
+        if not market_data_router.is_registered("nse_bhavcopy", "official"):
+            market_data_router.register("official", NSEBhavcopyMarketDataAdapter())
+        try:
+            await market_data_router.set_source("historical", "nse_bhavcopy", "official")
+        except (ValueError, RuntimeError) as exc:
+            raise HTTPException(status_code=503, detail=f"NSE historical source is not ready: {str(exc)}") from exc
+        selected = market_data_sources.set_source(channel, provider, None, True)
+        return {"selection": selected, "runtime": market_data_router.status(),
+                "status": "CONNECTED", "note": "NSE official EOD CM/FO store is the selected historical source."}
+
+    if not account_id:
+        raise HTTPException(status_code=422, detail=f"{provider} account ID is required")
+    owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(operator_id)}
+    if (provider, account_id) not in owned:
+        raise HTTPException(status_code=404, detail=f"{provider} account is not assigned to this operator")
+    try:
+        if not market_data_router.is_registered(provider, account_id):
+            adapter = _market_adapter_for(operator_id, provider, account_id)
+            market_data_router.register(account_id, adapter)
+        await market_data_router.set_source(channel, provider, account_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=409, detail="Provider credentials have not been saved") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=f"Could not enable {channel} source: {str(exc)}") from exc
+    selected = market_data_sources.set_source(channel, provider, account_id, True)
+    return {"selection": selected, "runtime": market_data_router.status(),
+            "status": "CONNECTED",
+            "note": f"{provider} {channel} adapter authenticated successfully. Live quote mode: native WebSocket for supported brokers."}
+
+
+@app.put("/api/v1/operator/market-data/sources/{channel}/failover")
+async def operator_configure_market_data_failover(
+    channel: str,
+    body: MarketDataFailoverSelection,
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    if channel not in ("historical", "live"):
+        raise HTTPException(status_code=422, detail="Channel must be historical or live")
+    owned = {(a.broker, a.account_id) for a in account_directory.list_for_customer(operator_id)}
+    candidates: list[tuple[str, str]] = []
+    try:
+        for item in body.candidates:
+            provider = str(item.get("provider", "")).strip().lower()
+            account_id = str(item.get("account_id", "")).strip()
+            if provider == "nse_bhavcopy" and channel == "historical":
+                account_id = "official"
+                if not market_data_router.is_registered(provider, account_id):
+                    market_data_router.register(account_id, NSEBhavcopyMarketDataAdapter())
+            else:
+                if (provider, account_id) not in owned:
+                    raise HTTPException(status_code=404, detail=f"{provider} account is not assigned to this operator")
+                if not market_data_router.is_registered(provider, account_id):
+                    market_data_router.register(account_id, _market_adapter_for(operator_id, provider, account_id))
+            candidates.append((provider, account_id))
+        await market_data_router.configure_failover(channel, candidates, body.enabled)
+        persisted = [
+            {"provider": provider, "account_id": account_id}
+            for provider, account_id in candidates
+        ]
+        saved = market_data_sources.set_failover(channel, persisted, body.enabled)
+        return {"failover": saved, "runtime": market_data_router.status()}
+    except HTTPException:
+        raise
+    except (ValueError, RuntimeError, KeyError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+
+@app.get("/api/v1/operator/telegram/destinations")
+async def operator_list_telegram_destinations(
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    rows = telegram_destinations.list_destinations()
+    from app.telegram_notifications import _settings
+    token, _ = _settings()
+    return {
+        "destinations": rows,
+        "bot_configured": bool(token),
+        "legacy_env_fallback": not telegram_destinations.has_managed_destinations(),
+        "supported_strategies": ["RECOVERED", "EXPIRY78", "EXPIRYSCAN", "AIR_QOC", "ORB", "PORTFOLIO_RISK", "AIR_WORKFLOW"],
+    }
+
+
+@app.post("/api/v1/operator/telegram/destinations", status_code=201)
+async def operator_add_telegram_destination(
+    body: TelegramDestinationInput,
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    try:
+        row = telegram_destinations.upsert_destination(
+            body.name, body.chat_id, body.destination_type, body.strategies, body.enabled, body.customer_id
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        if "UNIQUE constraint failed" in str(exc):
+            raise HTTPException(status_code=409, detail="Telegram destination already exists") from exc
+        raise
+    return {"destination": row, "status": "saved"}
+
+
+@app.put("/api/v1/operator/telegram/destinations/{destination_id}")
+async def operator_update_telegram_destination(
+    destination_id: int, body: TelegramDestinationInput,
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    try:
+        row = telegram_destinations.update_destination(
+            destination_id, name=body.name, chat_id=body.chat_id,
+            destination_type=body.destination_type, strategies=body.strategies,
+            enabled=body.enabled, customer_id=body.customer_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        if "UNIQUE constraint failed" in str(exc):
+            raise HTTPException(status_code=409, detail="Telegram destination already exists") from exc
+        raise
+    if row is None:
+        raise HTTPException(status_code=404, detail="Telegram destination not found")
+    return {"destination": row, "status": "updated"}
+
+
+@app.delete("/api/v1/operator/telegram/destinations/{destination_id}")
+async def operator_delete_telegram_destination(
+    destination_id: int, operator_id: str = Depends(require_air_operator),
+) -> dict:
+    if not telegram_destinations.delete_destination(destination_id):
+        raise HTTPException(status_code=404, detail="Telegram destination not found")
+    return {"destination_id": destination_id, "status": "deleted"}
+
+
+@app.post("/api/v1/operator/telegram/test")
+async def operator_test_telegram_destination(
+    destination_id: int | None = None,
+    operator_id: str = Depends(require_air_operator),
+) -> dict:
+    rows = telegram_destinations.list_destinations()
+    selected = [row for row in rows if row["id"] == destination_id] if destination_id is not None else [
+        row for row in rows if row["enabled"]
+    ]
+    if destination_id is not None and not selected:
+        raise HTTPException(status_code=404, detail="Telegram destination not found")
+    if any(not row["enabled"] for row in selected):
+        raise HTTPException(status_code=409, detail="Enable the destination before testing it")
+    if not selected:
+        raise HTTPException(status_code=409, detail="Add and enable at least one Telegram destination first")
+    result = await send_telegram_message(
+        "✅ <b>AIR Telegram connection test</b>\nThis destination is reachable. Alert routing is configured.",
+        [row["chat_id"] for row in selected],
+    )
+    if not result.get("configured") or result.get("failures"):
+        raise HTTPException(status_code=502, detail={
+            "message": "Telegram test delivery failed",
+            "sent": result.get("sent", 0), "failures": result.get("failures", []),
+        })
+    return {"status": "sent", "sent": result["sent"], "destination_ids": [row["id"] for row in selected]}
+
+
+@app.websocket("/ws/market-data")
+async def market_data_stream(websocket: WebSocket) -> None:
+    authorization = websocket.headers.get("authorization", "")
+    if not authorization.startswith("Bearer "):
+        await websocket.close(code=4401)
+        return
+    try:
+        from app.security import _secret
+        import jwt
+        payload = jwt.decode(authorization[7:], _secret("AIR_JWT_SECRET"),
+                             algorithms=["HS256"], issuer="air-model-engine",
+                             audience="air-api")
+        customer_id = payload.get("sub")
+        if not customer_id or not auth_store.is_active(customer_id):
+            raise ValueError("Inactive customer")
+        allowed_operators = {
+            value.strip() for value in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",")
+            if value.strip()
+        }
+        if customer_id not in allowed_operators:
+            await websocket.close(code=4403)
+            return
+    except Exception:
+        await websocket.close(code=4401)
+        return
+    await market_data_hub.connect(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        await market_data_hub.disconnect(websocket)
+
+
+# Shared-schema SaaS tenant administration and customer context.
+_tenant_registry = None
+
+
+def _tenant_management_admin(admin: dict) -> dict:
+    if admin.get("role") not in {"SUPER_ADMIN", "ADMIN"}:
+        raise HTTPException(status_code=403, detail="Tenant administration permission is required")
+    return admin
+
+
+def _get_tenant_registry():
+    global _tenant_registry
+    if _tenant_registry is None:
+        from app.tenant_provisioning import TenantRegistry
+        try:
+            _tenant_registry = TenantRegistry()
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="SaaS tenant registry requires the PostgreSQL tenant migration") from exc
+    return _tenant_registry
+
+
+_aws_tenant_provisioner = None
+
+
+def _get_aws_tenant_provisioner():
+    global _aws_tenant_provisioner
+    if os.getenv("AIR_DEPLOYMENT_PROFILE", "onprem-single") != "aws-saas-multi":
+        raise HTTPException(status_code=409, detail="AWS tenant provisioning requires the aws-saas-multi deployment profile")
+    if _aws_tenant_provisioner is None:
+        from app.aws_tenant_provisioner import AwsTenantProvisioner
+        try:
+            _aws_tenant_provisioner = AwsTenantProvisioner.from_environment()
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="AWS tenant provisioning adapter is not configured") from exc
+    return _aws_tenant_provisioner
+
+
+class TenantProvisionRequest(BaseModel):
+    owner_customer_id: str = Field(min_length=9, max_length=128)
+    name: str = Field(min_length=1, max_length=160)
+    plan_code: str = Field(default="STANDARD", min_length=1, max_length=24)
+
+
+class TenantMemberRequest(BaseModel):
+    customer_id: str = Field(min_length=3, max_length=128)
+    role: str = Field(default="MEMBER", min_length=1, max_length=16)
+
+
+class TenantStatusRequest(BaseModel):
+    status: str = Field(min_length=1, max_length=16)
+
+
+@app.get("/api/v1/admin/tenants")
+async def admin_list_tenants(
+    status: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    admin: dict = Depends(require_admin),
+) -> dict:
+    _tenant_management_admin(admin)
+    try:
+        rows = _get_tenant_registry().list_tenants(status=status, limit=limit)
+        return {"tenants": rows, "count": len(rows)}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/admin/tenants")
+async def admin_create_tenant(body: TenantProvisionRequest, admin: dict = Depends(require_admin)) -> dict:
+    _tenant_management_admin(admin)
+    try:
+        provisioning_required = os.getenv("AIR_DEPLOYMENT_PROFILE", "onprem-single") == "aws-saas-multi"
+        tenant = _get_tenant_registry().create_or_update_tenant(
+            owner_customer_id=body.owner_customer_id, name=body.name, plan_code=body.plan_code,
+            status="PROVISIONING" if provisioning_required else "ACTIVE",
+        )
+        return {
+            "tenant": tenant,
+            "status": "registered",
+            "infrastructure_status": "NOT_PROVISIONED" if provisioning_required else "NOT_APPLICABLE",
+            "next_action": "POST /api/v1/admin/tenants/{tenant_id}/provision" if provisioning_required else None,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/admin/tenants/{tenant_id}/provision")
+async def admin_provision_tenant(tenant_id: str, admin: dict = Depends(require_admin)) -> dict:
+    _tenant_management_admin(admin)
+    registry = _get_tenant_registry()
+    try:
+        tenant = registry.get_tenant(tenant_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if tenant["status"] == "CLOSED":
+        raise HTTPException(status_code=409, detail="A CLOSED tenant cannot be provisioned")
+    provisioner = _get_aws_tenant_provisioner()
+    try:
+        infrastructure = provisioner.provision(tenant)
+        updated = registry.record_aws_provisioning(
+            tenant_id, infrastructure, status="ACTIVE",
+        )
+        return {"tenant": updated, "infrastructure": infrastructure}
+    except Exception as exc:
+        try:
+            registry.record_aws_provisioning_failure(tenant_id, type(exc).__name__)
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=502,
+            detail="AWS tenant provisioning failed; tenant remains PROVISIONING and can be retried",
+        ) from exc
+
+
+@app.get("/api/v1/admin/tenants/{tenant_id}")
+async def admin_get_tenant(tenant_id: str, admin: dict = Depends(require_admin)) -> dict:
+    _tenant_management_admin(admin)
+    try:
+        return {"tenant": _get_tenant_registry().get_tenant(tenant_id)}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/admin/tenants/{tenant_id}/members")
+async def admin_add_tenant_member(
+    tenant_id: str, body: TenantMemberRequest, admin: dict = Depends(require_admin),
+) -> dict:
+    _tenant_management_admin(admin)
+    try:
+        member = _get_tenant_registry().add_member(tenant_id, body.customer_id, body.role)
+        return {"member": member, "status": "added"}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ValueError, PermissionError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.patch("/api/v1/admin/tenants/{tenant_id}/status")
+async def admin_set_tenant_status(
+    tenant_id: str, body: TenantStatusRequest, admin: dict = Depends(require_admin),
+) -> dict:
+    _tenant_management_admin(admin)
+    try:
+        registry = _get_tenant_registry()
+        current = registry.get_tenant(tenant_id)
+        next_status = body.status.upper()
+        if os.getenv("AIR_DEPLOYMENT_PROFILE", "onprem-single") == "aws-saas-multi":
+            provisioner = _get_aws_tenant_provisioner()
+            if next_status in {"SUSPENDED", "CLOSED"}:
+                provisioner.set_tenant_access(current, enabled=False)
+            elif next_status == "ACTIVE":
+                infrastructure = provisioner.provision(current)
+                registry.record_aws_provisioning(tenant_id, infrastructure, status="ACTIVE")
+        return {"tenant": registry.set_tenant_status(tenant_id, next_status)}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Tenant infrastructure lifecycle operation failed") from exc
+
+
+@app.get("/api/v1/tenant/context")
+async def customer_tenant_context(customer_id: str = Depends(require_customer)) -> dict:
+    try:
+        context = _get_tenant_registry().get_customer_context(
+            access_store.mobile_for_request_id(customer_id) or customer_id
+        )
+        return {"tenant": context}
+    except KeyError as exc:
+        raise HTTPException(status_code=403, detail="Customer tenant membership is not active") from exc
+
