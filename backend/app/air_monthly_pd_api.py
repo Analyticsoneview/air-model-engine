@@ -82,3 +82,13 @@ async def list_monthly_pd_snapshots(cycle_id: str|None=None,limit: int=500,
     store=AirMonthlyPdStore()
     try:return {"snapshots":store.list_snapshots(cycle_id=cycle_id,limit=limit)}
     finally:store.close()
+
+
+@router.post("/scan")
+async def scan_monthly_pd_universe(as_of_date: date|None=None, admin: dict=Depends(require_admin)):
+    """Run the historical NSE EOD universe scan; stock and option outputs stay separate."""
+    from app.air_monthly_pd_scanner import scan_monthly_pd_universe
+    try:
+        return scan_monthly_pd_universe(as_of_date.isoformat() if as_of_date else None)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"MPDSM scan unavailable: {type(exc).__name__}: {str(exc)[:180]}") from exc
