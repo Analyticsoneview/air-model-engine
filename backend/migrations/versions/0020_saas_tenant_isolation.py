@@ -247,9 +247,8 @@ def upgrade() -> None:
         UPDATE air_workflow_runs r
         SET customer_id=COALESCE(w.customer_id,e.customer_id),
             tenant_id=COALESCE(w.tenant_id,e.tenant_id)
-        FROM air_workflow_definitions w
-        JOIN air_workflow_events e ON e.event_id=r.event_id
-        WHERE w.workflow_id=r.workflow_id
+        FROM air_workflow_definitions w, air_workflow_events e
+        WHERE w.workflow_id=r.workflow_id AND e.event_id=r.event_id
     """)
     op.execute("""
         UPDATE air_workflow_run_steps s SET customer_id=r.customer_id,tenant_id=r.tenant_id
