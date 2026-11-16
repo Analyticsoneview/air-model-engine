@@ -2851,7 +2851,8 @@ async def admin_set_tenant_status(
             if next_status in {"SUSPENDED", "CLOSED"}:
                 provisioner.set_tenant_access(current, enabled=False)
             elif next_status == "ACTIVE":
-                provisioner.set_tenant_access(current, enabled=True)
+                infrastructure = provisioner.provision(current)
+                registry.record_aws_provisioning(tenant_id, infrastructure, status="ACTIVE")
         return {"tenant": registry.set_tenant_status(tenant_id, next_status)}
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
