@@ -131,6 +131,11 @@ class NSEBhavcopyTests(unittest.TestCase):
             )
             self.assertEqual(warning["status"], "READY_WITH_WARNINGS")
             self.assertEqual(warning["expected_symbols"], 2)
+            exact = store.query_exact_symbol(
+                "CM", "AAA", start_date="2026-01-01", end_date="2026-03-01",
+            )
+            self.assertEqual(len(exact), 50)
+            self.assertTrue(all(row["symbol"] == "AAA" for row in exact))
 
     def test_nse_calendar_normalizes_cm_and_fo_separately(self):
         calendar = _parse_nse_calendar({
