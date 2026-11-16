@@ -25,6 +25,11 @@ EOF
   chmod 600 .air-local.env
 fi
 
+if [[ "${AIR_START_PULL_BASE_IMAGES:-false}" == "true" ]]; then
+  echo "Refreshing PostgreSQL, Redis and RabbitMQ base images before upgrade..."
+  docker compose -f compose.local.yml pull postgres redis rabbitmq
+fi
+
 echo "Building and starting AIR API + PWA..."
 docker compose -f compose.local.yml up -d --build
 services=(postgres redis rabbitmq air-api air-workflow-worker air-pwa)
@@ -64,13 +69,17 @@ if [[ "$all_healthy" != true ]]; then
 fi
 echo "PostgreSQL, Redis, RabbitMQ, FastAPI, workflow worker, PWA and initial market-data readiness are verified."
 docker compose -f compose.local.yml ps
-if command -v open >/dev/null 2>&1; then open http://localhost:8080
-elif command -v xdg-open >/dev/null 2>&1; then xdg-open http://localhost:8080
+if [[ "${AIR_START_SKIP_OPEN:-false}" != "true" ]]; then
+  if command -v open >/dev/null 2>&1; then open http://localhost:8080
+  elif command -v xdg-open >/dev/null 2>&1; then xdg-open http://localhost:8080
+  fi
 fi
 
-PROFILE_FILE="$HOME/.bashrc"
-if [[ "$(uname -s)" == "Darwin" ]]; then PROFILE_FILE="$HOME/.zshrc"; fi
-if ! grep -q 'function AIRSTART' "$PROFILE_FILE" 2>/dev/null; then
-  printf '\n# AIR one-command local startup\nfunction AIRSTART(){ bash "%s/AIRSTART.sh"; }\n' "$ROOT" >> "$PROFILE_FILE"
+if [[ "${AIR_START_SKIP_PROFILE:-false}" != "true" ]]; then
+  PROFILE_FILE="$HOME/.bashrc"
+  if [[ "$(uname -s)" == "Darwin" ]]; then PROFILE_FILE="$HOME/.zshrc"; fi
+  if ! grep -q 'function AIRSTART' "$PROFILE_FILE" 2>/dev/null; then
+    printf '\n# AIR one-command local startup\nfunction AIRSTART(){ bash "%s/AIRSTART.sh"; }\n' "$ROOT" >> "$PROFILE_FILE"
+  fi
+  echo "Next time, open a new terminal in this repository and type: AIRSTART"
 fi
-echo "Next time, open a new terminal in this repository and type: AIRSTART"
