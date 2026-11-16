@@ -68,7 +68,10 @@ class OnPremDeploymentAcceptanceTests(unittest.TestCase):
             self.assertEqual(env["AIR_TENANCY_MODE"], "${AIR_TENANCY_MODE:-single}")
             self.assertIn("air_data:/var/lib/air", service["volumes"])
         self.assertNotIn("ports", stack["services"]["air-api"])
-        self.assertIn("air-api", stack["services"]["air-workflow-worker"]["depends_on"] if isinstance(stack["services"]["air-workflow-worker"].get("depends_on"), dict) else [])
+        self.assertEqual(
+            stack["services"]["air-workflow-worker"]["command"],
+            ["python", "-m", "app.workflow_worker"],
+        )
 
     def test_swarm_declares_external_secrets_and_no_inline_secret_values(self):
         stack = load_yaml("docker-stack.yml")
