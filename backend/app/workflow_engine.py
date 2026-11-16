@@ -470,6 +470,15 @@ class WorkflowStore:
         if trigger_type not in TRIGGER_TYPES or execution_mode not in EXECUTION_MODES:
             raise ValueError("Unsupported workflow trigger or execution mode")
         trigger_config = _json_object(trigger_config, "trigger_config")
+        request_customer = current_customer_id()
+        configured_customer = str(trigger_config.get("customer_id") or "").strip() or None
+        if request_customer and configured_customer and configured_customer != request_customer:
+            raise PermissionError("Workflow customer scope cannot be changed by the caller")
+        customer_id = current.get("customer_id") or configured_customer or request_customer
+        if current.get("customer_id") and configured_customer and configured_customer != current["customer_id"]:
+            raise PermissionError("Workflow ownership cannot be transferred by update")
+        if customer_id:
+            trigger_config["customer_id"] = customer_id
         workflow_spec = _json_object(workflow_spec, "workflow_spec")
         steps = workflow_spec.get("steps", [])
         if not isinstance(steps, list) or len(steps) > 20:
@@ -730,8 +739,6 @@ class WorkflowStore:
             definition_tenant = definition["tenant_id"]
             event_tenant = event["tenant_id"]
             if definition_tenant and event_tenant != definition_tenant:
-                continue
-            if definition_customer and payload.get("customer_id") and str(payload["customer_id"]) != str(definition_customer):
                 continue
             if trigger_type == "TIME":
                 matched = payload.get("workflow_id") == definition["workflow_id"]
