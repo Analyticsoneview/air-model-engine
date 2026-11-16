@@ -13,7 +13,7 @@ def membership_store():
     engine = create_engine("sqlite:///:memory:", future=True)
     with engine.begin() as conn:
         conn.execute(text("""CREATE TABLE air_tenants (
-            tenant_id TEXT PRIMARY KEY, status TEXT NOT NULL, max_members INTEGER NOT NULL)"""))
+            tenant_id TEXT PRIMARY KEY, name TEXT NOT NULL, plan_code TEXT NOT NULL, status TEXT NOT NULL, max_members INTEGER NOT NULL)"""))
         conn.execute(text("""CREATE TABLE air_tenant_members (
             tenant_id TEXT NOT NULL, customer_id TEXT NOT NULL, role TEXT NOT NULL,
             status TEXT NOT NULL, joined_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -28,7 +28,7 @@ def membership_store():
             actor_id TEXT NOT NULL, event_type TEXT NOT NULL, from_role TEXT, to_role TEXT,
             idempotency_key TEXT NOT NULL, details TEXT NOT NULL, occurred_at TEXT NOT NULL,
             UNIQUE(tenant_id,idempotency_key))"""))
-        conn.execute(text("INSERT INTO air_tenants VALUES('org-a','ACTIVE',3),('org-b','ACTIVE',2)"))
+        conn.execute(text("INSERT INTO air_tenants VALUES('org-a','Organisation A','STANDARD','ACTIVE',3),('org-b','Organisation B','STANDARD','ACTIVE',2)"))
         conn.execute(text("""INSERT INTO air_tenant_members(tenant_id,customer_id,role,status)
             VALUES('org-a','owner-a','OWNER','ACTIVE'),
                   ('org-b','owner-b','OWNER','ACTIVE')"""))
@@ -107,3 +107,24 @@ def test_revocation_releases_reserved_seat(membership_store):
 def test_invitation_role_cannot_assign_owner(membership_store):
     with pytest.raises(ValueError, match="OWNER is not assignable"):
         membership_store.invite("org-a", "owner-a", "customer-1", "OWNER", "invite-1")
+
+
+
+def test_customer_can_discover_multiple_active_organisations(membership_store):
+    store = membership_store
+    with store._scope(), store.engine.begin() as conn:
+        conn.execute(text("""INSERT INTO air_tenant_members(tenant_id,customer_id,role,status)
+            VALUES('org-b','owner-a','ADMIN','ACTIVE')"""))
+    organisations = store.list_customer_organisations("owner-a")
+    assert [row["tenant_id"] for row in organisations] == ["org-a", "org-b"]
+    assert organisations[1]["role"] == "ADMIN"
+
+
+def test_customer_invitation_inbox_only_returns_their_live_pending_invites(membership_store):
+    store = membership_store
+    invitation = store.invite("org-a", "owner-a", "customer-1", "READ_ONLY", "invite-1")
+    inbox = store.list_customer_invitations("customer-1")
+    assert len(inbox) == 1
+    assert inbox[0]["invitation_id"] == invitation["invitation_id"]
+    assert inbox[0]["organisation_name"] == "Organisation A"
+    assert store.list_customer_invitations("customer-2") == []
