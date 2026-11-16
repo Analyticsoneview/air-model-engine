@@ -44,7 +44,7 @@ from app.account_reporting import AccountReporting
 from app.portfolio_risk import PortfolioRiskStore, build_portfolio_snapshot
 from app.support_center import SupportStore
 from app import telegram_destinations
-from app.nse_bhavcopy import (nse_data_status, nse_data_rows, start_nse_data_jobs, stop_nse_data_jobs, trigger_nse_bootstrap)
+from app.nse_bhavcopy import (nse_data_status, nse_data_rows, nse_bootstrap_is_ready, start_nse_data_jobs, stop_nse_data_jobs, trigger_nse_bootstrap)
 from app.market_intelligence import build_market_intelligence_pulse
 from app.security import create_access_token, create_admin_access_token, hash_password, require_customer, require_admin, verify_password
 from app.persistence import get_persistence_runtime
@@ -756,7 +756,7 @@ async def application_readiness() -> dict:
             "paired_sessions", "expected_paired_sessions", "note",
         ) if key in bootstrap
     }
-    if dependency_failures or bootstrap.get("status") != "READY":
+    if dependency_failures or not nse_bootstrap_is_ready(bootstrap):
         raise HTTPException(status_code=503, detail={
             "status": "NOT_READY",
             "dependency_failures": dependency_failures,
