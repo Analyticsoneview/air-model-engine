@@ -2705,6 +2705,12 @@ async def market_data_stream(websocket: WebSocket) -> None:
 _tenant_registry = None
 
 
+def _tenant_management_admin(admin: dict) -> dict:
+    if admin.get("role") not in {"SUPER_ADMIN", "ADMIN"}:
+        raise HTTPException(status_code=403, detail="Tenant administration permission is required")
+    return admin
+
+
 def _get_tenant_registry():
     global _tenant_registry
     if _tenant_registry is None:
@@ -2737,6 +2743,7 @@ async def admin_list_tenants(
     limit: int = Query(default=100, ge=1, le=500),
     admin: dict = Depends(require_admin),
 ) -> dict:
+    _tenant_management_admin(admin)
     try:
         rows = _get_tenant_registry().list_tenants(status=status, limit=limit)
         return {"tenants": rows, "count": len(rows)}
@@ -2746,6 +2753,7 @@ async def admin_list_tenants(
 
 @app.post("/api/v1/admin/tenants")
 async def admin_create_tenant(body: TenantProvisionRequest, admin: dict = Depends(require_admin)) -> dict:
+    _tenant_management_admin(admin)
     try:
         tenant = _get_tenant_registry().create_or_update_tenant(
             owner_customer_id=body.owner_customer_id, name=body.name, plan_code=body.plan_code,
@@ -2757,6 +2765,7 @@ async def admin_create_tenant(body: TenantProvisionRequest, admin: dict = Depend
 
 @app.get("/api/v1/admin/tenants/{tenant_id}")
 async def admin_get_tenant(tenant_id: str, admin: dict = Depends(require_admin)) -> dict:
+    _tenant_management_admin(admin)
     try:
         return {"tenant": _get_tenant_registry().get_tenant(tenant_id)}
     except KeyError as exc:
@@ -2767,6 +2776,7 @@ async def admin_get_tenant(tenant_id: str, admin: dict = Depends(require_admin))
 async def admin_add_tenant_member(
     tenant_id: str, body: TenantMemberRequest, admin: dict = Depends(require_admin),
 ) -> dict:
+    _tenant_management_admin(admin)
     try:
         member = _get_tenant_registry().add_member(tenant_id, body.customer_id, body.role)
         return {"member": member, "status": "added"}
@@ -2780,6 +2790,7 @@ async def admin_add_tenant_member(
 async def admin_set_tenant_status(
     tenant_id: str, body: TenantStatusRequest, admin: dict = Depends(require_admin),
 ) -> dict:
+    _tenant_management_admin(admin)
     try:
         return {"tenant": _get_tenant_registry().set_tenant_status(tenant_id, body.status)}
     except KeyError as exc:
