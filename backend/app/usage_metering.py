@@ -42,7 +42,8 @@ def usage_period(period: str, now: datetime | None = None):
 
 class UsageMeter:
     def __init__(self,database_url: str | None=None,sqlite_path: str | None=None):
-        self.database_url=database_url or os.getenv("AIR_CUSTOMER_DATABASE_URL","")
+        self.database_url=database_url or (Path(os.getenv("AIR_CUSTOMER_DATABASE_URL_FILE","")).read_text(encoding="utf-8").strip()
+            if os.getenv("AIR_CUSTOMER_DATABASE_URL_FILE") else os.getenv("AIR_CUSTOMER_DATABASE_URL","").strip())
         self.sqlite_path=sqlite_path or os.getenv("AIR_USAGE_DB_PATH","data/usage_metering.sqlite3")
         if self.database_url.startswith(("postgresql://","postgresql+psycopg://")):
             self.engine=create_engine(self.database_url,pool_pre_ping=True,future=True)
@@ -52,7 +53,7 @@ class UsageMeter:
         elif self.database_url: raise RuntimeError("AIR_CUSTOMER_DATABASE_URL must use PostgreSQL")
         else:
             Path(self.sqlite_path).parent.mkdir(parents=True,exist_ok=True)
-            self.engine=create_engine("sqlite:///"+str(Path(self.sqlite_path).resolve()),future=True)
+            self.engine=create_engine("sqlite:///"+str(Path(self.sqlite_path).resolve()),future=True,connect_args={"timeout":30})
             self._sqlite_schema()
 
     def _sqlite_schema(self):
@@ -125,10 +126,53 @@ class UsageMeter:
                 conn.execute(text("""UPDATE air_usage_counters SET quantity=quantity+:q,updated_at=:n
                   WHERE tenant_id=:t AND metric=:m AND period=:p AND period_start=:s"""),
                   {"q":amount,"n":occurred,"t":tenant,"m":name,"p":period,"s":start})
-            return {"event_id":None,"metric":name,"quantity":amount,"unit":UNITS[name],"period":period,
+            event_id=conn.execute(text("SELECT event_id FROM air_usage_events WHERE tenant_id=:t AND idempotency_key=:k"),
+                                  {"t":tenant,"k":key}).scalar_one()
+            return {"event_id":event_id,"metric":name,"quantity":amount,"unit":UNITS[name],"period":period,
               "period_start":start,"period_end":end,"status":status,"allowed":allowed,
               "soft_limit_exceeded":bool(soft_exceeded),"used":current_total+(amount if allowed else 0),
               "soft_limit":soft,"hard_limit":hard,"idempotent_replay":False}
+
+    def adjust_usage(self,tenant_id,customer_id,metric,quantity,*,plan_code,idempotency_key,actor_id,now=None,reason=""):
+        tenant,customer,key=str(tenant_id or "").strip(),str(customer_id or "").strip(),str(idempotency_key or "").strip()
+        name,delta=str(metric or "").lower(),int(quantity)
+        if not tenant or not customer or not key or len(key)>200 or not actor_id:
+            raise ValueError("Tenant, customer, actor and bounded idempotency key are required")
+        if name not in METRICS or delta==0:
+            raise ValueError("A supported metric and non-zero adjustment are required")
+        current=now or datetime.now(timezone.utc)
+        if current.tzinfo is None: current=current.replace(tzinfo=timezone.utc)
+        occurred=current.astimezone(timezone.utc)
+        with self.engine.begin() as conn:
+            period,_,_=self._quota(conn,tenant,plan_code,name)
+            start,end=usage_period(period,occurred)
+            conn.execute(text("""INSERT INTO air_usage_counters(tenant_id,metric,period,period_start,period_end,quantity,updated_at)
+              VALUES(:t,:m,:p,:s,:e,0,:n) ON CONFLICT(tenant_id,metric,period,period_start) DO NOTHING"""),
+              {"t":tenant,"m":name,"p":period,"s":start,"e":end,"n":occurred})
+            suffix="" if self.engine.dialect.name=="sqlite" else " FOR UPDATE"
+            used=int(conn.execute(text(f"""SELECT quantity FROM air_usage_counters
+              WHERE tenant_id=:t AND metric=:m AND period=:p AND period_start=:s{suffix}"""),
+              {"t":tenant,"m":name,"p":period,"s":start}).scalar_one())
+            if used+delta<0: raise ValueError("Adjustment would make usage negative")
+            inserted=conn.execute(text("""INSERT INTO air_usage_events
+              (event_id,tenant_id,customer_id,metric,quantity,unit,period,period_start,period_end,event_type,status,
+               idempotency_key,actor_id,metadata_json,occurred_at)
+              VALUES(:id,:t,:c,:m,:q,:u,:p,:s,:e,'ADJUSTMENT','ACCEPTED',:key,:actor,:metadata,:n)
+              ON CONFLICT(tenant_id,idempotency_key) DO NOTHING"""),
+              {"id":str(uuid4()),"t":tenant,"c":customer,"m":name,"q":delta,"u":UNITS[name],"p":period,
+               "s":start,"e":end,"key":key,"actor":actor_id,
+               "metadata":json.dumps({"reason":reason},sort_keys=True),"n":occurred})
+            if inserted.rowcount==0:
+                old=conn.execute(text("SELECT event_id,metric,quantity,status,idempotency_key FROM air_usage_events WHERE tenant_id=:t AND idempotency_key=:k"),
+                                 {"t":tenant,"k":key}).mappings().one()
+                return {**dict(old),"idempotent_replay":True}
+            conn.execute(text("""UPDATE air_usage_counters SET quantity=quantity+:delta,updated_at=:n
+              WHERE tenant_id=:t AND metric=:m AND period=:p AND period_start=:s"""),
+              {"delta":delta,"n":occurred,"t":tenant,"m":name,"p":period,"s":start})
+            event_id=conn.execute(text("SELECT event_id FROM air_usage_events WHERE tenant_id=:t AND idempotency_key=:k"),
+                                  {"t":tenant,"k":key}).scalar_one()
+            return {"event_id":event_id,"metric":name,"adjustment":delta,"used":used+delta,
+                    "idempotent_replay":False,"actor_id":actor_id}
 
     def consume(self,*args,**kwargs):
         result=self.record_usage(*args,**kwargs)
