@@ -857,7 +857,6 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
                 state["expired_fo_cleanup"] = store.cleanup_expired_fo(today)
             else:
                 state["monthly_pd_scan"] = {"status": "DEFERRED_STRATEGY_RUN_INCOMPLETE"}
-            else:
                 # Initial installation is not fully ready until the research
                 # replay has completed successfully; a later bootstrap retries it.
                 state["status"] = "PARTIAL"
