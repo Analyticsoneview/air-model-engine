@@ -91,3 +91,12 @@ def classify_price_structure(bars: list[dict[str, Any]], tolerance_pct: float=2.
     if a<b and c>b and (c-b)/b>=.04:
         return {"pattern":"N","state":"FORMING","confidence":60,"reason":"Rally-pullback-renewed-rise candidate"}
     return {"pattern":"NONE","state":"INCOMPLETE","confidence":0,"reason":"No defined pattern met conservative rules"}
+
+def classify_premium_discount(close: float, pml: float, pmh: float) -> str:
+    if float(pmh) <= float(pml):
+        raise ValueError("PMH must be greater than PML")
+    eq=(float(pml)+float(pmh))/2.0
+    if close < pml: return "BELOW_PML"
+    if close <= eq: return "DISCOUNT"
+    if close < pmh: return "PREMIUM"
+    return "AT_OR_ABOVE_PMH"
