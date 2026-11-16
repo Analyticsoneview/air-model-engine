@@ -8,10 +8,13 @@ from __future__ import annotations
 import os
 import subprocess
 import tempfile
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 from uuid import uuid4
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.workflow_engine import WorkflowStore
 
