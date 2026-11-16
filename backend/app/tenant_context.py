@@ -46,6 +46,8 @@ def install_tenant_context(engine) -> None:
     """Set PostgreSQL session GUCs before each statement on a SQLAlchemy engine."""
     from sqlalchemy import event
 
+    if getattr(getattr(engine, "dialect", None), "name", None) != "postgresql":
+        return
     if getattr(engine, "_air_tenant_context_installed", False):
         return
 
