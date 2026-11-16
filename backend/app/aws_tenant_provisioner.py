@@ -51,7 +51,7 @@ class AwsTenantProvisioner:
         self.rabbitmq_admin_user = rabbitmq_admin_user.strip()
         self.region = region.strip()
         if not re.fullmatch(r"[a-z0-9][a-z0-9-]{2,29}-", self.bucket_prefix):
-            raise ValueError("AIR_TENANT_S3_BUCKET_PREFIX must be 4-22 lowercase letters/digits/hyphens and end with '-'")
+            raise ValueError("AIR_TENANT_S3_BUCKET_PREFIX must be 4-31 lowercase letters/digits/hyphens and end with '-'")
         if not self.secrets_prefix or not self.rabbitmq_admin_user or not self.region:
             raise ValueError("AWS tenant provisioning configuration is incomplete")
 
