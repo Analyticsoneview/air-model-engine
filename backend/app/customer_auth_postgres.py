@@ -13,7 +13,8 @@ from uuid import uuid4
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
-from app.tenant_context import install_tenant_context, tenant_scope
+from app.tenant_context import install_tenant_context, tenant_scope, customer_tenant_scope
+from functools import wraps
 
 
 _E164 = re.compile(r"^\+[1-9][0-9]{7,14}$")
@@ -21,6 +22,22 @@ _PLANS = {"DAILY", "MONTHLY", "SIX_MONTHS", "YEARLY"}
 _SEGMENTS = {"ALL", "NEVER_SUBSCRIBED", "EXPIRED", "ACTIVE", "CANCELLED",
              "INACTIVE", "PENDING_ACCESS", "OPTED_OUT", "NOT_GRANTED"}
 _OFFER_STATUSES = {"DRAFT", "APPROVED", "REVOKED"}
+
+
+def _customer_scoped(method):
+    @wraps(method)
+    def wrapped(self, customer_id, *args, **kwargs):
+        with customer_tenant_scope(self.engine, customer_id):
+            return method(self, customer_id, *args, **kwargs)
+    return wrapped
+
+
+def _admin_scoped(method):
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        with tenant_scope(is_admin=True):
+            return method(self, *args, **kwargs)
+    return wrapped
 
 
 class PostgresAccessStore:
@@ -131,6 +148,7 @@ class PostgresAccessStore:
             return conn.execute(text("SELECT mobile_e164 FROM air_access_requests WHERE request_id=:id"),
                                 {"id": request_id}).scalar_one_or_none()
 
+    @_admin_scoped
     def list_requests(self, status: str | None = None):
         statement = """SELECT r.request_id,r.mobile_e164,r.device_id,r.status,r.created_at,r.reviewed_at,
             r.reviewer_note,CASE WHEN r.request_id=(SELECT r2.request_id FROM air_access_requests r2
@@ -161,6 +179,7 @@ class PostgresAccessStore:
                 WHERE request_id=:id ORDER BY decided_at,decision_id"""), {"id": request_id}).mappings().all()
         return [dict(row) for row in rows]
 
+    @_admin_scoped
     def list_decisions(self, start_date: str | None = None, end_date: str | None = None):
         clauses, params = [], {}
         if start_date: clauses.append("decided_at::date >= CAST(:start_date AS date)"); params["start_date"] = start_date
@@ -172,6 +191,7 @@ class PostgresAccessStore:
                 where + " ORDER BY decided_at DESC,decision_id DESC"), params).mappings().all()
         return [dict(row) for row in rows]
 
+    @_admin_scoped
     def review(self, request_id: str, status: str, note: str = "", reviewer_admin_id: str = "",
                reviewer_role: str = "", totp_counter: int = -1, verification_reference: str | None = None,
                totp_verified_at=None, request_context: dict | None = None) -> bool:
@@ -217,6 +237,7 @@ class PostgresAccessStore:
                     conn.execute(text("UPDATE air_device_sessions SET active=false WHERE request_id=:id"), {"id": request_id})
         return result.rowcount > 0
 
+    @_admin_scoped
     def create_session(self, request_id: str) -> str:
         session_id = str(uuid4())
         with self.engine.begin() as conn:
@@ -235,6 +256,7 @@ class PostgresAccessStore:
                 {"sid": session_id}).first()
         return bool(row and row.active and row.status == "APPROVED")
 
+    @_admin_scoped
     def assign_subscription(self, customer_id: str, plan_code: str, starts_at: str, expires_at: str, assigned_by_admin_id: str | None = None):
         plan = plan_code.upper()
         if plan not in _PLANS:
@@ -268,6 +290,7 @@ class PostgresAccessStore:
                 updated_at=CURRENT_TIMESTAMP"""),
                 {"customer_id": customer_id, "mobile": customer_id, "assigned_at": assigned_at})
 
+    @_customer_scoped
     def get_subscription(self, customer_id: str):
         with self.engine.connect() as conn:
             row = conn.execute(text("""SELECT customer_id,plan_code,starts_at,expires_at,status
@@ -308,6 +331,7 @@ class PostgresAccessStore:
                 subscription["status"] = "EXPIRED"
         return subscription, dict(pref) if pref else None
 
+    @_admin_scoped
     def list_marketing_customers(self, segment: str = "ALL", search: str = "", limit: int = 200):
         segment = segment.upper()
         if segment not in _SEGMENTS:
@@ -358,6 +382,7 @@ class PostgresAccessStore:
                 if len(result) >= limit: break
         return result
 
+    @_customer_scoped
     def get_marketing_consent(self, customer_id: str):
         with self.engine.connect() as conn:
             row = conn.execute(text("""SELECT promotional_consent,consent_updated_at
@@ -368,6 +393,7 @@ class PostgresAccessStore:
                 "marketing_status": "OPTED_IN" if consent else ("OPTED_OUT" if row else "NOT_GRANTED"),
                 "consent_updated_at": row["consent_updated_at"] if row else None}
 
+    @_customer_scoped
     def set_marketing_consent(self, customer_id: str, enabled: bool):
         if not customer_id:
             raise ValueError("Customer identity is required")
@@ -385,6 +411,7 @@ class PostgresAccessStore:
                  "details": "OPTED_IN" if enabled else "OPTED_OUT"})
         return {"customer_id": customer_id, "promotional_consent": bool(enabled)}
 
+    @_admin_scoped
     def marketing_segment_counts(self):
         customers = self.list_marketing_customers("ALL", limit=500)
         counts = {"ALL": len(customers), "NEVER_SUBSCRIBED": 0, "EXPIRED": 0,
@@ -405,6 +432,7 @@ class PostgresAccessStore:
                 counts["ELIGIBLE_FOR_PROMOTIONS"] += 1
         return counts
 
+    @_admin_scoped
     def create_marketing_offer(self, name: str, offer_code: str, plan_code: str,
                                discount_percent: float, starts_at: str, expires_at: str,
                                terms: str, created_by: str):
@@ -451,6 +479,7 @@ class PostgresAccessStore:
             rows = conn.execute(text(query), params).mappings().all()
         return [dict(row) for row in rows]
 
+    @_admin_scoped
     def approve_marketing_offer(self, offer_id: str, approved_by: str):
         from datetime import datetime, timezone
         with self.engine.begin() as conn:
@@ -469,6 +498,7 @@ class PostgresAccessStore:
             self._audit(conn, approved_by, "MARKETING_OFFER_APPROVED", offer_id, "Super Admin approval")
         return self.get_marketing_offer(offer_id)
 
+    @_admin_scoped
     def revoke_marketing_offer(self, offer_id: str, actor: str):
         with self.engine.begin() as conn:
             result = conn.execute(text("""UPDATE air_marketing_offers SET status='REVOKED'
