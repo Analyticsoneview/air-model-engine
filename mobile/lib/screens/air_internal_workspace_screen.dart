@@ -240,7 +240,7 @@ class _AirInternalWorkspaceScreenState extends State<AirInternalWorkspaceScreen>
                 return Card(child: ListTile(
                   title: Text(item['title']?.toString() ?? 'Untitled'),
                   subtitle: Text(subtitle, maxLines: 3, overflow: TextOverflow.ellipsis),
-                  trailing: Wrap(mainAxisSize: MainAxisSize.min, children: [
+                  trailing: Wrap(spacing: 4, children: [
                     IconButton(tooltip: 'Edit', onPressed: _busy ? null : () => _section == 'watchlists' ? _editWatchlist(item) : _editNote(item), icon: const Icon(Icons.edit_outlined)),
                     IconButton(tooltip: 'Delete', onPressed: _busy ? null : () => _deleteItem(item, _section), icon: const Icon(Icons.delete_outline)),
                   ]),
