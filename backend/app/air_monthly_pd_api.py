@@ -42,9 +42,14 @@ async def evaluate_monthly_pd(body: EvaluationRequest, admin: dict=Depends(requi
                     spread_pct=contract.get("spread_pct"),
                     underlying_volume_ratio=contract.get("underlying_volume_ratio"),
                 )
+                days_to_expiry=(expiry-body.as_of_date).days
+                settlement_watch=bool(contract.get("is_stock_option") and contract.get("is_itm")
+                    and 0 <= days_to_expiry <= 5)
                 option_rows.append({"expiry":expiry_tags(expiry), "option_type":contract.get("option_type"),
                     "strike":contract.get("strike"), "participation":participation,
-                    "settlement_watch":bool(contract.get("is_itm") and (date.fromisoformat(body.as_of_date.isoformat()) >= expiry.replace(day=max(1,expiry.day-5))))})
+                    "days_to_expiry":days_to_expiry,
+                    "settlement_classification":"POTENTIAL_PHYSICAL_SETTLEMENT_REVIEW" if settlement_watch else "NO_NEAR_EXPIRY_STOCK_DELIVERY_FLAG",
+                    "settlement_watch":settlement_watch})
             except (KeyError,ValueError,TypeError) as exc:
                 option_rows.append({"classification":"DATA_INSUFFICIENT","reason":str(exc)})
         last_close=float(body.structure_bars[-1]["close"]) if body.structure_bars else None
