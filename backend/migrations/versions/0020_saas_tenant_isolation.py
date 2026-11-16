@@ -442,6 +442,7 @@ def upgrade() -> None:
 
     # Customer-owned tables require a matching tenant id for both reads and writes.
     for table in _CUSTOMER_TABLES:
+        op.alter_column(table, "tenant_id", nullable=False)
         op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
         op.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
         op.execute(f"""
@@ -449,7 +450,6 @@ def upgrade() -> None:
             USING (air_is_admin_context()
                 OR tenant_id=NULLIF(current_setting('air.tenant_id',true),''))
             WITH CHECK (air_is_admin_context()
-                OR tenant_id IS NULL
                 OR tenant_id=NULLIF(current_setting('air.tenant_id',true),''))
         """)
         op.execute(f"""
