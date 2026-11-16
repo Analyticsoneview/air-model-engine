@@ -50,7 +50,7 @@ The root `AIRDEPLOY` wrappers use one cross-platform Python manager for profile 
 - Validate an AWS profile without AWS credentials: `python scripts/air_manager.py --profile aws-saas-multi validate`
 - Build a checksummed release bundle: `python scripts/air_manager.py --profile onprem-single --version 1.0.0 package`
 
-AWS profile validation does not provision resources. AWS live deployment remains deferred until an approved AWS environment is available. See [Deployment Manager and installation operations](deploy/INSTALLATION.md) and the [deployment readiness register](deploy/READINESS_REGISTER.md).
+AWS profile validation does not provision resources. AWS live deployment remains deferred until an approved AWS environment is available. CI produces a matching source bundle and verified OCI image archive for self-hosted release installation. See [Deployment Manager and installation operations](deploy/INSTALLATION.md) and the [deployment readiness register](deploy/READINESS_REGISTER.md).
 
 ## Self-hosted deployment
 
