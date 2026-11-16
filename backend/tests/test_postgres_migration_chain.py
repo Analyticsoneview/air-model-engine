@@ -29,7 +29,7 @@ EXPECTED_CHAIN = [
     "0022_commercial_contract_ledger",
     "0023_usage_metering_quotas",
     "0024_payment_webhook_sandbox",
-    "0025_billing_invoices_reconciliation",
+    "0025_billing_recon",
 ]
 
 
