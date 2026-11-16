@@ -55,6 +55,8 @@ class NSEUniverseTests(unittest.TestCase):
             success = store.status()["required_indices"]["NIFTY100"]
             self.assertEqual(success["last_attempt_status"], "SUCCEEDED")
             self.assertIsNone(success["last_attempt_error"])
+            self.assertEqual(len(store.symbols()), 500)
+            self.assertEqual(store.latest_universe()["status"], "READY")
 
     def test_failed_first_universe_download_does_not_mark_missing_snapshot_ready(self):
         with tempfile.TemporaryDirectory() as folder:
