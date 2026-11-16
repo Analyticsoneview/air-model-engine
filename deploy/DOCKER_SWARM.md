@@ -13,8 +13,17 @@ docker build --build-arg AIR_API_BASE_URL=https://api.example.com -f deploy/pwa.
 
 The PWA build embeds the API base URL at compile time. Use the public HTTPS API URL, not localhost. For multi-node Swarm, push both images to a private registry and set `AIR_BACKEND_IMAGE` and `AIR_PWA_IMAGE` to immutable image references.
 
-## 2. Create Docker secrets\n\nThe installer provisions persistent PostgreSQL/Redis/RabbitMQ passwords and connection-URL secrets automatically. If deploying manually, create the additional secrets below (use the same password values in the URL secrets):\n\n```bash\nopenssl rand -hex 32 | docker secret create air_postgres_password -\nopenssl rand -hex 32 | docker secret create air_redis_password -
-openssl rand -hex 32 | docker secret create air_rabbitmq_password -\n# Create air_database_url containing postgresql+psycopg://air:<password>@postgres:5432/air\n# Create air_redis_url containing redis://:<password>@redis:6379/0\n```
+## 2. Create Docker secrets
+
+The installer provisions persistent PostgreSQL/Redis/RabbitMQ passwords and connection-URL secrets automatically. If deploying manually, create the additional secrets below (use the same password values in the URL secrets):
+
+```bash
+openssl rand -hex 32 | docker secret create air_postgres_password -
+openssl rand -hex 32 | docker secret create air_redis_password -
+openssl rand -hex 32 | docker secret create air_rabbitmq_password -
+# Create air_database_url containing postgresql+psycopg://air:<password>@postgres:5432/air
+# Create air_redis_url containing redis://:<password>@redis:6379/0
+```
 
 Generate keys on the server. Keep them outside source control and do not paste them into chat.
 
