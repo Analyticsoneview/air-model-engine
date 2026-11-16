@@ -191,7 +191,8 @@ class BillingStore:
                     (line_id,tenant_id,invoice_id,description,quantity,unit_amount_minor,tax_breakdown,line_subtotal_minor,line_tax_minor)
                     VALUES(:id,:t,:invoice,:description,:quantity,:unit_amount_minor,:taxes,:subtotal,:tax)"""),
                     {"id":str(uuid4()),"t":tenant_id,"invoice":invoice_id,**line,
-                     "taxes":json.dumps(line["tax_breakdown"])})
+                     "taxes":json.dumps(line["tax_breakdown"]),
+                     "subtotal":line["line_subtotal_minor"],"tax":line["line_tax_minor"]})
             self._audit(conn,tenant_id,"INVOICE",invoice_id,"INVOICE_CREATED",actor_id,key,
                         {"currency":code,"subtotal_minor":subtotal,"tax_total_minor":tax_total,"total_minor":total})
             return self._invoice(conn,tenant_id,invoice_id)
