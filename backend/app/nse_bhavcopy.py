@@ -792,7 +792,10 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
         state["universe"] = universe_result
         universe_store = NSEUniverseStore()
         universe_symbols = universe_store.symbols()
-        expected_cm_sessions = sum(1 for day in days if day.isoformat() not in cm_holidays)
+        expected_cm_sessions = sum(
+            1 for day in days
+            if day >= history_start and day.isoformat() not in cm_holidays
+        )
         symbol_coverage = store.symbol_coverage(
             universe_symbols, history_start.isoformat(), end_date.isoformat(),
             expected_sessions=expected_cm_sessions, minimum_sessions=45,
