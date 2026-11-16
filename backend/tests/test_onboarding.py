@@ -88,3 +88,12 @@ def test_transition_idempotency_rejects_changed_details(tmp_path):
     with pytest.raises(OnboardingConflict):
         store.transition("t1", "c1", item["onboarding_id"], "TRIAL", "c1", "trial-1",
                          {"consent_reference": "different"}, trial_days=14)
+
+def test_customer_cannot_self_activate_a_commercial_contract():
+    from fastapi import HTTPException
+    from app.commercial_contracts_api import ContractTransition, transition_contract
+
+    body = ContractTransition(to_status="ACTIVE", idempotency_key="self-activate")
+    with pytest.raises(HTTPException) as exc:
+        transition_contract("contract-1", body, customer_id="customer-1")
+    assert exc.value.status_code == 403
