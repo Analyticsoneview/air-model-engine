@@ -104,3 +104,72 @@ def test_trial_usage_is_recorded_and_cannot_be_reused(tmp_path):
     assert store.has_used_trial("t1", "c1", "AIR_B2C") is False
     store.transition("t1", "c1", item["onboarding_id"], "TRIAL", "c1", "trial-1")
     assert store.has_used_trial("t1", "c1", "AIR_B2C") is True
+
+def test_trial_activation_and_cancellation_workflow_sqlite(tmp_path, monkeypatch):
+    from app import onboarding_api as api
+    from app.commercial_contracts import CommercialContractStore
+
+    onboarding = make_store(tmp_path)
+    contracts = CommercialContractStore(database_url="", sqlite_path=str(tmp_path / "contracts.sqlite3"))
+    monkeypatch.setattr(api, "_store", lambda: onboarding)
+    monkeypatch.setattr(api, "_contracts", lambda: contracts)
+    monkeypatch.setattr(api, "_tenant", lambda customer_id: "tenant-1")
+
+    body = api.TrialRequest(
+        product_code="AIR_B2C",
+        plan_code="B2C_TRADER_ANNUAL",
+        idempotency_key="trial-e2e-1",
+        consents=[
+            api.ConsentItem(consent_type="TERMS", document_version="terms-v1", accepted=True),
+            api.ConsentItem(consent_type="PRIVACY", document_version="privacy-v1", accepted=True),
+            api.ConsentItem(consent_type="DATA_PROCESSING", document_version="dpa-v1", accepted=True),
+        ],
+    )
+    started = api.start_trial(body, customer_id="customer-1")
+    assert started["onboarding"]["status"] == "TRIAL"
+    assert started["payment_collection_enabled"] is False
+
+    action = api.AdminLifecycleAction(
+        tenant_id="tenant-1", customer_id="customer-1",
+        onboarding_id=started["onboarding"]["onboarding_id"],
+        idempotency_key="activate-e2e-1", approval_reference="manual-approval-1",
+    )
+    activated = api.admin_activate(action, admin={"admin_id": "admin-1"})
+    assert activated["onboarding"]["status"] == "ACTIVE"
+
+    cancelled = api.cancel_onboarding(
+        api.CancelRequest(reason="Customer requested cancellation", idempotency_key="cancel-e2e-1"),
+        customer_id="customer-1",
+    )
+    assert cancelled["onboarding"]["status"] == "CANCELLED"
+    contract = contracts.get_contract("tenant-1", started["onboarding"]["contract_id"])
+    assert contract["status"] == "CANCELLED"
+
+
+def test_trial_cannot_be_restarted_after_expiry(tmp_path, monkeypatch):
+    from fastapi import HTTPException
+    from app import onboarding_api as api
+    from app.commercial_contracts import CommercialContractStore
+
+    onboarding = make_store(tmp_path)
+    contracts = CommercialContractStore(database_url="", sqlite_path=str(tmp_path / "contracts.sqlite3"))
+    monkeypatch.setattr(api, "_store", lambda: onboarding)
+    monkeypatch.setattr(api, "_contracts", lambda: contracts)
+    monkeypatch.setattr(api, "_tenant", lambda customer_id: "tenant-1")
+
+    def request(key):
+        return api.TrialRequest(
+            product_code="AIR_B2C", plan_code="B2C_TRADER_ANNUAL", idempotency_key=key,
+            consents=[
+                api.ConsentItem(consent_type="TERMS", document_version="terms-v1", accepted=True),
+                api.ConsentItem(consent_type="PRIVACY", document_version="privacy-v1", accepted=True),
+                api.ConsentItem(consent_type="DATA_PROCESSING", document_version="dpa-v1", accepted=True),
+            ],
+        )
+
+    started = api.start_trial(request("trial-once"), customer_id="customer-1")
+    onboarding.transition("tenant-1", "customer-1", started["onboarding"]["onboarding_id"],
+                           "EXPIRED", "admin-1", "expire-trial-once")
+    with pytest.raises(HTTPException) as exc:
+        api.start_trial(request("trial-twice"), customer_id="customer-1")
+    assert exc.value.status_code == 409
