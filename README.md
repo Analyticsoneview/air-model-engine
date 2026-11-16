@@ -82,3 +82,11 @@ Never treat a placeholder, sample response or unverified broker connection as a 
 ## One-command cross-platform local startup
 
 Use Docker Compose v2 for the same local AIR stack on Windows, macOS and Linux. Follow [Local Setup](LOCAL_SETUP.md). After the one-time bootstrap, open a terminal in the repository and run the single command `AIRSTART`. The launcher generates local secrets, builds the backend and Flutter PWA, starts services, waits for API health and opens the local app. Local trading execution remains disabled; QOC and Telegram schedulers remain off until deliberately configured.
+
+
+## AIR Global Strategy and Commercial Programme
+
+- [AIR Global Strategic Master Plan](docs/strategy/AIR_GLOBAL_MASTER_STRATEGY.md) — frozen B2C/B2B annual revenue ambitions, global positioning, business engines, platform architecture, governance and financial stage gates.
+- [AIR Global Implementation Programme](docs/strategy/AIR_GLOBAL_IMPLEMENTATION_PROGRAMME.md) — staged GitHub implementation roadmap, Gate 17F commercial foundation, global data/research/API/enterprise workstreams and release acceptance rules.
+
+These are strategic and programme baselines, not forecasts or launch approvals. Existing release, data-licensing and regulatory gates remain mandatory.
