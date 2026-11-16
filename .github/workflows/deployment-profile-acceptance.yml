@@ -36,6 +36,8 @@ jobs:
           done
           python -m json.tool backend/config/deployment_profiles/profile.schema.json >/dev/null
       - name: Run deployment profile tests
+        env:
+          PYTHONPATH: backend
         run: python -m unittest discover -s backend/tests -p 'test_deployment_profiles.py' -v
       - name: Validate Linux launchers
         run: bash -n AIRDEPLOY.sh AIRSTART.sh
