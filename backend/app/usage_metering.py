@@ -122,7 +122,7 @@ class UsageMeter:
               WHERE tenant_id=:t AND metric=:m AND period=:p AND period_start=:s{suffix}"""),
               {"t":tenant,"m":name,"p":period,"s":start}).scalar_one())
             allowed=hard is None or current_total+amount<=int(hard)
-            soft_exceeded=soft is not None and current_total+amount>int(soft)
+            soft_exceeded=soft is not None and current_total+amount>=int(soft)
             status="ACCEPTED" if allowed else "REJECTED"
             inserted=conn.execute(text("""INSERT INTO air_usage_events
               (event_id,tenant_id,customer_id,metric,quantity,unit,period,period_start,period_end,event_type,status,
@@ -156,8 +156,8 @@ class UsageMeter:
         name,delta=str(metric or "").lower(),int(quantity)
         if not tenant or not customer or not key or len(key)>200 or not actor_id:
             raise ValueError("Tenant, customer, actor and bounded idempotency key are required")
-        if name not in METRICS or delta==0:
-            raise ValueError("A supported metric and non-zero adjustment are required")
+        if name not in METRICS or delta==0 or not str(reason or "").strip() or len(str(reason))>500:
+            raise ValueError("A supported metric, non-zero adjustment and bounded reason are required")
         current=now or datetime.now(timezone.utc)
         if current.tzinfo is None: current=current.replace(tzinfo=timezone.utc)
         occurred=current.astimezone(timezone.utc)
@@ -171,6 +171,14 @@ class UsageMeter:
             used=int(conn.execute(text(f"""SELECT quantity FROM air_usage_counters
               WHERE tenant_id=:t AND metric=:m AND period=:p AND period_start=:s{suffix}"""),
               {"t":tenant,"m":name,"p":period,"s":start}).scalar_one())
+            prior=conn.execute(text("""SELECT event_id,customer_id,metric,quantity,event_type,status,idempotency_key
+              FROM air_usage_events WHERE tenant_id=:t AND idempotency_key=:k"""),
+              {"t":tenant,"k":key}).mappings().first()
+            if prior:
+                if (prior["customer_id"] != customer or prior["metric"] != name or int(prior["quantity"]) != delta
+                    or prior["event_type"] != "ADJUSTMENT"):
+                    raise ValueError("Idempotency key was already used for a different usage event")
+                return {**dict(prior),"idempotent_replay":True}
             if used+delta<0: raise ValueError("Adjustment would make usage negative")
             inserted=conn.execute(text("""INSERT INTO air_usage_events
               (event_id,tenant_id,customer_id,metric,quantity,unit,period,period_start,period_end,event_type,status,
