@@ -86,7 +86,7 @@ def _seed_acceptance_records() -> dict:
         )
         store.record_worker_heartbeat(
             worker_id=worker_id, component="workflow-runtime", status="RUNNING",
-            details={"acceptance_id": suffix, "rabbitmq_connected": True},
+            details={"acceptance_id": suffix, "rabbitmq_connected": True, "components": {"workflow-outbox": True, "workflow-scheduler": True, "workflow-executor": True, "workflow-operations-monitor": True}},
         )
         return {
             "suffix": suffix, "workflow_id": workflow["workflow_id"],
@@ -124,6 +124,22 @@ def _verify_records(database_url: str, ids: dict) -> None:
         ).fetchone()
         if int(followup["n"]) != 1:
             raise AssertionError("Backup restore did not preserve workflow-generated follow-up event")
+        runtime_heartbeat = store.db.execute(
+            """SELECT 1 FROM air_workflow_worker_heartbeats
+               WHERE component='workflow-runtime' AND status='RUNNING'
+                 AND last_seen::timestamptz > now() - interval '45 seconds'
+                 AND details_json::jsonb ->> 'rabbitmq_connected' = 'true'
+                 AND details_json::jsonb -> 'components' ?& ARRAY[
+                   'workflow-outbox','workflow-scheduler','workflow-executor','workflow-operations-monitor'
+                 ]
+                 AND NOT EXISTS (
+                   SELECT 1 FROM jsonb_each(details_json::jsonb -> 'components') AS component(name, alive)
+                   WHERE alive <> 'true'::jsonb
+                 )
+               LIMIT 1"""
+        ).fetchone()
+        if not runtime_heartbeat:
+            raise AssertionError("Restored runtime heartbeat failed the Docker Swarm readiness query")
         calendar = store.get_exchange_calendar_day("NSE", "2099-12-31")
         if not calendar or calendar["status"] != "TRADING_DAY":
             raise AssertionError("Backup restore did not preserve exchange calendar record")
