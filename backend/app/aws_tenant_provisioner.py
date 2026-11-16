@@ -15,6 +15,7 @@ from urllib.parse import quote
 from uuid import UUID
 
 import httpx
+from cryptography.fernet import Fernet
 
 
 class TenantInfrastructureError(RuntimeError):
@@ -49,7 +50,7 @@ class AwsTenantProvisioner:
         self.secrets_prefix = secrets_prefix.strip("/")
         self.rabbitmq_admin_user = rabbitmq_admin_user.strip()
         self.region = region.strip()
-        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{2,20}-", self.bucket_prefix):
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{2,29}-", self.bucket_prefix):
             raise ValueError("AIR_TENANT_S3_BUCKET_PREFIX must be 4-22 lowercase letters/digits/hyphens and end with '-'")
         if not self.secrets_prefix or not self.rabbitmq_admin_user or not self.region:
             raise ValueError("AWS tenant provisioning configuration is incomplete")
@@ -164,7 +165,7 @@ class AwsTenantProvisioner:
             if code not in {"ResourceNotFoundException", "NotFound"}:
                 raise TenantInfrastructureError(f"Cannot read tenant secret {name}") from exc
         password = secrets.token_urlsafe(36)
-        credential_key = secrets.token_urlsafe(48)
+        credential_key = Fernet.generate_key().decode("ascii")
         payload = {
             "tenant_id": tenant_id,
             "rabbitmq_username": username,
