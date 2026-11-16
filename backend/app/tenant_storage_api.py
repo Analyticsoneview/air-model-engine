@@ -6,6 +6,7 @@ concurrent uploads cannot oversubscribe a tenant's storage allowance.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import os
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -171,7 +172,7 @@ async def download_tenant_object(
         raise HTTPException(status_code=502, detail="Tenant object integrity verification failed")
     if (
         len(body) != int(metadata["size_bytes"])
-        or not hashlib.compare_digest(hashlib.sha256(body).hexdigest(), str(metadata["sha256"]))
+        or not hmac.compare_digest(hashlib.sha256(body).hexdigest(), str(metadata["sha256"]))
     ):
         raise HTTPException(status_code=502, detail="Tenant object integrity verification failed")
     return Response(
