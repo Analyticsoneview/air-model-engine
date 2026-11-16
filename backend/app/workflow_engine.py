@@ -193,6 +193,8 @@ class WorkflowStore:
                 run_id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL, workflow_version INTEGER NOT NULL,
                 event_id TEXT NOT NULL, status TEXT NOT NULL, execution_mode TEXT NOT NULL,
                 started_at TEXT NOT NULL, completed_at TEXT, error TEXT,
+                claimed_by TEXT, claimed_at TEXT, lease_expires_at TEXT,
+                claim_version INTEGER NOT NULL DEFAULT 0,
                 UNIQUE(workflow_id,workflow_version,event_id)
             );
             CREATE INDEX IF NOT EXISTS ix_air_workflow_runs_status_time
@@ -241,6 +243,19 @@ class WorkflowStore:
             CREATE INDEX IF NOT EXISTS ix_air_workflow_worker_heartbeat_seen
                 ON air_workflow_worker_heartbeats(last_seen);
         """)
+        # Upgrade pre-existing local SQLite databases without requiring Alembic.
+        columns = {row["name"] for row in self.db.execute(
+            "PRAGMA table_info(air_workflow_runs)"
+        ).fetchall()}
+        for name, definition in (
+            ("claimed_by", "TEXT"), ("claimed_at", "TEXT"),
+            ("lease_expires_at", "TEXT"),
+            ("claim_version", "INTEGER NOT NULL DEFAULT 0"),
+        ):
+            if name not in columns:
+                self.db.execute(f"ALTER TABLE air_workflow_runs ADD COLUMN {name} {definition}")
+        self.db.execute("""CREATE INDEX IF NOT EXISTS ix_air_workflow_runs_lease
+            ON air_workflow_runs(status,lease_expires_at,started_at)""")
         self.db.commit()
 
     def create_workflow(
@@ -773,11 +788,108 @@ class WorkflowStore:
         } for row in rows]
 
     def runnable_runs(self, limit: int = 20) -> list[str]:
+        """Compatibility listing only; workers must use claim_runnable_runs."""
         rows = self.db.execute(
             "SELECT run_id FROM air_workflow_runs WHERE status IN ('QUEUED','RUNNING') ORDER BY started_at LIMIT ?",
             (max(1, min(int(limit), 100)),),
         ).fetchall()
         return [row["run_id"] for row in rows]
+
+    def claim_runnable_runs(
+        self, worker_id: str, limit: int = 20, lease_seconds: int = 60,
+    ) -> list[dict]:
+        """Atomically claim eligible runs; expired leases are recoverable after a crash."""
+        worker_id = str(worker_id).strip()
+        if not worker_id or len(worker_id) > 160:
+            raise ValueError("worker_id must contain 1-160 characters")
+        limit = max(1, min(int(limit), 100))
+        lease_seconds = max(15, min(int(lease_seconds), 3600))
+        now_dt = datetime.now(timezone.utc)
+        now = now_dt.isoformat()
+        expires = (now_dt.timestamp() + lease_seconds)
+        lease_until = datetime.fromtimestamp(expires, timezone.utc).isoformat()
+        claimed = []
+        if self.is_postgres:
+            with self.db:
+                rows = self.db.execute(
+                    """SELECT run_id FROM air_workflow_runs
+                       WHERE status IN ('QUEUED','RUNNING')
+                         AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
+                       ORDER BY started_at LIMIT ? FOR UPDATE SKIP LOCKED""", (now, limit),
+                ).fetchall()
+                for row in rows:
+                    version = self.db.execute(
+                        """UPDATE air_workflow_runs
+                           SET claimed_by=?,claimed_at=?,lease_expires_at=?,
+                               claim_version=claim_version+1,status='RUNNING',
+                               started_at=COALESCE(started_at,?),completed_at=NULL
+                           WHERE run_id=? RETURNING claim_version""",
+                        (worker_id, now, lease_until, now, row["run_id"]),
+                    ).fetchone()
+                    claimed.append({"run_id": row["run_id"], "worker_id": worker_id,
+                                    "claim_version": version["claim_version"]})
+        else:
+            # BEGIN IMMEDIATE serializes claimers before selecting candidates.
+            self.db.execute("BEGIN IMMEDIATE")
+            try:
+                rows = self.db.execute(
+                    """SELECT run_id FROM air_workflow_runs
+                       WHERE status IN ('QUEUED','RUNNING')
+                         AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
+                       ORDER BY started_at LIMIT ?""", (now, limit),
+                ).fetchall()
+                for row in rows:
+                    cur = self.db.execute(
+                        """UPDATE air_workflow_runs
+                           SET claimed_by=?,claimed_at=?,lease_expires_at=?,
+                               claim_version=claim_version+1,status='RUNNING',
+                               started_at=COALESCE(started_at,?),completed_at=NULL
+                           WHERE run_id=? AND status IN ('QUEUED','RUNNING')
+                             AND (lease_expires_at IS NULL OR lease_expires_at <= ?)""",
+                        (worker_id, now, lease_until, now, row["run_id"], now),
+                    )
+                    if cur.rowcount:
+                        version = self.db.execute(
+                            "SELECT claim_version FROM air_workflow_runs WHERE run_id=?",
+                            (row["run_id"],),
+                        ).fetchone()
+                        claimed.append({"run_id": row["run_id"], "worker_id": worker_id,
+                                        "claim_version": version["claim_version"]})
+                self.db.commit()
+            except Exception:
+                self.db.rollback()
+                raise
+        return claimed
+
+    def renew_run_lease(
+        self, run_id: str, worker_id: str, claim_version: int, lease_seconds: int = 60,
+    ) -> bool:
+        now_dt = datetime.now(timezone.utc)
+        now = now_dt.isoformat()
+        lease_until = datetime.fromtimestamp(
+            now_dt.timestamp() + max(15, min(int(lease_seconds), 3600)), timezone.utc
+        ).isoformat()
+        with self.db:
+            cur = self.db.execute(
+                """UPDATE air_workflow_runs SET lease_expires_at=?
+                   WHERE run_id=? AND status='RUNNING' AND claimed_by=?
+                     AND claim_version=? AND lease_expires_at>?""",
+                (lease_until, run_id, worker_id, int(claim_version), now),
+            )
+        return cur.rowcount == 1
+
+    def release_run_claim(
+        self, run_id: str, worker_id: str, claim_version: int, error: str | None = None,
+    ) -> bool:
+        with self.db:
+            cur = self.db.execute(
+                """UPDATE air_workflow_runs
+                   SET claimed_by=NULL,claimed_at=NULL,lease_expires_at=NULL,
+                       status='QUEUED',error=?
+                   WHERE run_id=? AND status='RUNNING' AND claimed_by=? AND claim_version=?""",
+                (str(error)[:1000] if error else None, run_id, worker_id, int(claim_version)),
+            )
+        return cur.rowcount == 1
 
     def run_context(self, run_id: str) -> dict | None:
         row = self.db.execute(
@@ -799,27 +911,39 @@ class WorkflowStore:
             "event_payload": json.loads(row["payload_json"]),
         }
 
-    def set_run_status(self, run_id: str, status: str, error: str | None = None) -> None:
+    def set_run_status(
+        self, run_id: str, status: str, error: str | None = None,
+        *, worker_id: str | None = None, claim_version: int | None = None,
+    ) -> None:
         status = str(status).upper()
         if status not in {"QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"}:
             raise ValueError("Unsupported workflow run status")
         now = _now()
         with self.db:
+            owner_clause = ""
+            owner_params: tuple = ()
+            if worker_id is not None or claim_version is not None:
+                if worker_id is None or claim_version is None:
+                    raise ValueError("worker_id and claim_version must be supplied together")
+                owner_clause = " AND claimed_by=? AND claim_version=?"
+                owner_params = (worker_id, int(claim_version))
             if status == "RUNNING":
-                self.db.execute(
-                    "UPDATE air_workflow_runs SET status=?,started_at=COALESCE(started_at,?),completed_at=NULL,error=NULL WHERE run_id=?",
-                    (status, now, run_id),
+                cur = self.db.execute(
+                    "UPDATE air_workflow_runs SET status=?,started_at=COALESCE(started_at,?),completed_at=NULL,error=NULL WHERE run_id=?" + owner_clause,
+                    (status, now, run_id, *owner_params),
                 )
             elif status in {"SUCCEEDED", "FAILED", "CANCELLED"}:
-                self.db.execute(
-                    "UPDATE air_workflow_runs SET status=?,completed_at=?,error=? WHERE run_id=?",
-                    (status, now, str(error)[:1000] if error else None, run_id),
+                cur = self.db.execute(
+                    "UPDATE air_workflow_runs SET status=?,completed_at=?,error=?,claimed_by=NULL,claimed_at=NULL,lease_expires_at=NULL WHERE run_id=?" + owner_clause,
+                    (status, now, str(error)[:1000] if error else None, run_id, *owner_params),
                 )
             else:
-                self.db.execute(
-                    "UPDATE air_workflow_runs SET status=?,error=? WHERE run_id=?",
-                    (status, str(error)[:1000] if error else None, run_id),
+                cur = self.db.execute(
+                    "UPDATE air_workflow_runs SET status=?,error=? WHERE run_id=?" + owner_clause,
+                    (status, str(error)[:1000] if error else None, run_id, *owner_params),
                 )
+            if worker_id is not None and cur.rowcount != 1:
+                raise RuntimeError("Workflow run claim was lost; stale worker cannot update run status")
 
     def get_run_step(self, run_id: str, step_key: str) -> dict | None:
         row = self.db.execute(
@@ -832,6 +956,7 @@ class WorkflowStore:
         self, *, run_id: str, step_key: str, step_index: int, action: str,
         status: str, input_data: dict, output_data: dict | list | None = None,
         error: str | None = None, attempts: int = 0,
+        worker_id: str | None = None, claim_version: int | None = None,
     ) -> dict:
         status = str(status).upper()
         if status not in {"PENDING", "RUNNING", "SUCCEEDED", "FAILED", "SKIPPED"}:
@@ -840,6 +965,20 @@ class WorkflowStore:
         input_json = json.dumps(input_data, allow_nan=False)
         output_json = json.dumps(output_data, allow_nan=False) if output_data is not None else None
         with self.db:
+            if worker_id is not None or claim_version is not None:
+                if worker_id is None or claim_version is None:
+                    raise ValueError("worker_id and claim_version must be supplied together")
+                lock_sql = """SELECT claimed_by,claim_version,lease_expires_at
+                              FROM air_workflow_runs WHERE run_id=?"""
+                if self.is_postgres:
+                    lock_sql += " FOR UPDATE"
+                claim = self.db.execute(lock_sql, (run_id,)).fetchone()
+                now_check = _now()
+                if (not claim or claim["claimed_by"] != worker_id
+                        or int(claim["claim_version"]) != int(claim_version)
+                        or not claim["lease_expires_at"]
+                        or claim["lease_expires_at"] <= now_check):
+                    raise RuntimeError("Workflow run claim was lost; stale worker cannot save a step")
             existing = self.get_run_step(run_id, step_key)
             if existing:
                 if status == "RUNNING":

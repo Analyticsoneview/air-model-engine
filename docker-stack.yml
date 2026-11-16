@@ -28,7 +28,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$(cat /run/secrets/air_redis_password)\""]
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$(cat /run/secrets/air_redis_password)\""]
     secrets:
       - air_redis_password
     volumes:
@@ -36,7 +36,7 @@ services:
     networks:
       - air_private
     healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$(cat /run/secrets/air_redis_password)\" redis-cli ping | grep -q PONG"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$(cat /run/secrets/air_redis_password)\" redis-cli ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -87,6 +87,9 @@ services:
       AIR_RABBITMQ_USER: air
       AIR_RABBITMQ_PASSWORD_FILE: /run/secrets/air_rabbitmq_password
       AIR_WORKFLOW_LOG_LEVEL: INFO
+      AIR_WORKFLOW_ALERT_POLL_SECONDS: ${AIR_WORKFLOW_ALERT_POLL_SECONDS:-30}
+      AIR_WORKFLOW_ALERT_BACKLOG_THRESHOLD: ${AIR_WORKFLOW_ALERT_BACKLOG_THRESHOLD:-100}
+      AIR_WORKFLOW_ALERT_DEDUPE_DB_PATH: /var/lib/air/air_workflow_alerts.sqlite3
     healthcheck:
       test: ["CMD", "python", "-c", "import pathlib,sys; sys.exit(0 if b'app.workflow_worker' in pathlib.Path('/proc/1/cmdline').read_bytes() else 1)"]
       interval: 15s

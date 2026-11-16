@@ -67,7 +67,7 @@ fi
 echo "Applying Docker Swarm stack '$STACK_NAME'..."
 docker stack deploy --with-registry-auth --prune -c docker-stack.yml "$STACK_NAME"
 
-for service in "${STACK_NAME}_rabbitmq" "${STACK_NAME}_air-api" "${STACK_NAME}_air-workflow-worker" "${STACK_NAME}_air-pwa"; do
+for service in "${STACK_NAME}_postgres" "${STACK_NAME}_redis" "${STACK_NAME}_rabbitmq" "${STACK_NAME}_air-api" "${STACK_NAME}_air-workflow-worker" "${STACK_NAME}_air-pwa"; do
   ready=0
   replicas=""
   container_id=""
@@ -92,6 +92,51 @@ for service in "${STACK_NAME}_rabbitmq" "${STACK_NAME}_air-api" "${STACK_NAME}_a
     exit 1
   fi
 done
+
+# Container health alone does not prove that the worker can reach RabbitMQ
+# and persist its runtime heartbeat. Require a fresh, fully healthy heartbeat.
+POSTGRES_SERVICE="${STACK_NAME}_postgres"
+POSTGRES_CONTAINER="$(docker ps --filter "label=com.docker.swarm.service.name=$POSTGRES_SERVICE" --format '{{.ID}}' | head -n 1)"
+if [[ -z "$POSTGRES_CONTAINER" ]]; then
+  echo "PostgreSQL container is unavailable for workflow runtime smoke test." >&2
+  exit 1
+fi
+
+RUNTIME_HEALTH_SQL="SELECT 1
+FROM air_workflow_worker_heartbeats
+WHERE component = 'workflow-runtime'
+  AND status = 'RUNNING'
+  AND last_seen::timestamptz > now() - interval '45 seconds'
+  AND details_json::jsonb ->> 'rabbitmq_connected' = 'true'
+  AND details_json::jsonb -> 'components' -> 'workflow-outbox' = 'true'::jsonb
+  AND details_json::jsonb -> 'components' -> 'workflow-scheduler' = 'true'::jsonb
+  AND details_json::jsonb -> 'components' -> 'workflow-executor' = 'true'::jsonb
+  AND details_json::jsonb -> 'components' -> 'workflow-operations-monitor' = 'true'::jsonb
+  AND NOT EXISTS (
+    SELECT 1
+    FROM jsonb_each(details_json::jsonb -> 'components') AS component(name, alive)
+    WHERE alive <> 'true'::jsonb
+  )
+LIMIT 1"
+
+runtime_ready=0
+for attempt in $(seq 1 36); do
+  heartbeat="$(docker exec "$POSTGRES_CONTAINER" sh -ec \
+    'export PGPASSWORD="$(cat /run/secrets/air_postgres_password)"; exec psql -U air -d air -Atqc "$1"' \
+    sh "$RUNTIME_HEALTH_SQL")"
+  if [[ "$heartbeat" == "1" ]]; then
+    runtime_ready=1
+    break
+  fi
+  sleep 5
+done
+if [[ "$runtime_ready" -ne 1 ]]; then
+  echo "Workflow runtime did not persist a fresh healthy RabbitMQ-connected heartbeat." >&2
+  docker service ps "${STACK_NAME}_air-workflow-worker" --no-trunc || true
+  exit 1
+fi
+
+echo "PASS: workflow worker heartbeat is fresh, RUNNING and RabbitMQ-connected."
 
 echo "AIR Swarm services report 1/1 replicas:"
 docker service ls --filter "label=com.docker.stack.namespace=$STACK_NAME"

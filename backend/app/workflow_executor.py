@@ -201,16 +201,31 @@ def _execute_action(
     raise WorkflowStepError(f"Unsupported workflow action: {action}")
 
 
-def execute_workflow_run(store: WorkflowStore, run_id: str) -> dict[str, Any] | None:
+def execute_workflow_run(
+    store: WorkflowStore, run_id: str, *,
+    worker_id: str | None = None, claim_version: int | None = None,
+) -> dict[str, Any] | None:
     context = store.run_context(run_id)
     if not context:
         return None
     if context["status"] in {"SUCCEEDED", "FAILED", "CANCELLED"}:
         return {"run_id": run_id, "status": context["status"]}
-    store.set_run_status(run_id, "RUNNING")
+
+    def assert_claim() -> None:
+        if worker_id is not None:
+            if claim_version is None or not store.renew_run_lease(
+                run_id, worker_id, claim_version, lease_seconds=60,
+            ):
+                raise RuntimeError("Workflow run lease expired or ownership changed")
+
+    assert_claim()
+    store.set_run_status(
+        run_id, "RUNNING", worker_id=worker_id, claim_version=claim_version,
+    )
     steps = context["workflow_spec"].get("steps", [])
     outputs: dict[str, dict] = {}
     for index, step in enumerate(steps):
+        assert_claim()
         step_key = str(step["id"])
         action = str(step["action"]).lower()
         existing = store.get_run_step(run_id, step_key)
@@ -223,34 +238,45 @@ def execute_workflow_run(store: WorkflowStore, run_id: str) -> dict[str, Any] | 
         attempts = int(existing.get("attempts", 0)) if existing else 0
         while attempts < max_attempts:
             attempts += 1
+            assert_claim()
             store.save_run_step(
                 run_id=run_id, step_key=step_key, step_index=index, action=action,
-                status="RUNNING", input_data=params, attempts=attempts,
+                status="RUNNING", input_data=params, attempts=attempts, worker_id=worker_id, claim_version=claim_version,
             )
             try:
                 output = _execute_action(store, context, step, outputs)
+                assert_claim()
                 store.save_run_step(
                     run_id=run_id, step_key=step_key, step_index=index, action=action,
-                    status="SUCCEEDED", input_data=params, output_data=output, attempts=attempts,
+                    status="SUCCEEDED", input_data=params, output_data=output, attempts=attempts, worker_id=worker_id, claim_version=claim_version,
                 )
                 outputs[step_key] = output
                 break
             except Exception as exc:  # bounded retry; step actions are idempotent
+                assert_claim()
                 log.exception("AIR workflow step %s failed on attempt %d", step_key, attempts)
                 store.save_run_step(
                     run_id=run_id, step_key=step_key, step_index=index, action=action,
                     status="FAILED", input_data=params,
-                    error=f"{type(exc).__name__}: {str(exc)[:800]}", attempts=attempts,
+                    error=f"{type(exc).__name__}: {str(exc)[:800]}", attempts=attempts, worker_id=worker_id, claim_version=claim_version,
                 )
                 if attempts < max_attempts:
                     time.sleep(min(2 ** (attempts - 1), 8))
         else:
+            assert_claim()
             store.save_run_step(
                 run_id=run_id, step_key=step_key, step_index=index, action=action,
                 status="FAILED", input_data=params,
                 error="Retry budget exhausted while recovering workflow run", attempts=attempts,
+                worker_id=worker_id, claim_version=claim_version,
             )
-            store.set_run_status(run_id, "FAILED", f"Step {step_key} exhausted {max_attempts} attempts")
+            store.set_run_status(
+                run_id, "FAILED", f"Step {step_key} exhausted {max_attempts} attempts",
+                worker_id=worker_id, claim_version=claim_version,
+            )
             return {"run_id": run_id, "status": "FAILED", "failed_step": step_key}
-    store.set_run_status(run_id, "SUCCEEDED")
+    assert_claim()
+    store.set_run_status(
+        run_id, "SUCCEEDED", worker_id=worker_id, claim_version=claim_version,
+    )
     return {"run_id": run_id, "status": "SUCCEEDED", "steps": len(steps)}

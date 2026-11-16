@@ -185,3 +185,70 @@ and delivery return an explicit failure; no report is marked sent. Email verific
 codes expire after ten minutes and only their hash is stored. The recipient is
 customer-scoped and must be verified before report delivery.
 
+## 11. Workflow runtime acceptance, operations alerts and database recovery
+
+The workflow worker monitors its own runtime and durable queue state. It reports an
+operations alert for a stale or degraded worker, an unreachable RabbitMQ broker,
+an outbox backlog above the configured threshold, publisher retry exhaustion, a
+dispatch queue backlog, or any message in the dead-letter queue. Alerts use the
+admin/platform `AIR_WORKFLOW` Telegram destination only; customer-scoped Telegram
+destinations are not used for infrastructure health messages.
+
+Configure an administrator-owned Telegram destination for the `AIR_WORKFLOW`
+strategy in the Admin Telegram Destinations screen. Keep the worker's Telegram bot
+token in the `air_telegram_bot_token` Docker secret. The monitor polls every
+30 seconds by default; configure `AIR_WORKFLOW_ALERT_POLL_SECONDS` to change the
+interval and `AIR_WORKFLOW_ALERT_BACKLOG_THRESHOLD` to change the queue/outbox
+backlog threshold (default 100). Alert delivery is deduplicated per admin
+destination and its delivery ledger is stored on the persistent `air_data` volume.
+If no admin destination is configured, alerts are logged but are not delivered.
+
+### PostgreSQL backup
+
+Run this on a Swarm manager after confirming the PostgreSQL service is healthy:
+
+```bash
+sudo AIR_WORKFLOW_BACKUP_DIR=/var/backups/air/workflows \
+  bash deploy/backup-workflow-postgres.sh
+```
+
+The script writes a PostgreSQL custom-format archive and SHA-256 sidecar with
+owner-only permissions. It reads the database password from the mounted Docker
+secret inside the PostgreSQL task; it does not print the secret. Backups remain
+on the host. Copy them to encrypted off-host storage and apply a tested retention
+policy; a local backup alone is not disaster recovery.
+
+### Non-destructive restore verification
+
+Choose a fresh database name other than `air`. The script refuses to overwrite an
+existing database and never swaps the restored database into production:
+
+```bash
+sudo bash deploy/restore-workflow-postgres-verify.sh \
+  /var/backups/air/workflows/air-postgres-YYYYMMDDTHHMMSSZ.dump \
+  air_restore_verify
+```
+
+It verifies the archive checksum when the sidecar exists, restores into the new
+database using the PostgreSQL 16 server image's matching client tools, and checks
+that workflow definitions, events, outbox, runs, steps, audit, exchange calendar,
+worker heartbeat tables and the workflow lease index exist. It prints row counts
+and retains the restore database for operator inspection. Review the restored
+data before manually removing that verification database.
+
+### Deployment smoke checks
+
+The Swarm deployment script now waits for PostgreSQL, Redis, RabbitMQ, API, worker
+and PWA services to report one healthy replica. It then requires a fresh
+`RUNNING` workflow-worker heartbeat, a live RabbitMQ connection and all worker
+components reporting healthy. A process-only worker health check is not considered
+sufficient.
+
+The GitHub deployment workflow intentionally keeps production deployment behind
+an explicit `workflow_dispatch` approval (`deploy=true`) and the configured
+SSH secrets/known-hosts. Pull-request CI uses disposable services and does not
+deploy to the production host. Do not bypass that approval gate or treat a successful
+image build as a production deployment.
+
+Workflow execution remains limited to research and alert/notification actions.
+Broker order placement is not enabled by the workflow engine.
