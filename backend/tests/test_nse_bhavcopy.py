@@ -59,6 +59,14 @@ class NSEBhavcopyTests(unittest.TestCase):
         complete = {
             "status": "READY", "history_months": 12,
             "archive_coverage_pct": 100, "paired_session_coverage_pct": 100,
+            "universe": {
+                "status": "READY",
+                "indices": {
+                    "NIFTY100": {"status": "READY", "actual_count": 100},
+                    "NIFTYMIDCAP150": {"status": "READY", "actual_count": 150},
+                    "NIFTYSMALLCAP250": {"status": "READY", "actual_count": 250},
+                },
+            },
         }
         self.assertTrue(nse_bootstrap_is_ready(complete))
         incomplete = dict(complete, archive_coverage_pct=99.9)
@@ -66,6 +74,8 @@ class NSEBhavcopyTests(unittest.TestCase):
         incomplete = dict(complete, paired_session_coverage_pct=99.9)
         self.assertFalse(nse_bootstrap_is_ready(incomplete))
         incomplete = dict(complete, status="PARTIAL")
+        self.assertFalse(nse_bootstrap_is_ready(incomplete))
+        incomplete = dict(complete, universe={"status": "FAILED", "indices": {}})
         self.assertFalse(nse_bootstrap_is_ready(incomplete))
 
     def test_nse_calendar_normalizes_cm_and_fo_separately(self):
