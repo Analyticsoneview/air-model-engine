@@ -28,6 +28,7 @@ EXPECTED_CHAIN = [
     "0021_tenant_object_storage",
     "0022_commercial_contract_ledger",
     "0023_usage_metering_quotas",
+    "0024_payment_webhook_sandbox",
 ]
 
 
