@@ -899,7 +899,8 @@ class WorkflowStore:
                             (row["run_id"],),
                         ).fetchone()
                         claimed.append({"run_id": row["run_id"], "worker_id": worker_id,
-                                        "claim_version": version["claim_version"]})
+                                        "claim_version": version["claim_version"],
+                                        "customer_id": row["customer_id"], "tenant_id": row["tenant_id"]})
                 self.db.commit()
             except Exception:
                 self.db.rollback()
@@ -950,6 +951,7 @@ class WorkflowStore:
         return {
             "run_id": row["run_id"], "workflow_id": row["workflow_id"],
             "workflow_version": row["workflow_version"], "event_id": row["event_id"],
+            "customer_id": row["customer_id"], "tenant_id": row["tenant_id"],
             "status": row["status"], "execution_mode": row["execution_mode"],
             "workflow_name": row["name"], "workflow_spec": json.loads(row["workflow_spec_json"]),
             "trigger_config": json.loads(row["trigger_config_json"]),
