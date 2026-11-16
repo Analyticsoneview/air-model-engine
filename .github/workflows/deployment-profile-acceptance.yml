@@ -9,10 +9,13 @@ on:
       - 'AIRSTART.sh'
       - 'backend/Dockerfile'
       - 'backend/app/deployment_profiles.py'
+      - 'backend/app/main.py'
       - 'backend/config/deployment_profiles/**'
       - 'backend/tests/test_deployment_profiles.py'
       - 'compose.local.yml'
       - 'docker-stack.yml'
+      - 'deploy/README.md'
+      - 'README.md'
       - '.github/workflows/deployment-profile-acceptance.yml'
 
 permissions:
