@@ -842,7 +842,21 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
                 state["strategy_run"] = strategy_run
                 log.exception("Post-import AIR strategy replay failed; expired FO cleanup deferred")
             if strategy_run.get("status") == "COMPLETED":
+                try:
+                    from app.air_monthly_pd_scanner import scan_monthly_pd_universe
+                    state["monthly_pd_scan"] = scan_monthly_pd_universe(end_date.isoformat())
+                    if state["monthly_pd_scan"].get("status") != "COMPLETED":
+                        state["status"] = "PARTIAL"
+                except Exception as scan_exc:  # noqa: BLE001
+                    state["monthly_pd_scan"] = {
+                        "status": "FAILED",
+                        "error": f"{type(scan_exc).__name__}: {str(scan_exc)[:200]}",
+                    }
+                    state["status"] = "PARTIAL"
+                    log.exception("AIR MPDSM initial universe scan failed")
                 state["expired_fo_cleanup"] = store.cleanup_expired_fo(today)
+            else:
+                state["monthly_pd_scan"] = {"status": "DEFERRED_STRATEGY_RUN_INCOMPLETE"}
             else:
                 # Initial installation is not fully ready until the research
                 # replay has completed successfully; a later bootstrap retries it.
@@ -901,10 +915,12 @@ def nse_bootstrap_is_ready(bootstrap: dict[str, Any] | None) -> bool:
         and symbol_coverage.get("missing_count") == 0
     )
     strategy_run = bootstrap.get("strategy_run") or {}
+    monthly_pd_scan = bootstrap.get("monthly_pd_scan") or {}
     return (
         months >= 12 and archive_coverage >= 100.0
         and paired_coverage >= 100.0 and universes_ready and coverage_ready
         and strategy_run.get("status") == "COMPLETED"
+        and monthly_pd_scan.get("status") == "COMPLETED"
     )
 
 
