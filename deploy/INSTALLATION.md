@@ -2,7 +2,7 @@
 
 ## Unified AIR Deployment Manager
 
-AIR uses one cross-platform Deployment Manager. Python 3.12 is required for the manager; on-prem installation additionally requires Docker Desktop or Docker Engine with Docker Compose v2. No AWS account, credentials, Kubernetes or cloud service is required for the on-prem profile.
+AIR uses one cross-platform Deployment Manager. Python 3.10+ is required for the manager; on-prem installation additionally requires Docker Desktop or Docker Engine with Docker Compose v2. No AWS account, credentials, Kubernetes or cloud service is required for the on-prem profile.
 
 Windows PowerShell:
 
