@@ -362,11 +362,13 @@ class NSEBhavcopyStore:
         return len(normalized)
 
     def cleanup_expired_fo(self, as_of: date) -> dict[str, Any]:
-        """Purge expired FO rows after strategy replay and evidence snapshot.
+        """Purge only expired FO rows older than the configured research retention.
 
-        Matching strategy evidence is enriched before deletion; lifecycle, entry/exit,
-        quantity and stored P&L fields are not overwritten. Original NSE ZIPs remain
-        retained and per-session removal counts preserve source-count reconciliation.
+        Expired contracts inside the twelve-month (or larger configured) history
+        window remain queryable for AIR options research. Older matching strategy
+        evidence is enriched before deletion; lifecycle, entry/exit, quantity and
+        stored P&L fields are not overwritten. Original NSE ZIPs remain retained and
+        per-session removal counts preserve source-count reconciliation.
         """
         history_months = _configured_history_months()
         retention_start = _subtract_months(as_of, history_months)
