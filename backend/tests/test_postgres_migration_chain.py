@@ -31,6 +31,7 @@ EXPECTED_CHAIN = [
     "0024_payment_webhook_sandbox",
     "0025_billing_recon",
     "0026_customer_onboarding",
+    "0027_organisation_memberships",
 ]
 
 
