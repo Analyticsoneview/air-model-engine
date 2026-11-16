@@ -261,24 +261,109 @@ class AwsTenantProvisioner:
             raise TenantInfrastructureError("Tenant storage quota would be exceeded")
         return used
 
+    @staticmethod
+    def _validate_object_key(key: str) -> str:
+        value = str(key or "")
+        if (
+            not value or len(value) > 512 or len(value.encode("utf-8")) > 1024 or value.startswith("/")
+            or "\\" in value or "\x00" in value
+            or any(ord(char) < 32 or ord(char) == 127 for char in value)
+            or any(not part or part in {".", ".."} for part in value.split("/"))
+        ):
+            raise ValueError("A safe tenant object key of 1-512 characters is required")
+        return value
+
     def put_tenant_object(
-        self, tenant: dict, key: str, body: bytes, *, content_type: str = "application/octet-stream",
+        self, tenant: dict, key: str, body: bytes, *,
+        content_type: str = "application/octet-stream",
+        sha256: str | None = None,
+        quota_prevalidated: bool = False,
     ) -> dict:
         tenant_id = self._tenant_id(tenant)
-        object_key = str(key or "")
-        if not object_key or object_key.startswith("/") or ".." in object_key.split("/"):
-            raise ValueError("A safe tenant object key is required")
+        object_key = self._validate_object_key(key)
+        if not isinstance(body, bytes) or not body:
+            raise ValueError("Tenant object body must contain bytes")
+        digest = str(sha256 or __import__("hashlib").sha256(body).hexdigest()).lower()
+        if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
+            raise ValueError("A valid SHA-256 digest is required")
         size = len(body)
-        used = self.enforce_storage_quota(tenant, size)
+        used = 0 if quota_prevalidated else self.enforce_storage_quota(tenant, size)
         bucket = self._bucket_name(tenant_id)
-        prefix = f"tenants/{tenant_id}/"
-        stored_key = prefix + object_key
-        result = self.s3.put_object(
-            Bucket=bucket, Key=stored_key, Body=body,
-            ContentType=content_type, ServerSideEncryption="AES256",
-        )
-        return {"bucket": bucket, "key": stored_key, "bytes": size, "previous_usage_bytes": used,
-                "etag": str(result.get("ETag", "")).strip('"')}
+        stored_key = f"tenants/{tenant_id}/{object_key}"
+
+        # A pending database reservation can be retried after a process/network
+        # failure. Verify an already-written S3 object before attempting another put.
+        try:
+            existing = self.s3.head_object(Bucket=bucket, Key=stored_key)
+        except Exception as exc:
+            response = getattr(exc, "response", {}) or {}
+            error = response.get("Error", {}) if isinstance(response, dict) else {}
+            status = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            code = str(error.get("Code", ""))
+            if code not in {"404", "NoSuchKey", "NotFound"} and status != 404:
+                raise TenantInfrastructureError("Could not verify the tenant object before upload") from exc
+        else:
+            metadata = existing.get("Metadata", {}) or {}
+            if int(existing.get("ContentLength", -1)) != size or metadata.get("sha256") != digest:
+                raise TenantInfrastructureError("Tenant object key already contains different content")
+            return {
+                "bucket": bucket, "key": stored_key, "bytes": size,
+                "previous_usage_bytes": used, "etag": str(existing.get("ETag", "")).strip('"'),
+                "already_present": True,
+            }
+
+        try:
+            result = self.s3.put_object(
+                Bucket=bucket, Key=stored_key, Body=body,
+                ContentType=content_type, ServerSideEncryption="AES256",
+                Metadata={"sha256": digest},
+                IfNoneMatch="*",
+            )
+        except Exception as exc:
+            # Another retry may have won the conditional write after our HEAD.
+            response = getattr(exc, "response", {}) or {}
+            error = response.get("Error", {}) if isinstance(response, dict) else {}
+            status = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            if str(error.get("Code", "")) not in {"PreconditionFailed", "412"} and status != 412:
+                raise TenantInfrastructureError("Tenant object upload failed") from exc
+            try:
+                existing = self.s3.head_object(Bucket=bucket, Key=stored_key)
+            except Exception as verify_exc:
+                raise TenantInfrastructureError("Concurrent tenant object upload could not be verified") from verify_exc
+            metadata = existing.get("Metadata", {}) or {}
+            if int(existing.get("ContentLength", -1)) != size or metadata.get("sha256") != digest:
+                raise TenantInfrastructureError("Tenant object key already contains different content") from exc
+            result = existing
+            already_present = True
+        else:
+            already_present = False
+        return {
+            "bucket": bucket, "key": stored_key, "bytes": size,
+            "previous_usage_bytes": used, "etag": str(result.get("ETag", "")).strip('"'),
+            "already_present": already_present,
+        }
+
+    def get_tenant_object(self, tenant: dict, key: str) -> dict:
+        tenant_id = self._tenant_id(tenant)
+        object_key = self._validate_object_key(key)
+        bucket = self._bucket_name(tenant_id)
+        stored_key = f"tenants/{tenant_id}/{object_key}"
+        try:
+            result = self.s3.get_object(Bucket=bucket, Key=stored_key)
+            body = result["Body"].read()
+        except Exception as exc:
+            response = getattr(exc, "response", {}) or {}
+            error = response.get("Error", {}) if isinstance(response, dict) else {}
+            status = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            if str(error.get("Code", "")) in {"404", "NoSuchKey", "NotFound"} or status == 404:
+                raise KeyError("Tenant object does not exist") from exc
+            raise TenantInfrastructureError("Could not read the tenant object") from exc
+        return {
+            "body": body,
+            "content_type": str(result.get("ContentType", "application/octet-stream")),
+            "etag": str(result.get("ETag", "")).strip('"'),
+            "bytes": len(body),
+        }
 
     def set_tenant_access(self, tenant: dict, *, enabled: bool) -> None:
         tenant_id = self._tenant_id(tenant)

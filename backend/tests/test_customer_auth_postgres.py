@@ -22,7 +22,7 @@ from app.scripts.migrate_customer_sqlite_to_postgres import migrate
 
 
 TABLES = (
-    "air_access_decision_history", "air_customer_subscription_history",
+    "air_access_decision_history", "air_customer_subscription_history", "air_tenant_objects",
     "air_customer_lifecycle", "air_marketing_audit", "air_marketing_offers",
     "air_customer_marketing_preferences", "air_customer_subscriptions",
     "air_device_sessions", "air_access_requests", "air_tenant_members", "air_tenants",
@@ -244,6 +244,125 @@ def test_tenant_registry_records_provisioning_before_activation(customer_store):
         registry.close()
 
 
+def test_tenant_object_storage_reservation_quota_and_retry(customer_store):
+    from app.tenant_provisioning import TenantRegistry
+
+    registry = TenantRegistry(database_url=os.environ["AIR_TEST_CUSTOMER_DATABASE_URL"])
+    owner = "+919876543241"
+    try:
+        tenant = registry.create_or_update_tenant(
+            owner_customer_id=owner, name="AIR Object Storage Acceptance",
+            plan_code="STANDARD", status="ACTIVE",
+        )
+        tenant_id = tenant["tenant_id"]
+        with tenant_scope(is_admin=True):
+            with registry.engine.begin() as conn:
+                conn.execute(text("""
+                    UPDATE air_tenants SET max_storage_bytes=5
+                    WHERE tenant_id=:tenant
+                """), {"tenant": tenant_id})
+
+        first = registry.reserve_object_upload(
+            tenant_id, owner, "reports/daily.csv", size_bytes=5,
+            sha256="2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+            content_type="text/csv",
+        )
+        assert first["storage_used_bytes"] == 5
+        assert not first["already_stored"]
+        resumed = registry.reserve_object_upload(
+            tenant_id, owner, "reports/daily.csv", size_bytes=5,
+            sha256="2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+            content_type="text/csv",
+        )
+        assert resumed["resume_pending"]
+        assert resumed["storage_used_bytes"] == 5
+
+        stored = registry.complete_object_upload(tenant_id, owner, "reports/daily.csv", "etag-1")
+        assert stored["status"] == "STORED"
+        duplicate = registry.reserve_object_upload(
+            tenant_id, owner, "reports/daily.csv", size_bytes=5,
+            sha256="2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+            content_type="text/csv",
+        )
+        assert duplicate["already_stored"]
+        with pytest.raises(FileExistsError):
+            registry.reserve_object_upload(
+                tenant_id, owner, "reports/daily.csv", size_bytes=5,
+                sha256="2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+                content_type="application/json",
+            )
+        assert registry.list_tenant_objects(tenant_id, owner)[0]["object_key"] == "reports/daily.csv"
+        assert registry.get_tenant_object(tenant_id, owner, "reports/daily.csv")["etag"] == "etag-1"
+
+        with pytest.raises(OverflowError):
+            registry.reserve_object_upload(
+                tenant_id, owner, "reports/overflow.csv", size_bytes=1,
+                sha256="2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+                content_type="text/csv",
+            )
+        with pytest.raises(FileExistsError):
+            registry.reserve_object_upload(
+                tenant_id, owner, "reports/daily.csv", size_bytes=5,
+                sha256="2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+                content_type="text/csv",
+            )
+        with pytest.raises(ValueError):
+            registry.reserve_object_upload(
+                tenant_id, owner, "../escape.csv", size_bytes=1,
+                sha256="2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+                content_type="text/csv",
+            )
+        with tenant_scope(tenant_id=tenant_id, customer_id=owner):
+            with registry.engine.connect() as conn:
+                usage = conn.execute(text("""
+                    SELECT storage_used_bytes FROM air_tenants WHERE tenant_id=:tenant
+                """), {"tenant": tenant_id}).scalar_one()
+        assert usage == 5
+    finally:
+        registry.close()
+
+
+def test_tenant_storage_quota_serializes_concurrent_upload_reservations(customer_store):
+    from app.tenant_provisioning import TenantRegistry
+
+    registry = TenantRegistry(database_url=os.environ["AIR_TEST_CUSTOMER_DATABASE_URL"])
+    owner = "+919876543242"
+    try:
+        tenant = registry.create_or_update_tenant(
+            owner_customer_id=owner, name="AIR Concurrent Storage Acceptance",
+            plan_code="STANDARD", status="ACTIVE",
+        )
+        tenant_id = tenant["tenant_id"]
+        with tenant_scope(is_admin=True):
+            with registry.engine.begin() as conn:
+                conn.execute(text("UPDATE air_tenants SET max_storage_bytes=5 WHERE tenant_id=:tenant"),
+                             {"tenant": tenant_id})
+        barrier = Barrier(2)
+
+        def reserve(key):
+            barrier.wait(timeout=5)
+            try:
+                return registry.reserve_object_upload(
+                    tenant_id, owner, key, size_bytes=4,
+                    sha256="2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+                    content_type="application/octet-stream",
+                )
+            except OverflowError:
+                return "QUOTA_REJECTED"
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(reserve, ["objects/one.bin", "objects/two.bin"]))
+        assert sum(result != "QUOTA_REJECTED" for result in results) == 1
+        with tenant_scope(tenant_id=tenant_id, customer_id=owner):
+            with registry.engine.connect() as conn:
+                used = conn.execute(text(
+                    "SELECT storage_used_bytes FROM air_tenants WHERE tenant_id=:tenant"
+                ), {"tenant": tenant_id}).scalar_one()
+        assert used == 4
+    finally:
+        registry.close()
+
+
 def test_state_persists_after_store_recreation(customer_store):
     request = customer_store.request_access("+919876543212", "android-device-0004")
     customer_store.review(request["request_id"], "APPROVED", reviewer_admin_id="admin-test",
@@ -352,6 +471,16 @@ def test_postgres_tenant_isolation_survives_pool_reuse_and_concurrent_requests(c
     tenant_b = customer_store.tenant_for_customer(customer_b)
     assert tenant_a and tenant_b and tenant_a != tenant_b
 
+    for customer, tenant in ((customer_a, tenant_a), (customer_b, tenant_b)):
+        with tenant_scope(tenant_id=tenant, customer_id=customer):
+            with customer_store.engine.begin() as conn:
+                conn.execute(text("""
+                    INSERT INTO air_tenant_objects
+                        (tenant_id,object_key,size_bytes,sha256,content_type,status)
+                    VALUES(:tenant,:key,1,:sha,'application/octet-stream','STORED')
+                """), {"tenant": tenant, "key": customer + "/object.bin",
+                       "sha": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881"})
+
     # A one-connection pool forces tenant A and tenant B to reuse the same
     # physical PostgreSQL connection. before_cursor_execute must reset all
     # three AIR GUCs before every statement.
@@ -392,13 +521,20 @@ def test_postgres_tenant_isolation_survives_pool_reuse_and_concurrent_requests(c
                     visible = conn.execute(text(
                         "SELECT DISTINCT mobile_e164 FROM air_access_requests ORDER BY mobile_e164"
                     )).scalars().all()
+                    object_keys = conn.execute(text(
+                        "SELECT object_key FROM air_tenant_objects ORDER BY object_key"
+                    )).scalars().all()
             assert visible == [customer]
+            assert object_keys == [customer + "/object.bin"]
 
         # Missing tenant context must fail closed for customer-owned rows.
         with tenant_scope():
             with pooled_engine.connect() as conn:
                 assert conn.execute(text(
                     "SELECT COUNT(*) FROM air_access_requests"
+                )).scalar_one() == 0
+                assert conn.execute(text(
+                    "SELECT COUNT(*) FROM air_tenant_objects"
                 )).scalar_one() == 0
 
         # A tenant cannot create a row for another tenant, even when it knows
@@ -411,6 +547,30 @@ def test_postgres_tenant_isolation_survives_pool_reuse_and_concurrent_requests(c
                             (request_id,mobile_e164,device_id,status)
                         VALUES ('cross-tenant-write',:customer,'cross-tenant-device','PENDING')
                     """), {"customer": customer_a})
+
+            with pytest.raises(Exception):
+                with pooled_engine.begin() as conn:
+                    conn.execute(text("""
+                        INSERT INTO air_tenant_objects
+                            (tenant_id,object_key,size_bytes,sha256,content_type,status)
+                        VALUES(:tenant,'cross-tenant/object.bin',1,
+                               '2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881',
+                               'application/octet-stream','STORED')
+                    """), {"tenant": tenant_a})
+
+        with tenant_scope(tenant_id=tenant_a, customer_id=customer_a):
+            with pooled_engine.begin() as conn:
+                conn.execute(text("""
+                    UPDATE air_tenants SET storage_used_bytes=storage_used_bytes+1
+                    WHERE tenant_id=:tenant
+                """), {"tenant": tenant_a})
+        with tenant_scope(tenant_id=tenant_b, customer_id=customer_b):
+            with pooled_engine.begin() as conn:
+                result = conn.execute(text("""
+                    UPDATE air_tenants SET storage_used_bytes=999
+                    WHERE tenant_id=:tenant
+                """), {"tenant": tenant_a})
+                assert result.rowcount == 0
     finally:
         pooled_engine.dispose()
 

@@ -41,6 +41,8 @@ python -m pytest -q
 
 The app includes a dedicated **More → Administrator Sign In** console. It is independent of customer mobile approval and uses administrator email, password and TOTP MFA with a separate 20-minute, server-revocable JWT session. Super Admin manages administrator accounts and audit events; Admin reviews customer access; Research Admin is read-only. The first Super Admin is created once with `cd backend && python -m scripts.bootstrap_admin` (or from the deployed API container). Configure `AIR_ADMIN_MFA_KEY_FILE` with a persistent Fernet key and `AIR_JWT_SECRET` before bootstrap. The Swarm stack provisions the MFA key as the `air_admin_mfa_key` Docker secret. Never store bootstrap passwords, TOTP provisioning URIs or key material in source control.
 
+See [tenant object storage API](docs/TENANT_OBJECT_STORAGE_API.md) for SaaS tenant uploads, quota enforcement and object retrieval.
+
 ## AIR Deployment Manager
 
 The root `AIRDEPLOY` wrappers use one cross-platform Python manager for profile validation, host diagnostics, install, upgrade, status, support reports and release packaging:

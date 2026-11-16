@@ -10,7 +10,12 @@ Last reviewed: 2026-11-16
 |---|---|---|
 | Gate 14 — tenant isolation and AWS SaaS provisioning foundation | COMPLETE — CODE DELIVERY | PR #64 merged to `main`; CI validated tenant isolation, provisioning adapter behavior and Terraform configuration. No AWS resources were created. |
 | Gate 15 — on-prem Compose/Swarm readiness | COMPLETE — CODE DELIVERY | PR #65 merged to `main`; ephemeral Compose runtime boot, service health and RabbitMQ-connected worker heartbeat passed CI. Customer-host Swarm acceptance remains deferred. |
-| Gate 16 — Deployment Manager and release packaging | IN PROGRESS — CODE DELIVERY | Cross-platform manager, upgrade/diagnostic commands, secret-free release bundle, checksums and CI artifact acceptance. |
+| Gate 16 — Deployment Manager and release packaging | COMPLETE — CODE DELIVERY | PR #69 merged to `main`; cross-platform manager, on-prem install/upgrade, diagnostics, secret-free source bundle and checksummed runtime image artifact. AWS/customer-host deployment remains deferred. |
+| Gate 17A — tenant object storage API and quota enforcement | IN PROGRESS — CODE DELIVERY | Authenticated tenant upload/list/download APIs, PostgreSQL quota reservation ledger, immutable object keys, S3 retry verification and cross-tenant isolation tests. |
+| Gate 17B — initial market-data bootstrap recovery | PLANNED | Idempotent NSE/CM/FO bootstrap, checkpointing, partial-download resume, integrity reconciliation and restart tests. |
+| Gate 17C — deployment readiness report | PLANNED | One readiness contract separates infrastructure, service health, data coverage and customer onboarding. |
+| Gate 17D — on-prem monitoring integration | PLANNED | Prometheus scrape targets, Grafana dashboards, alert rules and Compose/Swarm runtime acceptance. |
+| Gate 18 — final release certification | PLANNED | Full backend/PostgreSQL/Redis/RabbitMQ, Android/PWA, migration, security and deployment regression; no AWS/customer-host completion claims without live evidence. |
 | AWS live infrastructure | DEFERRED — ENVIRONMENT NOT AVAILABLE | No AWS account, credentials, region, remote state or budget approval has been supplied. |
 | Production on-prem installation | DEFERRED — CUSTOMER HOST NOT AVAILABLE | No target customer host is connected for installation and operational acceptance. |
 | Initial market-data bootstrap | DEFERRED — INSTALLATION ACCEPTANCE | Must be verified during first installation; CI smoke intentionally skips the 12-month NSE history download. |
@@ -46,8 +51,8 @@ Last reviewed: 2026-11-16
 
 | ID | Activity | Status | Completion evidence |
 |---|---|---|---|
-| PROD-01 | Tenant object-upload API wired to S3 quota enforcement | OPEN — CODE WORK | API-level authorization, quota enforcement, object lifecycle and tests |
-| PROD-02 | Deployment Manager installation/readiness consistency across Windows/Linux | IN PROGRESS — GATE 16 | Shared CLI actions, Windows/Linux wrappers, upgrade flow, status and diagnostic reporting |
+| PROD-01 | Tenant object-upload API wired to S3 quota enforcement | IN PROGRESS — GATE 17A | Tenant-authenticated upload/list/download, transactional quota reservations, immutable keys, retry recovery and API/PostgreSQL tests |
+| PROD-02 | Deployment Manager installation/readiness consistency across Windows/Linux | COMPLETE — GATE 16 / PR #69 | Shared CLI actions, Windows/Linux wrappers, upgrade flow, status and diagnostic reporting; CI release artifacts verified |
 | PROD-03 | Initial NSE/CM/FO data bootstrap idempotency and resume behavior | OPEN — CODE WORK | Automated tests for partial download, retry, integrity and restart |
 | PROD-04 | Deployment readiness report in the application/installer | OPEN — CODE WORK | Clear distinction between infrastructure, service health, data readiness and user onboarding |
 | PROD-05 | On-prem Grafana/Prometheus runtime integration | OPEN — CODE WORK | The profile declares `grafana_prometheus`, but Compose/Swarm do not yet ship a complete metrics/Grafana service set; do not claim monitoring is production-ready until implemented and tested |
