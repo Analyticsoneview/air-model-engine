@@ -76,3 +76,13 @@ def test_catalogue_plan_lookup_is_case_insensitive_and_copy_safe():
     assert result is not None
     result["features"].append("tampered")
     assert "tampered" not in catalogue_plan("B2C_ESSENTIAL_ANNUAL")["features"]
+
+
+def test_operator_override_has_product_features_but_not_restricted_capabilities():
+    subscription = {"status": "ACTIVE", "plan_code": "OPERATOR"}
+    result = resolve_entitlements(subscription)
+    assert result["entitlement_status"] == "OPERATOR_OVERRIDE"
+    assert has_entitlement(subscription, "options_analytics")
+    assert has_entitlement(subscription, "organisation_workspace")
+    for feature in RESTRICTED_FEATURES:
+        assert has_entitlement(subscription, feature) is False
