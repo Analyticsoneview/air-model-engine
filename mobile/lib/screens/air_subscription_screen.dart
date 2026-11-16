@@ -24,11 +24,11 @@ class _AirSubscriptionScreenState extends State<AirSubscriptionScreen> {
   Future<void> _load() async {
     setState(() { _loading = true; _error = null; });
     try {
-      final values = await Future.wait([_api.subscriptionPlans(), _api.mySubscription(), _api.marketingPreferences()]);
+      final values = await Future.wait([_api.subscriptionCatalogue(), _api.mySubscription(), _api.marketingPreferences()]);
       if (!mounted) return;
       final status = values[1] as Map<String, dynamic>;
       setState(() {
-        _plans = values[0] as List<Map<String, dynamic>>;
+        _plans = ((values[0] as Map<String, dynamic>)['b2c'] as List<dynamic>? ?? const [])\n            .whereType<Map<String, dynamic>>().toList(growable: false);
         _subscription = status['subscription'] as Map<String, dynamic>?;
         final preferences = values[2] as Map<String, dynamic>;
         _marketingConsent = preferences['promotional_consent'] == true;
@@ -107,14 +107,20 @@ class _AirSubscriptionScreenState extends State<AirSubscriptionScreen> {
             child: ListTile(
               leading: Icon(Icons.workspace_premium_outlined, color: theme.colorScheme.primary),
               title: Text(plan['name']?.toString() ?? 'AIR Plan', style: const TextStyle(fontWeight: FontWeight.w800)),
-              subtitle: Text('${plan['validity_days']} days · Strategy access during active validity'),
-              trailing: const Icon(Icons.lock_clock_outlined),
+              subtitle: Text(plan['billing_period'] == 'FREE'
+                  ? 'Free access · Limited features'
+                  : 'Annual subscription · Pricing and activation will be published after launch approvals'),
+              trailing: Text(
+                plan['billing_period'] == 'FREE' ? 'FREE' : 'ANNUAL',
+                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900,
+                  color: theme.colorScheme.primary),
+              ),
             ),
           )),
           const SizedBox(height: 12),
           Card(color: theme.colorScheme.surfaceContainerHighest, child: const Padding(
             padding: EdgeInsets.all(14),
-            child: Text('Initial rollout: plan activation is handled by AIR administration. Online payments and automatic renewals are not enabled yet. Published pricing will be added before customer payments go live.',
+            child: Text('Pre-launch catalogue: paid B2C plans are annual. Prices are not published and online payments, automatic renewals and self-service plan activation remain disabled until commercial, tax, data-licensing, security and legal approvals are complete.',
               style: TextStyle(fontSize: 12, height: 1.45)),
           )),
           if (_error != null) Padding(
