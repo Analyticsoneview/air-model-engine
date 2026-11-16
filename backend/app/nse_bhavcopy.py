@@ -853,7 +853,7 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
                             "broker_orders_placed",
                         ) if key in scan_result
                     }
-                    if state["monthly_pd_scan"].get("status") != "COMPLETED":
+                    if state["monthly_pd_scan"].get("status") not in {"COMPLETED", "WAITING_FOR_REFERENCE_SESSION"}:
                         state["status"] = "PARTIAL"
                 except Exception as scan_exc:  # noqa: BLE001
                     state["monthly_pd_scan"] = {
@@ -927,7 +927,7 @@ def nse_bootstrap_is_ready(bootstrap: dict[str, Any] | None) -> bool:
         months >= 12 and archive_coverage >= 100.0
         and paired_coverage >= 100.0 and universes_ready and coverage_ready
         and strategy_run.get("status") == "COMPLETED"
-        and monthly_pd_scan.get("status") == "COMPLETED"
+        and monthly_pd_scan.get("status") in {"COMPLETED", "WAITING_FOR_REFERENCE_SESSION"}
     )
 
 
