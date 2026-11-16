@@ -68,3 +68,23 @@ def test_tenant_isolation(tmp_path):
     item = store.create("tenant-a", "c1", "AIR", "B2C_TRADER_ANNUAL", "create-a", "c1")
     assert store.get("tenant-b", "c1") is None
     assert store.events("tenant-b", "c1", item["onboarding_id"]) == []
+
+def test_expired_customer_can_start_a_new_onboarding_cycle(tmp_path):
+    store = make_store(tmp_path)
+    first = store.create("t1", "c1", "AIR", "B2C_TRADER_ANNUAL", "create-1", "c1")
+    store.transition("t1", "c1", first["onboarding_id"], "TRIAL", "c1", "trial-1")
+    store.transition("t1", "c1", first["onboarding_id"], "EXPIRED", "admin", "expire-1")
+    second = store.create("t1", "c1", "AIR", "B2C_TRADER_ANNUAL", "create-2", "c1")
+    renewed = store.transition("t1", "c1", second["onboarding_id"], "ACTIVE", "admin", "renew-1")
+    assert renewed["status"] == "ACTIVE"
+    assert store.get("t1", "c1")["onboarding_id"] == second["onboarding_id"]
+
+
+def test_transition_idempotency_rejects_changed_details(tmp_path):
+    store = make_store(tmp_path)
+    item = store.create("t1", "c1", "AIR", "B2C_TRADER_ANNUAL", "create-1", "c1")
+    store.transition("t1", "c1", item["onboarding_id"], "TRIAL", "c1", "trial-1",
+                     {"consent_reference": "accepted"}, trial_days=14)
+    with pytest.raises(OnboardingConflict):
+        store.transition("t1", "c1", item["onboarding_id"], "TRIAL", "c1", "trial-1",
+                         {"consent_reference": "different"}, trial_days=14)
