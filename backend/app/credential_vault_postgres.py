@@ -22,7 +22,7 @@ class PostgresCredentialVault:
             if not database_url.startswith(("postgresql://", "postgresql+psycopg://")):
                 raise RuntimeError("AIR_CREDENTIAL_DATABASE_URL must point to PostgreSQL")
             engine = create_engine(database_url, pool_pre_ping=True, future=True)
-            install_tenant_context(engine)
+        install_tenant_context(engine)
         self.engine = engine
 
     def put(self, customer_id: str, broker: str, account_id: str, credentials: dict) -> None:
