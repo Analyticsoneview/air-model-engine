@@ -1237,12 +1237,28 @@ _bootstrap_task: asyncio.Task | None = None
 _scheduler = None
 
 
+async def _run_bootstrap_with_retry(*, force: bool = False, max_wait_seconds: int = 240) -> dict[str, Any]:
+    """Wait for another process's lease, then resume once it releases or expires."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + max(30, int(max_wait_seconds))
+    requested_force = force
+    while True:
+        result = await run_nse_bootstrap(force=requested_force)
+        if not result.get("already_running"):
+            return result
+        # If another worker completed the same target, the next call is a no-op.
+        requested_force = False
+        if loop.time() >= deadline:
+            return result
+        await asyncio.sleep(min(10.0, max(1.0, deadline - loop.time())))
+
+
 async def _daily_refresh() -> None:
     global _bootstrap_task
     if _bootstrap_task is not None and not _bootstrap_task.done():
         log.info("Skipping scheduled NSE refresh because a bootstrap is already running")
         return
-    _bootstrap_task = asyncio.create_task(run_nse_bootstrap(force=True))
+    _bootstrap_task = asyncio.create_task(_run_bootstrap_with_retry(force=True))
     await _bootstrap_task
 
 
@@ -1260,7 +1276,7 @@ def start_nse_data_jobs() -> None:
         log.info("NSE historical data bootstrap and refresh are disabled")
         return
     if _bootstrap_task is None or _bootstrap_task.done():
-        _bootstrap_task = asyncio.create_task(run_nse_bootstrap())
+        _bootstrap_task = asyncio.create_task(_run_bootstrap_with_retry())
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
         from apscheduler.triggers.cron import CronTrigger
