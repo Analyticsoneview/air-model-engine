@@ -48,6 +48,7 @@ class InvoiceIssue(BaseModel):
 
 
 class RefundCreate(BaseModel):
+    tenant_id: str = Field(min_length=1,max_length=36)
     amount_minor: int = Field(gt=0)
     reason: str = Field(min_length=3,max_length=500)
     idempotency_key: str = Field(min_length=1,max_length=200)
@@ -109,7 +110,7 @@ def issue_invoice(invoice_id:str,body:InvoiceIssue,customer_id:str=Depends(requi
 def refund_invoice(invoice_id:str,body:RefundCreate,admin=Depends(require_admin)):
     # Refunds create credit notes only; they do not initiate a money transfer.
     try:
-        return _store().refund_invoice(body_tenant:=str(admin.get("tenant_id") or "").strip(),invoice_id,
+        return _store().refund_invoice(body.tenant_id,invoice_id,
             body.amount_minor,body.reason,admin["admin_id"],body.idempotency_key)
     except KeyError as exc: raise HTTPException(status_code=404,detail="Invoice not found") from exc
     except BillingConflict as exc: raise HTTPException(status_code=409,detail=str(exc)) from exc
