@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 
 import '../services/air_api_client.dart';
 import 'air_workflow_studio_screen.dart';
+import 'air_internal_workspace_screen.dart';
 
 class AirAdminConsoleScreen extends StatefulWidget {
   const AirAdminConsoleScreen({super.key, this.httpClient});
@@ -396,10 +397,10 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     if (_mustChangePassword) Card(color: Theme.of(context).colorScheme.errorContainer, child: ListTile(leading: const Icon(Icons.lock_reset), title: const Text('Password rotation required'), subtitle: const Text('Change the temporary password before using administrator functions.'), trailing: TextButton(onPressed: _changePassword, child: const Text('CHANGE')))),
     if (_error != null) Padding(padding: const EdgeInsets.all(12), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
     SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: [
-      for (final item in ['overview','admins','requests','audit', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'subscriptions', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'customers', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'offers', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'support', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'workflows', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'monthly_pd'])
+      for (final item in ['overview','admins','requests','audit', if (_role == 'SUPER_ADMIN') 'internal', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'subscriptions', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'customers', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'offers', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'support', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'workflows', if (_role == 'SUPER_ADMIN' || _role == 'ADMIN') 'monthly_pd'])
         Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: ChoiceChip(label: Text(item.toUpperCase()), selected: _tab == item, onSelected: (_) => setState(() => _tab = item))),
     ])),
-    Expanded(child: _tab == 'overview' ? _overview() : _tab == 'admins' ? _adminUsers() : _tab == 'requests' ? _accessRequests() : _tab == 'subscriptions' ? _subscriptions() : _tab == 'customers' ? _customerRegistry() : _tab == 'offers' ? _marketingOffers() : _tab == 'support' ? _supportQueue() : _tab == 'workflows' ? AirWorkflowStudioScreen(apiBase: _apiBase, accessToken: _token!, httpClient: _client) : _tab == 'monthly_pd' ? _monthlyPdView() : _auditView()),
+    Expanded(child: _tab == 'overview' ? _overview() : _tab == 'admins' ? _adminUsers() : _tab == 'requests' ? _accessRequests() : _tab == 'subscriptions' ? _subscriptions() : _tab == 'customers' ? _customerRegistry() : _tab == 'offers' ? _marketingOffers() : _tab == 'support' ? _supportQueue() : _tab == 'workflows' ? AirWorkflowStudioScreen(apiBase: _apiBase, accessToken: _token!, httpClient: _client) : _tab == 'monthly_pd' ? _monthlyPdView() : _tab == 'internal' ? AirInternalWorkspaceScreen(apiBase: _apiBase, accessToken: _token!, httpClient: _client) : _auditView()),
   ]);
 
 
