@@ -172,7 +172,13 @@ def verify_release(archive: Path) -> None:
             members = bundle.getmembers()
             if any(Path(member.name).is_absolute() or ".." in Path(member.name).parts for member in members):
                 raise ValueError("Release archive contains an unsafe path.")
-            bundle.extractall(temporary, filter="data")
+            for member in members:
+                member_path = Path(member.name)
+                if not (member.isdir() or member.isfile()):
+                    raise ValueError("Release archive contains an unsupported link or special file.")
+                if member_path.is_absolute() or ".." in member_path.parts:
+                    raise ValueError("Release archive contains an unsafe path.")
+            bundle.extractall(temporary)
         roots = list(Path(temporary).iterdir())
         if len(roots) != 1 or not roots[0].is_dir():
             raise ValueError("Release archive must contain exactly one top-level release directory.")
