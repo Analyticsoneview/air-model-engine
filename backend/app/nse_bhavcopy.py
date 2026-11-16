@@ -714,6 +714,10 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
         any_failed = state["failed_files"] > 0
         any_missing_archive = state["no_file_days"] > 0
         expected_paired_sessions = int(state.get("expected_paired_sessions", 0))
+        from app.nse_universe import run_nse_universe_bootstrap
+        universe_result = await run_nse_universe_bootstrap()
+        state["universe"] = universe_result
+        universe_ready = universe_result.get("status") == "READY"
         complete_archive_set = (
             state["completed_files"] == expected_files
             and state["imported_files"] == expected_files
@@ -729,7 +733,7 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
         )
         state["status"] = "READY" if (
             complete_archive_set and expected_paired_sessions > 0
-            and paired_sessions == expected_paired_sessions
+            and paired_sessions == expected_paired_sessions and universe_ready
         ) else ("PARTIAL" if any(imported_dates.values()) else "FAILED")
 
         # Strategy replays must finish before expired FO rows are purged. This
@@ -791,7 +795,18 @@ def nse_bootstrap_is_ready(bootstrap: dict[str, Any] | None) -> bool:
         paired_coverage = float(bootstrap.get("paired_session_coverage_pct", 0))
     except (TypeError, ValueError):
         return False
-    return months >= 12 and archive_coverage >= 100.0 and paired_coverage >= 100.0
+    universes = bootstrap.get("universe") or {}
+    indices = universes.get("indices") or {}
+    required = {"NIFTY100": 100, "NIFTYMIDCAP150": 150, "NIFTYSMALLCAP250": 250}
+    universes_ready = universes.get("status") == "READY" and all(
+        (indices.get(code) or {}).get("status") == "READY"
+        and (indices.get(code) or {}).get("actual_count") == expected
+        for code, expected in required.items()
+    )
+    return (
+        months >= 12 and archive_coverage >= 100.0
+        and paired_coverage >= 100.0 and universes_ready
+    )
 
 
 def nse_data_status() -> dict[str, Any]:
