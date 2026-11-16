@@ -68,30 +68,62 @@ class PostgresAccessStore:
         device = device_id.strip()
         if not device or len(device) > 128:
             raise ValueError("A valid device identifier is required")
-        with self.engine.begin() as conn:
-            conn.execute(text("""INSERT INTO air_access_requests
-                (request_id,mobile_e164,device_id,status)
-                VALUES(:id,:mobile,:device,'PENDING')
-                ON CONFLICT(mobile_e164,device_id) DO NOTHING"""),
-                {"id": str(uuid4()), "mobile": mobile, "device": device})
-            row = conn.execute(text("""SELECT request_id,mobile_e164,device_id,status,
-                created_at,reviewed_at,reviewer_note FROM air_access_requests
-                WHERE mobile_e164=:mobile AND device_id=:device"""),
-                {"mobile": mobile, "device": device}).mappings().one()
-            conn.execute(text("""INSERT INTO air_customer_lifecycle(customer_id,first_registered_at)
-                VALUES(:customer,CAST(:registered AS timestamptz))
-                ON CONFLICT(customer_id) DO UPDATE SET
-                first_registered_at=LEAST(air_customer_lifecycle.first_registered_at,EXCLUDED.first_registered_at),
-                updated_at=CURRENT_TIMESTAMP"""),
-                {"customer": mobile, "registered": row["created_at"]})
+        with tenant_scope(customer_id=mobile):
+            with self.engine.begin() as conn:
+                membership = conn.execute(text("""SELECT m.tenant_id,m.status
+                    FROM air_tenant_members m WHERE m.customer_id=:customer"""),
+                    {"customer": mobile}).mappings().first()
+                if membership and membership["status"] != "ACTIVE":
+                    raise PermissionError("Customer tenant membership is not active")
+                tenant_id = membership["tenant_id"] if membership else str(uuid4())
+                if not membership:
+                    conn.execute(text("""INSERT INTO air_tenants
+                        (tenant_id,name,owner_customer_id,plan_code,status)
+                        VALUES(:tenant,:name,:owner,'STANDARD','ACTIVE')"""),
+                        {"tenant": tenant_id, "name": "AIR " + mobile, "owner": mobile})
+                    conn.execute(text("""INSERT INTO air_tenant_members
+                        (tenant_id,customer_id,role,status)
+                        VALUES(:tenant,:customer,'OWNER','ACTIVE')"""),
+                        {"tenant": tenant_id, "customer": mobile})
+                with tenant_scope(tenant_id=tenant_id, customer_id=mobile):
+                    conn.execute(text("""INSERT INTO air_access_requests
+                        (request_id,mobile_e164,device_id,status)
+                        VALUES(:id,:mobile,:device,'PENDING')
+                        ON CONFLICT(mobile_e164,device_id) DO NOTHING"""),
+                        {"id": str(uuid4()), "mobile": mobile, "device": device})
+                    row = conn.execute(text("""SELECT request_id,mobile_e164,device_id,status,
+                        created_at,reviewed_at,reviewer_note FROM air_access_requests
+                        WHERE mobile_e164=:mobile AND device_id=:device"""),
+                        {"mobile": mobile, "device": device}).mappings().one()
+                    conn.execute(text("""INSERT INTO air_customer_lifecycle(customer_id,first_registered_at)
+                        VALUES(:customer,CAST(:registered AS timestamptz))
+                        ON CONFLICT(customer_id) DO UPDATE SET
+                        first_registered_at=LEAST(air_customer_lifecycle.first_registered_at,EXCLUDED.first_registered_at),
+                        updated_at=CURRENT_TIMESTAMP"""),
+                        {"customer": mobile, "registered": row["created_at"]})
         return dict(row)
 
+    def tenant_for_customer(self, customer_id: str) -> str | None:
+        customer = self.validate_mobile(customer_id)
+        with tenant_scope(customer_id=customer):
+            with self.engine.connect() as conn:
+                row = conn.execute(text("""SELECT m.tenant_id
+                    FROM air_tenant_members m JOIN air_tenants t ON t.tenant_id=m.tenant_id
+                    WHERE m.customer_id=:customer AND m.status='ACTIVE' AND t.status='ACTIVE'"""),
+                    {"customer": customer}).first()
+        return row[0] if row else None
+
     def get_request(self, mobile_e164: str, device_id: str):
-        with self.engine.connect() as conn:
-            row = conn.execute(text("""SELECT request_id,mobile_e164,device_id,status,
-                created_at,reviewed_at,reviewer_note FROM air_access_requests
-                WHERE mobile_e164=:mobile AND device_id=:device"""),
-                {"mobile": mobile_e164.strip(), "device": device_id.strip()}).mappings().first()
+        mobile = self.validate_mobile(mobile_e164)
+        tenant_id = self.tenant_for_customer(mobile)
+        if not tenant_id:
+            return None
+        with tenant_scope(tenant_id=tenant_id, customer_id=mobile):
+            with self.engine.connect() as conn:
+                row = conn.execute(text("""SELECT request_id,mobile_e164,device_id,status,
+                    created_at,reviewed_at,reviewer_note FROM air_access_requests
+                    WHERE mobile_e164=:mobile AND device_id=:device"""),
+                    {"mobile": mobile, "device": device_id.strip()}).mappings().first()
         return self._dict(row)
 
     def mobile_for_request_id(self, request_id: str) -> str | None:
