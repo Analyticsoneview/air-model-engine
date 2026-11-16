@@ -90,6 +90,8 @@ class NSEBhavcopyTests(unittest.TestCase):
         self.assertFalse(nse_bootstrap_is_ready(incomplete))
         incomplete = dict(complete, monthly_pd_scan={"status": "DATA_INSUFFICIENT"})
         self.assertFalse(nse_bootstrap_is_ready(incomplete))
+        incomplete = dict(complete, monthly_pd_scan={"status": "DATA_INSUFFICIENT"})
+        self.assertFalse(nse_bootstrap_is_ready(incomplete))
         incomplete = dict(complete, symbol_coverage={
             "status": "BLOCKED", "expected_symbols": 500, "missing_count": 1,
         })
