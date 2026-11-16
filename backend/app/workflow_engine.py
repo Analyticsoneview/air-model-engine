@@ -685,7 +685,7 @@ class WorkflowStore:
         limit = max(1, min(int(limit), 500))
         rows = self.db.execute(
             """SELECT o.outbox_id,o.event_id,o.attempts,e.event_type,e.source,e.occurred_at,
-                      e.payload_json,e.idempotency_key,e.correlation_id
+                      e.payload_json,e.idempotency_key,e.correlation_id,e.customer_id,e.tenant_id
                FROM air_workflow_outbox o JOIN air_workflow_events e ON e.event_id=o.event_id
                WHERE o.status='PENDING' AND o.available_at<=?
                ORDER BY o.available_at LIMIT ?""", (_now(), limit),
@@ -696,6 +696,7 @@ class WorkflowStore:
             "source": row["source"], "occurred_at": row["occurred_at"],
             "payload": json.loads(row["payload_json"]),
             "idempotency_key": row["idempotency_key"], "correlation_id": row["correlation_id"],
+            "customer_id": row["customer_id"], "tenant_id": row["tenant_id"],
         } for row in rows]
 
     def mark_outbox_published(self, outbox_id: str) -> None:
