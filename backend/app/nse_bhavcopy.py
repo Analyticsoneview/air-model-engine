@@ -1,9 +1,9 @@
 """NSE CM and F&O UDiFF bhavcopy bootstrap and query store.
 
-Downloads official NSE end-of-day CM and FO UDiFF ZIP archives for the
-previous three calendar months. Raw ZIPs are retained; normalized contract
-rows are indexed in SQLite for app queries. This is EOD data, not intraday
-ticks or full bid/ask option-chain snapshots.
+Downloads official NSE end-of-day CM and FO UDiFF ZIP archives for at least
+the configured initial history window (12 calendar months by default). Raw
+ZIPs are retained; normalized contract rows are indexed in SQLite for app
+queries. This is EOD data, not intraday ticks or full bid/ask snapshots.
 """
 from __future__ import annotations
 
@@ -36,6 +36,20 @@ def _subtract_months(value: date, months: int) -> date:
     month = month0 + 1
     import calendar
     return date(year, month, min(value.day, calendar.monthrange(year, month)[1]))
+
+
+def _configured_history_months() -> int:
+    """Initial AIR research history must never be configured below 12 months."""
+    try:
+        requested = int(os.getenv("AIR_NSE_HISTORY_MONTHS", "12"))
+    except (TypeError, ValueError):
+        requested = 12
+    return max(12, min(requested, 60))
+
+
+def _bootstrap_end_date(now: datetime) -> date:
+    """Do not treat today's not-yet-published EOD archive as a missing session."""
+    return now.date() if now.hour >= 21 else now.date() - timedelta(days=1)
 
 
 def _date_range(start: date, end: date, holidays: set[str] | None = None):
@@ -348,12 +362,16 @@ class NSEBhavcopyStore:
         return len(normalized)
 
     def cleanup_expired_fo(self, as_of: date) -> dict[str, Any]:
-        """Purge expired FO rows after strategy replay and evidence snapshot.
+        """Purge only expired FO rows older than the configured research retention.
 
-        Matching strategy evidence is enriched before deletion; lifecycle, entry/exit,
-        quantity and stored P&L fields are not overwritten. Original NSE ZIPs remain
-        retained and per-session removal counts preserve source-count reconciliation.
+        Expired contracts inside the twelve-month (or larger configured) history
+        window remain queryable for AIR options research. Older matching strategy
+        evidence is enriched before deletion; lifecycle, entry/exit, quantity and
+        stored P&L fields are not overwritten. Original NSE ZIPs remain retained and
+        per-session removal counts preserve source-count reconciliation.
         """
+        history_months = _configured_history_months()
+        retention_start = _subtract_months(as_of, history_months)
         with self._db() as db:
             rows = db.execute("""
                 SELECT trade_date, instrument_key, symbol, expiry, strike, option_type,
@@ -365,12 +383,18 @@ class NSEBhavcopyStore:
             expired_contracts = set()
             removed_by_date: dict[str, int] = {}
             unparsed_expiry_records = 0
+            retained_expired_records = 0
             for row in rows:
                 expiry = _expiry_iso(row["expiry"])
                 if not expiry:
                     unparsed_expiry_records += 1
                     continue
                 if date.fromisoformat(expiry) < as_of:
+                    if date.fromisoformat(row["trade_date"]) >= retention_start:
+                        # Keep expired contracts inside the configured research
+                        # history window; raw archives alone are not queryable data.
+                        retained_expired_records += 1
+                        continue
                     expired_rows.append((row["trade_date"], row["instrument_key"]))
                     expired_contracts.add((row["symbol"], expiry, row["strike"], row["option_type"]))
                     removed_by_date[row["trade_date"]] = removed_by_date.get(row["trade_date"], 0) + 1
@@ -410,6 +434,9 @@ class NSEBhavcopyStore:
                     """, (count, trade_date))
             result = {
                 "as_of": as_of.isoformat(),
+                "retention_months": history_months,
+                "retention_start_date": retention_start.isoformat(),
+                "retained_expired_records": retained_expired_records,
                 "removed_records": len(expired_rows),
                 "removed_contract_keys": len(expired_contracts),
                 "unparsed_expiry_records": unparsed_expiry_records,
@@ -465,6 +492,66 @@ class NSEBhavcopyStore:
             "source": "NSE UDiFF official end-of-day CM and F&O bhavcopy archives",
             "data_scope": "EOD bhavcopy; not intraday ticks or historical bid/ask snapshots",
         "trading_calendar": self.get_meta(f"trading_calendar_{datetime.now(IST).year}") or {},
+        }
+
+    def symbol_coverage(self, symbols: list[str], start_date: str, end_date: str,
+                        expected_sessions: int, minimum_sessions: int = 45) -> dict[str, Any]:
+        """Report CM EOD coverage for each current index constituent."""
+        unique_symbols = sorted({str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()})
+        if not unique_symbols:
+            return {
+                "status": "BLOCKED", "expected_symbols": 0, "observed_symbols": 0,
+                "missing_symbols": [], "below_minimum_symbols": [],
+                "minimum_sessions": minimum_sessions, "expected_sessions": expected_sessions,
+            }
+        placeholders = ",".join("?" for _ in unique_symbols)
+        with self._db() as db:
+            rows = db.execute(
+                f"""
+                SELECT symbol, COUNT(DISTINCT trade_date) AS sessions,
+                       MIN(trade_date) AS first_date, MAX(trade_date) AS last_date
+                FROM nse_bhavcopy
+                WHERE market='CM' AND instrument_type='STK'
+                  AND trade_date>=? AND trade_date<=?
+                  AND symbol IN ({placeholders})
+                GROUP BY symbol
+                """,
+                [start_date, end_date, *unique_symbols],
+            ).fetchall()
+        observed = {row["symbol"]: dict(row) for row in rows}
+        by_symbol = []
+        missing = []
+        below_minimum = []
+        for symbol in unique_symbols:
+            item = observed.get(symbol)
+            sessions = int(item["sessions"]) if item else 0
+            if sessions == 0:
+                missing.append(symbol)
+            elif sessions < minimum_sessions:
+                below_minimum.append(symbol)
+            by_symbol.append({
+                "symbol": symbol,
+                "sessions": sessions,
+                "coverage_pct": round(sessions / max(1, expected_sessions) * 100, 1),
+                "first_date": item["first_date"] if item else None,
+                "last_date": item["last_date"] if item else None,
+                "status": "MISSING" if sessions == 0 else (
+                    "INSUFFICIENT" if sessions < minimum_sessions else "READY"
+                ),
+            })
+        return {
+            "status": "BLOCKED" if missing else (
+                "READY_WITH_WARNINGS" if below_minimum else "READY"
+            ),
+            "expected_symbols": len(unique_symbols),
+            "observed_symbols": len(unique_symbols) - len(missing),
+            "missing_count": len(missing),
+            "missing_symbols": missing,
+            "below_minimum_count": len(below_minimum),
+            "below_minimum_symbols": below_minimum,
+            "minimum_sessions": minimum_sessions,
+            "expected_sessions": expected_sessions,
+            "by_symbol": by_symbol,
         }
 
     def query(self, market: str, symbol: str | None = None,
@@ -562,15 +649,19 @@ def _get_store() -> NSEBhavcopyStore:
 
 async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
     store = _get_store()
-    today = datetime.now(IST).date()
-    three_month_start = _subtract_months(today, 3)
-    start = three_month_start
+    now = datetime.now(IST)
+    today = now.date()
+    end_date = _bootstrap_end_date(now)
+    history_months = _configured_history_months()
+    history_start = _subtract_months(end_date, history_months)
+    start = history_start
     days: list[date] = []
     archive_root = Path(os.getenv("AIR_NSE_ARCHIVE_DIR", "data/nse_archives"))
     state = {
         "status": "RUNNING", "started_at": datetime.now(IST).isoformat(),
-        "start_date": start.isoformat(), "end_date": today.isoformat(),
-        "calendar_months": 3, "weekdays_to_check": len(days),
+        "start_date": start.isoformat(), "target_start_date": history_start.isoformat(),
+        "end_date": end_date.isoformat(), "history_months": history_months,
+        "calendar_months": history_months, "weekdays_to_check": len(days),
         "completed_files": 0, "imported_files": 0, "failed_files": 0,
         "no_file_days": 0, "records": {"CM": 0, "FO": 0},
     }
@@ -594,7 +685,7 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
             except httpx.HTTPError:
                 log.warning("NSE homepage warm-up failed; attempting archive host directly")
             calendars = {}
-            for calendar_year in range(start.year, today.year + 1):
+            for calendar_year in range(start.year, end_date.year + 1):
                 calendars[str(calendar_year)] = await _refresh_trading_calendar(client, store, calendar_year)
             cm_holidays = {
                 item["date"] for year_calendar in calendars.values()
@@ -604,7 +695,7 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
                 item["date"] for year_calendar in calendars.values()
                 for item in year_calendar["segments"]["FO"]
             }
-            calendar = calendars[str(today.year)]
+            calendar = calendars[str(end_date.year)]
             # On restart, backfill from the last paired CM+FO session as well as
             # maintaining the rolling three-calendar-month minimum.
             with store._db() as db:
@@ -618,15 +709,25 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
                 """).fetchone()
             if last_pair and last_pair["last_date"]:
                 recovery_start = date.fromisoformat(last_pair["last_date"]) + timedelta(days=1)
-                start = min(three_month_start, recovery_start)
-            days = list(_date_range(start, today))
+                # Always cover the full configured research window. If the last
+                # paired session is older, extend backward to include the gap.
+                start = min(history_start, recovery_start)
+            days = list(_date_range(start, end_date))
             expected_files = sum(
                 int(day.isoformat() not in cm_holidays) + int(day.isoformat() not in fo_holidays)
                 for day in days
             )
+            expected_paired_sessions = sum(
+                1 for day in days
+                if day.isoformat() not in cm_holidays and day.isoformat() not in fo_holidays
+            )
             state.update({
                 "start_date": start.isoformat(),
+                "end_date": end_date.isoformat(),
+                "target_start_date": history_start.isoformat(),
+                "history_months": history_months,
                 "weekdays_to_check": len(days),
+                "expected_paired_sessions": expected_paired_sessions,
                 "calendar_years": list(calendars.keys()),
                 "cm_holiday_dates": len(cm_holidays),
                 "fo_holiday_dates": len(fo_holidays),
@@ -684,10 +785,44 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
         }
         paired_sessions = len(imported_dates["CM"] & imported_dates["FO"])
         any_failed = state["failed_files"] > 0
-        state["paired_sessions"] = paired_sessions
-        state["status"] = "READY" if paired_sessions >= 45 and not any_failed else (
-            "PARTIAL" if any(imported_dates.values()) else "FAILED"
+        any_missing_archive = state["no_file_days"] > 0
+        expected_paired_sessions = int(state.get("expected_paired_sessions", 0))
+        from app.nse_universe import NSEUniverseStore, run_nse_universe_bootstrap
+        universe_result = await run_nse_universe_bootstrap()
+        state["universe"] = universe_result
+        universe_store = NSEUniverseStore()
+        universe_symbols = universe_store.symbols()
+        expected_cm_sessions = sum(
+            1 for day in days
+            if day >= history_start and day.isoformat() not in cm_holidays
         )
+        symbol_coverage = store.symbol_coverage(
+            universe_symbols, history_start.isoformat(), end_date.isoformat(),
+            expected_sessions=expected_cm_sessions, minimum_sessions=45,
+        )
+        state["symbol_coverage"] = symbol_coverage
+        universe_ready = (
+            universe_result.get("status") == "READY"
+            and len(universe_symbols) == 500
+            and symbol_coverage.get("status") in {"READY", "READY_WITH_WARNINGS"}
+        )
+        complete_archive_set = (
+            state["completed_files"] == expected_files
+            and state["imported_files"] == expected_files
+            and not any_failed
+            and not any_missing_archive
+        )
+        state["paired_sessions"] = paired_sessions
+        state["paired_session_coverage_pct"] = round(
+            paired_sessions / max(1, expected_paired_sessions) * 100, 1
+        )
+        state["archive_coverage_pct"] = round(
+            state["imported_files"] / max(1, expected_files) * 100, 1
+        )
+        state["status"] = "READY" if (
+            complete_archive_set and expected_paired_sessions > 0
+            and paired_sessions == expected_paired_sessions and universe_ready
+        ) else ("PARTIAL" if any(imported_dates.values()) else "FAILED")
 
         # Strategy replays must finish before expired FO rows are purged. This
         # runs after the initial bootstrap and every scheduled/recovery refresh.
@@ -697,7 +832,7 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
                 from app.model_engine_orchestrator import run_post_import_strategy_cycle_async
                 from app.market_data.service import get_default_market_data_service
                 strategy_run = await run_post_import_strategy_cycle_async(
-                    today.isoformat(), get_default_market_data_service())
+                    end_date.isoformat(), get_default_market_data_service())
                 state["strategy_run"] = strategy_run
             except Exception as strategy_exc:  # noqa: BLE001
                 strategy_run = {
@@ -709,6 +844,9 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
             if strategy_run.get("status") == "COMPLETED":
                 state["expired_fo_cleanup"] = store.cleanup_expired_fo(today)
             else:
+                # Initial installation is not fully ready until the research
+                # replay has completed successfully; a later bootstrap retries it.
+                state["status"] = "PARTIAL"
                 state["expired_fo_cleanup"] = {
                     "status": "DEFERRED_STRATEGY_RUN_INCOMPLETE",
                     "removed_records": 0,
@@ -724,9 +862,9 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
 
         state["finished_at"] = datetime.now(IST).isoformat()
         state["note"] = (
-            "At least three calendar months of paired CM and FO sessions are available."
+            f"Complete {history_months}-month NSE CM/FO EOD history downloaded and reconciled."
             if state["status"] == "READY" else
-            "Some NSE archive downloads failed or paired session coverage is incomplete. Retry bootstrap to fill gaps."
+            "Initial NSE history is incomplete: one or more expected archives are missing, failed, or unreconciled. Retry bootstrap to resume the missing sessions."
         )
         store.set_meta("bootstrap", state)
         return state
@@ -736,6 +874,38 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
         store.set_meta("bootstrap", state)
         log.exception("NSE CM/FO bootstrap failed")
         return state
+
+
+def nse_bootstrap_is_ready(bootstrap: dict[str, Any] | None) -> bool:
+    """Reject legacy three-month READY markers and incomplete archive coverage."""
+    if not isinstance(bootstrap, dict) or bootstrap.get("status") != "READY":
+        return False
+    try:
+        months = int(bootstrap.get("history_months", 0))
+        archive_coverage = float(bootstrap.get("archive_coverage_pct", 0))
+        paired_coverage = float(bootstrap.get("paired_session_coverage_pct", 0))
+    except (TypeError, ValueError):
+        return False
+    universes = bootstrap.get("universe") or {}
+    indices = universes.get("indices") or {}
+    required = {"NIFTY100": 100, "NIFTYMIDCAP150": 150, "NIFTYSMALLCAP250": 250}
+    universes_ready = universes.get("status") == "READY" and all(
+        (indices.get(code) or {}).get("status") == "READY"
+        and (indices.get(code) or {}).get("actual_count") == expected
+        for code, expected in required.items()
+    )
+    symbol_coverage = bootstrap.get("symbol_coverage") or {}
+    coverage_ready = (
+        symbol_coverage.get("status") in {"READY", "READY_WITH_WARNINGS"}
+        and symbol_coverage.get("expected_symbols") == 500
+        and symbol_coverage.get("missing_count") == 0
+    )
+    strategy_run = bootstrap.get("strategy_run") or {}
+    return (
+        months >= 12 and archive_coverage >= 100.0
+        and paired_coverage >= 100.0 and universes_ready and coverage_ready
+        and strategy_run.get("status") == "COMPLETED"
+    )
 
 
 def nse_data_status() -> dict[str, Any]:
@@ -764,7 +934,7 @@ def trigger_nse_bootstrap() -> dict[str, Any]:
     if _bootstrap_task is not None and not _bootstrap_task.done():
         return {"status": "RUNNING", "message": "NSE CM/FO bootstrap is already running"}
     _bootstrap_task = asyncio.create_task(run_nse_bootstrap(force=True))
-    return {"status": "QUEUED", "message": "NSE CM/FO three-month bootstrap has been queued"}
+    return {"status": "QUEUED", "message": "NSE CM/FO initial-history bootstrap has been queued"}
 
 
 def start_nse_data_jobs() -> None:

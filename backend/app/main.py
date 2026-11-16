@@ -44,11 +44,13 @@ from app.account_reporting import AccountReporting
 from app.portfolio_risk import PortfolioRiskStore, build_portfolio_snapshot
 from app.support_center import SupportStore
 from app import telegram_destinations
-from app.nse_bhavcopy import (nse_data_status, nse_data_rows, start_nse_data_jobs, stop_nse_data_jobs, trigger_nse_bootstrap)
+from app.nse_bhavcopy import (nse_data_status, nse_data_rows, nse_bootstrap_is_ready, start_nse_data_jobs, stop_nse_data_jobs, trigger_nse_bootstrap)
 from app.market_intelligence import build_market_intelligence_pulse
 from app.security import create_access_token, create_admin_access_token, hash_password, require_customer, require_admin, verify_password
 from app.persistence import get_persistence_runtime
 from app.workflow_events import build_idempotency_key, emit_workflow_event
+from app.workflow_engine import WorkflowStore
+from app.installation_readiness import evaluate_workflow_runtime
 
 app = FastAPI(title="AIR Model Engine API", version="0.3.0",
               description="Self-hosted AIR authentication, broker account and market-data gateway.")
@@ -739,6 +741,57 @@ async def health() -> dict:
     if failures:
         raise HTTPException(status_code=503, detail={"status": "degraded", "dependencies": dependencies})
     return {"status": "ok", "service": "air-model-engine-api", "dependencies": dependencies}
+
+@app.get("/ready")
+async def application_readiness() -> dict:
+    """Full installation readiness; unlike /health this waits for initial NSE history."""
+    dependencies = get_persistence_runtime().health()
+    dependency_failures = [
+        name for name, item in dependencies.items()
+        if item["configured"] and item["status"] != "ok"
+    ]
+    bootstrap = nse_data_status().get("bootstrap", {"status": "NOT_STARTED"})
+    symbol_coverage = bootstrap.get("symbol_coverage") or {}
+    symbol_coverage_summary = {
+        key: value for key, value in symbol_coverage.items() if key != "by_symbol"
+    }
+    bootstrap_summary = {
+        key: bootstrap.get(key) for key in (
+            "status", "history_months", "target_start_date", "start_date",
+            "end_date", "progress_pct", "archive_coverage_pct",
+            "paired_sessions", "expected_paired_sessions", "universe", "strategy_run", "note",
+        ) if key in bootstrap
+    }
+    if symbol_coverage_summary:
+        bootstrap_summary["symbol_coverage"] = symbol_coverage_summary
+    workflow_store = None
+    try:
+        workflow_store = WorkflowStore()
+        workflow_runtime = evaluate_workflow_runtime(workflow_store.list_worker_heartbeats(100))
+    except Exception as exc:
+        workflow_runtime = {
+            "status": "UNAVAILABLE", "healthy": False,
+            "error": type(exc).__name__,
+        }
+    finally:
+        if workflow_store is not None:
+            workflow_store.close()
+    if (dependency_failures or not nse_bootstrap_is_ready(bootstrap)
+            or not workflow_runtime.get("healthy")):
+        raise HTTPException(status_code=503, detail={
+            "status": "NOT_READY",
+            "dependency_failures": dependency_failures,
+            "dependencies": dependencies,
+            "workflow_runtime": workflow_runtime,
+            "market_data": bootstrap_summary,
+        })
+    return {
+        "status": "READY",
+        "service": "air-model-engine-api",
+        "dependencies": dependencies,
+        "workflow_runtime": workflow_runtime,
+        "market_data": bootstrap_summary,
+    }
 
 @app.get("/api/v1/customer/market-intelligence/pulse")
 async def customer_market_intelligence_pulse(customer_id: str = Depends(require_customer)) -> dict:
