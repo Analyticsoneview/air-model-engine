@@ -7,6 +7,8 @@ from __future__ import annotations
 import os
 import sqlite3
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -15,7 +17,7 @@ import pytest
 from sqlalchemy import create_engine, text
 
 from app.customer_auth_postgres import PostgresAccessStore
-from app.tenant_context import tenant_scope
+from app.tenant_context import install_tenant_context, tenant_scope
 from app.scripts.migrate_customer_sqlite_to_postgres import migrate
 
 
@@ -306,3 +308,77 @@ def test_sqlite_migration_is_idempotent_and_preserves_all_customer_rows(customer
                 assert conn.execute(text("SELECT COUNT(*) FROM air_marketing_audit WHERE event_id='event-1'")).scalar_one() == 1
         finally:
             engine.dispose()
+
+
+
+def test_postgres_tenant_isolation_survives_pool_reuse_and_concurrent_requests(customer_store):
+    """RLS must isolate two tenants on a reused connection and under concurrency."""
+    url = os.environ["AIR_TEST_CUSTOMER_DATABASE_URL"]
+    customer_a = "+919876543221"
+    customer_b = "+919876543222"
+    customer_store.request_access(customer_a, "tenant-a-device-0001")
+    customer_store.request_access(customer_b, "tenant-b-device-0001")
+    tenant_a = customer_store.tenant_for_customer(customer_a)
+    tenant_b = customer_store.tenant_for_customer(customer_b)
+    assert tenant_a and tenant_b and tenant_a != tenant_b
+
+    # A one-connection pool forces tenant A and tenant B to reuse the same
+    # physical PostgreSQL connection. before_cursor_execute must reset all
+    # three AIR GUCs before every statement.
+    pooled_engine = create_engine(url, pool_size=1, max_overflow=0, pool_pre_ping=True)
+    install_tenant_context(pooled_engine)
+    try:
+        for customer, tenant in ((customer_a, tenant_a), (customer_b, tenant_b)):
+            with tenant_scope(tenant_id=tenant, customer_id=customer):
+                with pooled_engine.connect() as conn:
+                    visible = conn.execute(text(
+                        "SELECT DISTINCT mobile_e164 FROM air_access_requests ORDER BY mobile_e164"
+                    )).scalars().all()
+            assert visible == [customer]
+
+        # Missing tenant context must fail closed for customer-owned rows.
+        with tenant_scope():
+            with pooled_engine.connect() as conn:
+                assert conn.execute(text(
+                    "SELECT COUNT(*) FROM air_access_requests"
+                )).scalar_one() == 0
+
+        # A tenant cannot create a row for another tenant, even when it knows
+        # the other customer's mobile number.
+        with tenant_scope(tenant_id=tenant_b, customer_id=customer_b):
+            with pytest.raises(Exception, match="tenant context mismatch"):
+                with pooled_engine.begin() as conn:
+                    conn.execute(text("""
+                        INSERT INTO air_access_requests
+                            (request_id,mobile_e164,device_id,status)
+                        VALUES ('cross-tenant-write',:customer,'cross-tenant-device','PENDING')
+                    """), {"customer": customer_a})
+    finally:
+        pooled_engine.dispose()
+
+    # Exercise simultaneous tenant scopes on separate pooled connections.
+    concurrent_engine = create_engine(url, pool_size=2, max_overflow=0, pool_pre_ping=True)
+    install_tenant_context(concurrent_engine)
+    barrier = Barrier(2)
+
+    def read_only_tenant(customer: str, tenant: str) -> list[str]:
+        observed = []
+        with tenant_scope(tenant_id=tenant, customer_id=customer):
+            barrier.wait(timeout=10)
+            for _ in range(20):
+                with concurrent_engine.connect() as conn:
+                    rows = conn.execute(text(
+                        "SELECT DISTINCT mobile_e164 FROM air_access_requests ORDER BY mobile_e164"
+                    )).scalars().all()
+                assert rows == [customer]
+                observed.extend(rows)
+        return observed
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            future_a = executor.submit(read_only_tenant, customer_a, tenant_a)
+            future_b = executor.submit(read_only_tenant, customer_b, tenant_b)
+            assert future_a.result(timeout=30) == [customer_a] * 20
+            assert future_b.result(timeout=30) == [customer_b] * 20
+    finally:
+        concurrent_engine.dispose()
