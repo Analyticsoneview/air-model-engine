@@ -11,10 +11,10 @@ param(
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $python = Get-Command python -ErrorAction SilentlyContinue
-$launcher = @()
+$pythonArgs = @()
 if (!$python) {
-    $py = Get-Command py -ErrorAction SilentlyContinue
-    if ($py) { $launcher = @("-3.12"); $python = $py }
+    $python = Get-Command py -ErrorAction SilentlyContinue
+    if ($python) { $pythonArgs += "-3.12" }
 }
 if (!$python) { throw "Python 3.12 is required for AIR Deployment Manager. Install Python and retry." }
 
@@ -23,8 +23,11 @@ if (!$Action) {
     else { $Action = "validate" }
 }
 
-$args = @((Join-Path $Root "scripts/air_manager.py"), "--profile", $DeploymentProfile, $Action)
-if ($Version) { $args += @("--version", $Version) }
-if ($OutputDirectory) { $args += @("--output-dir", $OutputDirectory) }
-& $python.Source @launcher @args
+$pythonArgs += (Join-Path $Root "scripts/air_manager.py")
+$pythonArgs += @("--profile", $DeploymentProfile)
+if ($Version) { $pythonArgs += @("--version", $Version) }
+if ($OutputDirectory) { $pythonArgs += @("--output-dir", $OutputDirectory) }
+$pythonArgs += $Action
+
+& $python.Source @pythonArgs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
