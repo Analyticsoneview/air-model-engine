@@ -196,6 +196,24 @@ def test_read_only_tenant_member_can_read_but_cannot_upload(monkeypatch):
     assert provisioner.put_calls == 0
 
 
+def test_download_rejects_corrupted_s3_body(monkeypatch):
+    client, registry, provisioner = _client(monkeypatch, limit=100)
+    uploaded = client.put(
+        "/api/v1/tenant/objects/integrity/check.bin",
+        content=b"trusted-content",
+    )
+    assert uploaded.status_code == 200
+
+    provisioner.get_tenant_object = lambda tenant, key: {
+        "body": b"corrupted-content",
+        "content_type": "application/octet-stream",
+        "etag": "tampered-etag",
+    }
+    response = client.get("/api/v1/tenant/objects/integrity/check.bin")
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Tenant object integrity verification failed"
+
+
 def test_storage_api_is_disabled_outside_aws_saas(monkeypatch):
     client, _, _ = _client(monkeypatch)
     with patch.dict("os.environ", {"AIR_DEPLOYMENT_PROFILE": "onprem-single"}):
