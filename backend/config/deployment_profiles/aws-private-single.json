@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "profile_id": "aws-private-single",
+  "display_name": "AIR Private AWS — Single Tenant",
+  "deployment": {
+    "provider": "aws",
+    "tenancy": "single",
+    "orchestrator": "ecs_fargate",
+    "region": null,
+    "region_required": true
+  },
+  "infrastructure": {
+    "isolation": "dedicated",
+    "database": "rds_postgresql",
+    "cache": "elasticache_redis",
+    "message_broker": "amazon_mq_rabbitmq",
+    "workflow_engine": "air_workflow",
+    "storage": "s3",
+    "monitoring": "cloudwatch"
+  },
+  "services": {
+    "frontend": true,
+    "fastapi": true,
+    "postgresql": true,
+    "redis": true,
+    "rabbitmq": true,
+    "workflow_engine": true,
+    "background_workers": true,
+    "scheduler": true,
+    "monitoring": true,
+    "storage": true
+  }
+}

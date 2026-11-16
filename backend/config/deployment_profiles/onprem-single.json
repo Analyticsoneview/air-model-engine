@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "profile_id": "onprem-single",
+  "display_name": "AIR On-premises — Single Tenant",
+  "deployment": {
+    "provider": "on_prem",
+    "tenancy": "single",
+    "orchestrator": "docker_compose",
+    "swarm_supported": true,
+    "region": null
+  },
+  "infrastructure": {
+    "isolation": "dedicated",
+    "database": "postgresql_local",
+    "cache": "redis_local",
+    "message_broker": "rabbitmq",
+    "workflow_engine": "air_workflow",
+    "storage": "local",
+    "monitoring": "grafana_prometheus"
+  },
+  "services": {
+    "frontend": true,
+    "fastapi": true,
+    "postgresql": true,
+    "redis": true,
+    "rabbitmq": true,
+    "workflow_engine": true,
+    "background_workers": true,
+    "scheduler": true,
+    "monitoring": true,
+    "storage": true
+  }
+}

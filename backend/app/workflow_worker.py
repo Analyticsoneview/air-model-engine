@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 
 import pika
 
+from app.deployment_profiles import load_runtime_profile
 from app.workflow_engine import WorkflowStore
 from app.workflow_executor import execute_workflow_run
 from app.workflow_alerts import deliver_runtime_alerts, evaluate_runtime_alerts
@@ -436,6 +437,11 @@ def main() -> None:
     logging.basicConfig(
         level=os.getenv("AIR_WORKFLOW_LOG_LEVEL", "INFO"),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+    profile = load_runtime_profile()
+    log.info(
+        "AIR workflow runtime profile=%s tenancy=%s",
+        profile["profile_id"], profile["deployment"]["tenancy"],
     )
     stop = threading.Event()
     publisher = threading.Thread(target=_publish_outbox, args=(stop,), name="workflow-outbox", daemon=True)

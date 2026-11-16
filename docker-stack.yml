@@ -76,6 +76,9 @@ services:
     image: ${AIR_BACKEND_IMAGE:-air-model-engine-api:lab}
     command: ["python", "-m", "app.workflow_worker"]
     environment:
+      AIR_DEPLOYMENT_PROFILE: ${AIR_DEPLOYMENT_PROFILE:-onprem-single}
+      AIR_DEPLOYMENT_MODE: ${AIR_DEPLOYMENT_MODE:-on_prem}
+      AIR_TENANCY_MODE: ${AIR_TENANCY_MODE:-single}
       AIR_DATABASE_URL_FILE: /run/secrets/air_database_url
       AIR_CUSTOMER_DATABASE_URL_FILE: /run/secrets/air_database_url
       AIR_ACCOUNT_DATABASE_URL_FILE: /run/secrets/air_database_url
@@ -122,6 +125,9 @@ services:
   air-api:
     image: ${AIR_BACKEND_IMAGE:-air-model-engine-api:lab}
     environment:
+      AIR_DEPLOYMENT_PROFILE: ${AIR_DEPLOYMENT_PROFILE:-onprem-single}
+      AIR_DEPLOYMENT_MODE: ${AIR_DEPLOYMENT_MODE:-on_prem}
+      AIR_TENANCY_MODE: ${AIR_TENANCY_MODE:-single}
       AIR_JWT_SECRET_FILE: /run/secrets/air_jwt_secret
       AIR_CREDENTIAL_KEY_FILE: /run/secrets/air_credential_key
       AIR_ADMIN_API_KEY_FILE: /run/secrets/air_admin_api_key

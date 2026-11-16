@@ -1,0 +1,56 @@
+name: AIR Deployment Profile Acceptance
+
+on:
+  pull_request:
+    paths:
+      - 'AIRDEPLOY.ps1'
+      - 'AIRDEPLOY.sh'
+      - 'AIRSTART.ps1'
+      - 'AIRSTART.sh'
+      - 'backend/Dockerfile'
+      - 'backend/app/deployment_profiles.py'
+      - 'backend/app/main.py'
+      - 'backend/app/workflow_worker.py'
+      - 'backend/config/deployment_profiles/**'
+      - 'backend/tests/test_deployment_profiles.py'
+      - 'compose.local.yml'
+      - 'docker-stack.yml'
+      - 'deploy/README.md'
+      - 'README.md'
+      - '.github/workflows/deployment-profile-acceptance.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate-deployment-profiles:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate all deployment profiles
+        run: |
+          for profile in onprem-single aws-private-single aws-saas-multi; do
+            PYTHONPATH=backend python -m app.deployment_profiles --profile "$profile"
+          done
+          python -m json.tool backend/config/deployment_profiles/profile.schema.json >/dev/null
+      - name: Run deployment profile tests
+        env:
+          PYTHONPATH: backend
+        run: python -m unittest discover -s backend/tests -p 'test_deployment_profiles.py' -v
+      - name: Validate Linux launchers
+        run: bash -n AIRDEPLOY.sh AIRSTART.sh
+      - name: Parse Windows Deployment Manager
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PWD "AIRDEPLOY.ps1"), [ref]$tokens, [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            exit 1
+          }

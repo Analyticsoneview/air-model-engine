@@ -11,6 +11,7 @@ AIR is a self-hosted research and broker-connectivity foundation with a Flutter 
 - `mobile/` — Flutter client for Android and iPhone/PWA.
 - `backend/` — FastAPI authentication, customer-owned broker accounts, encrypted credential vault, market-data routing and execution safety foundations.
 - `deploy/` — Docker Swarm deployment guide, self-hosted PWA Dockerfile and Nginx SPA configuration.
+- `AIRDEPLOY.ps1` / `AIRDEPLOY.sh` — unified deployment entry points; `backend/config/deployment_profiles/` defines on-prem single-tenant, private AWS single-tenant and AWS SaaS multi-tenant profiles.
 - `docs/AIR_WORKFLOW_ENGINE.md` — event-driven workflow engine architecture and rollout phases.
 - `docker-stack.yml` — single-replica lab stack for API and PWA.
 - `.github/workflows/` — backend verification, Flutter/PWA build and gated Docker image deployment workflows.

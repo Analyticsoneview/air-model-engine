@@ -45,6 +45,7 @@ from app.account_reporting import AccountReporting
 from app.portfolio_risk import PortfolioRiskStore, build_portfolio_snapshot
 from app.support_center import SupportStore
 from app import telegram_destinations
+from app.deployment_profiles import load_runtime_profile
 from app.nse_bhavcopy import (nse_data_status, nse_data_rows, nse_bootstrap_is_ready, start_nse_data_jobs, stop_nse_data_jobs, trigger_nse_bootstrap)
 from app.market_intelligence import build_market_intelligence_pulse
 from app.security import create_access_token, create_admin_access_token, hash_password, require_customer, require_admin, verify_password
@@ -160,6 +161,7 @@ def _market_adapter_for(operator_id: str, provider: str, account_id: str, hub=No
 @app.on_event("startup")
 async def start_air_qoc_jobs() -> None:
     global _market_health_task, _master_refresh_task
+    load_runtime_profile()
     configure_customer_market_data_runtime(
         account_directory, market_data_instruments,
         lambda customer_id, provider, account_id, hub: _market_adapter_for(
@@ -747,6 +749,13 @@ async def health() -> dict:
 @app.get("/ready")
 async def application_readiness() -> dict:
     """Full installation readiness; unlike /health this waits for initial NSE history."""
+    profile = load_runtime_profile()
+    deployment_summary = {
+        "profile_id": profile["profile_id"],
+        "provider": profile["deployment"]["provider"],
+        "tenancy": profile["deployment"]["tenancy"],
+        "orchestrator": profile["deployment"]["orchestrator"],
+    }
     dependencies = get_persistence_runtime().health()
     dependency_failures = [
         name for name, item in dependencies.items()
@@ -785,6 +794,7 @@ async def application_readiness() -> dict:
             "dependency_failures": dependency_failures,
             "dependencies": dependencies,
             "workflow_runtime": workflow_runtime,
+            "deployment": deployment_summary,
             "market_data": bootstrap_summary,
         })
     return {
@@ -792,6 +802,7 @@ async def application_readiness() -> dict:
         "service": "air-model-engine-api",
         "dependencies": dependencies,
         "workflow_runtime": workflow_runtime,
+        "deployment": deployment_summary,
         "market_data": bootstrap_summary,
     }
 
