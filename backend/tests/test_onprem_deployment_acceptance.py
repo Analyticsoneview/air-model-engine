@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import unittest
 from pathlib import Path
 
@@ -11,10 +12,12 @@ def read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
-def section(source: str, heading: str, next_heading: str | None = None) -> str:
+def service_block(source: str, service_name: str) -> str:
+    heading = f"  {service_name}:\\n"
     start = source.index(heading)
-    end = source.find(next_heading, start + len(heading)) if next_heading else -1
-    return source[start:] if end < 0 else source[start:end]
+    match = re.search(r"\\n  [A-Za-z0-9_-]+:\\n", source[start + len(heading):])
+    end = start + len(heading) + match.start() if match else len(source)
+    return source[start:end]
 
 
 class OnPremDeploymentAcceptanceTests(unittest.TestCase):
@@ -24,7 +27,7 @@ class OnPremDeploymentAcceptanceTests(unittest.TestCase):
         for service in required:
             self.assertIn(f"  {service}", compose)
         for service in required:
-            block = section(compose, f"  {service}", "\n  ")
+            block = service_block(compose, service[:-1])
             self.assertIn("restart: unless-stopped", block)
 
     def test_compose_api_and_worker_use_single_tenant_onprem_profile(self):
@@ -35,7 +38,7 @@ class OnPremDeploymentAcceptanceTests(unittest.TestCase):
             ("AIR_TENANCY_MODE", "${AIR_TENANCY_MODE:-single}"),
         ):
             self.assertIn(f"{key}: {value}", compose)
-        worker = section(compose, "  air-workflow-worker:", "\n  air-pwa:")
+        worker = service_block(compose, "air-workflow-worker")
         self.assertIn("python -m app.workflow_worker", worker)
         self.assertIn("rabbitmq:", worker)
 
@@ -65,9 +68,9 @@ class OnPremDeploymentAcceptanceTests(unittest.TestCase):
         ):
             self.assertIn(f"{key}: {value}", stack)
         self.assertGreaterEqual(stack.count("air_data:/var/lib/air"), 2)
-        api = section(stack, "  air-api:", "\n  air-pwa:")
+        api = service_block(stack, "air-api")
         self.assertNotIn("    ports:", api)
-        worker = section(stack, "  air-workflow-worker:", "\n  air-api:")
+        worker = service_block(stack, "air-workflow-worker")
         self.assertIn("python -m app.workflow_worker", worker)
 
     def test_swarm_declares_external_secrets_and_no_inline_secret_values(self):
