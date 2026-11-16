@@ -8,6 +8,7 @@ import json, os
 from datetime import date, datetime, timezone
 from pathlib import Path
 from uuid import uuid4
+from functools import wraps
 from sqlalchemy import create_engine, text
 
 METRICS = frozenset({"api_calls", "compute_seconds", "storage_bytes", "seats", "licensed_data_bytes"})
@@ -23,6 +24,16 @@ PLAN_QUOTAS = {
  "B2B_INSTITUTIONAL_ANNUAL":{"api_calls":("DAILY",2000000,2400000),"compute_seconds":("MONTHLY",7200000,8640000),"storage_bytes":("MONTHLY",2199023255552,2418925581107),"seats":("MONTHLY",250,250),"licensed_data_bytes":("MONTHLY",2199023255552,2418925581107)},
 }
 UNITS={"api_calls":"calls","compute_seconds":"seconds","storage_bytes":"bytes","seats":"seats","licensed_data_bytes":"bytes"}
+
+def _tenant_scoped(method):
+    @wraps(method)
+    def wrapped(self, tenant_id, customer_id, *args, **kwargs):
+        if self.engine.dialect.name == "postgresql":
+            from app.tenant_context import tenant_scope
+            with tenant_scope(tenant_id=tenant_id, customer_id=customer_id):
+                return method(self, tenant_id, customer_id, *args, **kwargs)
+        return method(self, tenant_id, customer_id, *args, **kwargs)
+    return wrapped
 
 class UsageQuotaExceeded(RuntimeError): pass
 class UnknownUsagePlan(ValueError): pass
@@ -47,6 +58,8 @@ class UsageMeter:
         self.sqlite_path=sqlite_path or os.getenv("AIR_USAGE_DB_PATH","data/usage_metering.sqlite3")
         if self.database_url.startswith(("postgresql://","postgresql+psycopg://")):
             self.engine=create_engine(self.database_url,pool_pre_ping=True,future=True)
+            from app.tenant_context import install_tenant_context
+            install_tenant_context(self.engine)
             with self.engine.connect() as conn:
                 if not conn.execute(text("SELECT to_regclass('public.air_usage_events')")).scalar():
                     raise RuntimeError("Usage metering migration 0023 must be applied before use")
@@ -87,6 +100,7 @@ class UsageMeter:
             if override["hard_limit"] is not None: hard=int(override["hard_limit"])
         return period,soft,hard
 
+    @_tenant_scoped
     def record_usage(self,tenant_id,customer_id,metric,quantity=1,*,plan_code,idempotency_key,actor_id=None,now=None,metadata=None):
         tenant,customer,key=str(tenant_id or "").strip(),str(customer_id or "").strip(),str(idempotency_key or "").strip()
         name=str(metric or "").strip().lower()
@@ -133,6 +147,7 @@ class UsageMeter:
               "soft_limit_exceeded":bool(soft_exceeded),"used":current_total+(amount if allowed else 0),
               "soft_limit":soft,"hard_limit":hard,"idempotent_replay":False}
 
+    @_tenant_scoped
     def adjust_usage(self,tenant_id,customer_id,metric,quantity,*,plan_code,idempotency_key,actor_id,now=None,reason=""):
         tenant,customer,key=str(tenant_id or "").strip(),str(customer_id or "").strip(),str(idempotency_key or "").strip()
         name,delta=str(metric or "").lower(),int(quantity)
