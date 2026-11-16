@@ -26,12 +26,12 @@ class _AirSubscriptionScreenState extends State<AirSubscriptionScreen> {
     try {
       final values = await Future.wait([_api.subscriptionCatalogue(), _api.mySubscription(), _api.marketingPreferences()]);
       if (!mounted) return;
-      final status = values[1] as Map<String, dynamic>;
+      final status = values[1];
       setState(() {
-        _plans = ((values[0] as Map<String, dynamic>)['b2c'] as List<dynamic>? ?? const [])
+        _plans = (values[0]['b2c'] as List<dynamic>? ?? const [])
             .whereType<Map<String, dynamic>>().toList(growable: false);
         _subscription = status['subscription'] as Map<String, dynamic>?;
-        final preferences = values[2] as Map<String, dynamic>;
+        final preferences = values[2];
         _marketingConsent = preferences['promotional_consent'] == true;
         _consentUpdatedAt = preferences['consent_updated_at']?.toString();
       });
