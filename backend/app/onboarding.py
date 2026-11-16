@@ -73,7 +73,7 @@ class OnboardingStore:
         return nullcontext()
 
     def record_consents(self, tenant_id, customer_id, consents, idempotency_prefix):
-        if not tenant_id or not customer_id or not isinstance(consents, list) or not consents or len(consents) > 4:
+        if not tenant_id or not customer_id or not idempotency_prefix or len(idempotency_prefix) > 180 or not isinstance(consents, list) or not consents or len(consents) > 4:
             raise ValueError("Tenant, customer and 1-4 explicit consent records are required")
         seen = set()
         normalized = []
@@ -158,8 +158,8 @@ class OnboardingStore:
                 {"id": item_id, "t": tenant_id, "c": customer_id, "p": product_code, "plan": plan_code,
                  "key": idempotency_key, "now": now})
             self._event(conn, tenant_id, item_id, actor_id, "ONBOARDING_CREATED", None, "PENDING", idempotency_key, {})
-            return dict(conn.execute(text("SELECT * FROM air_customer_onboarding WHERE onboarding_id=:id"),
-                                     {"id": item_id}).mappings().one())
+            return dict(conn.execute(text("SELECT * FROM air_customer_onboarding WHERE tenant_id=:t AND customer_id=:c AND onboarding_id=:id"),
+                                     {"t": tenant_id, "c": customer_id, "id": item_id}).mappings().one())
 
     def transition(self, tenant_id, customer_id, onboarding_id, target, actor_id, idempotency_key,
                    details=None, trial_days=None):
