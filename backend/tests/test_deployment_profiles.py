@@ -17,6 +17,8 @@ class DeploymentProfileTests(unittest.TestCase):
             self.assertTrue(profile["services"]["rabbitmq"])
             self.assertTrue(profile["services"]["fastapi"])
             self.assertTrue(profile["services"]["workflow_engine"])
+            if profile_id != "onprem-single":
+                self.assertEqual(profile["infrastructure"]["storage"], "efs_s3")
 
     def test_invalid_profile_shape_and_schema_version_fail_closed(self):
         with self.assertRaisesRegex(DeploymentProfileError, "schema_version"):
