@@ -34,6 +34,8 @@ def _context() -> tuple[dict, str, str]:
         tenant = registry.get_customer_context(customer_id)
     except KeyError as exc:
         raise HTTPException(status_code=403, detail="Customer tenant membership is not active") from exc
+    if str(tenant.get("tenant_id", "")) != str(tenant_id) or tenant.get("tenant_status") != "ACTIVE":
+        raise HTTPException(status_code=403, detail="Authenticated tenant context does not match active membership")
     return tenant, tenant_id, customer_id
 
 
