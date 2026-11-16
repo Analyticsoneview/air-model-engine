@@ -1,3 +1,4 @@
 # AIR core runtime. Broker SDKs are intentionally isolated per broker.
 # FYERS pins websocket-client==1.6.1 while Angel One requires >=1.8.
 -r dependencies/base.txt
+cryptography>=42.0,<47.0
