@@ -14,6 +14,7 @@ from typing import Any
 from uuid import uuid4
 
 from app.db_compat import PostgresConnection, read_database_url
+from app.tenant_context import current_customer_id
 
 TRIGGER_TYPES = {"EVENT", "TIME", "STRATEGY", "CONDITION"}
 EXECUTION_MODES = {"RESEARCH_ONLY", "ALERT_NOTIFY"}
@@ -154,7 +155,8 @@ class WorkflowStore:
                 execution_mode TEXT NOT NULL DEFAULT 'RESEARCH_ONLY'
                     CHECK(execution_mode IN ('RESEARCH_ONLY','ALERT_NOTIFY','AUTHORIZED_EXECUTION')),
                 version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1), enabled INTEGER NOT NULL DEFAULT 0,
-                created_by TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+                created_by TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                customer_id TEXT, tenant_id TEXT
             );
             CREATE INDEX IF NOT EXISTS ix_air_workflow_enabled_trigger
                 ON air_workflow_definitions(enabled,trigger_type);
@@ -164,6 +166,7 @@ class WorkflowStore:
                 trigger_type TEXT NOT NULL, trigger_config_json TEXT NOT NULL DEFAULT '{}',
                 workflow_spec_json TEXT NOT NULL DEFAULT '{}', execution_mode TEXT NOT NULL,
                 created_by TEXT NOT NULL, created_at TEXT NOT NULL,
+                customer_id TEXT, tenant_id TEXT,
                 PRIMARY KEY(workflow_id,version)
             );
             CREATE INDEX IF NOT EXISTS ix_air_workflow_definition_versions_created
@@ -177,7 +180,8 @@ class WorkflowStore:
             CREATE TABLE IF NOT EXISTS air_workflow_events (
                 event_id TEXT PRIMARY KEY, event_type TEXT NOT NULL, source TEXT NOT NULL,
                 occurred_at TEXT NOT NULL, payload_json TEXT NOT NULL DEFAULT '{}',
-                idempotency_key TEXT NOT NULL UNIQUE, correlation_id TEXT, created_at TEXT NOT NULL
+                idempotency_key TEXT NOT NULL UNIQUE, correlation_id TEXT, created_at TEXT NOT NULL,
+                customer_id TEXT, tenant_id TEXT
             );
             CREATE INDEX IF NOT EXISTS ix_air_workflow_events_type_time
                 ON air_workflow_events(event_type,occurred_at);
@@ -185,7 +189,7 @@ class WorkflowStore:
                 outbox_id TEXT PRIMARY KEY, event_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'PENDING'
                     CHECK(status IN ('PENDING','PUBLISHED','FAILED')),
                 attempts INTEGER NOT NULL DEFAULT 0, available_at TEXT NOT NULL,
-                published_at TEXT, last_error TEXT
+                published_at TEXT, last_error TEXT, customer_id TEXT, tenant_id TEXT
             );
             CREATE INDEX IF NOT EXISTS ix_air_workflow_outbox_pending
                 ON air_workflow_outbox(status,available_at);
@@ -194,7 +198,7 @@ class WorkflowStore:
                 event_id TEXT NOT NULL, status TEXT NOT NULL, execution_mode TEXT NOT NULL,
                 started_at TEXT NOT NULL, completed_at TEXT, error TEXT,
                 claimed_by TEXT, claimed_at TEXT, lease_expires_at TEXT,
-                claim_version INTEGER NOT NULL DEFAULT 0,
+                claim_version INTEGER NOT NULL DEFAULT 0, customer_id TEXT, tenant_id TEXT,
                 UNIQUE(workflow_id,workflow_version,event_id)
             );
             CREATE INDEX IF NOT EXISTS ix_air_workflow_runs_status_time
@@ -205,6 +209,7 @@ class WorkflowStore:
                 status TEXT NOT NULL CHECK(status IN ('PENDING','RUNNING','SUCCEEDED','FAILED','SKIPPED')),
                 input_json TEXT NOT NULL DEFAULT '{}', output_json TEXT, error TEXT,
                 attempts INTEGER NOT NULL DEFAULT 0, started_at TEXT, completed_at TEXT,
+                customer_id TEXT, tenant_id TEXT,
                 UNIQUE(run_id,step_key)
             );
             CREATE INDEX IF NOT EXISTS ix_air_workflow_run_steps_order
@@ -213,7 +218,7 @@ class WorkflowStore:
                 audit_id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL,
                 workflow_version INTEGER NOT NULL, actor_id TEXT NOT NULL,
                 action TEXT NOT NULL, payload_json TEXT NOT NULL DEFAULT '{}',
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL, customer_id TEXT, tenant_id TEXT
             );
             CREATE INDEX IF NOT EXISTS ix_air_workflow_audit_workflow_time
                 ON air_workflow_audit(workflow_id,created_at);
@@ -256,6 +261,15 @@ class WorkflowStore:
                 self.db.execute(f"ALTER TABLE air_workflow_runs ADD COLUMN {name} {definition}")
         self.db.execute("""CREATE INDEX IF NOT EXISTS ix_air_workflow_runs_lease
             ON air_workflow_runs(status,lease_expires_at,started_at)""")
+        for table in (
+            "air_workflow_definitions", "air_workflow_definition_versions",
+            "air_workflow_events", "air_workflow_outbox", "air_workflow_runs",
+            "air_workflow_run_steps", "air_workflow_audit",
+        ):
+            existing = {row["name"] for row in self.db.execute(f"PRAGMA table_info({table})").fetchall()}
+            for column in ("customer_id", "tenant_id"):
+                if column not in existing:
+                    self.db.execute(f"ALTER TABLE {table} ADD COLUMN {column} TEXT")
         self.db.commit()
 
     def create_workflow(
