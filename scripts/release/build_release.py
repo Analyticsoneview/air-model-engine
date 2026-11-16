@@ -129,7 +129,7 @@ def build_release(version: str, output_dir: Path, root: Path = ROOT) -> Path:
             ],
             "files": manifest_files,
             "excluded_runtime_data": [
-                ".air-secrets", ".air-local.env", database_files, "Terraform state",
+                ".air-secrets", ".air-local.env", "SQLite/database files", "Terraform state",
                 "private signing keys and local build caches",
             ],
         }
@@ -148,7 +148,6 @@ def build_release(version: str, output_dir: Path, root: Path = ROOT) -> Path:
 
     digest = sha256(archive)
     (output_dir / f"{archive.name}.sha256").write_text(f"{digest}  {archive.name}\n", encoding="utf-8")
-    shutil.copy2(output_dir / archive.name, output_dir / archive.name)
     print(json.dumps({
         "status": "BUILT",
         "archive": str(archive),
