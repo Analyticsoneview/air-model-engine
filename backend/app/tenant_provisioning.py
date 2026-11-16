@@ -63,6 +63,12 @@ class TenantRegistry:
             raise ValueError("Unsupported tenant plan")
         if state not in {"PROVISIONING", "ACTIVE", "SUSPENDED"}:
             raise ValueError("Unsupported tenant status")
+        quotas = {
+            "STANDARD": (1, 10000, 1073741824),
+            "PAID": (5, 100000, 10737418240),
+            "ENTERPRISE": (50, 1000000, 107374182400),
+        }
+        max_members, max_calls, max_storage = quotas[plan]
         with tenant_scope(is_admin=True):
             with self.engine.begin() as conn:
                 member = conn.execute(text("""SELECT tenant_id,status FROM air_tenant_members
@@ -70,14 +76,19 @@ class TenantRegistry:
                 if member:
                     tenant_id = member["tenant_id"]
                     conn.execute(text("""UPDATE air_tenants SET name=:name,plan_code=:plan,
-                        status=:status,updated_at=CURRENT_TIMESTAMP WHERE tenant_id=:tenant"""),
-                        {"name": name, "plan": plan, "status": state, "tenant": tenant_id})
+                        status=:status,max_members=:members,max_api_calls_per_day=:calls,
+                        max_storage_bytes=:storage,updated_at=CURRENT_TIMESTAMP WHERE tenant_id=:tenant"""),
+                        {"name": name, "plan": plan, "status": state, "members": max_members,
+                         "calls": max_calls, "storage": max_storage, "tenant": tenant_id})
                 else:
                     tenant_id = str(uuid4())
                     conn.execute(text("""INSERT INTO air_tenants
-                        (tenant_id,name,owner_customer_id,plan_code,status)
-                        VALUES(:tenant,:name,:owner,:plan,:status)"""),
-                        {"tenant": tenant_id, "name": name, "owner": owner, "plan": plan, "status": state})
+                        (tenant_id,name,owner_customer_id,plan_code,status,storage_prefix,rabbitmq_vhost,
+                         max_members,max_api_calls_per_day,max_storage_bytes)
+                        VALUES(:tenant,:name,:owner,:plan,:status,:prefix,:vhost,:members,:calls,:storage)"""),
+                        {"tenant": tenant_id, "name": name, "owner": owner, "plan": plan, "status": state,
+                         "prefix": f"tenants/{tenant_id}/", "vhost": "air-" + tenant_id.replace("-", ""),
+                         "members": max_members, "calls": max_calls, "storage": max_storage})
                     conn.execute(text("""INSERT INTO air_tenant_members
                         (tenant_id,customer_id,role,status)
                         VALUES(:tenant,:customer,'OWNER','ACTIVE')"""),
@@ -92,10 +103,14 @@ class TenantRegistry:
             raise ValueError("Member role must be ADMIN, MEMBER or READ_ONLY")
         with tenant_scope(is_admin=True):
             with self.engine.begin() as conn:
-                state = conn.execute(text("SELECT status FROM air_tenants WHERE tenant_id=:tenant"),
-                                     {"tenant": tenant}).scalar_one_or_none()
-                if state != "ACTIVE":
+                state = conn.execute(text("SELECT status,max_members FROM air_tenants WHERE tenant_id=:tenant"),
+                                     {"tenant": tenant}).first()
+                if not state or state[0] != "ACTIVE":
                     raise ValueError("Tenant must be ACTIVE before members can be added")
+                active_members = conn.execute(text("""SELECT COUNT(*) FROM air_tenant_members
+                    WHERE tenant_id=:tenant AND status='ACTIVE'"""), {"tenant": tenant}).scalar_one()
+                if active_members >= state[1]:
+                    raise ValueError("Tenant member quota has been reached")
                 existing = conn.execute(text("SELECT tenant_id FROM air_tenant_members WHERE customer_id=:customer"),
                                         {"customer": customer}).scalar_one_or_none()
                 if existing:
@@ -126,7 +141,10 @@ class TenantRegistry:
         with tenant_scope(is_admin=True):
             with self.engine.connect() as conn:
                 row = conn.execute(text("""SELECT t.tenant_id,t.name,t.owner_customer_id,t.plan_code,
-                    t.status,t.created_at,t.updated_at,COUNT(m.customer_id) AS member_count
+                    t.status,t.storage_prefix,t.rabbitmq_vhost,t.max_members,
+                    t.max_api_calls_per_day,t.max_storage_bytes,t.feature_flags_json,
+                    t.metadata_json,t.provisioned_at,t.created_at,t.updated_at,
+                    COUNT(m.customer_id) AS member_count
                     FROM air_tenants t LEFT JOIN air_tenant_members m ON m.tenant_id=t.tenant_id
                     AND m.status='ACTIVE' WHERE t.tenant_id=:tenant
                     GROUP BY t.tenant_id"""), {"tenant": tenant}).mappings().first()
@@ -147,7 +165,9 @@ class TenantRegistry:
         with tenant_scope(is_admin=True):
             with self.engine.connect() as conn:
                 rows = conn.execute(text(f"""SELECT t.tenant_id,t.name,t.owner_customer_id,
-                    t.plan_code,t.status,t.created_at,t.updated_at,
+                    t.plan_code,t.status,t.storage_prefix,t.rabbitmq_vhost,t.max_members,
+                    t.max_api_calls_per_day,t.max_storage_bytes,t.feature_flags_json,
+                    t.metadata_json,t.provisioned_at,t.created_at,t.updated_at,
                     COUNT(m.customer_id) FILTER (WHERE m.status='ACTIVE') AS member_count
                     FROM air_tenants t LEFT JOIN air_tenant_members m ON m.tenant_id=t.tenant_id
                     {where} GROUP BY t.tenant_id ORDER BY t.created_at DESC LIMIT :limit"""),
@@ -159,7 +179,9 @@ class TenantRegistry:
         with tenant_scope(customer_id=customer):
             with self.engine.connect() as conn:
                 row = conn.execute(text("""SELECT m.tenant_id,m.role,m.status AS membership_status,
-                    t.name,t.plan_code,t.status AS tenant_status
+                    t.name,t.plan_code,t.status AS tenant_status,t.storage_prefix,
+                    t.rabbitmq_vhost,t.max_members,t.max_api_calls_per_day,t.max_storage_bytes,
+                    t.feature_flags_json
                     FROM air_tenant_members m JOIN air_tenants t ON t.tenant_id=m.tenant_id
                     WHERE m.customer_id=:customer AND m.status='ACTIVE'"""),
                     {"customer": customer}).mappings().first()
