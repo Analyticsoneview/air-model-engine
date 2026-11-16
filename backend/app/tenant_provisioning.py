@@ -43,11 +43,18 @@ class TenantRegistry:
         customer = self._validate_customer(customer_id)
         with tenant_scope(customer_id=customer):
             with self.engine.connect() as conn:
-                row = conn.execute(text("""SELECT m.tenant_id
-                    FROM air_tenant_members m JOIN air_tenants t ON t.tenant_id=m.tenant_id
-                    WHERE m.customer_id=:customer AND m.status='ACTIVE' AND t.status='ACTIVE'"""),
+                member = conn.execute(text("""SELECT tenant_id FROM air_tenant_members
+                    WHERE customer_id=:customer AND status='ACTIVE'"""),
                     {"customer": customer}).first()
-        return row[0] if row else None
+        if not member:
+            return None
+        tenant_id = member[0]
+        with tenant_scope(tenant_id=tenant_id, customer_id=customer):
+            with self.engine.connect() as conn:
+                active = conn.execute(text("""SELECT 1 FROM air_tenants
+                    WHERE tenant_id=:tenant AND status='ACTIVE'"""),
+                    {"tenant": tenant_id}).first()
+        return tenant_id if active else None
 
     def create_or_update_tenant(
         self, *, owner_customer_id: str, name: str,
@@ -178,16 +185,25 @@ class TenantRegistry:
         customer = self._validate_customer(customer_id)
         with tenant_scope(customer_id=customer):
             with self.engine.connect() as conn:
-                row = conn.execute(text("""SELECT m.tenant_id,m.role,m.status AS membership_status,
-                    t.name,t.plan_code,t.status AS tenant_status,t.storage_prefix,
-                    t.rabbitmq_vhost,t.max_members,t.max_api_calls_per_day,t.max_storage_bytes,
-                    t.feature_flags_json
-                    FROM air_tenant_members m JOIN air_tenants t ON t.tenant_id=m.tenant_id
-                    WHERE m.customer_id=:customer AND m.status='ACTIVE'"""),
+                member = conn.execute(text("""SELECT tenant_id,role,status
+                    FROM air_tenant_members WHERE customer_id=:customer"""),
                     {"customer": customer}).mappings().first()
-        if not row or row["tenant_status"] != "ACTIVE":
+        if not member or member["status"] != "ACTIVE":
             raise KeyError("Customer has no active tenant")
-        return dict(row)
+        tenant_id = member["tenant_id"]
+        with tenant_scope(tenant_id=tenant_id, customer_id=customer):
+            with self.engine.connect() as conn:
+                tenant = conn.execute(text("""SELECT name,plan_code,status,storage_prefix,
+                    rabbitmq_vhost,max_members,max_api_calls_per_day,max_storage_bytes,
+                    feature_flags_json FROM air_tenants WHERE tenant_id=:tenant"""),
+                    {"tenant": tenant_id}).mappings().first()
+        if not tenant or tenant["status"] != "ACTIVE":
+            raise KeyError("Customer has no active tenant")
+        return {
+            "tenant_id": tenant_id, "role": member["role"],
+            "membership_status": member["status"], **dict(tenant),
+            "tenant_status": tenant["status"],
+        }
 
     def close(self) -> None:
         self.engine.dispose()
