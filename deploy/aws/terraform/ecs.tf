@@ -10,7 +10,7 @@ resource "aws_ecs_cluster" "air" {
 resource "aws_iam_role" "ecs_execution" {
   name = "${var.environment_name}-ecs-execution"
   assume_role_policy = jsonencode({
-    Version = "2012-10-17"
+    Version   = "2012-10-17"
     Statement = [{ Effect = "Allow", Principal = { Service = "ecs-tasks.amazonaws.com" }, Action = "sts:AssumeRole" }]
   })
   tags = local.tags
@@ -248,7 +248,7 @@ resource "aws_ecs_task_definition" "pwa" {
     name             = "air-pwa"
     image            = var.pwa_image_uri
     essential        = true
-    portMappings = [{ containerPort = 8080, hostPort = 8080, protocol = "tcp" }]
+    portMappings     = [{ containerPort = 8080, hostPort = 8080, protocol = "tcp" }]
     logConfiguration = { logDriver = "awslogs", options = { awslogs-group = aws_cloudwatch_log_group.pwa.name, awslogs-region = var.aws_region, awslogs-stream-prefix = "pwa" } }
   }])
   lifecycle {
