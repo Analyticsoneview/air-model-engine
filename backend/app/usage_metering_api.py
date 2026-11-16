@@ -1,13 +1,13 @@
 """Customer usage visibility and administrator quota-policy endpoints."""
 from __future__ import annotations
 from functools import lru_cache
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from app.security import require_customer, require_admin
 from app.customer_auth_postgres import PostgresAccessStore
 from app.tenant_context import tenant_scope
-from app.usage_metering import UsageMeter, METRICS, PERIODS, UnknownUsagePlan
+from app.usage_metering import UsageMeter, METRICS, PERIODS, UnknownUsagePlan, UsageQuotaExceeded
 
 router=APIRouter(prefix="/api/v1/usage",tags=["usage-metering"])
 
@@ -36,6 +36,33 @@ def _active_plan(customer_id,tenant_id):
                     {"tenant":tenant_id}).first()
         if row: return str(row[0])
     return "B2C_FREE"
+
+def require_usage(metric: str, quantity: int = 1):
+    """FastAPI dependency for server-side metering of a protected operation.
+
+    Callers must send a stable Idempotency-Key for retriable operations.
+    """
+    key_metric = str(metric or "").lower()
+    if key_metric not in METRICS or int(quantity) <= 0:
+        raise ValueError("A supported metric and positive quantity are required")
+
+    async def enforce_usage(request: Request, customer_id: str = Depends(require_customer)):
+        tenant = _tenant(customer_id)
+        plan = _active_plan(customer_id, tenant)
+        request_key = request.headers.get("Idempotency-Key", "").strip()
+        if not request_key:
+            raise HTTPException(status_code=400, detail="Idempotency-Key is required for metered operations")
+        try:
+            return _meter().consume(tenant, customer_id, key_metric, int(quantity), plan_code=plan,
+                                    idempotency_key=f"{key_metric}:{request_key}")
+        except UsageQuotaExceeded as exc:
+            raise HTTPException(status_code=429, detail="Usage quota has been reached") from exc
+        except UnknownUsagePlan as exc:
+            raise HTTPException(status_code=403, detail="No usage allowance exists for this plan") from exc
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Usage enforcement service is unavailable") from exc
+    return enforce_usage
+
 
 @router.get("/me")
 def usage_me(customer_id:str=Depends(require_customer)):
