@@ -135,9 +135,11 @@ class BillingStore:
             obj=dict(line)
             if isinstance(obj.get("tax_breakdown"),str): obj["tax_breakdown"]=json.loads(obj["tax_breakdown"])
             item["lines"].append(obj)
-        item["refunded_minor"]=int(conn.execute(text("""SELECT COALESCE(SUM(amount_minor),0)
-            FROM air_billing_refunds WHERE tenant_id=:tenant AND invoice_id=:id"""),
-            {"tenant":tenant,"id":invoice_id}).scalar_one())
+        refunds=conn.execute(text("""SELECT refund_id,credit_note_number,amount_minor,currency,reason,created_at
+            FROM air_billing_refunds WHERE tenant_id=:tenant AND invoice_id=:id ORDER BY created_at,refund_id"""),
+            {"tenant":tenant,"id":invoice_id}).mappings().all()
+        item["credit_notes"]=[dict(x) for x in refunds]
+        item["refunded_minor"]=sum(int(x["amount_minor"]) for x in refunds)
         return item
 
     @_tenant_scoped
@@ -226,10 +228,11 @@ class BillingStore:
         if not key or len(key)>200 or not why or len(why)>500: raise ValueError("Refund reason and bounded idempotency key are required")
         if isinstance(amount_minor,bool) or not isinstance(amount_minor,int) or amount_minor<=0: raise ValueError("Refund amount must be positive integer minor units")
         with self.engine.begin() as conn:
-            prior=conn.execute(text("""SELECT refund_id,amount_minor FROM air_billing_refunds
+            prior=conn.execute(text("""SELECT refund_id,invoice_id,amount_minor,reason FROM air_billing_refunds
                 WHERE tenant_id=:t AND idempotency_key=:k"""),{"t":tenant_id,"k":key}).first()
             if prior:
-                if int(prior[1])!=amount_minor: raise BillingConflict("Refund idempotency key was reused with a different amount")
+                if prior[1]!=invoice_id or int(prior[2])!=amount_minor or prior[3]!=why:
+                    raise BillingConflict("Refund idempotency key was reused with different content")
                 return {"refund_id":prior[0],"amount_minor":amount_minor,"status":"DUPLICATE"}
             suffix=" FOR UPDATE" if self.engine.dialect.name=="postgresql" else ""
             locked=conn.execute(text("SELECT invoice_id FROM air_billing_invoices WHERE tenant_id=:t AND invoice_id=:id"+suffix),{"t":tenant_id,"id":invoice_id}).first()
@@ -265,6 +268,8 @@ class BillingStore:
                 (settlement_id,tenant_id,provider,provider_reference,currency,amount_minor,settled_at,created_at)
                 VALUES(:id,:t,:p,:r,:c,:amount,:settled,:now)"""),
                 {"id":sid,"t":tenant_id,"p":vendor,"r":reference,"c":code,"amount":amount_minor,"settled":settled_at,"now":_now()})
+            self._audit(conn,tenant_id,"SETTLEMENT",sid,"SETTLEMENT_RECORDED","system",f"settlement:{vendor}:{reference}",
+                        {"provider":vendor,"provider_reference":reference,"currency":code,"amount_minor":amount_minor})
             return {"settlement_id":sid,"provider":vendor,"provider_reference":reference,
                     "currency":code,"amount_minor":amount_minor,"status":"RECORDED"}
 
@@ -275,9 +280,12 @@ class BillingStore:
         if isinstance(expected_amount_minor,bool) or not isinstance(expected_amount_minor,int) or expected_amount_minor<0:
             raise ValueError("Expected amount must be a non-negative integer minor-unit amount")
         with self.engine.begin() as conn:
-            prior=conn.execute(text("""SELECT reconciliation_id,status,difference_minor FROM air_billing_reconciliations
+            prior=conn.execute(text("""SELECT reconciliation_id,settlement_id,expected_amount_minor,status,difference_minor FROM air_billing_reconciliations
                 WHERE tenant_id=:t AND idempotency_key=:k"""),{"t":tenant_id,"k":key}).first()
-            if prior: return {"reconciliation_id":prior[0],"status":prior[1],"difference_minor":int(prior[2]),"idempotent_replay":True}
+            if prior:
+                if prior[1]!=settlement_id or int(prior[2])!=expected_amount_minor:
+                    raise BillingConflict("Reconciliation idempotency key was reused with different content")
+                return {"reconciliation_id":prior[0],"status":prior[3],"difference_minor":int(prior[4]),"idempotent_replay":True}
             settlement=conn.execute(text("""SELECT currency,amount_minor FROM air_billing_settlements
                 WHERE tenant_id=:t AND settlement_id=:id"""),{"t":tenant_id,"id":settlement_id}).first()
             if not settlement: raise KeyError(settlement_id)
