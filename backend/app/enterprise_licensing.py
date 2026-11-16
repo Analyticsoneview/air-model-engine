@@ -196,12 +196,25 @@ class EnterpriseLicenseStore:
                 license_row = conn.execute(text("SELECT * FROM air_enterprise_licenses WHERE tenant_id=:t AND license_id=:l"),
                                            {"t": tenant_id, "l": existing["license_id"]}).mappings().first()
                 return dict(license_row) | {"binding_id": existing["binding_id"], "idempotent_replay": True}
-            count = conn.execute(text("""SELECT COUNT(*) FROM air_license_bindings b
-                JOIN air_enterprise_licenses l ON l.license_id=b.license_id
-                WHERE b.license_id IN (SELECT license_id FROM air_enterprise_licenses WHERE tenant_id=:t)
-                  AND b.status='ACTIVE' AND l.status IN ('ACTIVE','GRACE')"""), {"t": tenant_id}).scalar_one()
-            if int(count) >= max_deployments:
-                raise EnterpriseLicenseError("Enterprise licence deployment limit reached")
+            tenant_limits = conn.execute(text("SELECT max_members FROM air_tenants WHERE tenant_id=:t"),
+                                          {"t": tenant_id}).first()
+            if not tenant_limits:
+                raise EnterpriseLicenseError("Organisation tenant record is unavailable")
+            active_seats = conn.execute(text("""SELECT COUNT(*) FROM air_tenant_members
+                WHERE tenant_id=:t AND status='ACTIVE'"""), {"t": tenant_id}).scalar_one()
+            pending_seats = conn.execute(text("""SELECT COUNT(*) FROM air_tenant_invitations
+                WHERE tenant_id=:t AND status='PENDING' AND expires_at>CURRENT_TIMESTAMP"""),
+                {"t": tenant_id}).scalar_one()
+            reserved_seats = int(active_seats) + int(pending_seats)
+            if max_seats > int(tenant_limits[0]) or max_seats < reserved_seats:
+                raise EnterpriseLicenseError("Licence seat limit must cover current reservations and not exceed the organisation quota")
+            active_contract_licenses = conn.execute(text("""SELECT COUNT(DISTINCT b.deployment_id)
+                FROM air_license_bindings b JOIN air_enterprise_licenses l ON l.license_id=b.license_id
+                WHERE l.tenant_id=:t AND l.contract_id=:c AND b.status='ACTIVE'
+                  AND l.status IN ('ACTIVE','GRACE')"""),
+                {"t": tenant_id, "c": contract_id}).scalar_one()
+            if int(active_contract_licenses) >= max_deployments:
+                raise EnterpriseLicenseError("Enterprise contract deployment limit reached")
             features = sorted(set(plan["features"]) - RESTRICTED_FEATURES)
             license_id, license_code = str(uuid4()), "AIR-" + uuid4().hex.upper()
             now = datetime.now(timezone.utc).isoformat()
