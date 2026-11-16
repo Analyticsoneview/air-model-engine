@@ -66,6 +66,28 @@ def customer_tenant_scope(engine, customer_id: str) -> Iterator[str]:
         yield row[0]
 
 
+@contextmanager
+def connection_customer_scope(db, customer_id: str) -> Iterator[str]:
+    """Resolve a customer membership through a PostgresConnection wrapper."""
+    customer = str(customer_id or "").strip()
+    if not customer:
+        raise ValueError("customer_id is required for tenant-scoped access")
+    if not getattr(db, "is_postgres", False):
+        with tenant_scope(tenant_id=customer, customer_id=customer):
+            yield customer
+        return
+    with tenant_scope(customer_id=customer):
+        row = db.execute(
+            "SELECT tenant_id FROM air_tenant_members WHERE customer_id=? AND status='ACTIVE'",
+            (customer,),
+        ).fetchone()
+    if not row:
+        raise PermissionError("Customer does not have an active tenant membership")
+    tenant_id = row["tenant_id"] if hasattr(row, "keys") else row[0]
+    with tenant_scope(tenant_id=tenant_id, customer_id=customer):
+        yield tenant_id
+
+
 def install_tenant_context(engine) -> None:
     """Set PostgreSQL session GUCs before each statement on a SQLAlchemy engine."""
     from sqlalchemy import event
