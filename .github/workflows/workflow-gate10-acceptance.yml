@@ -75,6 +75,7 @@ jobs:
           bash -n deploy/deploy-swarm.sh
           bash -n deploy/backup-workflow-postgres.sh
           bash -n deploy/restore-workflow-postgres-verify.sh
+          docker stack config --compose-file docker-stack.yml >/dev/null
       - name: Verify backup, restore, indexes and concurrent worker recovery
         working-directory: backend
         run: python scripts/workflow_postgres_acceptance.py
