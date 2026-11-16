@@ -4,7 +4,8 @@ on:
   pull_request:
     paths:
       - 'backend/app/air_monthly_pd*.py'
-      - 'backend/app/nse_index_universe.py'
+      - 'backend/app/nse_universe.py'
+      - 'backend/app/installation_readiness.py'
       - 'backend/app/nse_bhavcopy.py'
       - 'backend/app/air_monthly_pd_scanner.py'
       - 'backend/app/workflow_engine.py'
@@ -12,7 +13,8 @@ on:
       - 'backend/app/air_monthly_pd_api.py'
       - 'backend/migrations/versions/0019_air_monthly_pd.py'
       - 'backend/tests/test_air_monthly_pd*.py'
-      - 'backend/tests/test_nse_index_universe.py'
+      - 'backend/tests/test_nse_universe.py'
+      - 'backend/tests/test_installation_readiness.py'
       - 'backend/tests/test_nse_bhavcopy.py'
       - 'backend/tests/test_air_monthly_pd_scanner.py'
       - 'backend/tests/test_workflow_monthly_pd.py'
