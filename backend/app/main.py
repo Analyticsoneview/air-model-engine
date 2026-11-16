@@ -749,13 +749,19 @@ async def application_readiness() -> dict:
         if item["configured"] and item["status"] != "ok"
     ]
     bootstrap = nse_data_status().get("bootstrap", {"status": "NOT_STARTED"})
+    symbol_coverage = bootstrap.get("symbol_coverage") or {}
+    symbol_coverage_summary = {
+        key: value for key, value in symbol_coverage.items() if key != "by_symbol"
+    }
     bootstrap_summary = {
         key: bootstrap.get(key) for key in (
             "status", "history_months", "target_start_date", "start_date",
             "end_date", "progress_pct", "archive_coverage_pct",
-            "paired_sessions", "expected_paired_sessions", "universe", "symbol_coverage", "strategy_run", "note",
+            "paired_sessions", "expected_paired_sessions", "universe", "strategy_run", "note",
         ) if key in bootstrap
     }
+    if symbol_coverage_summary:
+        bootstrap_summary["symbol_coverage"] = symbol_coverage_summary
     if dependency_failures or not nse_bootstrap_is_ready(bootstrap):
         raise HTTPException(status_code=503, detail={
             "status": "NOT_READY",
