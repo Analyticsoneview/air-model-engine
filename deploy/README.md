@@ -14,7 +14,7 @@ AIR is one application codebase with three deployment profiles:
 - Linux: `bash AIRDEPLOY.sh onprem-single`
 - Legacy local entry points `AIRSTART.ps1` and `AIRSTART.sh` remain supported.
 
-The profile validator is packaged in the backend source and uses Python's standard library only. The Deployment Manager invokes it through a disposable Python container, so a host Python installation is not required.
+The profile validator is packaged in the backend source and uses Python's standard library only. The Deployment Manager invokes it through a disposable Python container, so a host Python installation is not required. AWS profiles require `AWS_REGION` or `AWS_DEFAULT_REGION` and valid AWS CLI credentials before provisioning.
 
 ## Mandatory services
 
