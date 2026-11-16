@@ -198,7 +198,30 @@ class EnterpriseLicenseStore:
             if existing:
                 license_row = conn.execute(text("SELECT * FROM air_enterprise_licenses WHERE tenant_id=:t AND license_id=:l"),
                                            {"t": tenant_id, "l": existing["license_id"]}).mappings().first()
-                return dict(license_row) | {"binding_id": existing["binding_id"], "idempotent_replay": True}
+                prior_deployment = conn.execute(text("SELECT * FROM air_deployment_instances WHERE tenant_id=:t AND deployment_id=:d"),
+                                                {"t": tenant_id, "d": existing["deployment_id"]}).mappings().first()
+                if (license_row["contract_id"] != contract_id or existing["deployment_id"] != deployment_id
+                        or int(license_row["max_seats"]) != max_seats
+                        or int(license_row["max_deployments"]) != max_deployments):
+                    raise EnterpriseLicenseError("Licence idempotency key was reused with different binding terms")
+                features = license_row["features"]
+                profiles = license_row["allowed_profiles"]
+                if isinstance(features, str):
+                    features = json.loads(features)
+                if isinstance(profiles, str):
+                    profiles = json.loads(profiles)
+                payload = {"schema_version": 1, "license_id": license_row["license_id"],
+                           "license_code": license_row["license_code"], "tenant_id": tenant_id,
+                           "contract_id": contract_id, "deployment_id": deployment_id,
+                           "profile_id": prior_deployment["profile_id"],
+                           "fingerprint_sha256": prior_deployment["fingerprint_sha256"],
+                           "plan_code": license_row["plan_code"], "status": license_row["status"],
+                           "max_seats": int(license_row["max_seats"]), "features": features,
+                           "valid_from": str(license_row["valid_from"]),
+                           "valid_until": str(license_row["valid_until"]),
+                           "grace_until": str(license_row["grace_until"]) if license_row["grace_until"] else None}
+                return dict(license_row) | {"binding_id": existing["binding_id"],
+                    "license_token": sign_license(payload, private_key_b64), "idempotent_replay": True}
             tenant_limits = conn.execute(text("SELECT max_members FROM air_tenants WHERE tenant_id=:t"),
                                           {"t": tenant_id}).first()
             if not tenant_limits:
