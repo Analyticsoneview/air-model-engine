@@ -15,11 +15,13 @@ import logging
 import os
 import re
 import sqlite3
+import time
 import zipfile
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -259,12 +261,179 @@ class NSEBhavcopyStore:
                 db.execute("ALTER TABLE nse_bhavcopy_files ADD COLUMN source_record_count INTEGER")
             if "expired_removed_count" not in file_columns:
                 db.execute("ALTER TABLE nse_bhavcopy_files ADD COLUMN expired_removed_count INTEGER NOT NULL DEFAULT 0")
+            if "attempt_count" not in file_columns:
+                db.execute("ALTER TABLE nse_bhavcopy_files ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0")
+            if "last_attempt_at" not in file_columns:
+                db.execute("ALTER TABLE nse_bhavcopy_files ADD COLUMN last_attempt_at TEXT")
+            if "archive_sha256" not in file_columns:
+                db.execute("ALTER TABLE nse_bhavcopy_files ADD COLUMN archive_sha256 TEXT")
+            if "archive_bytes" not in file_columns:
+                db.execute("ALTER TABLE nse_bhavcopy_files ADD COLUMN archive_bytes INTEGER")
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS nse_bhavcopy_runs (
+                    run_id TEXT PRIMARY KEY,
+                    status TEXT NOT NULL,
+                    start_date TEXT,
+                    target_start_date TEXT,
+                    end_date TEXT,
+                    history_months INTEGER NOT NULL DEFAULT 12,
+                    expected_files INTEGER NOT NULL DEFAULT 0,
+                    completed_files INTEGER NOT NULL DEFAULT 0,
+                    imported_files INTEGER NOT NULL DEFAULT 0,
+                    failed_files INTEGER NOT NULL DEFAULT 0,
+                    no_file_days INTEGER NOT NULL DEFAULT 0,
+                    last_processed_date TEXT,
+                    last_checkpoint_at TEXT,
+                    error TEXT,
+                    started_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    finished_at TEXT
+                )
+            """)
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS nse_bhavcopy_bootstrap_lease (
+                    lease_id INTEGER PRIMARY KEY CHECK(lease_id=1),
+                    lease_owner TEXT,
+                    lease_expires_at REAL NOT NULL DEFAULT 0,
+                    heartbeat_at REAL,
+                    run_id TEXT
+                )
+            """)
             db.execute("""
                 CREATE TABLE IF NOT EXISTS nse_bhavcopy_meta (
                     key TEXT PRIMARY KEY, value TEXT NOT NULL,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+
+    def begin_file_attempt(self, market: str, trade_date: str, source_url: str) -> int:
+        with self._db() as db:
+            db.execute("""
+                INSERT INTO nse_bhavcopy_files
+                    (market,trade_date,status,source_url,attempt_count,last_attempt_at,updated_at)
+                VALUES(?,?,'DOWNLOADING',?,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+                ON CONFLICT(market,trade_date) DO UPDATE SET
+                    status='DOWNLOADING',source_url=excluded.source_url,
+                    attempt_count=nse_bhavcopy_files.attempt_count+1,
+                    last_attempt_at=CURRENT_TIMESTAMP,error=NULL,updated_at=CURRENT_TIMESTAMP
+            """, (market, trade_date, source_url))
+            row = db.execute("""
+                SELECT attempt_count FROM nse_bhavcopy_files
+                WHERE market=? AND trade_date=?
+            """, (market, trade_date)).fetchone()
+        return int(row["attempt_count"])
+
+    def acquire_bootstrap_lease(
+        self, owner: str, *, run_id: str, lease_seconds: int = 240,
+        now_epoch: float | None = None,
+    ) -> bool:
+        now = float(time.time() if now_epoch is None else now_epoch)
+        with self._db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("""
+                SELECT lease_owner,lease_expires_at
+                FROM nse_bhavcopy_bootstrap_lease WHERE lease_id=1
+            """).fetchone()
+            if row and row["lease_owner"] and row["lease_owner"] != owner and float(row["lease_expires_at"]) > now:
+                return False
+            db.execute("""
+                INSERT INTO nse_bhavcopy_bootstrap_lease
+                    (lease_id,lease_owner,lease_expires_at,heartbeat_at,run_id)
+                VALUES(1,?,?,?,?)
+                ON CONFLICT(lease_id) DO UPDATE SET
+                    lease_owner=excluded.lease_owner,
+                    lease_expires_at=excluded.lease_expires_at,
+                    heartbeat_at=excluded.heartbeat_at,
+                    run_id=excluded.run_id
+            """, (owner, now + max(30, int(lease_seconds)), now, run_id))
+        return True
+
+    def renew_bootstrap_lease(
+        self, owner: str, *, lease_seconds: int = 240, now_epoch: float | None = None,
+    ) -> bool:
+        now = float(time.time() if now_epoch is None else now_epoch)
+        with self._db() as db:
+            result = db.execute("""
+                UPDATE nse_bhavcopy_bootstrap_lease
+                SET lease_expires_at=?,heartbeat_at=?
+                WHERE lease_id=1 AND lease_owner=?
+            """, (now + max(30, int(lease_seconds)), now, owner))
+        return result.rowcount == 1
+
+    def release_bootstrap_lease(self, owner: str, *, now_epoch: float | None = None) -> bool:
+        now = float(time.time() if now_epoch is None else now_epoch)
+        with self._db() as db:
+            result = db.execute("""
+                UPDATE nse_bhavcopy_bootstrap_lease
+                SET lease_owner=NULL,lease_expires_at=0,heartbeat_at=?
+                WHERE lease_id=1 AND lease_owner=?
+            """, (now, owner))
+        return result.rowcount == 1
+
+    def bootstrap_lease_status(self, *, now_epoch: float | None = None) -> dict[str, Any]:
+        now = float(time.time() if now_epoch is None else now_epoch)
+        with self._db() as db:
+            row = db.execute("""
+                SELECT lease_owner,lease_expires_at,heartbeat_at,run_id
+                FROM nse_bhavcopy_bootstrap_lease WHERE lease_id=1
+            """).fetchone()
+        if not row:
+            return {"active": False, "lease_expires_at": None, "run_id": None}
+        return {
+            "active": bool(row["lease_owner"] and float(row["lease_expires_at"]) > now),
+            "lease_expires_at": float(row["lease_expires_at"]) or None,
+            "heartbeat_at": float(row["heartbeat_at"]) if row["heartbeat_at"] else None,
+            "run_id": row["run_id"],
+        }
+
+    def record_bootstrap_run(self, state: dict[str, Any]) -> None:
+        run_id = str(state.get("run_id") or "")
+        if not run_id:
+            return
+        values = {
+            "run_id": run_id, "status": str(state.get("status") or "UNKNOWN"),
+            "start_date": state.get("start_date"), "target_start_date": state.get("target_start_date"),
+            "end_date": state.get("end_date"), "history_months": int(state.get("history_months") or 12),
+            "expected_files": int(state.get("expected_archive_files") or 0),
+            "completed_files": int(state.get("completed_files") or 0),
+            "imported_files": int(state.get("imported_files") or 0),
+            "failed_files": int(state.get("failed_files") or 0),
+            "no_file_days": int(state.get("no_file_days") or 0),
+            "last_processed_date": state.get("last_processed_date"),
+            "last_checkpoint_at": state.get("last_checkpoint_at"),
+            "error": str(state.get("error") or "")[:500] or None,
+            "started_at": str(state.get("started_at") or datetime.now(IST).isoformat()),
+            "updated_at": str(state.get("updated_at") or datetime.now(IST).isoformat()),
+            "finished_at": state.get("finished_at"),
+        }
+        with self._db() as db:
+            db.execute("""
+                INSERT INTO nse_bhavcopy_runs
+                    (run_id,status,start_date,target_start_date,end_date,history_months,
+                     expected_files,completed_files,imported_files,failed_files,no_file_days,
+                     last_processed_date,last_checkpoint_at,error,started_at,updated_at,finished_at)
+                VALUES
+                    (:run_id,:status,:start_date,:target_start_date,:end_date,:history_months,
+                     :expected_files,:completed_files,:imported_files,:failed_files,:no_file_days,
+                     :last_processed_date,:last_checkpoint_at,:error,:started_at,:updated_at,:finished_at)
+                ON CONFLICT(run_id) DO UPDATE SET
+                    status=excluded.status,start_date=excluded.start_date,
+                    target_start_date=excluded.target_start_date,end_date=excluded.end_date,
+                    history_months=excluded.history_months,expected_files=excluded.expected_files,
+                    completed_files=excluded.completed_files,imported_files=excluded.imported_files,
+                    failed_files=excluded.failed_files,no_file_days=excluded.no_file_days,
+                    last_processed_date=excluded.last_processed_date,
+                    last_checkpoint_at=excluded.last_checkpoint_at,error=excluded.error,
+                    updated_at=excluded.updated_at,finished_at=excluded.finished_at
+            """, values)
+
+    def latest_bootstrap_runs(self, limit: int = 10) -> list[dict[str, Any]]:
+        with self._db() as db:
+            rows = db.execute("""
+                SELECT * FROM nse_bhavcopy_runs
+                ORDER BY started_at DESC,run_id DESC LIMIT ?
+            """, (max(1, min(int(limit), 50)),)).fetchall()
+        return [dict(row) for row in rows]
 
     def file_status(self, market: str, trade_date: str) -> dict[str, Any] | None:
         with self._db() as db:
