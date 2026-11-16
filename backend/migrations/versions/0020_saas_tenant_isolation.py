@@ -345,6 +345,12 @@ def upgrade() -> None:
                 WHERE lower(broker)=lower(NEW.broker) AND account_id=NEW.account_id
                   AND idempotency_key=NEW.idempotency_key LIMIT 1;
                 NEW.customer_id := row_customer;
+            ELSIF TG_TABLE_NAME='air_workflow_definitions' AND row_customer IS NULL THEN
+                row_customer := NULLIF(NEW.trigger_config_json::jsonb->>'customer_id','');
+                NEW.customer_id := row_customer;
+            ELSIF TG_TABLE_NAME='air_workflow_events' AND row_customer IS NULL THEN
+                row_customer := NULLIF(NEW.payload_json::jsonb->>'customer_id','');
+                NEW.customer_id := row_customer;
             ELSIF TG_TABLE_NAME='air_workflow_outbox' AND row_customer IS NULL THEN
                 SELECT customer_id INTO row_customer FROM air_workflow_events
                 WHERE event_id=NEW.event_id LIMIT 1;
