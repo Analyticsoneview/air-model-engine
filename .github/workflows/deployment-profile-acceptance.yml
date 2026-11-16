@@ -109,6 +109,7 @@ jobs:
 
 
   release-package:
+    needs: onprem-compose-runtime-smoke
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -120,13 +121,20 @@ jobs:
         run: python scripts/release/build_release.py --version "ci-${GITHUB_SHA:0:12}" --output-dir dist
       - name: Verify the generated release bundle
         run: python scripts/release/build_release.py --verify "dist/air-release-ci-${GITHUB_SHA:0:12}.tar.gz"
-      - name: Upload versioned AIR release artifacts
+      - name: Download verified runtime container images
+        uses: actions/download-artifact@v4
+        with:
+          name: air-container-images-${{ github.sha }}
+          path: dist/images
+      - name: Upload complete AIR release artifacts
         uses: actions/upload-artifact@v4
         with:
           name: air-release-${{ github.sha }}
           path: |
             dist/air-release-*.tar.gz
             dist/air-release-*.tar.gz.sha256
+            dist/images/air-container-images-*.tar.gz
+            dist/images/air-container-images-*.tar.gz.sha256
           if-no-files-found: error
           retention-days: 30
 
@@ -142,6 +150,31 @@ jobs:
           docker compose version
       - name: Boot and verify the complete on-prem Compose service set
         run: bash scripts/ci/onprem-compose-runtime-smoke.sh
+      - name: Package the verified API, PWA and infrastructure images
+        run: |
+          set -Eeuo pipefail
+          version="ci-${GITHUB_SHA:0:12}"
+          docker tag air-model-engine-api:local "air-model-engine-api:$version"
+          docker tag air-model-engine-api:local air-model-engine-api:lab
+          docker tag air-model-engine-pwa:local "air-model-engine-pwa:$version"
+          docker tag air-model-engine-pwa:local air-model-engine-pwa:lab
+          docker pull caddy:2-alpine
+          mkdir -p dist
+          docker save \
+            air-model-engine-api:local air-model-engine-api:lab "air-model-engine-api:$version" \
+            air-model-engine-pwa:local air-model-engine-pwa:lab "air-model-engine-pwa:$version" \
+            postgres:16-alpine redis:7-alpine rabbitmq:4-management-alpine caddy:2-alpine \
+            | gzip -1 > "dist/air-container-images-$version.tar.gz"
+          sha256sum "dist/air-container-images-$version.tar.gz" > "dist/air-container-images-$version.tar.gz.sha256"
+      - name: Upload verified runtime container images
+        uses: actions/upload-artifact@v4
+        with:
+          name: air-container-images-${{ github.sha }}
+          path: |
+            dist/air-container-images-*.tar.gz
+            dist/air-container-images-*.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 30
 
 
   terraform-validate:
