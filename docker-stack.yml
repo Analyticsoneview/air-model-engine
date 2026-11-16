@@ -28,7 +28,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$(cat /run/secrets/air_redis_password)\""]
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$(cat /run/secrets/air_redis_password)\""]
     secrets:
       - air_redis_password
     volumes:
@@ -36,7 +36,7 @@ services:
     networks:
       - air_private
     healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$(cat /run/secrets/air_redis_password)\" redis-cli ping | grep -q PONG"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$(cat /run/secrets/air_redis_password)\" redis-cli ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 10
