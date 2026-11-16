@@ -37,6 +37,22 @@ class FakeS3:
     def put_bucket_versioning(self, **kwargs):
         self.calls.append(("versioning", kwargs))
 
+    def put_bucket_ownership_controls(self, **kwargs):
+        self.calls.append(("ownership", kwargs))
+
+    def put_bucket_policy(self, **kwargs):
+        self.calls.append(("policy", kwargs))
+
+    def put_object(self, **kwargs):
+        self.calls.append(("put_object", kwargs))
+        return {"ETag": '"test-etag"'}
+
+    def get_paginator(self, operation):
+        class Paginator:
+            def paginate(self, **kwargs):
+                return [{"Contents": [{"Size": 100}]}]
+        return Paginator()
+
     def put_bucket_tagging(self, **kwargs):
         self.calls.append(("tagging", kwargs))
 
@@ -134,6 +150,21 @@ class AwsTenantProvisionerTests(unittest.TestCase):
         self.assertEqual(secret_before, self.secrets.values)
         self.assertEqual(len(self.requests), 3)
         self.assertEqual(len(self.s3.buckets), 1)
+
+    def test_storage_quota_and_tenant_prefix_are_enforced_for_object_uploads(self):
+        self.provisioner.provision(self.tenant)
+        result = self.provisioner.put_tenant_object(self.tenant, "reports/daily.csv", b"hello", content_type="text/csv")
+        self.assertEqual(result["bytes"], 5)
+        self.assertTrue(result["key"].startswith("tenants/" + self.tenant["tenant_id"] + "/"))
+        self.assertEqual(result["previous_usage_bytes"], 100)
+        self.assertTrue(any(call[0] == "put_object" for call in self.s3.calls))
+        with self.assertRaises(ValueError):
+            self.provisioner.put_tenant_object(self.tenant, "../escape.txt", b"x")
+        with self.assertRaises(ValueError):
+            self.provisioner.put_tenant_object(self.tenant, "/absolute.txt", b"x")
+        limited = dict(self.tenant, max_storage_bytes=100)
+        with self.assertRaises(TenantInfrastructureError):
+            self.provisioner.put_tenant_object(limited, "too-large.bin", b"x")
 
     def test_suspend_revokes_tenant_user_permissions_without_deleting_data(self):
         self.provisioner.provision(self.tenant)
