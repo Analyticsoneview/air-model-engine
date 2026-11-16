@@ -108,9 +108,10 @@ WHERE component = 'workflow-runtime'
   AND status = 'RUNNING'
   AND last_seen::timestamptz > now() - interval '45 seconds'
   AND details_json::jsonb ->> 'rabbitmq_connected' = 'true'
-  AND details_json::jsonb -> 'components' ?& ARRAY[
-    'workflow-outbox','workflow-scheduler','workflow-executor','workflow-operations-monitor'
-  ]
+  AND details_json::jsonb -> 'components' -> 'workflow-outbox' = 'true'::jsonb
+  AND details_json::jsonb -> 'components' -> 'workflow-scheduler' = 'true'::jsonb
+  AND details_json::jsonb -> 'components' -> 'workflow-executor' = 'true'::jsonb
+  AND details_json::jsonb -> 'components' -> 'workflow-operations-monitor' = 'true'::jsonb
   AND NOT EXISTS (
     SELECT 1
     FROM jsonb_each(details_json::jsonb -> 'components') AS component(name, alive)
