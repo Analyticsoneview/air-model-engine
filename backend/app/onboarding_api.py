@@ -226,6 +226,7 @@ def admin_expire_due(body: AdminLifecycleAction, admin=Depends(require_admin)):
         admin["admin_id"], body.idempotency_key, {"reason": "trial_period_elapsed"})
     contract_id = item.get("contract_id")
     if contract_id:
-        _contracts().transition(body.tenant_id, contract_id, "EXPIRED", actor_id=admin["admin_id"],
-            idempotency_key="onboarding-expire-contract:" + body.idempotency_key)
+        with _contract_scope(body.tenant_id, body.customer_id, admin=True):
+            _contracts().transition(body.tenant_id, contract_id, "EXPIRED", actor_id=admin["admin_id"],
+                idempotency_key="onboarding-expire-contract:" + body.idempotency_key)
     return {"onboarding": updated}
