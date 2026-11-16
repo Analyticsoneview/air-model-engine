@@ -344,7 +344,9 @@ def upgrade() -> None:
     op.execute("""
         CREATE POLICY air_tenant_members_insert ON air_tenant_members FOR INSERT
         WITH CHECK (air_is_admin_context()
-            OR customer_id=NULLIF(current_setting('air.customer_id',true),''))
+            OR (customer_id=NULLIF(current_setting('air.customer_id',true),'')
+                AND tenant_id=(SELECT tenant_id FROM air_tenants
+                               WHERE owner_customer_id=NULLIF(current_setting('air.customer_id',true),''))))
     """)
     op.execute("""
         CREATE POLICY air_tenant_members_admin_update ON air_tenant_members FOR UPDATE
