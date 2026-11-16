@@ -753,7 +753,7 @@ async def application_readiness() -> dict:
         key: bootstrap.get(key) for key in (
             "status", "history_months", "target_start_date", "start_date",
             "end_date", "progress_pct", "archive_coverage_pct",
-            "paired_sessions", "expected_paired_sessions", "note",
+            "paired_sessions", "expected_paired_sessions", "universe", "note",
         ) if key in bootstrap
     }
     if dependency_failures or not nse_bootstrap_is_ready(bootstrap):
