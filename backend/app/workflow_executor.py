@@ -80,7 +80,7 @@ def _execute_action(
             return {"status": "DATA_INSUFFICIENT", "reason": str(exc)}
         support = evaluate_support_acceptance(
             params.get("post_reference_bars") or [], levels["pml"],
-            required_sessions=int(params.get("required_sessions", 2)),
+            required_sessions=int(params.get("required_sessions", 2)),\n            reference_date=params.get("reference_date"),
         )
         pattern = classify_price_structure(params.get("structure_bars") or [])
         expiry = expiry_tags(__import__("datetime").date.fromisoformat(params["expiry_date"])) if params.get("expiry_date") else None
