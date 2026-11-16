@@ -3,35 +3,29 @@ set -Eeuo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROFILE="${AIR_DEPLOYMENT_PROFILE:-onprem-single}"
 ACTION=""
+MANAGER_ARGS=()
 
-if [[ $# -gt 0 ]]; then
+while (($#)); do
   case "$1" in
-    validate|doctor|install|upgrade|status|diagnose|package)
-      ACTION="$1"
-      shift
-      ;;
     onprem-single|aws-private-single|aws-saas-multi)
-      PROFILE="$1"
-      shift
-      ;;
+      PROFILE="$1"; shift ;;
+    validate|doctor|install|upgrade|status|diagnose|package)
+      if [[ -n "$ACTION" ]]; then echo "Only one AIR Deployment Manager action may be selected." >&2; exit 2; fi
+      ACTION="$1"; shift ;;
+    --version|--output-dir)
+      option="$1"; shift
+      if (($# == 0)); then echo "$option requires a value." >&2; exit 2; fi
+      MANAGER_ARGS+=("$option" "$1"); shift ;;
     --help|-h)
-      exec python3 "$ROOT/scripts/air_manager.py" --help
-      ;;
+      exec python3 "$ROOT/scripts/air_manager.py" --help ;;
     *)
-      echo "Usage: ./AIRDEPLOY.sh [onprem-single|aws-private-single|aws-saas-multi] [validate|doctor|install|upgrade|status|diagnose|package]" >&2
-      exit 2
-      ;;
+      echo "Unknown AIR deployment argument: $1" >&2
+      echo "Usage: ./AIRDEPLOY.sh [profile] [action] [--version VERSION] [--output-dir DIR]" >&2
+      exit 2 ;;
   esac
-fi
-if [[ $# -gt 0 ]]; then
-  if [[ -n "$ACTION" || $# -gt 1 ]]; then
-    echo "Usage: ./AIRDEPLOY.sh [profile] [action]" >&2
-    exit 2
-  fi
-  ACTION="$1"
-fi
+done
+
 if [[ -z "$ACTION" ]]; then
   if [[ "$PROFILE" == "onprem-single" ]]; then ACTION="install"; else ACTION="validate"; fi
 fi
-
-exec python3 "$ROOT/scripts/air_manager.py" --profile "$PROFILE" "$ACTION"
+exec python3 "$ROOT/scripts/air_manager.py" --profile "$PROFILE" "${MANAGER_ARGS[@]}" "$ACTION"
