@@ -104,7 +104,6 @@ def upgrade() -> None:
             UNION SELECT customer_id FROM report_recipients
             UNION SELECT customer_id FROM account_report_runs
             UNION SELECT customer_id FROM air_support_tickets
-            UNION SELECT actor_customer_id FROM air_marketing_audit
             UNION SELECT NULLIF(trigger_config_json::jsonb->>'customer_id','') FROM air_workflow_definitions
             UNION SELECT NULLIF(payload_json::jsonb->>'customer_id','') FROM air_workflow_events
         )
@@ -123,6 +122,23 @@ def upgrade() -> None:
     op.execute("""
         INSERT INTO air_tenant_members(tenant_id,customer_id,role,status)
         SELECT tenant_id,owner_customer_id,'OWNER','ACTIVE' FROM air_tenants
+        ON CONFLICT(customer_id) DO NOTHING
+    """)
+    # Administrative marketing audit actors are admin principals, not customer identities.
+    # Keep these immutable records in a dedicated system tenant.
+    op.execute("""
+        INSERT INTO air_tenants
+            (tenant_id,name,owner_customer_id,plan_code,status,storage_prefix,rabbitmq_vhost,
+             max_members,max_api_calls_per_day,max_storage_bytes,feature_flags_json,metadata_json)
+        VALUES
+            ('00000000-0000-4000-8000-000000000000','AIR System Administration',
+             'AIR_SYSTEM_ADMIN','ENTERPRISE','ACTIVE','system/','air-system-admin',
+             1000,1000000,10737418240,'{}'::json,'{}'::json)
+        ON CONFLICT(tenant_id) DO NOTHING
+    """)
+    op.execute("""
+        INSERT INTO air_tenant_members(tenant_id,customer_id,role,status)
+        VALUES('00000000-0000-4000-8000-000000000000','AIR_SYSTEM_ADMIN','OWNER','ACTIVE')
         ON CONFLICT(customer_id) DO NOTHING
     """)
 
@@ -172,8 +188,8 @@ def upgrade() -> None:
         FROM air_tenant_members m WHERE m.customer_id=t.mobile_e164
     """)
     op.execute("""
-        UPDATE air_marketing_audit t SET tenant_id=m.tenant_id
-        FROM air_tenant_members m WHERE m.customer_id=t.actor_customer_id
+        UPDATE air_marketing_audit
+        SET tenant_id='00000000-0000-4000-8000-000000000000'
     """)
     op.execute("""
         UPDATE air_support_ticket_events e
@@ -324,6 +340,12 @@ def upgrade() -> None:
                 NULLIF(to_jsonb(NEW)->>'mobile_e164',''),
                 NULLIF(to_jsonb(NEW)->>'actor_customer_id','')
             );
+            -- Admin actor IDs in marketing audit are not customer IDs.
+            -- Route these records to the dedicated system tenant.
+            IF TG_TABLE_NAME='air_marketing_audit' AND air_is_admin_context() THEN
+                row_customer := NULL;
+                NEW.tenant_id := '00000000-0000-4000-8000-000000000000';
+            END IF;
             IF TG_TABLE_NAME='air_device_sessions' AND row_customer IS NULL THEN
                 SELECT mobile_e164 INTO row_customer FROM air_access_requests
                 WHERE request_id=NEW.request_id LIMIT 1;
