@@ -120,7 +120,7 @@ class BillingStore:
             (event_id,tenant_id,entity_type,entity_id,event_type,actor_id,idempotency_key,details,occurred_at)
             VALUES(:id,:tenant,:entity_type,:entity_id,:event_type,:actor,:key,:details,:now)"""),
             {"id":str(uuid4()),"tenant":tenant,"entity_type":entity_type,"entity_id":entity_id,
-             "event_type":event_type,"actor":actor,"key":key,"details":json.dumps(details,sort_keys=True),
+             "event_type":event_type,"actor":actor,"key":f"{entity_type}:{event_type}:{key}","details":json.dumps(details,sort_keys=True),
              "now":_now()})
 
     def _invoice(self, conn, tenant, invoice_id):
@@ -169,11 +169,15 @@ class BillingStore:
         total=subtotal+tax_total
         if total>9_000_000_000_000_000: raise ValueError("Invoice total exceeds supported minor-unit range")
         with self.engine.begin() as conn:
-            prior=conn.execute(text("SELECT invoice_id,currency,total_minor FROM air_billing_invoices WHERE tenant_id=:t AND idempotency_key=:k"),
+            prior=conn.execute(text("SELECT invoice_id,invoice_number,currency,total_minor FROM air_billing_invoices WHERE tenant_id=:t AND idempotency_key=:k"),
                                {"t":tenant_id,"k":key}).first()
             if prior:
-                if prior[1]!=code or int(prior[2])!=total: raise BillingConflict("Invoice idempotency key was reused with different content")
-                return self._invoice(conn,tenant_id,prior[0]) | {"idempotent_replay":True}
+                existing=self._invoice(conn,tenant_id,prior[0])
+                expected_lines=[{"description":x["description"],"quantity":x["quantity"],"unit_amount_minor":x["unit_amount_minor"],"tax_breakdown":x["tax_breakdown"]} for x in normalized]
+                actual_lines=[{"description":x["description"],"quantity":int(x["quantity"]),"unit_amount_minor":int(x["unit_amount_minor"]),"tax_breakdown":x["tax_breakdown"]} for x in existing["lines"]]
+                if prior[1]!=number or prior[2]!=code or int(prior[3])!=total or actual_lines!=expected_lines:
+                    raise BillingConflict("Invoice idempotency key was reused with different content")
+                return existing | {"idempotent_replay":True}
             invoice_id=str(uuid4())
             conn.execute(text("""INSERT INTO air_billing_invoices
                 (invoice_id,tenant_id,customer_id,invoice_number,currency,subtotal_minor,tax_total_minor,total_minor,status,idempotency_key,created_at)
@@ -227,8 +231,10 @@ class BillingStore:
             if prior:
                 if int(prior[1])!=amount_minor: raise BillingConflict("Refund idempotency key was reused with a different amount")
                 return {"refund_id":prior[0],"amount_minor":amount_minor,"status":"DUPLICATE"}
+            suffix=" FOR UPDATE" if self.engine.dialect.name=="postgresql" else ""
+            locked=conn.execute(text("SELECT invoice_id FROM air_billing_invoices WHERE tenant_id=:t AND invoice_id=:id"+suffix),{"t":tenant_id,"id":invoice_id}).first()
             invoice=self._invoice(conn,tenant_id,invoice_id)
-            if not invoice: raise KeyError(invoice_id)
+            if not locked or not invoice: raise KeyError(invoice_id)
             if invoice["status"]!="ISSUED": raise BillingConflict("Only an issued invoice can be credited")
             remaining=int(invoice["total_minor"])-int(invoice["refunded_minor"])
             if amount_minor>remaining: raise BillingConflict("Refund exceeds the remaining invoice balance")
