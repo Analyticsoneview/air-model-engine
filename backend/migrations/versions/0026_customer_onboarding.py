@@ -29,7 +29,6 @@ def upgrade():
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.Column("version", sa.Integer(), nullable=False, server_default="1"),
-        sa.UniqueConstraint("tenant_id", "customer_id", "product_code", name="uq_air_onboarding_customer_product"),
         sa.UniqueConstraint("tenant_id", "idempotency_key", name="uq_air_onboarding_idempotency"),
         sa.CheckConstraint("status IN ('PENDING','TRIAL','ACTIVE','CANCELLED','EXPIRED','REJECTED')", name="ck_air_onboarding_status"),
         sa.CheckConstraint("(status <> 'TRIAL') OR (trial_started_at IS NOT NULL AND trial_ends_at > trial_started_at)", name="ck_air_onboarding_trial_dates"),
