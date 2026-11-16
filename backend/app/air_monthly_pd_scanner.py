@@ -103,6 +103,25 @@ def _stock_record(symbol: str, memberships: list[str], raw_rows: list[dict[str, 
         return {**base, "qualification": "DATA_INSUFFICIENT", "reason": str(exc)}
 
 
+def classify_option_eod_evidence(*, premium_change_pct: float | None,
+                                  volume: float | None, volume_avg: float | None,
+                                  oi_change_pct: float | None) -> dict[str, Any]:
+    """Classify EOD-only option activity without pretending bid/ask liquidity exists."""
+    if premium_change_pct is None or volume is None or volume_avg is None or oi_change_pct is None:
+        return {"qualification": "DATA_INSUFFICIENT", "evidence_score": None,
+                "reason": "Premium, volume baseline and OI change are all required"}
+    checks = {
+        "premium_momentum": abs(float(premium_change_pct)) >= 5,
+        "volume_expansion": float(volume_avg) > 0 and float(volume) / float(volume_avg) >= 1.5,
+        "oi_confirmation": abs(float(oi_change_pct)) >= 5,
+    }
+    score = sum(checks.values())
+    return {"qualification": "EOD_CANDIDATE" if score == 3 else "WATCH",
+            "evidence_score": score, "evidence": checks,
+            "reason": "EOD-only evidence; spread and intraday liquidity are unavailable",
+            "strong_participation": False}
+
+
 def scan_monthly_pd_universe(as_of_date: str | None = None) -> dict[str, Any]:
     """Scan equity constituents first, then contracts for qualified underlyings."""
     nse_store = _get_store()
@@ -178,17 +197,20 @@ def scan_monthly_pd_universe(as_of_date: str | None = None) -> dict[str, Any]:
         itm = bool(spot and strike is not None and
                    ((option_type == "CE" and float(strike) < spot) or
                     (option_type == "PE" and float(strike) > spot)))
+        premium_change = round((closes[-1] / closes[-2] - 1) * 100, 2) if len(closes) > 1 and closes[-2] else None
+        volume_avg = round(mean(vols[:-1]), 2) if len(vols) > 1 else None
+        oi_change_pct = round(oi_changes[-1] / max(1, abs(float(last.get("open_interest") or 0) - oi_changes[-1])) * 100, 2) if oi_changes else None
+        evidence = classify_option_eod_evidence(premium_change_pct=premium_change,
+            volume=last.get("volume"), volume_avg=volume_avg, oi_change_pct=oi_change_pct)
         options.append({"symbol": symbol, "expiry": expiry, "strike": strike,
             "option_type": option_type, "premium_close": last.get("close"),
-            "premium_change_pct": round((closes[-1] / closes[-2] - 1) * 100, 2) if len(closes) > 1 and closes[-2] else None,
-            "volume": last.get("volume"), "volume_avg": round(mean(vols[:-1]), 2) if len(vols) > 1 else None,
-            "open_interest": last.get("open_interest"), "oi_change": last.get("oi_change"),
-            "oi_change_pct": round(oi_changes[-1] / max(1, abs(float(last.get("open_interest") or 0) - oi_changes[-1])) * 100, 2) if oi_changes else None,
+            "premium_change_pct": premium_change, "volume": last.get("volume"),
+            "volume_avg": volume_avg, "open_interest": last.get("open_interest"),
+            "oi_change": last.get("oi_change"), "oi_change_pct": oi_change_pct,
             "spot": spot or None, "moneyness": "ITM" if itm else "OTM_OR_ATM",
             "days_to_expiry": (date.fromisoformat(expiry) - date.fromisoformat(as_of)).days if expiry else None,
             "bid_ask_spread": "DATA_INSUFFICIENT", "liquidity": "EOD_VOLUME_ONLY",
-            "qualification": "WATCH" if last.get("close") is not None and last.get("volume") else "DATA_INSUFFICIENT",
-            "qualification_note": "EOD data only; spread and intraday liquidity unavailable"})
+            **evidence})
     return {"status": "COMPLETED", "as_of_date": as_of, "timeframe": "DAILY_EOD",
         "universe": {"index_counts": registry["index_counts"],
                      "unique_symbol_count": registry["unique_symbol_count"]},
