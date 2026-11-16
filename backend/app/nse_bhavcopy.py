@@ -844,7 +844,15 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
             if strategy_run.get("status") == "COMPLETED":
                 try:
                     from app.air_monthly_pd_scanner import scan_monthly_pd_universe
-                    state["monthly_pd_scan"] = scan_monthly_pd_universe(end_date.isoformat())
+                    scan_result = scan_monthly_pd_universe(end_date.isoformat())
+                    state["monthly_pd_scan"] = {
+                        key: scan_result.get(key) for key in (
+                            "status", "as_of_date", "timeframe", "universe", "coverage",
+                            "qualified_stock_symbols", "persisted_stock_snapshots",
+                            "persisted_option_snapshots", "options_disclosure",
+                            "broker_orders_placed",
+                        ) if key in scan_result
+                    }
                     if state["monthly_pd_scan"].get("status") != "COMPLETED":
                         state["status"] = "PARTIAL"
                 except Exception as scan_exc:  # noqa: BLE001
