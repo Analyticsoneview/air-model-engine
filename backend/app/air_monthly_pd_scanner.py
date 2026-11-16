@@ -35,6 +35,14 @@ def _calendar_sessions(store, year: int) -> dict[str, str]:
     return sessions
 
 
+def _calendar_sessions_for_range(store, start_date: date, end_date: date) -> dict[str, str]:
+    """Build CM sessions across every calendar year touched by the scan window."""
+    sessions: dict[str, str] = {}
+    for year in range(start_date.year, end_date.year + 1):
+        sessions.update(_calendar_sessions(store, year))
+    return sessions
+
+
 def _coverage(symbol: str, bars: list[dict[str, Any]], expected_dates: list[str]) -> dict[str, Any]:
     actual = {str(row["trade_date"]) for row in bars}
     missing = [day for day in expected_dates if day not in actual]
@@ -74,6 +82,12 @@ def _stock_record(symbol: str, memberships: list[str], raw_rows: list[dict[str, 
         return {**base, "qualification": "DATA_INSUFFICIENT", "reason": "Previous/current month bars missing"}
     try:
         reference = monthly_reference_session(asof_date.year, asof_date.month, sessions)
+        if reference > asof_date:
+            return {
+                **base, "qualification": "DATA_INSUFFICIENT",
+                "reason": "Monthly reference session has not completed as of the requested scan date",
+                "reference_date": reference.isoformat(),
+            }
         previous = groups[previous_month]
         levels = monthly_levels(previous)
         current_to_reference = [b for b in groups[cycle_month] if b["date"] <= reference.isoformat()]
@@ -133,11 +147,14 @@ def scan_monthly_pd_universe(as_of_date: str | None = None) -> dict[str, Any]:
     if registry.get("status") != "READY":
         return {"status": "DATA_INSUFFICIENT", "reason": "Official index constituent registry unavailable",
                 "universe": registry}
-    calendar = nse_store.get_meta(f"trading_calendar_{date.fromisoformat(as_of).year}") or {}
-    if not calendar:
-        return {"status": "DATA_INSUFFICIENT", "reason": "Official NSE CM trading calendar unavailable"}
-    sessions = _calendar_sessions(nse_store, date.fromisoformat(as_of).year)
-    start_month = (date.fromisoformat(as_of).replace(day=1) - __import__("datetime").timedelta(days=90)).strftime("%Y-%m-%d")
+    as_of_day = date.fromisoformat(as_of)
+    start_day = as_of_day.replace(day=1) - __import__("datetime").timedelta(days=90)
+    start_month = start_day.strftime("%Y-%m-%d")
+    for year in range(start_day.year, as_of_day.year + 1):
+        if not nse_store.get_meta(f"trading_calendar_{year}"):
+            return {"status": "DATA_INSUFFICIENT",
+                    "reason": f"Official NSE CM trading calendar unavailable for {year}"}
+    sessions = _calendar_sessions_for_range(nse_store, start_day, as_of_day)
     by_symbol: dict[str, list[dict[str, Any]]] = {}
     # Query per constituent: the underlying NSE query API caps each request at
     # 5,000 rows, which is ample per equity but not for the whole universe.
