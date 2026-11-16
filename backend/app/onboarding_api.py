@@ -227,11 +227,11 @@ def admin_expire_due(body: AdminLifecycleAction, admin=Depends(require_admin)):
         ends = datetime.fromisoformat(ends.replace("Z", "+00:00"))
     if ends > datetime.now(timezone.utc):
         raise HTTPException(status_code=409, detail="Trial period has not ended")
-    updated = _store().transition(body.tenant_id, body.customer_id, body.onboarding_id, "EXPIRED",
-        admin["admin_id"], body.idempotency_key, {"reason": "trial_period_elapsed"})
     contract_id = item.get("contract_id")
     if contract_id:
         with _contract_scope(body.tenant_id, body.customer_id, admin=True):
             _contracts().transition(body.tenant_id, contract_id, "EXPIRED", actor_id=admin["admin_id"],
                 idempotency_key="onboarding-expire-contract:" + body.idempotency_key)
+    updated = _store().transition(body.tenant_id, body.customer_id, body.onboarding_id, "EXPIRED",
+        admin["admin_id"], body.idempotency_key, {"reason": "trial_period_elapsed"})
     return {"onboarding": updated}
