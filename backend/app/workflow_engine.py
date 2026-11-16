@@ -740,6 +740,8 @@ class WorkflowStore:
             definition_customer = definition["customer_id"] or config.get("customer_id")
             definition_tenant = definition["tenant_id"]
             event_tenant = event["tenant_id"]
+            if definition_customer and event["customer_id"] != definition_customer:
+                continue
             if definition_tenant and event_tenant != definition_tenant:
                 continue
             if trigger_type == "TIME":
