@@ -23,6 +23,7 @@ EXPECTED_CHAIN = [
     "0016_workflow_audit_calendar",
     "0017_workflow_runtime_heartbeat",
     "0018_workflow_run_leases",
+    "0019_air_monthly_pd",
 ]
 
 
