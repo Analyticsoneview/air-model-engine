@@ -17,6 +17,7 @@ from uuid import uuid4
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.workflow_engine import WorkflowStore
+from app.workflow_executor import execute_workflow_run
 
 
 def _require(name: str) -> str:
@@ -53,7 +54,7 @@ def _seed_acceptance_records() -> dict:
             created_by="gate10-acceptance",
             trigger_type="EVENT",
             trigger_config={"event_type": "gate10.acceptance." + suffix},
-            workflow_spec={"steps": []},
+            workflow_spec={"steps": [{"id": "emit", "action": "event.emit", "params": {"event_type": "gate10.acceptance.completed", "payload": {"accepted": True}}}]},
         )
         store.set_workflow_enabled(workflow["workflow_id"], True, actor_id="gate10-acceptance")
         event = store.publish_event(
@@ -70,17 +71,14 @@ def _seed_acceptance_records() -> dict:
         if len(claims) != 1 or claims[0]["run_id"] != run_id:
             raise AssertionError("Acceptance run was not claimed exactly once")
         claim = claims[0]
-        store.save_run_step(
-            run_id=run_id, step_key="acceptance-step", step_index=0,
-            action="event.emit", status="SUCCEEDED",
-            input_data={"acceptance_id": suffix},
-            output_data={"verified": True}, attempts=1,
-            worker_id=worker_id, claim_version=claim["claim_version"],
-        )
-        store.set_run_status(
-            run_id, "SUCCEEDED", worker_id=worker_id,
+        execution = execute_workflow_run(
+            store, run_id, worker_id=worker_id,
             claim_version=claim["claim_version"],
         )
+        if not execution or execution.get("status") != "SUCCEEDED":
+            raise AssertionError(f"Workflow end-to-end execution failed: {execution}")
+        completed_step = store.get_run_step(run_id, "emit")
+        followup_event_id = completed_step["output"]["event_id"]
         store.set_exchange_calendar_day(
             exchange_code="NSE", session_date="2099-12-31",
             status="TRADING_DAY", updated_by="gate10-acceptance",
@@ -93,7 +91,7 @@ def _seed_acceptance_records() -> dict:
         return {
             "suffix": suffix, "workflow_id": workflow["workflow_id"],
             "event_id": event["event_id"], "run_id": run_id,
-            "worker_id": worker_id,
+            "followup_event_id": followup_event_id, "worker_id": worker_id,
         }
     finally:
         store.close()
@@ -120,6 +118,12 @@ def _verify_records(database_url: str, ids: dict) -> None:
             ).fetchone()
             if int(row["n"]) < 1:
                 raise AssertionError(f"Backup restore missing {table} record for {value}")
+        followup = store.db.execute(
+            "SELECT COUNT(*) AS n FROM air_workflow_events WHERE event_id=?",
+            (ids["followup_event_id"],),
+        ).fetchone()
+        if int(followup["n"]) != 1:
+            raise AssertionError("Backup restore did not preserve workflow-generated follow-up event")
         calendar = store.get_exchange_calendar_day("NSE", "2099-12-31")
         if not calendar or calendar["status"] != "TRADING_DAY":
             raise AssertionError("Backup restore did not preserve exchange calendar record")
