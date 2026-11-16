@@ -95,9 +95,12 @@ class PostgresAccessStore:
                 tenant_id = membership["tenant_id"] if membership else str(uuid4())
                 if not membership:
                     conn.execute(text("""INSERT INTO air_tenants
-                        (tenant_id,name,owner_customer_id,plan_code,status)
-                        VALUES(:tenant,:name,:owner,'STANDARD','ACTIVE')"""),
-                        {"tenant": tenant_id, "name": "AIR " + mobile, "owner": mobile})
+                        (tenant_id,name,owner_customer_id,plan_code,status,storage_prefix,rabbitmq_vhost,
+                         max_members,max_api_calls_per_day,max_storage_bytes)
+                        VALUES(:tenant,:name,:owner,'STANDARD','ACTIVE',:prefix,:vhost,1,10000,1073741824)"""),
+                        {"tenant": tenant_id, "name": "AIR " + mobile, "owner": mobile,
+                         "prefix": f"tenants/{tenant_id}/",
+                         "vhost": "air-" + tenant_id.replace("-", "")})
                     conn.execute(text("""INSERT INTO air_tenant_members
                         (tenant_id,customer_id,role,status)
                         VALUES(:tenant,:customer,'OWNER','ACTIVE')"""),
