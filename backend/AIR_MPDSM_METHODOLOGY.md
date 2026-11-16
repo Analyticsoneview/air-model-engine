@@ -21,3 +21,14 @@ The evaluator is deterministic and provider-independent. The caller must supply 
 
 ## Persistence
 Migration 0019 creates monthly cycle and date-stamped forecast/actual/evidence snapshot tables. Preserve old cycles on monthly rollover; unique keys prevent duplicate cycle/snapshot records.
+
+
+## Current-month low/high extension
+At the selected reference session (23rd when it is an NSE session; otherwise 21st when it is a session; otherwise the nearest earlier session), freeze the current-month extremes using completed daily candles dated no later than that reference session.
+
+- CML and its occurrence date are the lowest low observed in the current month through the reference session. An ML candidate requires CML < PML and CML in the discount half of the PML–PMH range (at or below EQ).
+- CMH and its occurrence date are the highest high observed in the current month through the reference session. An MH candidate requires CMH > PMH and CMH in the premium half of the PML–PMH range (at or above EQ).
+- Keep PML, PMH and EQ unchanged and store CML/CMH separately. These are candidates for a potential new monthly low/high, not automatic reversal or trade signals.
+- For an ML candidate, require two subsequent completed sessions with no intraday low below CML; then mark ML_CONFIRMED. Any wick below CML invalidates that candidate. For an MH candidate, require two subsequent completed sessions whose highs do not exceed CMH and whose closes remain below CMH; then mark REJECTION_CONFIRMED. A subsequent high above CMH or close at/above CMH invalidates the rejection candidate.
+- Insufficient subsequent sessions remain WAITING. Missing or incomplete reference-session OHLC data returns DATA_INSUFFICIENT. Future bars are excluded from the frozen reference snapshot.
+- These extension confirmations are separate from the original PML two-session support-acceptance test; neither substitutes for the other.
