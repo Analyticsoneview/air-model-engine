@@ -210,7 +210,11 @@ def main() -> int:
         if args.action == "status":
             status = local_status()
             emit(status)
-            return 0 if status["api_health"]["healthy"] and status["pwa_health"]["healthy"] else 2
+            return 0 if (
+                status["compose_exit_code"] == 0
+                and status["api_health"]["healthy"]
+                and status["pwa_health"]["healthy"]
+            ) else 2
 
         if args.action == "diagnose":
             report = {
