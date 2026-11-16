@@ -174,3 +174,35 @@ def evaluate_current_month_low_acceptance(
     if result["status"] == "OPEN_FOR_BUY":
         result["status"] = "ML_CONFIRMED"
     return result
+
+
+
+def evaluate_pattern_lifecycle(pattern: dict[str, Any], bars: list[dict[str, Any]]) -> dict[str, Any]:
+    """Apply completed-bar invalidation rules to an already detected structure."""
+    rows = sorted(bars, key=lambda row: str(row.get("date", "")))
+    result = dict(pattern or {})
+    if not rows or result.get("pattern") in {None, "NONE"}:
+        return {**result, "state": "INCOMPLETE"}
+    if result.get("state") == "INCOMPLETE":
+        return result
+    last = rows[-1]
+    close = float(last.get("close") or 0)
+    kind = result.get("pattern")
+    if kind == "W":
+        lows = result.get("support_lows") or []
+        floor = min((float(value) for value in lows), default=None)
+        if floor is not None and close < floor:
+            return {**result, "state": "FAILED", "failed_date": str(last.get("date")),
+                    "failure_reason": "Completed close below both-bottom support"}
+    elif kind == "DOUBLE_TOP":
+        resistance = result.get("resistance") or []
+        ceiling = max((float(value) for value in resistance), default=None)
+        if ceiling is not None and close > ceiling:
+            return {**result, "state": "FAILED", "failed_date": str(last.get("date")),
+                    "failure_reason": "Completed close above double-top resistance"}
+    elif kind in {"U", "V", "N"}:
+        recent_lows = [float(row["low"]) for row in rows[-5:] if row.get("low") is not None]
+        if recent_lows and close < min(recent_lows):
+            return {**result, "state": "FAILED", "failed_date": str(last.get("date")),
+                    "failure_reason": "Completed close below recent structure support"}
+    return result
