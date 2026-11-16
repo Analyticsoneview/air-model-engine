@@ -12,11 +12,11 @@ if (!(Get-Command docker -ErrorAction SilentlyContinue)) { throw "Docker is requ
 try { docker info | Out-Null } catch { throw "Docker daemon is not running." }
 
 Write-Host "Validating AIR deployment profile: $DeploymentProfile" -ForegroundColor Cyan
-docker run --rm --mount "type=bind,source=$(Join-Path $Root 'backend'),target=/app" -w /app python:3.12-slim python -m app.deployment_profiles --profile $Profile --require-cloud-env
+docker run --rm --mount "type=bind,source=$(Join-Path $Root 'backend'),target=/app" -w /app python:3.12-slim python -m app.deployment_profiles --profile $DeploymentProfile --require-cloud-env
 if ($LASTEXITCODE -ne 0) { throw "AIR deployment profile validation failed." }
 
 $profileConfig = Get-Content $ProfilePath -Raw | ConvertFrom-Json
-$env:AIR_DEPLOYMENT_PROFILE = $Profile
+$env:AIR_DEPLOYMENT_PROFILE = $DeploymentProfile
 $env:AIR_DEPLOYMENT_MODE = $profileConfig.deployment.provider
 $env:AIR_TENANCY_MODE = $profileConfig.deployment.tenancy
 
