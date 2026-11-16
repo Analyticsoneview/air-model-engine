@@ -6,6 +6,7 @@ idempotent so a failed onboarding can be retried safely.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -283,9 +284,11 @@ class AwsTenantProvisioner:
         object_key = self._validate_object_key(key)
         if not isinstance(body, bytes) or not body:
             raise ValueError("Tenant object body must contain bytes")
-        digest = str(sha256 or __import__("hashlib").sha256(body).hexdigest()).lower()
+        digest = str(sha256 or hashlib.sha256(body).hexdigest()).lower()
         if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
             raise ValueError("A valid SHA-256 digest is required")
+        if not secrets.compare_digest(hashlib.sha256(body).hexdigest(), digest):
+            raise ValueError("The supplied SHA-256 digest does not match the object body")
         size = len(body)
         used = 0 if quota_prevalidated else self.enforce_storage_quota(tenant, size)
         bucket = self._bucket_name(tenant_id)
