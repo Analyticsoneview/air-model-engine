@@ -745,6 +745,20 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
                 state["strategy_run"] = strategy_run
                 log.exception("Post-import AIR strategy replay failed; expired FO cleanup deferred")
             if strategy_run.get("status") == "COMPLETED":
+                if (state.get("index_universe") or {}).get("status") == "READY":
+                    try:
+                        from app.air_monthly_pd_scanner import scan_monthly_pd_universe
+                        state["monthly_pd_scan"] = scan_monthly_pd_universe(today.isoformat())
+                    except Exception as scan_exc:  # noqa: BLE001
+                        state["monthly_pd_scan"] = {
+                            "status": "DATA_INSUFFICIENT",
+                            "error": f"{type(scan_exc).__name__}: {str(scan_exc)[:200]}",
+                        }
+                        log.exception("Scheduled AIR MPDSM EOD scan failed")
+                else:
+                    state["monthly_pd_scan"] = {
+                        "status": "DEFERRED_INDEX_UNIVERSE_UNAVAILABLE",
+                    }
                 state["expired_fo_cleanup"] = store.cleanup_expired_fo(today)
             else:
                 state["expired_fo_cleanup"] = {
