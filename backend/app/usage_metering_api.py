@@ -49,6 +49,28 @@ def usage_me(customer_id:str=Depends(require_customer)):
     except Exception as exc:
         raise HTTPException(status_code=503,detail="Usage ledger is unavailable") from exc
 
+class UsageAdjustment(BaseModel):
+    tenant_id: str = Field(min_length=1, max_length=36)
+    customer_id: str = Field(min_length=1, max_length=128)
+    metric: str
+    quantity: int
+    plan_code: str
+    idempotency_key: str = Field(min_length=1, max_length=200)
+    reason: str = Field(min_length=3, max_length=500)
+
+
+@router.post("/admin/adjustments")
+def adjust_usage(body: UsageAdjustment, admin=Depends(require_admin)):
+    try:
+        return _meter().adjust_usage(body.tenant_id, body.customer_id, body.metric, body.quantity,
+            plan_code=body.plan_code, idempotency_key=body.idempotency_key,
+            actor_id=admin["admin_id"], reason=body.reason)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Usage adjustment could not be recorded") from exc
+
+
 class QuotaOverride(BaseModel):
     tenant_id:str=Field(min_length=1,max_length=36)
     metric:str
