@@ -8,7 +8,8 @@ on:
       - 'backend/app/workflow_executor.py'
       - 'backend/app/air_monthly_pd_api.py'
       - 'backend/migrations/versions/0019_air_monthly_pd.py'
-      - 'backend/tests/test_air_monthly_pd*.py'\n      - 'backend/tests/test_workflow_monthly_pd.py'
+      - 'backend/tests/test_air_monthly_pd*.py'
+      - 'backend/tests/test_workflow_monthly_pd.py'
       - '.github/workflows/monthly-pd-acceptance.yml'
 
 permissions:
