@@ -30,6 +30,7 @@ class PostgresConnection:
         driver_url = url.replace('postgresql+psycopg://', 'postgresql://', 1)
         self._connection = psycopg.connect(driver_url, row_factory=dict_row, autocommit=True)
         self._transaction = None
+        self.is_postgres = True
 
     def _apply_tenant_context(self) -> None:
         self._connection.execute(
