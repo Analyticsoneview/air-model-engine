@@ -62,7 +62,7 @@ sha256sum -c air-container-images-ci-VERSION.tar.gz.sha256
 gzip -dc air-container-images-ci-VERSION.tar.gz | docker load
 ```
 
-The image archive carries `local`, `lab` and versioned tags for the AIR API/PWA images. Compose uses the `local` tags; the single-node Swarm stack defaults to `lab` unless immutable image references are configured.
+The image archive carries `local`, `lab` and versioned tags for the AIR API/PWA images. Compose uses the `local` tags; the single-node Swarm stack defaults to `lab` unless immutable image references are configured. Verify the archive checksum before loading and retain the matching source bundle and image archive as one release set.
 
 Verify a downloaded release before extraction:
 
