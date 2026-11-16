@@ -844,7 +844,9 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
             if strategy_run.get("status") == "COMPLETED":
                 try:
                     from app.air_monthly_pd_scanner import scan_monthly_pd_universe
-                    scan_result = scan_monthly_pd_universe(end_date.isoformat())
+                    scan_result = await asyncio.to_thread(
+                        scan_monthly_pd_universe, end_date.isoformat()
+                    )
                     state["monthly_pd_scan"] = {
                         key: scan_result.get(key) for key in (
                             "status", "as_of_date", "timeframe", "universe", "coverage",
