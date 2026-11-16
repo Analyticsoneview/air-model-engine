@@ -400,7 +400,7 @@ class NSEBhavcopyTests(unittest.TestCase):
 
             valid = Path(folder) / "valid.zip"
             with zipfile.ZipFile(valid, "w", zipfile.ZIP_DEFLATED) as archive:
-                archive.writestr("BhavCopy.csv", "FinInstrmId,TckrSymb,FinInstrmTp\\n1,INFY,STK\\n")
+                archive.writestr("BhavCopy.csv", "FinInstrmId,TckrSymb,FinInstrmTp\n1,INFY,STK\n")
             self.assertTrue(_archive_is_valid(valid))
 
     def test_bootstrap_redownloads_corrupt_archive_and_replaces_old_session_rows(self):
@@ -423,12 +423,14 @@ class NSEBhavcopyTests(unittest.TestCase):
             with zipfile.ZipFile(payload, "w", zipfile.ZIP_DEFLATED) as archive:
                 archive.writestr(
                     "BhavCopy.csv",
-                    "FinInstrmId,TckrSymb,FinInstrmTp\\nnew,INFY,STK\\n",
+                    "FinInstrmId,TckrSymb,FinInstrmTp\nnew,INFY,STK\n",
                 )
 
             class FakeResponse:
                 status_code = 200
-                content = payload.getvalue()
+
+                def __init__(self, content):
+                    self.content = content
 
                 @staticmethod
                 def raise_for_status():
@@ -439,7 +441,7 @@ class NSEBhavcopyTests(unittest.TestCase):
 
                 async def get(self, url):
                     self.calls += 1
-                    return FakeResponse()
+                    return FakeResponse(payload.getvalue())
 
             client = FakeClient()
             result = asyncio.run(_download_one(
