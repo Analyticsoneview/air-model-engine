@@ -162,8 +162,6 @@ services:
     build:
       context: .
       dockerfile: deploy/pwa.Dockerfile
-      args:
-        AIR_API_BASE_URL: http://localhost:8000
     image: air-model-engine-pwa:local
     depends_on:
       air-api:
