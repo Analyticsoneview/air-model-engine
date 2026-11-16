@@ -32,9 +32,17 @@ def validate_profile(data: dict[str, Any], *, require_cloud_env: bool = False) -
     profile_id = data.get("profile_id")
     if profile_id not in SUPPORTED_PROFILES:
         raise DeploymentProfileError(f"Unsupported AIR deployment profile: {profile_id!r}")
-    deployment = data.get("deployment") or {}
-    infrastructure = data.get("infrastructure") or {}
-    services = data.get("services") or {}
+    if data.get("schema_version") != 1:
+        raise DeploymentProfileError("Unsupported AIR deployment profile schema_version")
+    deployment = data.get("deployment")
+    infrastructure = data.get("infrastructure")
+    services = data.get("services")
+    if not isinstance(deployment, dict):
+        raise DeploymentProfileError("Profile deployment settings must be an object")
+    if not isinstance(infrastructure, dict):
+        raise DeploymentProfileError("Profile infrastructure settings must be an object")
+    if not isinstance(services, dict):
+        raise DeploymentProfileError("Profile services must be an object")
 
     missing_services = sorted(REQUIRED_SERVICES - set(services))
     if missing_services:
