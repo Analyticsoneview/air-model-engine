@@ -136,7 +136,6 @@ def test_lifecycle_dates_subscription_history_and_immutable_decision_audit(custo
     assert history[0]["request_context"]["source"] == "admin-console"
 
     with tenant_scope(is_admin=True):
-        with tenant_scope(is_admin=True):
         customer = customer_store.list_marketing_customers(search="+919876543299")[0]
     assert customer["device_count"] == 2
     assert customer["first_registered_at"] is not None
