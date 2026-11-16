@@ -58,12 +58,14 @@ def test_qoc_observations_import_to_postgres_and_remain_readable(tmp_path, monke
 
     store = AirQocStore()
     try:
-        rows = store.latest_observations(account_id="test-account", provider="dhan", limit=5)
+        with tenant_scope(tenant_id=tenant_id, customer_id=customer_id):
+            rows = store.latest_observations(account_id=account_id, provider="dhan", limit=5)
         assert len(rows) == 1
         assert rows[0]["id"] == 7
         assert rows[0]["last_price"] == 125.5
-        saved = store.save_option_chain(
-            account_id="test-account", underlying_scrip=13,
+        with tenant_scope(tenant_id=tenant_id, customer_id=customer_id):
+            saved = store.save_option_chain(
+                account_id=account_id, underlying_scrip=13,
             underlying_segment="IDX_I", expiry="2026-12-31",
             underlying_price=24501.0, observed_at="2026-11-11T10:00:00+05:30",
             provider="dhan",
@@ -77,12 +79,14 @@ def test_qoc_observations_import_to_postgres_and_remain_readable(tmp_path, monke
             }}}},
         )
         assert saved == 1
-        updated = store.latest_observations(account_id="test-account", provider="dhan", limit=5)
+        with tenant_scope(tenant_id=tenant_id, customer_id=customer_id):
+            updated = store.latest_observations(account_id=account_id, provider="dhan", limit=5)
         assert len(updated) == 1
         assert updated[0]["last_price"] == 126.0
         assert updated[0]["volume"] == 5100
-        store.save_option_chain(
-            account_id="test-account", underlying_scrip=13,
+        with tenant_scope(tenant_id=tenant_id, customer_id=customer_id):
+            store.save_option_chain(
+                account_id=account_id, underlying_scrip=13,
             underlying_segment="IDX_I", expiry="2026-12-31",
             underlying_price=24505.0, observed_at="2026-11-11T10:02:00+05:30",
             provider="dhan",
@@ -95,15 +99,17 @@ def test_qoc_observations_import_to_postgres_and_remain_readable(tmp_path, monke
                 "implied_volatility": 18.4, "greeks": {},
             }}}},
         )
-        history = store.qualification_history(
-            account_id="test-account", provider="dhan",
-            underlying_scrip="13", expiry="2026-12-31", limit=10,
-        )
+        with tenant_scope(tenant_id=tenant_id, customer_id=customer_id):
+            history = store.qualification_history(
+                account_id=account_id, provider="dhan",
+                underlying_scrip="13", expiry="2026-12-31", limit=10,
+            )
         assert len(history) == 2
         assert history[0]["last_price"] == 127.0
         # Non-Dhan adapters identify underlyings by symbol rather than numeric scrip ID.
-        symbol_saved = store.save_option_chain(
-            provider="zerodha", account_id="test-account",
+        with tenant_scope(tenant_id=tenant_id, customer_id=customer_id):
+            symbol_saved = store.save_option_chain(
+                provider="zerodha", account_id=account_id,
             underlying_scrip="NIFTY", underlying_segment="NFO",
             expiry="2026-12-31", underlying_price=24510.0,
             observed_at="2026-11-11T10:01:00+05:30",
@@ -113,9 +119,10 @@ def test_qoc_observations_import_to_postgres_and_remain_readable(tmp_path, monke
             }}}},
         )
         assert symbol_saved == 1
-        symbol_rows = store.latest_observations(
-            account_id="test-account", provider="zerodha", limit=5
-        )
+        with tenant_scope(tenant_id=tenant_id, customer_id=customer_id):
+            symbol_rows = store.latest_observations(
+                account_id=account_id, provider="zerodha", limit=5
+            )
         assert symbol_rows[0]["underlying_scrip"] == "NIFTY"
     finally:
         with tenant_scope(is_admin=True):
