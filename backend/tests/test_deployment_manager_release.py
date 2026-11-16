@@ -47,7 +47,7 @@ class DeploymentManagerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         payload = json.loads(result.stdout)
         self.assertEqual(payload["status"], "DEFERRED")
-        self.assertIn("No AWS resources were created", payload["message"])
+        self.assertIn("no AWS resources were created", payload["message"].lower())
 
     def test_shell_wrapper_defaults_aws_profile_to_validation_only(self):
         result = subprocess.run(
@@ -110,8 +110,10 @@ class ReleasePackageTests(unittest.TestCase):
             (root / ".air-secrets" / "jwt_secret").write_text("must-not-package", encoding="utf-8")
             (root / ".air-local.env").write_text("SECRET=value", encoding="utf-8")
             (root / "backend" / "app" / "local.sqlite3").write_bytes(b"database")
+            (root / "mobile" / "android").mkdir(parents=True, exist_ok=True)
             (root / "mobile" / "android" / "key.properties").write_text("storePassword=secret", encoding="utf-8")
             (root / "backend" / "app" / "production.env").write_text("SECRET=value", encoding="utf-8")
+            (root / "deploy" / "aws" / "terraform").mkdir(parents=True, exist_ok=True)
             (root / "deploy" / "aws" / "terraform" / "production.tfvars").write_text("secret=value", encoding="utf-8")
             (root / "deploy" / ".terraform").mkdir(parents=True)
             (root / "deploy" / ".terraform" / "provider.bin").write_bytes(b"provider")
