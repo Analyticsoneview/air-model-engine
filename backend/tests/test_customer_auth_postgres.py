@@ -22,7 +22,7 @@ from app.scripts.migrate_customer_sqlite_to_postgres import migrate
 
 
 TABLES = (
-    "air_access_decision_history", "air_customer_subscription_history",
+    "air_access_decision_history", "air_customer_subscription_history", "air_tenant_objects",
     "air_customer_lifecycle", "air_marketing_audit", "air_marketing_offers",
     "air_customer_marketing_preferences", "air_customer_subscriptions",
     "air_device_sessions", "air_access_requests", "air_tenant_members", "air_tenants",
@@ -240,6 +240,78 @@ def test_tenant_registry_records_provisioning_before_activation(customer_store):
         assert provisioned["provisioned_at"] is not None
         assert provisioned["metadata_json"]["aws_provisioning"]["status"] == "PROVISIONED"
         assert provisioned["metadata_json"]["aws_provisioning"]["storage"]["bucket"] == "air-tenant-test"
+    finally:
+        registry.close()
+
+
+def test_tenant_object_storage_reservation_quota_and_retry(customer_store):
+    from app.tenant_provisioning import TenantRegistry
+
+    registry = TenantRegistry(database_url=os.environ["AIR_TEST_CUSTOMER_DATABASE_URL"])
+    owner = "+919876543241"
+    try:
+        tenant = registry.create_or_update_tenant(
+            owner_customer_id=owner, name="AIR Object Storage Acceptance",
+            plan_code="STANDARD", status="ACTIVE",
+        )
+        tenant_id = tenant["tenant_id"]
+        with tenant_scope(is_admin=True):
+            with registry.engine.begin() as conn:
+                conn.execute(text("""
+                    UPDATE air_tenants SET max_storage_bytes=5
+                    WHERE tenant_id=:tenant
+                """), {"tenant": tenant_id})
+
+        first = registry.reserve_object_upload(
+            tenant_id, owner, "reports/daily.csv", size_bytes=5,
+            sha256="2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+            content_type="text/csv",
+        )
+        assert first["storage_used_bytes"] == 5
+        assert not first["already_stored"]
+        resumed = registry.reserve_object_upload(
+            tenant_id, owner, "reports/daily.csv", size_bytes=5,
+            sha256="2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+            content_type="text/csv",
+        )
+        assert resumed["resume_pending"]
+        assert resumed["storage_used_bytes"] == 5
+
+        stored = registry.complete_object_upload(tenant_id, owner, "reports/daily.csv", "etag-1")
+        assert stored["status"] == "STORED"
+        duplicate = registry.reserve_object_upload(
+            tenant_id, owner, "reports/daily.csv", size_bytes=5,
+            sha256="2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+            content_type="text/csv",
+        )
+        assert duplicate["already_stored"]
+        assert registry.list_tenant_objects(tenant_id, owner)[0]["object_key"] == "reports/daily.csv"
+        assert registry.get_tenant_object(tenant_id, owner, "reports/daily.csv")["etag"] == "etag-1"
+
+        with pytest.raises(OverflowError):
+            registry.reserve_object_upload(
+                tenant_id, owner, "reports/overflow.csv", size_bytes=1,
+                sha256="2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+                content_type="text/csv",
+            )
+        with pytest.raises(FileExistsError):
+            registry.reserve_object_upload(
+                tenant_id, owner, "reports/daily.csv", size_bytes=5,
+                sha256="2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+                content_type="text/csv",
+            )
+        with pytest.raises(ValueError):
+            registry.reserve_object_upload(
+                tenant_id, owner, "../escape.csv", size_bytes=1,
+                sha256="2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+                content_type="text/csv",
+            )
+        with tenant_scope(tenant_id=tenant_id, customer_id=owner):
+            with registry.engine.connect() as conn:
+                usage = conn.execute(text("""
+                    SELECT storage_used_bytes FROM air_tenants WHERE tenant_id=:tenant
+                """), {"tenant": tenant_id}).scalar_one()
+        assert usage == 5
     finally:
         registry.close()
 
