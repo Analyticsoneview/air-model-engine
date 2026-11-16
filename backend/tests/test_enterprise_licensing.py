@@ -37,6 +37,14 @@ def _active_contract(store):
             product_code TEXT NOT NULL, plan_code TEXT NOT NULL, status TEXT NOT NULL)"""))
         conn.execute(text("""INSERT INTO air_commercial_contracts
             VALUES('contract-1','tenant-a','owner-a','AIR','B2B_BUSINESS_ANNUAL','ACTIVE')"""))
+        conn.execute(text("""CREATE TABLE air_tenants(
+            tenant_id TEXT PRIMARY KEY, max_members INTEGER NOT NULL)"""))
+        conn.execute(text("INSERT INTO air_tenants VALUES('tenant-a',30)"))
+        conn.execute(text("""CREATE TABLE air_tenant_members(
+            tenant_id TEXT NOT NULL, customer_id TEXT NOT NULL, status TEXT NOT NULL)"""))
+        conn.execute(text("INSERT INTO air_tenant_members VALUES('tenant-a','owner-a','ACTIVE')"))
+        conn.execute(text("""CREATE TABLE air_tenant_invitations(
+            tenant_id TEXT NOT NULL, status TEXT NOT NULL, expires_at TEXT NOT NULL)"""))
 
 
 def test_issue_bind_and_offline_verify_enterprise_license(tmp_path, keypair):
@@ -91,3 +99,27 @@ def test_expired_and_tampered_licences_fail_closed(tmp_path, keypair):
         verify_license(result["license_token"], keypair[1], tenant_id="tenant-a",
             deployment_id=deployment["deployment_id"], profile_id="onprem-single",
             fingerprint="hardware-fingerprint-0001", today=date(2026,11,17))
+
+
+def test_enterprise_licence_seat_limit_cannot_exceed_org_quota(tmp_path, keypair):
+    store = EnterpriseLicenseStore(database_url="", sqlite_path=str(tmp_path / "license.db"))
+    _active_contract(store)
+    deployment = store.register_deployment(tenant_id="tenant-a", instance_key="prod-1",
+        profile_id="onprem-single", fingerprint="hardware-fingerprint-0001")
+    with pytest.raises(EnterpriseLicenseError, match="organisation quota"):
+        store.issue_and_bind(tenant_id="tenant-a", contract_id="contract-1",
+            deployment_id=deployment["deployment_id"], max_seats=31, max_deployments=1,
+            valid_from=date(2026,1,1), valid_until=date(2027,1,1), grace_until=None,
+            actor_id="operator", idempotency_key="issue-too-many", private_key_b64=keypair[0])
+
+
+def test_enterprise_licence_seat_limit_cannot_exclude_existing_members(tmp_path, keypair):
+    store = EnterpriseLicenseStore(database_url="", sqlite_path=str(tmp_path / "license.db"))
+    _active_contract(store)
+    deployment = store.register_deployment(tenant_id="tenant-a", instance_key="prod-1",
+        profile_id="onprem-single", fingerprint="hardware-fingerprint-0001")
+    with pytest.raises(EnterpriseLicenseError, match="current reservations"):
+        store.issue_and_bind(tenant_id="tenant-a", contract_id="contract-1",
+            deployment_id=deployment["deployment_id"], max_seats=0, max_deployments=1,
+            valid_from=date(2026,1,1), valid_until=date(2027,1,1), grace_until=None,
+            actor_id="operator", idempotency_key="issue-too-few", private_key_b64=keypair[0])
