@@ -47,7 +47,7 @@ class DeploymentManagerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         payload = json.loads(result.stdout)
         self.assertEqual(payload["status"], "DEFERRED")
-        self.assertIn("no AWS resources were created", payload["message"].lower())
+        self.assertIn("no aws resources were created", payload["message"].lower())
 
     def test_shell_wrapper_defaults_aws_profile_to_validation_only(self):
         result = subprocess.run(
