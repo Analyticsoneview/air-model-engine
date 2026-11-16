@@ -1266,7 +1266,7 @@ def trigger_nse_bootstrap() -> dict[str, Any]:
     global _bootstrap_task
     if _bootstrap_task is not None and not _bootstrap_task.done():
         return {"status": "RUNNING", "message": "NSE CM/FO bootstrap is already running"}
-    _bootstrap_task = asyncio.create_task(run_nse_bootstrap(force=True))
+    _bootstrap_task = asyncio.create_task(_run_bootstrap_with_retry(force=True))
     return {"status": "QUEUED", "message": "NSE CM/FO initial-history bootstrap has been queued"}
 
 
