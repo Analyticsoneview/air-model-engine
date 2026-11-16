@@ -2758,7 +2758,7 @@ async def admin_create_tenant(body: TenantProvisionRequest, admin: dict = Depend
         tenant = _get_tenant_registry().create_or_update_tenant(
             owner_customer_id=body.owner_customer_id, name=body.name, plan_code=body.plan_code,
         )
-        return {"tenant": tenant, "status": "provisioned"}
+        return {"tenant": tenant, "status": "registered", "infrastructure_status": "NOT_PROVISIONED"}
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
