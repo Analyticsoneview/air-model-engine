@@ -59,3 +59,15 @@ def test_admin_custom_quota_override_is_validated(tmp_path):
 def test_all_supported_metrics_have_plan_quotas(tmp_path):
     rows=meter(tmp_path).get_usage("t1","B2C_FREE")
     assert {row["metric"] for row in rows}=={"api_calls","compute_seconds","storage_bytes","seats","licensed_data_bytes"}
+
+def test_adjustment_is_audited_idempotent_and_cannot_make_usage_negative(tmp_path):
+    store=meter(tmp_path)
+    record(store,key="seed")
+    adjusted=store.adjust_usage("t1","customer-1","api_calls",-1,plan_code="B2C_FREE",
+        idempotency_key="adjust-1",actor_id="admin-1",reason="Correct duplicate import")
+    replay=store.adjust_usage("t1","customer-1","api_calls",-1,plan_code="B2C_FREE",
+        idempotency_key="adjust-1",actor_id="admin-1",reason="Correct duplicate import")
+    assert adjusted["used"]==0 and replay["idempotent_replay"]
+    with pytest.raises(ValueError):
+        store.adjust_usage("t1","customer-1","api_calls",-1,plan_code="B2C_FREE",
+            idempotency_key="adjust-2",actor_id="admin-1",reason="Over correction")
