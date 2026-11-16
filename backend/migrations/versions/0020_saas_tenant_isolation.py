@@ -244,8 +244,12 @@ def upgrade() -> None:
         FROM air_workflow_events e WHERE e.event_id=o.event_id
     """)
     op.execute("""
-        UPDATE air_workflow_runs r SET customer_id=w.customer_id,tenant_id=w.tenant_id
-        FROM air_workflow_definitions w WHERE w.workflow_id=r.workflow_id
+        UPDATE air_workflow_runs r
+        SET customer_id=COALESCE(w.customer_id,e.customer_id),
+            tenant_id=COALESCE(w.tenant_id,e.tenant_id)
+        FROM air_workflow_definitions w
+        JOIN air_workflow_events e ON e.event_id=r.event_id
+        WHERE w.workflow_id=r.workflow_id
     """)
     op.execute("""
         UPDATE air_workflow_run_steps s SET customer_id=r.customer_id,tenant_id=r.tenant_id
@@ -259,6 +263,30 @@ def upgrade() -> None:
         UPDATE air_workflow_audit a SET customer_id=w.customer_id,tenant_id=w.tenant_id
         FROM air_workflow_definitions w WHERE w.workflow_id=a.workflow_id
     """)
+
+    # Fail the migration rather than silently hiding legacy records that cannot
+    # be attributed to a verified tenant. Operators must reconcile these rows first.
+    for table in _CUSTOMER_TABLES:
+        op.execute(f"""
+            DO $
+            BEGIN
+                IF EXISTS (SELECT 1 FROM {table} WHERE tenant_id IS NULL) THEN
+                    RAISE EXCEPTION 'AIR tenant migration blocked: {table} contains rows without a verified tenant owner';
+                END IF;
+            END
+            $
+        """)
+    for table in _WORKFLOW_TABLES:
+        op.execute(f"""
+            DO $
+            BEGIN
+                IF EXISTS (SELECT 1 FROM {table}
+                           WHERE customer_id IS NOT NULL AND tenant_id IS NULL) THEN
+                    RAISE EXCEPTION 'AIR tenant migration blocked: {table} contains customer-owned rows without a verified tenant owner';
+                END IF;
+            END
+            $
+        """)
 
     # Index every tenant partition key before enabling row-level security.
     for table in _CUSTOMER_TABLES + _WORKFLOW_TABLES:
