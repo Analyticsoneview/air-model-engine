@@ -27,9 +27,9 @@ def monthly_levels(previous_month_bars: list[dict[str, Any]]) -> dict[str, float
     pml,pmh=min(lows),max(highs)
     return {"pml":pml,"pmh":pmh,"eq":(pml+pmh)/2}
 
-def evaluate_support_acceptance(bars: list[dict[str, Any]], pml: float, required_sessions: int=2) -> dict[str, Any]:
+def evaluate_support_acceptance(bars: list[dict[str, Any]], pml: float, required_sessions: int=2, reference_date: str|None=None) -> dict[str, Any]:
     if required_sessions<1: raise ValueError("required_sessions must be positive")
-    observed=sorted(bars,key=lambda x:str(x["date"]))[:required_sessions]
+    eligible=[row for row in bars if reference_date is None or str(row["date"])[:10] > str(reference_date)[:10]]\n    observed=sorted(eligible,key=lambda x:str(x["date"]))[:required_sessions]
     if len(observed)<required_sessions:
         return {"status":"WAITING","sessions_observed":len(observed),"required_sessions":required_sessions,"breach_date":None}
     for row in observed:
