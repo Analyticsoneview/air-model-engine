@@ -11,7 +11,7 @@ class PostgresCustomerAccountDirectory:
             if not database_url.startswith(("postgresql://", "postgresql+psycopg://")):
                 raise RuntimeError("AIR_ACCOUNT_DATABASE_URL must point to PostgreSQL")
             engine = create_engine(database_url, pool_pre_ping=True, future=True)
-            install_tenant_context(engine)
+        install_tenant_context(engine)
         self.engine = engine
 
     @staticmethod
