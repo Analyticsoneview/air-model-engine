@@ -58,6 +58,23 @@ jobs:
         run: python -m alembic upgrade head
       - name: Create isolated restore database
         run: createdb --host=127.0.0.1 --username=air_test air_restore
+      - name: Create isolated migration transition database
+        run: createdb --host=127.0.0.1 --username=air_test air_migration
+      - name: Verify lease migration upgrade, downgrade and forward recovery
+        working-directory: backend
+        env:
+          AIR_CUSTOMER_DATABASE_URL: postgresql+psycopg://air_test:air_test@127.0.0.1:5432/air_migration
+          AIR_DATABASE_URL: postgresql+psycopg://air_test:air_test@127.0.0.1:5432/air_migration
+        run: |
+          python -m alembic upgrade 0017_workflow_runtime_heartbeat
+          python -m alembic upgrade head
+          python -m alembic downgrade 0017_workflow_runtime_heartbeat
+          python -m alembic upgrade head
+      - name: Validate deployment and backup shell syntax
+        run: |
+          bash -n deploy/deploy-swarm.sh
+          bash -n deploy/backup-workflow-postgres.sh
+          bash -n deploy/restore-workflow-postgres-verify.sh
       - name: Verify backup, restore, indexes and concurrent worker recovery
         working-directory: backend
         run: python scripts/workflow_postgres_acceptance.py
