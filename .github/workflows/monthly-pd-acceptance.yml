@@ -6,6 +6,7 @@ on:
       - 'backend/app/air_monthly_pd*.py'
       - 'backend/app/nse_index_universe.py'
       - 'backend/app/nse_bhavcopy.py'
+      - 'backend/app/air_monthly_pd_scanner.py'
       - 'backend/app/workflow_engine.py'
       - 'backend/app/workflow_executor.py'
       - 'backend/app/air_monthly_pd_api.py'
@@ -13,6 +14,7 @@ on:
       - 'backend/tests/test_air_monthly_pd*.py'
       - 'backend/tests/test_nse_index_universe.py'
       - 'backend/tests/test_nse_bhavcopy.py'
+      - 'backend/tests/test_air_monthly_pd_scanner.py'
       - 'backend/tests/test_workflow_monthly_pd.py'
       - '.github/workflows/monthly-pd-acceptance.yml'
 
@@ -48,12 +50,12 @@ jobs:
         run: python -m pip install -r backend/requirements.txt pytest
       - name: Compile changed modules
         working-directory: backend
-        run: python -m compileall -q app/air_monthly_pd.py app/air_monthly_pd_store.py app/air_monthly_pd_api.py app/nse_index_universe.py app/nse_bhavcopy.py app/workflow_executor.py
+        run: python -m compileall -q app/air_monthly_pd.py app/air_monthly_pd_store.py app/air_monthly_pd_api.py app/nse_index_universe.py app/nse_bhavcopy.py app/air_monthly_pd_scanner.py app/workflow_executor.py
       - name: Run focused monthly PD tests
         working-directory: backend
         env:
           AIR_MONTHLY_PD_DB_PATH: ":memory:"
-        run: python -m pytest -q tests/test_air_monthly_pd.py tests/test_air_monthly_pd_store.py tests/test_workflow_monthly_pd.py tests/test_nse_index_universe.py tests/test_nse_bhavcopy.py
+        run: python -m pytest -q tests/test_air_monthly_pd.py tests/test_air_monthly_pd_store.py tests/test_workflow_monthly_pd.py tests/test_nse_index_universe.py tests/test_nse_bhavcopy.py tests/test_air_monthly_pd_scanner.py
       - name: Validate Alembic migration chain on PostgreSQL 16
         working-directory: backend
         env:
