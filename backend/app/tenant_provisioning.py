@@ -210,7 +210,7 @@ class TenantRegistry:
     def _validate_object_key(object_key: str) -> str:
         key = str(object_key or "")
         if (
-            not key or len(key) > 512 or key.startswith("/")
+            not key or len(key) > 512 or len(key.encode("utf-8")) > 1024 or key.startswith("/")
             or "\\" in key or "\x00" in key
             or any(ord(char) < 32 or ord(char) == 127 for char in key)
         ):
