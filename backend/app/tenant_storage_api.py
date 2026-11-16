@@ -161,5 +161,7 @@ async def download_tenant_object(
             "ETag": f'"{metadata.get("etag") or result.get("etag", "")}"',
             "X-AIR-Content-SHA256": metadata["sha256"],
             "Content-Disposition": "attachment",
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, no-store",
         },
     )
