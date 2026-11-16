@@ -54,7 +54,7 @@ class OnboardingStore:
                 trial_started_at TEXT,trial_ends_at TEXT,contract_id TEXT,cancel_reason TEXT,
                 idempotency_key TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,
                 version INTEGER NOT NULL DEFAULT 1,
-                UNIQUE(tenant_id,customer_id,product_code),UNIQUE(tenant_id,idempotency_key))""")
+                UNIQUE(tenant_id,idempotency_key))""")
             c.exec_driver_sql("""CREATE TABLE IF NOT EXISTS air_customer_consents(
                 consent_id TEXT PRIMARY KEY,tenant_id TEXT NOT NULL,customer_id TEXT NOT NULL,
                 consent_type TEXT NOT NULL,document_version TEXT NOT NULL,accepted INTEGER NOT NULL,
@@ -146,7 +146,7 @@ class OnboardingStore:
                 return dict(conn.execute(text("SELECT * FROM air_customer_onboarding WHERE onboarding_id=:id"),
                                          {"id": prior[0]}).mappings().one())
             existing = conn.execute(text("""SELECT * FROM air_customer_onboarding
-                WHERE tenant_id=:t AND customer_id=:c AND product_code=:p"""),
+                WHERE tenant_id=:t AND customer_id=:c AND product_code=:p ORDER BY created_at DESC LIMIT 1"""),
                 {"t": tenant_id, "c": customer_id, "p": product_code}).mappings().first()
             if existing and existing["status"] not in ("CANCELLED", "EXPIRED", "REJECTED"):
                 raise OnboardingConflict("An active onboarding record already exists")
@@ -164,7 +164,7 @@ class OnboardingStore:
     def transition(self, tenant_id, customer_id, onboarding_id, target, actor_id, idempotency_key,
                    details=None, trial_days=None):
         target = str(target).upper()
-        allowed = {"PENDING": {"TRIAL", "CANCELLED", "REJECTED"},
+        allowed = {"PENDING": {"TRIAL", "ACTIVE", "CANCELLED", "REJECTED"},
                    "TRIAL": {"ACTIVE", "CANCELLED", "EXPIRED"},
                    "ACTIVE": {"CANCELLED", "EXPIRED"},
                    "CANCELLED": set(), "EXPIRED": set(), "REJECTED": set()}
@@ -200,6 +200,15 @@ class OnboardingStore:
                         idempotency_key, details or {})
             return dict(conn.execute(text("SELECT * FROM air_customer_onboarding WHERE onboarding_id=:id"),
                                      {"id": onboarding_id}).mappings().one())
+
+    def attach_contract(self, tenant_id, customer_id, onboarding_id, contract_id):
+        with self._scope(tenant_id, customer_id), self.engine.begin() as conn:
+            result = conn.execute(text("""UPDATE air_customer_onboarding SET contract_id=:contract,
+                updated_at=:now,version=version+1 WHERE tenant_id=:t AND customer_id=:c AND onboarding_id=:id"""),
+                {"contract": contract_id, "now": _now(), "t": tenant_id, "c": customer_id, "id": onboarding_id})
+            if result.rowcount != 1:
+                raise KeyError("Onboarding record not found")
+        return self.get(tenant_id, customer_id)
 
     def events(self, tenant_id, customer_id, onboarding_id):
         with self._scope(tenant_id, customer_id), self.engine.connect() as conn:
