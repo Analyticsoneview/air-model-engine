@@ -74,6 +74,39 @@ def _declare(channel) -> None:
 
 
 
+
+def _retry_or_dead_letter(channel, method, properties, body: bytes, max_attempts: int = 5) -> str:
+    """Republish failed deliveries with an explicit bounded retry counter.
+
+    Quorum-queue delivery limits remain a crash-loop safety net, but application
+    retries are explicit because broker delivery-count behavior differs across
+    RabbitMQ versions and consumer acknowledgement patterns.
+    """
+    headers = dict(getattr(properties, "headers", None) or {})
+    attempts = int(headers.get("x-air-retry-count", 0)) + 1
+    dead_letter = attempts >= max_attempts
+    headers["x-air-retry-count"] = attempts
+    target_exchange = DEAD_EXCHANGE if dead_letter else EXCHANGE
+    confirmed = channel.basic_publish(
+        exchange=target_exchange,
+        routing_key="" if dead_letter else method.routing_key,
+        body=body,
+        properties=pika.BasicProperties(
+            delivery_mode=2,
+            content_type=getattr(properties, "content_type", None) or "application/json",
+            message_id=getattr(properties, "message_id", None),
+            correlation_id=getattr(properties, "correlation_id", None),
+            type=getattr(properties, "type", None),
+            headers=headers,
+        ),
+        mandatory=True,
+    )
+    if confirmed is False:
+        raise RuntimeError("RabbitMQ did not confirm retry/dead-letter publication")
+    channel.basic_ack(delivery_tag=method.delivery_tag)
+    return "dead-lettered" if dead_letter else "retried"
+
+
 def _publish_batch(store: WorkflowStore, channel, items: list[dict]) -> None:
     """Publish each outbox row independently so a partial batch cannot poison prior rows.
 
@@ -289,6 +322,7 @@ def _consume(stop: threading.Event) -> None:
             _declare(channel)
             _CONSUMER_CONNECTED = True
             channel.basic_qos(prefetch_count=20)
+            channel.confirm_delivery()
             store = WorkflowStore()
 
             def handle(ch, method, properties, body):
@@ -301,8 +335,13 @@ def _consume(stop: threading.Event) -> None:
                     log.info("Processed workflow event %s; matched %d workflow(s)", event_id, len(runs))
                     ch.basic_ack(delivery_tag=method.delivery_tag)
                 except Exception:
-                    log.exception("Workflow event processing failed; message returned to queue")
-                    ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
+                    log.exception("Workflow event processing failed; applying bounded retry policy")
+                    try:
+                        outcome = _retry_or_dead_letter(ch, method, properties, body)
+                        log.warning("Workflow event %s %s", getattr(properties, "message_id", None), outcome)
+                    except Exception:
+                        log.exception("Workflow retry publication failed; retaining original delivery")
+                        ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
 
             channel.basic_consume(queue=QUEUE, on_message_callback=handle, auto_ack=False)
             while not stop.is_set() and connection.is_open:
