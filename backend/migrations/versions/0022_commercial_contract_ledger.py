@@ -38,12 +38,13 @@ def upgrade() -> None:
         sa.CheckConstraint("status IN ('DRAFT','TRIAL','ACTIVE','GRACE','PAST_DUE','CANCELLED','EXPIRED','SUSPENDED')", name="ck_air_contract_status"),
         sa.CheckConstraint("amount_minor IS NULL OR amount_minor >= 0", name="ck_air_contract_amount_nonnegative"),
         sa.CheckConstraint("end_date > start_date", name="ck_air_contract_period_positive"),
+        sa.UniqueConstraint("tenant_id", "contract_id", name="uq_air_contract_tenant_contract"),
     )
     op.create_index("ix_air_contract_tenant_status", "air_commercial_contracts", ["tenant_id", "status", "end_date"])
     op.create_table(
         "air_commercial_contract_events",
         sa.Column("event_id", sa.String(36), primary_key=True),
-        sa.Column("contract_id", sa.String(36), sa.ForeignKey("air_commercial_contracts.contract_id", ondelete="RESTRICT"), nullable=False),
+        sa.Column("contract_id", sa.String(36), nullable=False),
         sa.Column("tenant_id", sa.String(36), sa.ForeignKey("air_tenants.tenant_id", ondelete="RESTRICT"), nullable=False),
         sa.Column("actor_id", sa.String(128), nullable=False),
         sa.Column("event_type", sa.String(64), nullable=False),
@@ -53,6 +54,7 @@ def upgrade() -> None:
         sa.Column("payload", sa.JSON(), nullable=False, server_default=sa.text("'{}'::json")),
         sa.Column("occurred_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.UniqueConstraint("tenant_id", "idempotency_key", name="uq_air_contract_event_idempotency"),
+        sa.ForeignKeyConstraint(["tenant_id", "contract_id"], ["air_commercial_contracts.tenant_id", "air_commercial_contracts.contract_id"], ondelete="RESTRICT", name="fk_air_contract_event_tenant_contract"),
     )
     op.create_index("ix_air_contract_events_history", "air_commercial_contract_events", ["tenant_id", "contract_id", "occurred_at"])
     for table in ("air_commercial_contracts", "air_commercial_contract_events"):
