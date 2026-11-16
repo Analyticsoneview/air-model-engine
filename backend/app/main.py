@@ -749,6 +749,13 @@ async def health() -> dict:
 @app.get("/ready")
 async def application_readiness() -> dict:
     """Full installation readiness; unlike /health this waits for initial NSE history."""
+    profile = load_runtime_profile()
+    deployment_summary = {
+        "profile_id": profile["profile_id"],
+        "provider": profile["deployment"]["provider"],
+        "tenancy": profile["deployment"]["tenancy"],
+        "orchestrator": profile["deployment"]["orchestrator"],
+    }
     dependencies = get_persistence_runtime().health()
     dependency_failures = [
         name for name, item in dependencies.items()
@@ -787,6 +794,7 @@ async def application_readiness() -> dict:
             "dependency_failures": dependency_failures,
             "dependencies": dependencies,
             "workflow_runtime": workflow_runtime,
+            "deployment": deployment_summary,
             "market_data": bootstrap_summary,
         })
     return {
@@ -794,6 +802,7 @@ async def application_readiness() -> dict:
         "service": "air-model-engine-api",
         "dependencies": dependencies,
         "workflow_runtime": workflow_runtime,
+        "deployment": deployment_summary,
         "market_data": bootstrap_summary,
     }
 
