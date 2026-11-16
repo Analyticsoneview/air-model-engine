@@ -172,6 +172,9 @@ resource "aws_ecs_task_definition" "api" {
     ]
     secrets = [
       { name = "AIR_DATABASE_URL", valueFrom = aws_secretsmanager_secret.postgres.arn },
+      { name = "AIR_CUSTOMER_DATABASE_URL", valueFrom = aws_secretsmanager_secret.postgres.arn },
+      { name = "AIR_ACCOUNT_DATABASE_URL", valueFrom = aws_secretsmanager_secret.postgres.arn },
+      { name = "AIR_CREDENTIAL_DATABASE_URL", valueFrom = aws_secretsmanager_secret.postgres.arn },
       { name = "AIR_REDIS_URL", valueFrom = aws_secretsmanager_secret.redis.arn },
       { name = "AIR_RABBITMQ_URL", valueFrom = aws_secretsmanager_secret.rabbitmq.arn },
       { name = "AIR_JWT_SECRET", valueFrom = aws_secretsmanager_secret.jwt.arn },
@@ -222,6 +225,7 @@ resource "aws_ecs_task_definition" "worker" {
     ]
     secrets = [
       { name = "AIR_DATABASE_URL", valueFrom = aws_secretsmanager_secret.postgres.arn },
+      { name = "AIR_CUSTOMER_DATABASE_URL", valueFrom = aws_secretsmanager_secret.postgres.arn },
       { name = "AIR_RABBITMQ_URL", valueFrom = aws_secretsmanager_secret.rabbitmq.arn }
     ]
     mountPoints      = [{ sourceVolume = "air-data", containerPath = "/var/lib/air", readOnly = false }]
