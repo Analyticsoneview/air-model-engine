@@ -46,7 +46,7 @@ class AwsTenantProvisioner:
         self.s3 = s3_client
         self.secrets = secrets_client
         self.http = http_client
-        self.bucket_prefix = bucket_prefix.strip().lower()
+        self.bucket_prefix = bucket_prefix.strip()
         self.secrets_prefix = secrets_prefix.strip("/")
         self.rabbitmq_admin_user = rabbitmq_admin_user.strip()
         self.region = region.strip()
@@ -104,7 +104,7 @@ class AwsTenantProvisioner:
     def _secret_name(self, tenant_id: str) -> str:
         return f"{self.secrets_prefix}/{tenant_id}/runtime"
 
-    def _ensure_bucket(self, bucket: str, tenant_id: str) -> None:
+    def _ensure_bucket(self, bucket: str, tenant_id: str, max_storage_bytes: int) -> None:
         exists = False
         try:
             self.s3.head_bucket(Bucket=bucket)
@@ -161,7 +161,7 @@ class AwsTenantProvisioner:
                 {"Key": "Product", "Value": "AIR"},
                 {"Key": "TenantId", "Value": tenant_id},
                 {"Key": "ManagedBy", "Value": "AIR-Tenant-Provisioner"},
-                {"Key": "MaxStorageBytes", "Value": str(int(tenant.get("max_storage_bytes", 1073741824)))},
+                {"Key": "MaxStorageBytes", "Value": str(int(max_storage_bytes))},
             ]},
         )
 
@@ -229,7 +229,8 @@ class AwsTenantProvisioner:
             raise ValueError("Tenant RabbitMQ vhost is missing or invalid")
         bucket = self._bucket_name(tenant_id)
         username = "air-" + tenant_id.replace("-", "")[:24]
-        self._ensure_bucket(bucket, tenant_id)
+        max_storage_bytes = int(tenant.get("max_storage_bytes", 1073741824))
+        self._ensure_bucket(bucket, tenant_id, max_storage_bytes)
         secret_arn, rabbit_password = self._tenant_credentials(tenant_id, username)
         self._ensure_vhost(vhost, username, rabbit_password)
         return {
@@ -241,7 +242,7 @@ class AwsTenantProvisioner:
             "quotas": {
                 "max_members": int(tenant.get("max_members", 1)),
                 "max_api_calls_per_day": int(tenant.get("max_api_calls_per_day", 10000)),
-                "max_storage_bytes": int(tenant.get("max_storage_bytes", 1073741824)),
+                "max_storage_bytes": max_storage_bytes,
             },
         }
 
