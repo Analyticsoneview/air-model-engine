@@ -26,7 +26,7 @@ class FakeRegistry:
         assert customer_id == CUSTOMER_ID
         return {
             "tenant_id": TENANT_ID, "status": "ACTIVE", "tenant_status": "ACTIVE",
-            "max_storage_bytes": self.limit, "storage_used_bytes": self.used,
+            "role": "OWNER", "max_storage_bytes": self.limit, "storage_used_bytes": self.used,
         }
 
     def reserve_object_upload(self, tenant_id, customer_id, object_key, *, size_bytes, sha256, content_type):
@@ -182,6 +182,18 @@ def test_registry_membership_must_match_verified_request_tenant(monkeypatch):
     }
     response = client.get("/api/v1/tenant/objects")
     assert response.status_code == 403
+
+
+def test_read_only_tenant_member_can_read_but_cannot_upload(monkeypatch):
+    client, registry, provisioner = _client(monkeypatch, limit=100)
+    registry.get_customer_context = lambda customer_id: {
+        "tenant_id": TENANT_ID, "tenant_status": "ACTIVE", "role": "READ_ONLY",
+        "max_storage_bytes": 100, "storage_used_bytes": 0,
+    }
+    response = client.put("/api/v1/tenant/objects/blocked.bin", content=b"x")
+    assert response.status_code == 403
+    assert registry.used == 0
+    assert provisioner.put_calls == 0
 
 
 def test_storage_api_is_disabled_outside_aws_saas(monkeypatch):
