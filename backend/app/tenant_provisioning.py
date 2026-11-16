@@ -154,5 +154,18 @@ class TenantRegistry:
                     params).mappings().all()
         return [dict(row) for row in rows]
 
+    def get_customer_context(self, customer_id: str) -> dict:
+        customer = self._validate_customer(customer_id)
+        with tenant_scope(customer_id=customer):
+            with self.engine.connect() as conn:
+                row = conn.execute(text("""SELECT m.tenant_id,m.role,m.status AS membership_status,
+                    t.name,t.plan_code,t.status AS tenant_status
+                    FROM air_tenant_members m JOIN air_tenants t ON t.tenant_id=m.tenant_id
+                    WHERE m.customer_id=:customer AND m.status='ACTIVE'"""),
+                    {"customer": customer}).mappings().first()
+        if not row or row["tenant_status"] != "ACTIVE":
+            raise KeyError("Customer has no active tenant")
+        return dict(row)
+
     def close(self) -> None:
         self.engine.dispose()
