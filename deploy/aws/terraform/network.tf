@@ -4,8 +4,9 @@ locals {
     Product     = "AIR"
     Environment = var.environment_name
     ManagedBy   = "Terraform"
-    Deployment  = "aws-private-single"
+    Deployment  = var.deployment_profile
   }
+  tenant_bucket_prefix = substr("${var.environment_name}-${data.aws_caller_identity.current.account_id}-t-", 0, 31)
 }
 
 resource "aws_vpc" "air" {
