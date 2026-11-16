@@ -9,13 +9,20 @@ from app.usage_metering import UsageMeter, UsageQuotaExceeded
 
 
 def _url():
-    value=os.getenv("AIR_TEST_CUSTOMER_DATABASE_URL","")
+    value=os.getenv("AIR_TEST_USAGE_DATABASE_URL","")
     if not value:
         pytest.skip("AIR_TEST_CUSTOMER_DATABASE_URL not configured")
     if not value.startswith(("postgresql://","postgresql+psycopg://")):
         pytest.fail("AIR_TEST_CUSTOMER_DATABASE_URL must point to PostgreSQL")
     if "test" not in value.rsplit("/",1)[-1].lower():
         pytest.fail("Usage integration requires a disposable database with test in its name")
+    return value
+
+
+def _admin_url():
+    value=os.getenv("AIR_TEST_CUSTOMER_DATABASE_URL","")
+    if not value:
+        pytest.skip("AIR_TEST_CUSTOMER_DATABASE_URL not configured")
     return value
 
 
@@ -36,7 +43,7 @@ def _tenant(url):
 
 def test_usage_ledger_postgres_tenant_rls_idempotency_and_quota():
     url=_url()
-    tenant=_tenant(url)
+    tenant=_tenant(_admin_url())
     customer="usage-customer-"+tenant
     meter=UsageMeter(database_url=url)
     with tenant_scope(is_admin=True):
