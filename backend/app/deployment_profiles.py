@@ -79,7 +79,7 @@ def validate_profile(data: dict[str, Any], *, require_cloud_env: bool = False) -
             raise DeploymentProfileError("AWS SaaS requires tenant-scoped isolation")
 
     if provider == "aws" and require_cloud_env and not (
-        os.getenv("AWS_REGION") or deployment.get("region")
+        os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or deployment.get("region")
     ):
         raise DeploymentProfileError("AWS_REGION must be configured before AWS provisioning")
     return data
