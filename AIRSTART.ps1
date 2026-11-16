@@ -50,8 +50,17 @@ AIR_SMTP_PORT=587
     if ($LASTEXITCODE -ne 0) { docker compose -f compose.local.yml logs --tail 100; throw "AIR startup failed. Review the logs above." }
 
     $services = @("postgres", "redis", "rabbitmq", "air-api", "air-workflow-worker", "air-pwa")
+    $timeoutMinutes = 720
+    if ($env:AIR_INSTALL_READINESS_TIMEOUT_MINUTES) {
+        $parsedTimeout = 0
+        if ([int]::TryParse($env:AIR_INSTALL_READINESS_TIMEOUT_MINUTES, [ref]$parsedTimeout) -and $parsedTimeout -gt 0) {
+            $timeoutMinutes = $parsedTimeout
+        }
+    }
+    $deadline = (Get-Date).AddMinutes($timeoutMinutes)
+    $lastProgressAt = Get-Date
     $ready = $false
-    for ($i=0; $i -lt 36; $i++) {
+    while ((Get-Date) -lt $deadline) {
         $allHealthy = $true
         foreach ($service in $services) {
             $containerId = docker compose -f compose.local.yml ps -q $service
@@ -61,19 +70,23 @@ AIR_SMTP_PORT=587
         }
         if ($allHealthy) {
             try {
-                $api = Invoke-WebRequest -Uri "http://localhost:8000/health" -TimeoutSec 3
+                $api = Invoke-WebRequest -Uri "http://localhost:8000/ready" -TimeoutSec 5
                 $pwa = Invoke-WebRequest -Uri "http://localhost:8080/health" -TimeoutSec 3
                 if ($api.StatusCode -eq 200 -and $pwa.StatusCode -eq 200) { $ready = $true; break }
             } catch { }
         }
-        Start-Sleep -Seconds 5
+        if (((Get-Date) - $lastProgressAt).TotalSeconds -ge 60) {
+            Write-Host "AIR is waiting for the complete 12-month NSE history and research readiness gate..." -ForegroundColor Yellow
+            $lastProgressAt = Get-Date
+        }
+        Start-Sleep -Seconds 15
     }
     if (!$ready) {
         docker compose -f compose.local.yml ps
         docker compose -f compose.local.yml logs --tail 100
-        throw "PostgreSQL, Redis, RabbitMQ, AIR API, workflow worker and PWA did not all become healthy. Do not use the app until the reported issue is fixed."
+        throw "AIR did not reach full readiness within $timeoutMinutes minutes. Check service logs and NSE bootstrap status; do not use the app until the readiness gate passes."
     }
-    Write-Host "PostgreSQL, Redis, FastAPI and PWA are healthy." -ForegroundColor Green
+    Write-Host "PostgreSQL, Redis, RabbitMQ, FastAPI, workflow worker, PWA and initial market-data readiness are verified." -ForegroundColor Green
     docker compose -f compose.local.yml ps
     Start-Process "http://localhost:8080"
 
