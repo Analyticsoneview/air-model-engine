@@ -53,6 +53,7 @@ from app.persistence import get_persistence_runtime
 from app.workflow_events import build_idempotency_key, emit_workflow_event
 from app.workflow_engine import WorkflowStore
 from app.installation_readiness import evaluate_workflow_runtime
+from app.tenant_storage_api import router as tenant_storage_router
 
 app = FastAPI(title="AIR Model Engine API", version="0.3.0",
               description="Self-hosted AIR authentication, broker account and market-data gateway.")
@@ -63,6 +64,7 @@ app.include_router(settlement_comparison_router)
 app.include_router(orb_strategy_router)
 app.include_router(workflow_router)
 app.include_router(monthly_pd_router)
+app.include_router(tenant_storage_router)
 _cors_origins = [
     origin.strip() for origin in os.getenv("AIR_CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
     if origin.strip()
