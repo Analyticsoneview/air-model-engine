@@ -330,15 +330,15 @@ def upgrade() -> None:
         CREATE OR REPLACE FUNCTION air_assign_tenant_id()
         RETURNS trigger
         LANGUAGE plpgsql
-        SECURITY DEFINER
-        SET search_path = pg_catalog, public
         AS $air_assign$
         DECLARE
             active_tenant text;
+            active_customer text;
             row_customer text;
             resolved_tenant text;
         BEGIN
             active_tenant := NULLIF(current_setting('air.tenant_id', true), '');
+            active_customer := NULLIF(current_setting('air.customer_id', true), '');
             row_customer := COALESCE(
                 NULLIF(to_jsonb(NEW)->>'customer_id',''),
                 NULLIF(to_jsonb(NEW)->>'mobile_e164',''),
@@ -400,10 +400,21 @@ def upgrade() -> None:
                 NEW.customer_id := row_customer;
             END IF;
             IF row_customer IS NOT NULL THEN
-                SELECT tenant_id INTO resolved_tenant FROM air_tenant_members
-                WHERE customer_id=row_customer AND status='ACTIVE' LIMIT 1;
-                IF resolved_tenant IS NULL THEN
-                    RAISE EXCEPTION 'AIR customer has no active tenant membership';
+                IF air_is_admin_context() THEN
+                    SELECT tenant_id INTO resolved_tenant FROM air_tenant_members
+                    WHERE customer_id=row_customer AND status='ACTIVE' LIMIT 1;
+                    IF resolved_tenant IS NULL THEN
+                        RAISE EXCEPTION 'AIR customer has no active tenant membership';
+                    END IF;
+                ELSE
+                    -- A tenant-scoped caller may write only for the authenticated
+                    -- customer identity already bound to this request context.
+                    -- This avoids cross-tenant membership lookups under RLS and
+                    -- does not require a privileged SECURITY DEFINER trigger.
+                    IF active_tenant IS NULL OR active_customer IS DISTINCT FROM row_customer THEN
+                        RAISE EXCEPTION 'AIR tenant context mismatch: customer identity does not match context';
+                    END IF;
+                    resolved_tenant := active_tenant;
                 END IF;
                 IF NEW.tenant_id IS NULL THEN
                     NEW.tenant_id := resolved_tenant;
