@@ -145,10 +145,10 @@ async def capture_dhan_eod_snapshots(*, force: bool = False, account_id_override
                     with tenant_scope(tenant_id=tenant_id, customer_id=customer_id):
                         total += store.save_option_chain(
                             account_id=account_id,
-                        underlying_scrip=underlying["security_id"],
-                        underlying_segment=underlying["segment"],
-                        expiry=expiry,
-                        underlying_price=chain.get("last_price"),
+                            underlying_scrip=underlying["security_id"],
+                            underlying_segment=underlying["segment"],
+                            expiry=expiry,
+                            underlying_price=chain.get("last_price"),
                             observed_at=observed_at,
                             chain=chain,
                         )
@@ -246,7 +246,7 @@ async def capture_selected_provider_option_chains(*, force: bool = False) -> dic
                             with tenant_scope(tenant_id=tenant_id, customer_id=customer_id):
                                 captured += store.save_option_chain(
                                     provider=provider, account_id=account_id,
-                                underlying_scrip=symbol, underlying_segment=segment,
+                                    underlying_scrip=symbol, underlying_segment=segment,
                                     expiry=expiry, underlying_price=snapshot.get("underlying_price"),
                                     observed_at=snapshot["observed_at"], chain=snapshot["chain"],
                                 )
@@ -256,11 +256,12 @@ async def capture_selected_provider_option_chains(*, force: bool = False) -> dic
                                            "error_type": type(exc).__name__})
                             log.exception("AIR option-chain capture failed for %s %s (%s)",
                                           symbol, expiry, customer_id)
-                    expiry_scan = scan_expiries(
-                        store, provider=provider, account_id=account_id,
-                        max_dte=int(os.getenv("AIR_EXPIRYSCAN_MAX_DTE", "45")),
-                        limit=int(os.getenv("AIR_EXPIRYSCAN_MAX_ROWS", "2000")),
-                    )
+                    with tenant_scope(tenant_id=tenant_id, customer_id=customer_id):
+                        expiry_scan = scan_expiries(
+                            store, provider=provider, account_id=account_id,
+                            max_dte=int(os.getenv("AIR_EXPIRYSCAN_MAX_DTE", "45")),
+                            limit=int(os.getenv("AIR_EXPIRYSCAN_MAX_ROWS", "2000")),
+                        )
                     results.append({
                         "customer_id": customer_id, "provider": provider, "account_id": account_id,
                         "status": "completed_with_errors" if errors else "completed",
