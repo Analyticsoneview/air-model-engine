@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://air.local/schemas/deployment-profile.schema.json",
+  "title": "AIR Deployment Profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "profile_id",
+    "display_name",
+    "deployment",
+    "infrastructure",
+    "services"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "profile_id": {
+      "enum": [
+        "onprem-single",
+        "aws-private-single",
+        "aws-saas-multi"
+      ]
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "deployment": {
+      "type": "object",
+      "required": [
+        "provider",
+        "tenancy",
+        "orchestrator"
+      ],
+      "properties": {
+        "provider": {
+          "enum": [
+            "on_prem",
+            "aws"
+          ]
+        },
+        "tenancy": {
+          "enum": [
+            "single",
+            "multi"
+          ]
+        },
+        "orchestrator": {
+          "enum": [
+            "docker_compose",
+            "docker_swarm",
+            "ecs_fargate",
+            "ecs_ec2"
+          ]
+        },
+        "swarm_supported": {
+          "type": "boolean"
+        },
+        "region": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "region_required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "infrastructure": {
+      "type": "object",
+      "required": [
+        "isolation",
+        "database",
+        "cache",
+        "message_broker",
+        "workflow_engine",
+        "storage",
+        "monitoring"
+      ],
+      "properties": {
+        "isolation": {
+          "enum": [
+            "dedicated",
+            "tenant_scoped"
+          ]
+        },
+        "database": {
+          "type": "string"
+        },
+        "cache": {
+          "type": "string"
+        },
+        "message_broker": {
+          "enum": [
+            "rabbitmq",
+            "amazon_mq_rabbitmq"
+          ]
+        },
+        "workflow_engine": {
+          "const": "air_workflow"
+        },
+        "storage": {
+          "enum": [
+            "local",
+            "s3"
+          ]
+        },
+        "monitoring": {
+          "enum": [
+            "grafana_prometheus",
+            "cloudwatch"
+          ]
+        }
+      }
+    },
+    "services": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "frontend",
+        "fastapi",
+        "postgresql",
+        "redis",
+        "rabbitmq",
+        "workflow_engine",
+        "background_workers",
+        "scheduler",
+        "monitoring",
+        "storage"
+      ],
+      "properties": {
+        "frontend": {
+          "const": true
+        },
+        "fastapi": {
+          "const": true
+        },
+        "postgresql": {
+          "const": true
+        },
+        "redis": {
+          "const": true
+        },
+        "rabbitmq": {
+          "const": true
+        },
+        "workflow_engine": {
+          "const": true
+        },
+        "background_workers": {
+          "const": true
+        },
+        "scheduler": {
+          "const": true
+        },
+        "monitoring": {
+          "const": true
+        },
+        "storage": {
+          "const": true
+        }
+      }
+    }
+  }
+}
