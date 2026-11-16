@@ -16,6 +16,7 @@ from app.air_monthly_pd import (
     evaluate_support_acceptance, monthly_levels, monthly_reference_session,
 )
 from app.nse_bhavcopy import nse_data_rows_exact_symbol, _get_store
+from app.air_monthly_pd_store import AirMonthlyPdStore
 from app.nse_index_universe import NSEIndexUniverseStore
 
 
@@ -129,6 +130,34 @@ def scan_monthly_pd_universe(as_of_date: str | None = None) -> dict[str, Any]:
     for item in registry["constituents"]:
         stocks.append(_stock_record(item["symbol"], item["index_memberships"],
                                     by_symbol.get(item["symbol"], []), as_of, expected, sessions))
+    # Persist immutable per-symbol daily snapshots; duplicate refreshes are idempotent.
+    persisted = 0
+    pd_store = AirMonthlyPdStore()
+    try:
+        for stock in stocks:
+            levels = stock.get("levels")
+            reference_date = stock.get("reference_date")
+            if not levels or not reference_date:
+                continue
+            cycle = pd_store.save_cycle(
+                instrument_type="EQUITY", symbol=stock["symbol"],
+                cycle_month=stock["cycle_month"], reference_date=reference_date,
+                pml=levels["pml"], pmh=levels["pmh"], eq=levels["eq"])
+            snapshot = pd_store.save_snapshot(
+                cycle_id=cycle["cycle_id"], as_of_date=as_of,
+                snapshot_type="DAILY_EOD", support_status=stock.get("qualification", "DATA_INSUFFICIENT"),
+                pattern=(stock.get("pattern") or {}).get("pattern", "NONE"),
+                pattern_state=(stock.get("pattern") or {}).get("state", "INCOMPLETE"),
+                expiry_metadata={},
+                evidence={"coverage": stock.get("coverage"), "support": stock.get("support"),
+                          "current_month_extremes": stock.get("current_month_extremes"),
+                          "ml_acceptance": stock.get("ml_acceptance"), "mh_rejection": stock.get("mh_rejection"),
+                          "premium_discount": stock.get("premium_discount")},
+                forecast={"pattern": stock.get("pattern"), "qualification": stock.get("qualification")},
+                actual={"last_close": stock.get("last_close")})
+            persisted += int(snapshot is not None)
+    finally:
+        pd_store.close()
     qualified_symbols = {x["symbol"] for x in stocks if x["qualification"] == "QUALIFIED"}
     fo_rows = []
     for symbol in sorted(qualified_symbols):
@@ -167,6 +196,7 @@ def scan_monthly_pd_universe(as_of_date: str | None = None) -> dict[str, Any]:
                      "ready": sum(x["coverage"]["status"] == "READY" for x in stocks),
                      "insufficient": sum(x["coverage"]["status"] != "READY" for x in stocks)},
         "stock_results": stocks, "qualified_stock_symbols": sorted(qualified_symbols),
+        "persisted_stock_snapshots": persisted,
         "options_results": options,
         "options_disclosure": "Options are scanned only after stock qualification. EOD bhavcopy does not contain historical bid/ask; options are WATCH only until all required evidence is available.",
         "broker_orders_placed": False}
