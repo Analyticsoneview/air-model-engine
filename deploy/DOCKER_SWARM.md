@@ -73,6 +73,8 @@ export AIR_API_PORT=8000
 export AIR_BACKEND_IMAGE=air-model-engine-api:lab
 export AIR_PWA_IMAGE=air-model-engine-pwa:lab
 export AIR_CORS_ORIGINS="https://air.example.com"
+# Private owner-only analysis workspace: use the email of the bootstrapped Super Admin.
+export AIR_INTERNAL_OWNER_EMAIL="owner@example.com"
 
 # Scheduled Dhan capture + automatic post-capture EXPIRYSCAN (OFF until credentials/entitlement verified)
 export AIR_QOC_SCHEDULER_ENABLED=false
@@ -127,7 +129,7 @@ The GitHub Actions workflow `.github/workflows/ios-pwa.yml` runs Flutter analysi
 ## 8. Provisioning and production blockers
 
 - Customer signup is disabled by default. Provision the initial operator through the backend's trusted administrative bootstrap procedure; do not enable public signup on an exposed instance.
-- Back up the `air_data` volume and test restore before storing broker credentials.
+- Back up the `air_data` volume and test restore before storing broker credentials. The owner-only private workspace database is stored at `/var/lib/air/internal_workspace.sqlite3` inside `air_data`; keep `AIR_INTERNAL_OWNER_EMAIL` set to the bootstrap Super Admin email or the private workspace fails closed.
 - The API image includes `alembic.ini` and the migration scripts. Its startup command runs `python -m alembic upgrade head` and starts Uvicorn only if migration succeeds. Both Compose and Swarm set `AIR_ACCOUNT_DATABASE_URL_FILE` and `AIR_CREDENTIAL_DATABASE_URL_FILE` to `/run/secrets/air_database_url`; the credential encryption key remains `/run/secrets/air_credential_key`. Migration failure prevents API startup rather than serving against a partial schema.
 - Broker account ownership, market-data entitlements/selections and encrypted credentials are PostgreSQL-backed after this gate. Authentication, sessions, QOC, instrument masters and remaining repositories are not yet fully migrated. Redis is not yet the authoritative session/rate-limit store. Keep the API at one replica.
 - Configure a TLS reverse proxy, strict firewall rules, monitoring, log retention and backup rotation.
