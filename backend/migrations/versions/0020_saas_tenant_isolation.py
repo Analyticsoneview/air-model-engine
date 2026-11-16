@@ -328,25 +328,23 @@ def upgrade() -> None:
                 WHERE workflow_id=NEW.workflow_id LIMIT 1;
                 NEW.customer_id := row_customer;
             END IF;
-            IF NEW.tenant_id IS NULL AND active_tenant IS NOT NULL THEN
+            IF row_customer IS NOT NULL THEN
+                SELECT tenant_id INTO resolved_tenant FROM air_tenant_members
+                WHERE customer_id=row_customer AND status='ACTIVE' LIMIT 1;
+                IF resolved_tenant IS NULL THEN
+                    RAISE EXCEPTION 'AIR customer has no active tenant membership';
+                END IF;
+                IF NEW.tenant_id IS NULL THEN
+                    NEW.tenant_id := resolved_tenant;
+                ELSIF NEW.tenant_id IS DISTINCT FROM resolved_tenant THEN
+                    RAISE EXCEPTION 'AIR row tenant does not match customer membership';
+                END IF;
+            ELSIF NEW.tenant_id IS NULL AND active_tenant IS NOT NULL THEN
                 NEW.tenant_id := active_tenant;
-            END IF;
-            IF NEW.tenant_id IS NULL AND row_customer IS NOT NULL THEN
-                SELECT tenant_id INTO NEW.tenant_id
-                FROM air_tenant_members
-                WHERE customer_id=row_customer AND status='ACTIVE'
-                LIMIT 1;
             END IF;
             IF NOT air_is_admin_context() AND active_tenant IS NOT NULL
                AND NEW.tenant_id IS DISTINCT FROM active_tenant THEN
                 RAISE EXCEPTION 'AIR tenant context mismatch';
-            END IF;
-            IF NOT air_is_admin_context() AND active_tenant IS NOT NULL AND row_customer IS NOT NULL THEN
-                SELECT tenant_id INTO resolved_tenant FROM air_tenant_members
-                WHERE customer_id=row_customer AND status='ACTIVE' LIMIT 1;
-                IF resolved_tenant IS DISTINCT FROM active_tenant THEN
-                    RAISE EXCEPTION 'AIR customer is not a member of the active tenant';
-                END IF;
             END IF;
             RETURN NEW;
         END;
