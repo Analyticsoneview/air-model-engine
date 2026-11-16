@@ -33,7 +33,7 @@ The initial history window is configured with `AIR_NSE_HISTORY_MONTHS`. The valu
 The current union of the three index lists must contain 500 unique symbols. Each symbol is checked against imported CM EOD records over the initial history window.
 
 - `READY`: every symbol has at least 45 sessions.
-- `READY_WITH_WARNINGS`: every symbol has at least one session, but one or more have fewer than 45 sessions. These are flagged for research engines to exclude from calculations requiring 45 observations.
+- `READY_WITH_WARNINGS`: every symbol has at least one session, but one or more have fewer than 45 sessions. These are flagged as insufficient; downstream scanners must exclude them from calculations requiring 45 observations.
 - `BLOCKED`: one or more current index constituents have no CM EOD observations.
 
 The report includes each symbol's session count, coverage percentage, first date, last date and coverage status.
