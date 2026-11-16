@@ -250,7 +250,11 @@ class TenantRegistry:
                     WHERE tenant_id=:tenant AND object_key=:key
                 """), {"tenant": tenant, "key": key}).mappings().first()
                 if existing:
-                    if int(existing["size_bytes"]) != size or existing["sha256"] != digest:
+                    if (
+                        int(existing["size_bytes"]) != size
+                        or existing["sha256"] != digest
+                        or existing["content_type"] != media_type
+                    ):
                         raise FileExistsError("Tenant object keys are immutable; choose a new key")
                     if existing["status"] == "STORED":
                         return {
