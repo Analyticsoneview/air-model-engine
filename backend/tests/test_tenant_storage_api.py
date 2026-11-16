@@ -35,7 +35,11 @@ class FakeRegistry:
             raise ValueError("unsafe key")
         existing = self.objects.get(object_key)
         if existing:
-            if existing["size_bytes"] != size_bytes or existing["sha256"] != sha256:
+            if (
+                existing["size_bytes"] != size_bytes
+                or existing["sha256"] != sha256
+                or existing["content_type"] != content_type
+            ):
                 raise FileExistsError("immutable key")
             return {
                 "already_stored": existing["status"] == "STORED",
@@ -77,9 +81,13 @@ class FakeProvisioner:
     def __init__(self):
         self.objects = {}
         self.put_calls = 0
+        self.fail_once = False
 
     def put_tenant_object(self, tenant, key, body, *, content_type, sha256, quota_prevalidated):
         self.put_calls += 1
+        if self.fail_once:
+            self.fail_once = False
+            raise RuntimeError("simulated ambiguous S3 failure")
         self.objects[key] = (body, content_type, sha256)
         return {"etag": "etag-123"}
 
@@ -148,6 +156,22 @@ def test_upload_enforces_quota_immutable_keys_and_size_limit(monkeypatch):
     with patch.dict("os.environ", {"AIR_TENANT_MAX_UPLOAD_BYTES": "4"}):
         over_request_limit = client.put("/api/v1/tenant/objects/c.bin", content=b"12345")
     assert over_request_limit.status_code == 413
+
+
+def test_pending_upload_resumes_after_ambiguous_s3_failure(monkeypatch):
+    client, registry, provisioner = _client(monkeypatch, limit=100)
+    provisioner.fail_once = True
+    first = client.put("/api/v1/tenant/objects/reports/resume.csv", content=b"resume")
+    assert first.status_code == 502
+    assert registry.used == 6
+    assert registry.objects["reports/resume.csv"]["status"] == "PENDING"
+
+    retry = client.put("/api/v1/tenant/objects/reports/resume.csv", content=b"resume")
+    assert retry.status_code == 200
+    assert retry.json()["status"] == "stored"
+    assert retry.json()["resumed"] is True
+    assert registry.used == 6
+    assert registry.objects["reports/resume.csv"]["status"] == "STORED"
 
 
 def test_storage_api_is_disabled_outside_aws_saas(monkeypatch):
