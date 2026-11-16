@@ -28,8 +28,15 @@ fi
 echo "Building and starting AIR API + PWA..."
 docker compose -f compose.local.yml up -d --build
 services=(postgres redis rabbitmq air-api air-workflow-worker air-pwa)
+readiness_timeout_minutes="${AIR_INSTALL_READINESS_TIMEOUT_MINUTES:-720}"
+if ! [[ "$readiness_timeout_minutes" =~ ^[0-9]+$ ]] || (( readiness_timeout_minutes < 1 )); then
+  readiness_timeout_minutes=720
+fi
+readiness_timeout_seconds=$((readiness_timeout_minutes * 60))
+readiness_started=$SECONDS
+last_progress_seconds=0
 all_healthy=false
-for attempt in $(seq 1 36); do
+while (( SECONDS - readiness_started < readiness_timeout_seconds )); do
   all_healthy=true
   for service in "${services[@]}"; do
     container_id="$(docker compose -f compose.local.yml ps -q "$service")"
@@ -37,20 +44,25 @@ for attempt in $(seq 1 36); do
     health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id")"
     if [[ "$health" != "healthy" ]]; then all_healthy=false; break; fi
   done
-  if [[ "$all_healthy" == true ]] && curl -fsS http://localhost:8000/health >/dev/null && curl -fsS http://localhost:8080/health >/dev/null; then
+  if [[ "$all_healthy" == true ]] && curl -fsS http://localhost:8000/ready >/dev/null && curl -fsS http://localhost:8080/health >/dev/null; then
     break
   fi
   all_healthy=false
-  sleep 5
+  elapsed=$((SECONDS - readiness_started))
+  if (( elapsed - last_progress_seconds >= 60 )); then
+    echo "AIR is waiting for the complete 12-month NSE history and research readiness gate..."
+    last_progress_seconds=$elapsed
+  fi
+  sleep 15
 done
 
 if [[ "$all_healthy" != true ]]; then
   docker compose -f compose.local.yml ps
   docker compose -f compose.local.yml logs --tail 100
-  echo "PostgreSQL, Redis, AIR API and PWA did not all become healthy. Do not use the app until the reported issue is fixed." >&2
+  echo "AIR did not reach full readiness within ${readiness_timeout_minutes} minutes. Check service logs and NSE bootstrap status; do not use the app until the readiness gate passes." >&2
   exit 1
 fi
-echo "PostgreSQL, Redis, RabbitMQ, FastAPI, workflow worker and PWA are healthy."
+echo "PostgreSQL, Redis, RabbitMQ, FastAPI, workflow worker, PWA and initial market-data readiness are verified."
 docker compose -f compose.local.yml ps
 if command -v open >/dev/null 2>&1; then open http://localhost:8080
 elif command -v xdg-open >/dev/null 2>&1; then xdg-open http://localhost:8080
