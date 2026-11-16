@@ -11,8 +11,8 @@ Last reviewed: 2026-11-16
 | Gate 14 — tenant isolation and AWS SaaS provisioning foundation | COMPLETE — CODE DELIVERY | PR #64 merged to `main`; CI validated tenant isolation, provisioning adapter behavior and Terraform configuration. No AWS resources were created. |
 | Gate 15 — on-prem Compose/Swarm readiness | COMPLETE — CODE DELIVERY | PR #65 merged to `main`; ephemeral Compose runtime boot, service health and RabbitMQ-connected worker heartbeat passed CI. Customer-host Swarm acceptance remains deferred. |
 | Gate 16 — Deployment Manager and release packaging | COMPLETE — CODE DELIVERY | PR #69 merged to `main`; cross-platform manager, on-prem install/upgrade, diagnostics, secret-free source bundle and checksummed runtime image artifact. AWS/customer-host deployment remains deferred. |
-| Gate 17A — tenant object storage API and quota enforcement | IN PROGRESS — PR #71 CI VALIDATION | Authenticated upload/list/download, PostgreSQL transactional quota ledger and concurrent reservation tests; PR #71 adds S3 body-digest verification, download integrity checks and registry-level membership/role enforcement. |
-| Gate 17B — initial market-data bootstrap recovery | PLANNED | Idempotent NSE/CM/FO bootstrap, checkpointing, partial-download resume, integrity reconciliation and restart tests. |
+| Gate 17A — tenant object storage API and quota enforcement | COMPLETE — PR #71 MERGED | Authenticated upload/list/download, PostgreSQL transactional quota ledger, retry-safe reservations, S3 body-digest verification, download integrity checks and registry-level tenant membership/role enforcement; PR #71 merged as `cee615308b2667ec959d47a88694508dbe4ab399`; all required CI checks passed. Live AWS/S3 acceptance remains deferred. |
+| Gate 17B — initial market-data bootstrap recovery | IN PROGRESS — BRANCH `gate17b/nse-bootstrap-recovery-hardening` | Verify retained NSE ZIP integrity before resume; re-download missing/corrupt archives; atomically replace repaired market/date snapshots; enforce the configured 12–60-month bootstrap contract and add recovery tests. |
 | Gate 17C — deployment readiness report | PLANNED | One readiness contract separates infrastructure, service health, data coverage and customer onboarding. |
 | Gate 17D — on-prem monitoring integration | PLANNED | Prometheus scrape targets, Grafana dashboards, alert rules and Compose/Swarm runtime acceptance. |
 | Gate 18 — final release certification | PLANNED | Full backend/PostgreSQL/Redis/RabbitMQ, Android/PWA, migration, security and deployment regression; no AWS/customer-host completion claims without live evidence. |
@@ -51,9 +51,9 @@ Last reviewed: 2026-11-16
 
 | ID | Activity | Status | Completion evidence |
 |---|---|---|---|
-| PROD-01 | Tenant object-upload API wired to S3 quota enforcement | IN PROGRESS — GATE 17A | Tenant-authenticated upload/list/download, transactional quota reservations, immutable keys, retry recovery and API/PostgreSQL tests |
+| PROD-01 | Tenant object-upload API wired to S3 quota enforcement | COMPLETE — GATE 17A / PR #71 | Tenant-authenticated upload/list/download, transactional quota reservations, immutable keys, retry recovery, SHA-256 integrity and API/PostgreSQL tests; live AWS acceptance remains deferred |
 | PROD-02 | Deployment Manager installation/readiness consistency across Windows/Linux | COMPLETE — GATE 16 / PR #69 | Shared CLI actions, Windows/Linux wrappers, upgrade flow, status and diagnostic reporting; CI release artifacts verified |
-| PROD-03 | Initial NSE/CM/FO data bootstrap idempotency and resume behavior | OPEN — CODE WORK | Automated tests for partial download, retry, integrity and restart |
+| PROD-03 | Initial NSE/CM/FO data bootstrap idempotency and resume behavior | IN PROGRESS — GATE 17B | Verify persisted archive integrity before skipping, re-download missing/corrupt archives, replace repaired date snapshots atomically and validate the 12–60-month coverage contract |
 | PROD-04 | Deployment readiness report in the application/installer | OPEN — CODE WORK | Clear distinction between infrastructure, service health, data readiness and user onboarding |
 | PROD-05 | On-prem Grafana/Prometheus runtime integration | OPEN — CODE WORK | The profile declares `grafana_prometheus`, but Compose/Swarm do not yet ship a complete metrics/Grafana service set; do not claim monitoring is production-ready until implemented and tested |
 
