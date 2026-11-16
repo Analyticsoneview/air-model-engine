@@ -112,6 +112,13 @@ class AirApiClient {
         .whereType<Map<String, dynamic>>().toList(growable: false);
   }
 
+  Future<Map<String, dynamic>> subscriptionCatalogue() async {
+    return _decode(await _client.get(
+      Uri.parse('$baseUrl/api/v1/subscription/catalogue'),
+      headers: _headers,
+    ));
+  }
+
   Future<Map<String, dynamic>> mySubscription() async {
     return _decode(await _client.get(
       Uri.parse('$baseUrl/api/v1/subscription/me'),
