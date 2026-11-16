@@ -4,6 +4,7 @@ import json
 import unittest
 
 import httpx
+from cryptography.fernet import Fernet
 
 from app.aws_tenant_provisioner import AwsTenantProvisioner, TenantInfrastructureError
 
@@ -138,6 +139,7 @@ class AwsTenantProvisionerTests(unittest.TestCase):
         self.assertEqual(secret_payload["tenant_id"], self.tenant["tenant_id"])
         self.assertTrue(secret_payload["rabbitmq_password"])
         self.assertTrue(secret_payload["credential_key"])
+        Fernet(secret_payload["credential_key"].encode("ascii"))
         self.assertEqual(result["quotas"]["max_members"], 5)
 
     def test_repeated_provision_is_idempotent_and_reuses_tenant_credentials(self):
