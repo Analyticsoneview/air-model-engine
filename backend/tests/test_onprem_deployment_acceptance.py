@@ -123,7 +123,7 @@ class OnPremDeploymentAcceptanceTests(unittest.TestCase):
 
     def test_deployment_readme_matches_implemented_aws_profiles_and_deferrals(self):
         docs = read("deploy/README.md")
-        self.assertIn("shared RDS PostgreSQL", docs)
+        self.assertIn("Shared RDS PostgreSQL", docs)
         self.assertIn("per-tenant S3 buckets", docs)
         self.assertIn("RabbitMQ vhosts", docs)
         self.assertIn("Live AWS provisioning is deferred", docs)
