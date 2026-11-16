@@ -10,6 +10,8 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Iterator
 
+from sqlalchemy import text
+
 _tenant_id: ContextVar[str | None] = ContextVar("air_tenant_id", default=None)
 _customer_id: ContextVar[str | None] = ContextVar("air_customer_id", default=None)
 _is_admin: ContextVar[bool] = ContextVar("air_is_admin", default=False)
@@ -40,6 +42,28 @@ def tenant_scope(
         _is_admin.reset(admin_token)
         _customer_id.reset(customer_token)
         _tenant_id.reset(tenant_token)
+
+
+@contextmanager
+def customer_tenant_scope(engine, customer_id: str) -> Iterator[str]:
+    """Resolve a member to its active tenant and bind that scope for store operations."""
+    customer = str(customer_id or "").strip()
+    if not customer:
+        raise ValueError("customer_id is required for tenant-scoped access")
+    if getattr(getattr(engine, "dialect", None), "name", None) != "postgresql":
+        with tenant_scope(tenant_id=customer, customer_id=customer):
+            yield customer
+        return
+    with tenant_scope(customer_id=customer):
+        with engine.connect() as conn:
+            row = conn.execute(text("""SELECT m.tenant_id
+                FROM air_tenant_members m JOIN air_tenants t ON t.tenant_id=m.tenant_id
+                WHERE m.customer_id=:customer AND m.status='ACTIVE' AND t.status='ACTIVE'"""),
+                {"customer": customer}).first()
+    if not row:
+        raise PermissionError("Customer does not have an active tenant membership")
+    with tenant_scope(tenant_id=row[0], customer_id=customer):
+        yield row[0]
 
 
 def install_tenant_context(engine) -> None:
