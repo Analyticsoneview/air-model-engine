@@ -5,7 +5,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 
 ROLES = {"OWNER", "ADMIN", "MEMBER", "READ_ONLY"}
 ASSIGNABLE_ROLES = {"ADMIN", "MEMBER", "READ_ONLY"}
@@ -63,7 +63,20 @@ class TenantMembershipStore:
         ), {"tenant": tenant_id}).mappings().first()
         if not row or row["status"] != "ACTIVE":
             raise MembershipConflict("Organisation must be ACTIVE")
-        return dict(row)
+        result = dict(row)
+        if inspect(self.engine).has_table("air_license_bindings") and inspect(self.engine).has_table("air_enterprise_licenses"):
+            licensed_seats = conn.execute(text("""SELECT MAX(l.max_seats)
+                FROM air_license_bindings b
+                JOIN air_enterprise_licenses l ON l.license_id=b.license_id
+                WHERE b.tenant_id=:tenant AND b.status='ACTIVE'
+                  AND l.status IN ('ACTIVE','GRACE')
+                  AND l.valid_from<=CURRENT_DATE
+                  AND (l.valid_until>CURRENT_DATE OR
+                       l.grace_until>=CURRENT_DATE)"""),
+                {"tenant": tenant_id}).scalar_one_or_none()
+            if licensed_seats is not None:
+                result["max_members"] = min(int(result["max_members"]), int(licensed_seats))
+        return result
 
     @staticmethod
     def _key(value: str) -> str:
@@ -87,14 +100,13 @@ class TenantMembershipStore:
     def seat_usage(self, tenant_id: str, actor_id: str) -> dict:
         with self._scope(), self.engine.connect() as conn:
             self._actor(conn, tenant_id, actor_id)
-            tenant = conn.execute(text("SELECT max_members FROM air_tenants WHERE tenant_id=:tenant"),
-                                  {"tenant": tenant_id}).first()
+            tenant = self._lock_tenant(conn, tenant_id)
             active = conn.execute(text("""SELECT COUNT(*) FROM air_tenant_members
                 WHERE tenant_id=:tenant AND status='ACTIVE'"""), {"tenant": tenant_id}).scalar_one()
             pending = conn.execute(text("""SELECT COUNT(*) FROM air_tenant_invitations
                 WHERE tenant_id=:tenant AND status='PENDING' AND expires_at>:now"""),
                 {"tenant": tenant_id, "now": _now()}).scalar_one()
-        maximum = int(tenant[0])
+        maximum = int(tenant["max_members"])
         reserved = int(active) + int(pending)
         return {"tenant_id": tenant_id, "active_members": int(active),
                 "pending_invitations": int(pending), "reserved_seats": reserved,

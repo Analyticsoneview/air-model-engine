@@ -120,8 +120,19 @@ class TenantRegistry:
                 pending_invitations = conn.execute(text("""SELECT COUNT(*) FROM air_tenant_invitations
                     WHERE tenant_id=:tenant AND status='PENDING' AND expires_at>CURRENT_TIMESTAMP"""),
                     {"tenant": tenant}).scalar_one()
-                if int(active_members) + int(pending_invitations) >= int(state[1]):
-                    raise ValueError("Tenant member quota has been reached or seats are reserved by invitations")
+                effective_limit = int(state[1])
+                licensed_limit = conn.execute(text("""SELECT MAX(l.max_seats)
+                    FROM air_license_bindings b
+                    JOIN air_enterprise_licenses l ON l.license_id=b.license_id
+                    WHERE b.tenant_id=:tenant AND b.status='ACTIVE'
+                      AND l.status IN ('ACTIVE','GRACE')
+                      AND l.valid_from<=CURRENT_DATE
+                      AND (l.valid_until>CURRENT_DATE OR l.grace_until>=CURRENT_DATE)"""),
+                    {"tenant": tenant}).scalar_one_or_none()
+                if licensed_limit is not None:
+                    effective_limit = min(effective_limit, int(licensed_limit))
+                if int(active_members) + int(pending_invitations) >= effective_limit:
+                    raise ValueError("Organisation or enterprise licence seat limit has been reached or seats are reserved by invitations")
                 existing = conn.execute(text("""SELECT status FROM air_tenant_members
                     WHERE tenant_id=:tenant AND customer_id=:customer"""),
                     {"tenant": tenant, "customer": customer}).scalar_one_or_none()

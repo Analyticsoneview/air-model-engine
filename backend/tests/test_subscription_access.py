@@ -102,3 +102,27 @@ def test_feature_entitlement_dependency_denies_restricted_capability(monkeypatch
     with pytest.raises(HTTPException) as error:
         dependency("customer-feature")
     assert error.value.status_code == 403
+
+
+def test_signed_enterprise_license_is_authoritative_for_feature_gates(monkeypatch):
+    monkeypatch.setenv("AIR_ENTERPRISE_LICENSE_TOKEN", "installed-token")
+    monkeypatch.setattr("app.enterprise_licensing.runtime_enterprise_license",
+                        lambda: {"features": ["api_access"]})
+    monkeypatch.setattr(subscription_access, "active_subscription",
+                        lambda _customer: {"status": "ACTIVE", "plan_code": "OPERATOR"})
+    assert subscription_access.require_feature_entitlement("api_access")("customer-1") == "customer-1"
+    with pytest.raises(HTTPException) as error:
+        subscription_access.require_feature_entitlement("options_analytics")("customer-1")
+    assert error.value.status_code == 403
+
+
+def test_invalid_enterprise_license_does_not_fall_back_to_operator_override(monkeypatch):
+    from app.enterprise_licensing import EnterpriseLicenseError
+    monkeypatch.setenv("AIR_ENTERPRISE_LICENSE_TOKEN", "invalid-token")
+    monkeypatch.setattr("app.enterprise_licensing.runtime_enterprise_license",
+                        lambda: (_ for _ in ()).throw(EnterpriseLicenseError("bad signature")))
+    monkeypatch.setattr(subscription_access, "active_subscription",
+                        lambda _customer: {"status": "ACTIVE", "plan_code": "OPERATOR"})
+    with pytest.raises(HTTPException) as error:
+        subscription_access.require_feature_entitlement("api_access")("customer-1")
+    assert error.value.status_code == 403
