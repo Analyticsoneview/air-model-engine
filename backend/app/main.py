@@ -55,6 +55,7 @@ from app.workflow_engine import WorkflowStore
 from app.installation_readiness import evaluate_workflow_runtime
 from app.tenant_storage_api import router as tenant_storage_router
 from app.internal_workspace_api import router as internal_workspace_router
+from app.commercial_catalogue import public_catalogue, resolve_entitlements
 
 app = FastAPI(title="AIR Model Engine API", version="0.3.0",
               description="Self-hosted AIR authentication, broker account and market-data gateway.")
@@ -877,11 +878,19 @@ async def subscription_plans() -> dict:
     ], "activation": "Administrator activation during the initial rollout; online payment is not enabled."}
 
 
+@app.get("/api/v1/subscription/catalogue")
+async def subscription_catalogue() -> dict:
+    """Public pre-launch catalogue; it does not offer checkout or activate payments."""
+    return public_catalogue()
+
+
 @app.get("/api/v1/subscription/me")
 async def current_subscription(customer_id: str = Depends(require_customer)) -> dict:
     subscription = access_store.get_subscription(customer_id)
+    entitlements = resolve_entitlements(subscription)
     return {"customer_id": customer_id, "subscription": subscription,
-            "strategy_access": bool(subscription and subscription["status"] == "ACTIVE")}
+            "strategy_access": bool(subscription and subscription["status"] == "ACTIVE"),
+            "entitlements": entitlements}
 
 
 @app.post("/api/v1/admin/subscriptions/assign")
