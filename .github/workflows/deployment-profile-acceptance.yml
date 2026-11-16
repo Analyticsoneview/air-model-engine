@@ -21,6 +21,8 @@ on:
       - 'scripts/air_manager.py'
       - 'scripts/release/**'
       - 'backend/tests/test_deployment_manager_release.py'
+      - 'backend/tests/test_generate_local_secrets.py'
+      - 'scripts/generate_local_secrets.py'
       - 'deploy/INSTALLATION.md'
       - 'docs/AIR_INSTALLATION_READINESS.md'
       - 'deploy/deploy-swarm.sh'
@@ -85,7 +87,9 @@ jobs:
       - name: Run Deployment Manager and release package tests
         env:
           PYTHONPATH: backend
-        run: python -m unittest discover -s backend/tests -p 'test_deployment_manager_release.py' -v
+        run: |
+          python -m unittest discover -s backend/tests -p 'test_deployment_manager_release.py' -v
+          python -m unittest discover -s backend/tests -p 'test_generate_local_secrets.py' -v
       - name: Validate Linux launchers
         run: bash -n AIRDEPLOY.sh AIRSTART.sh deploy/deploy-swarm.sh
       - name: Parse Windows Deployment Manager and startup scripts
