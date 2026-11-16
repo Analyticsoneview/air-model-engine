@@ -3,6 +3,20 @@ set -Eeuo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
+PYTHON_BIN="${AIR_PYTHON:-}"
+if [[ -z "$PYTHON_BIN" ]]; then PYTHON_BIN="$(command -v python3 || command -v python || true)"; fi
+if [[ -z "$PYTHON_BIN" ]] || ! "$PYTHON_BIN" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)'; then
+  echo "Python 3.12 or newer is required for AIR installation." >&2
+  exit 1
+fi
+PROFILE="${AIR_DEPLOYMENT_PROFILE:-onprem-single}"
+if [[ "$PROFILE" != "onprem-single" ]]; then
+  echo "AIRSTART is the on-premises installer. Use AIRDEPLOY to validate AWS profiles; live AWS deployment is deferred." >&2
+  exit 2
+fi
+export AIR_DEPLOYMENT_PROFILE="$PROFILE"
+PYTHONPATH="$ROOT/backend" "$PYTHON_BIN" -m app.deployment_profiles --profile "$PROFILE"
+
 if ! command -v docker >/dev/null 2>&1; then
   echo "Docker is missing. Install Docker Desktop (macOS/Windows) or Docker Engine + Compose v2 (Linux), then retry." >&2
   exit 1
@@ -13,7 +27,7 @@ docker info >/dev/null 2>&1 || { echo "Docker daemon is not running. Start Docke
 mkdir -p .air-secrets
 chmod 700 .air-secrets
 echo "Checking and generating all required local-only AIR secrets..."
-docker run --rm --mount "type=bind,source=$ROOT/.air-secrets,target=/secrets" --mount "type=bind,source=$ROOT/scripts,target=/scripts,readonly" python:3.12-slim python /scripts/generate_local_secrets.py
+"$PYTHON_BIN" scripts/generate_local_secrets.py .air-secrets
 chmod 600 .air-secrets/*
 
 if [[ ! -f .air-local.env ]]; then
