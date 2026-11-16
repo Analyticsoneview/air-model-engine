@@ -27,6 +27,7 @@ EXPECTED_CHAIN = [
     "0020_saas_tenant_isolation",
     "0021_tenant_object_storage",
     "0022_commercial_contract_ledger",
+    "0023_usage_metering_quotas",
 ]
 
 
