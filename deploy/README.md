@@ -5,7 +5,7 @@ AIR is one application codebase with three deployment profiles:
 | Profile | Tenancy | Orchestration | Data / messaging |
 |---|---|---|---|
 | `onprem-single` | Single tenant | Docker Compose; Docker Swarm supported | Local PostgreSQL, Redis, RabbitMQ and storage |
-| `aws-private-single` | Single tenant | AWS ECS | Dedicated RDS PostgreSQL, ElastiCache Redis, Amazon MQ RabbitMQ and S3 |
+| `aws-private-single` | Single tenant | AWS ECS | Dedicated RDS PostgreSQL, ElastiCache Redis, Amazon MQ RabbitMQ and EFS + S3 |
 | `aws-saas-multi` | Multi tenant | AWS ECS | Tenant-scoped RDS, Redis, RabbitMQ routing and S3 access |
 
 ## Entry points
