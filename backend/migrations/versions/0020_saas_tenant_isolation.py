@@ -114,6 +114,8 @@ def upgrade() -> None:
     for table in _CUSTOMER_TABLES:
         op.add_column(table, sa.Column("tenant_id", sa.String(36), nullable=True))
     op.add_column("air_device_sessions", sa.Column("customer_id", sa.String(128), nullable=True))
+    op.add_column("order_ledger", sa.Column("customer_id", sa.String(128), nullable=True))
+    op.add_column("order_ledger_events", sa.Column("customer_id", sa.String(128), nullable=True))
     op.add_column("air_support_ticket_events", sa.Column("customer_id", sa.String(128), nullable=True))
     for table in _WORKFLOW_TABLES:
         op.add_column(table, sa.Column("customer_id", sa.String(128), nullable=True))
@@ -179,6 +181,15 @@ def upgrade() -> None:
     op.execute("""
         UPDATE air_workflow_events
         SET customer_id=NULLIF(payload_json::jsonb->>'customer_id','')
+    """)
+    op.execute("ALTER TABLE air_workflow_events DROP CONSTRAINT IF EXISTS air_workflow_events_idempotency_key_key")
+    op.execute("""
+        CREATE UNIQUE INDEX uq_air_workflow_events_tenant_idempotency
+        ON air_workflow_events(tenant_id,idempotency_key) WHERE tenant_id IS NOT NULL
+    """)
+    op.execute("""
+        CREATE UNIQUE INDEX uq_air_workflow_events_global_idempotency
+        ON air_workflow_events(idempotency_key) WHERE tenant_id IS NULL
     """)
     op.execute("""
         UPDATE air_workflow_events e SET tenant_id=m.tenant_id
@@ -343,4 +354,6 @@ def downgrade() -> None:
     op.execute("DROP FUNCTION IF EXISTS air_assign_tenant_id()")
     op.execute("DROP FUNCTION IF EXISTS air_is_admin_context()")
     op.drop_column("air_device_sessions", "customer_id")
+    op.drop_column("order_ledger_events", "customer_id")
+    op.drop_column("order_ledger", "customer_id")
     op.drop_column("air_support_ticket_events", "customer_id")
