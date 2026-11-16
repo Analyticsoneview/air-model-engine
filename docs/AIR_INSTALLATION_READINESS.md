@@ -41,7 +41,7 @@ The report includes each symbol's session count, coverage percentage, first date
 ## Health versus readiness
 
 - `GET /health` is a liveness/dependency check. It must remain usable while historical data downloads are running.
-- `GET /ready` is the full installation gate. It returns HTTP 200 only after infrastructure dependencies, complete CM/FO archive coverage, all three index snapshots, per-symbol coverage and the existing AIR post-import research replay pass.
+- `GET /ready` is the full installation gate. It returns HTTP 200 only after infrastructure dependencies, complete CM/FO archive coverage, all three index snapshots, per-symbol coverage, the existing AIR post-import research replay, and a fresh workflow-runtime heartbeat proving RabbitMQ connectivity and live scheduler/publisher/executor/monitor threads.
 - The installer must not use `/health` as proof of full application readiness.
 
 ## Installer behaviour
