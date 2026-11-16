@@ -28,6 +28,25 @@ def test_bar_normalization_requires_completed_ohlc_values():
 
 
 
+def test_calendar_session_range_includes_both_sides_of_year_boundary():
+    from datetime import date
+    from app.air_monthly_pd_scanner import _calendar_sessions_for_range
+
+    class CalendarStore:
+        def get_meta(self, key):
+            if key in {"trading_calendar_2025", "trading_calendar_2026"}:
+                return {"segments": {"CM": []}}
+            return None
+
+    sessions = _calendar_sessions_for_range(
+        CalendarStore(), date(2025, 12, 15), date(2026, 1, 15)
+    )
+    assert "2025-12-15" in sessions
+    assert "2025-12-31" in sessions
+    assert "2026-01-01" in sessions
+    assert "2026-01-15" in sessions
+
+
 def test_stock_scan_waits_until_the_monthly_reference_session_is_completed():
     from app.air_monthly_pd_scanner import _stock_record
 
