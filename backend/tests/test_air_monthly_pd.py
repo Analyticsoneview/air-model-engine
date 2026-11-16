@@ -27,3 +27,8 @@ def test_expiry_alone_does_not_mean_strong_participation():
 def test_pattern_requires_minimum_completed_history():
     bars=[{"date":str(i),"close":i+1,"low":i+1,"high":i+2} for i in range(8)]
     assert classify_price_structure(bars)["state"]=="INCOMPLETE"
+
+def test_support_confirmation_ignores_reference_day_and_prior_bars():
+    bars=[{"date":"2026-11-23","low":90},{"date":"2026-11-24","low":101},{"date":"2026-11-25","low":100}]
+    result=evaluate_support_acceptance(bars,100,2,"2026-11-23")
+    assert result["status"]=="OPEN_FOR_BUY"
