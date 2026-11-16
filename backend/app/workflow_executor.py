@@ -66,6 +66,38 @@ def _execute_action(
     event_payload = context.get("event_payload") or {}
     source_output = _step_input(params, outputs)
 
+    if action == "monthly_pd.evaluate":
+        from app.air_monthly_pd import (
+            monthly_levels, evaluate_support_acceptance, expiry_tags,
+            classify_expiry_participation, classify_price_structure,
+        )
+        payload = source_output if source_output else event_payload
+        params = {**payload, **params}
+        previous_month_bars = params.get("previous_month_bars") or []
+        try:
+            levels = monthly_levels(previous_month_bars)
+        except (KeyError, TypeError, ValueError) as exc:
+            return {"status": "DATA_INSUFFICIENT", "reason": str(exc)}
+        support = evaluate_support_acceptance(
+            params.get("post_reference_bars") or [], levels["pml"],
+            required_sessions=int(params.get("required_sessions", 2)),
+        )
+        pattern = classify_price_structure(params.get("structure_bars") or [])
+        expiry = expiry_tags(__import__("datetime").date.fromisoformat(params["expiry_date"])) if params.get("expiry_date") else None
+        participation = classify_expiry_participation(
+            option_volume=params.get("option_volume"),
+            historical_volume_avg=params.get("historical_volume_avg"),
+            oi_change_pct=params.get("oi_change_pct"),
+            premium_change_pct=params.get("premium_change_pct"),
+            spread_pct=params.get("spread_pct"),
+            underlying_volume_ratio=params.get("underlying_volume_ratio"),
+        )
+        return {
+            "status": support["status"], "levels": levels, "support": support,
+            "pattern": pattern, "expiry": expiry, "participation": participation,
+            "disclosure": "Research-only evaluation. Verified exchange calendar, completed bars and contract metadata must be supplied; no orders are placed.",
+        }
+
     if action == "qoc.qualify":
         from app.air_qoc_store import AirQocStore
         from app.air_qoc_qualification import qualify_option_observations
