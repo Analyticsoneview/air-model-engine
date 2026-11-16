@@ -233,6 +233,8 @@ resource "aws_ecs_task_definition" "worker" {
       { name = "AIR_DEPLOYMENT_PROFILE", value = var.deployment_profile },
       { name = "AIR_DEPLOYMENT_MODE", value = "aws" },
       { name = "AIR_TENANCY_MODE", value = var.tenancy_mode },
+      { name = "AWS_REGION", value = var.aws_region },
+      { name = "AIR_TENANT_SECRETS_PREFIX", value = var.tenant_secrets_prefix },
     ]
     secrets = [
       { name = "AIR_DATABASE_URL", valueFrom = aws_secretsmanager_secret.postgres.arn },
