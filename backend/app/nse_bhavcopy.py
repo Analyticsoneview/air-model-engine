@@ -121,6 +121,15 @@ def _archive_url(market: str, day: date) -> str:
     stamp = day.strftime("%Y%m%d")
     return f"{NSE_BASE}/{market.lower()}/BhavCopy_NSE_{market}_0_0_0_{stamp}_F_0000.csv.zip"
 
+def _archive_is_valid(path: str | Path) -> bool:
+    """Return true only for a readable NSE ZIP containing a CRC-valid CSV."""
+    try:
+        with zipfile.ZipFile(path) as archive:
+            names = [name for name in archive.namelist() if name.lower().endswith(".csv")]
+            return bool(names) and archive.testzip() is None
+    except (OSError, zipfile.BadZipFile, RuntimeError):
+        return False
+
 
 def _expiry_iso(value: Any) -> str | None:
     if value is None:
@@ -358,6 +367,13 @@ class NSEBhavcopyStore:
             f"VALUES ({','.join('?' for _ in columns)})"
         )
         with self._db() as db:
+            # Replace the complete market/date snapshot in one transaction. A
+            # repaired archive may contain fewer rows than a previously imported
+            # copy; INSERT OR REPLACE alone would leave stale instruments behind.
+            db.execute(
+                "DELETE FROM nse_bhavcopy WHERE market=? AND trade_date=?",
+                (market, trade_date),
+            )
             db.executemany(sql, [[row[column] for column in columns] for row in normalized])
         return len(normalized)
 
@@ -611,7 +627,15 @@ async def _download_one(client: httpx.AsyncClient, semaphore: asyncio.Semaphore,
     stamp = day.isoformat()
     existing = store.file_status(market, stamp)
     if existing and existing["status"] == "IMPORTED" and existing["record_count"] > 0:
-        return {"market": market, "date": stamp, "status": "SKIPPED", "records": existing["record_count"]}
+        persisted_archive = Path(
+            existing.get("archive_path") or (archive_root / market / f"{stamp}.zip")
+        )
+        if _archive_is_valid(persisted_archive):
+            return {"market": market, "date": stamp, "status": "SKIPPED", "records": existing["record_count"]}
+        log.warning(
+            "NSE %s archive %s is missing or corrupt; re-downloading session",
+            market, stamp,
+        )
     url = _archive_url(market, day)
     async with semaphore:
         response = None
