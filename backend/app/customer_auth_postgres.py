@@ -127,11 +127,18 @@ class PostgresAccessStore:
         customer = self.validate_mobile(customer_id)
         with tenant_scope(customer_id=customer):
             with self.engine.connect() as conn:
-                row = conn.execute(text("""SELECT m.tenant_id
-                    FROM air_tenant_members m JOIN air_tenants t ON t.tenant_id=m.tenant_id
-                    WHERE m.customer_id=:customer AND m.status='ACTIVE' AND t.status='ACTIVE'"""),
+                member = conn.execute(text("""SELECT tenant_id FROM air_tenant_members
+                    WHERE customer_id=:customer AND status='ACTIVE'"""),
                     {"customer": customer}).first()
-        return row[0] if row else None
+        if not member:
+            return None
+        tenant_id = member[0]
+        with tenant_scope(tenant_id=tenant_id, customer_id=customer):
+            with self.engine.connect() as conn:
+                active = conn.execute(text("""SELECT 1 FROM air_tenants
+                    WHERE tenant_id=:tenant AND status='ACTIVE'"""),
+                    {"tenant": tenant_id}).first()
+        return tenant_id if active else None
 
     def get_request(self, mobile_e164: str, device_id: str):
         mobile = self.validate_mobile(mobile_e164)
