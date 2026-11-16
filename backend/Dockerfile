@@ -5,6 +5,7 @@ COPY requirements.txt .
 COPY dependencies ./dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
+COPY config ./config
 COPY scripts ./scripts
 COPY migrations ./migrations
 COPY alembic.ini ./alembic.ini
