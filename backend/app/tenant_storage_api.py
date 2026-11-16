@@ -166,8 +166,16 @@ async def download_tenant_object(
         raise HTTPException(status_code=404, detail="Tenant object does not exist") from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail="Tenant object storage is unavailable") from exc
+    body = result.get("body")
+    if not isinstance(body, bytes):
+        raise HTTPException(status_code=502, detail="Tenant object integrity verification failed")
+    if (
+        len(body) != int(metadata["size_bytes"])
+        or not hashlib.compare_digest(hashlib.sha256(body).hexdigest(), str(metadata["sha256"]))
+    ):
+        raise HTTPException(status_code=502, detail="Tenant object integrity verification failed")
     return Response(
-        content=result["body"],
+        content=body,
         media_type=metadata["content_type"],
         headers={
             "Content-Length": str(metadata["size_bytes"]),
