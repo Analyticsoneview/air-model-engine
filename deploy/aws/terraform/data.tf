@@ -68,7 +68,7 @@ resource "aws_mq_broker" "air" {
   deployment_mode            = "CLUSTER_MULTI_AZ"
   publicly_accessible        = false
   auto_minor_version_upgrade = true
-  subnet_ids                 = aws_subnet.private
+  subnet_ids                 = aws_subnet.private[*].id
   security_groups            = [aws_security_group.rabbitmq.id]
   users {
     username = "air"
@@ -161,7 +161,7 @@ resource "aws_secretsmanager_secret_version" "redis" {
 resource "aws_secretsmanager_secret" "rabbitmq" { name = "${var.environment_name}/rabbitmq-url" tags = local.tags }
 resource "aws_secretsmanager_secret_version" "rabbitmq" {
   secret_id     = aws_secretsmanager_secret.rabbitmq.id
-  secret_string = "amqps://air:${random_password.rabbitmq.result}@${aws_mq_broker.air.instances[0].endpoints[0]}/"
+  secret_string = "amqps://air:${random_password.rabbitmq.result}@${trimprefix(aws_mq_broker.air.instances[0].endpoints[0], "amqps://")}/"
 }
 resource "aws_secretsmanager_secret" "jwt" { name = "${var.environment_name}/jwt-secret" tags = local.tags }
 resource "aws_secretsmanager_secret_version" "jwt" { secret_id = aws_secretsmanager_secret.jwt.id secret_string = random_password.jwt.result }
