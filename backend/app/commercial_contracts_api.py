@@ -7,7 +7,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.security import require_customer
-from app.commercial_contracts import CommercialContractStore, ContractConflict\nfrom app.customer_auth_postgres import PostgresAccessStore\nimport os
+from app.commercial_contracts import CommercialContractStore, ContractConflict
+from app.customer_auth_postgres import PostgresAccessStore
+import os
 
 router = APIRouter(prefix="/api/v1/commercial/contracts", tags=["commercial-contracts"])
 
@@ -68,7 +70,7 @@ def get_contract(contract_id: str, customer_id: str = Depends(require_customer))
 
 @router.get("/{contract_id}/events")
 def contract_events(contract_id: str, customer_id: str = Depends(require_customer)):
-    if not _store().get_contract(customer_id, contract_id):
+    if not _store().get_contract(_tenant_id(customer_id), contract_id):
         raise HTTPException(status_code=404, detail="Contract not found")
     return {"items": _store().events(_tenant_id(customer_id), contract_id)}
 
