@@ -312,16 +312,35 @@ class AwsTenantProvisioner:
                 "already_present": True,
             }
 
-        result = self.s3.put_object(
-            Bucket=bucket, Key=stored_key, Body=body,
-            ContentType=content_type, ServerSideEncryption="AES256",
-            Metadata={"sha256": digest},
-            IfNoneMatch="*",
-        )
+        try:
+            result = self.s3.put_object(
+                Bucket=bucket, Key=stored_key, Body=body,
+                ContentType=content_type, ServerSideEncryption="AES256",
+                Metadata={"sha256": digest},
+                IfNoneMatch="*",
+            )
+        except Exception as exc:
+            # Another retry may have won the conditional write after our HEAD.
+            response = getattr(exc, "response", {}) or {}
+            error = response.get("Error", {}) if isinstance(response, dict) else {}
+            status = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            if str(error.get("Code", "")) not in {"PreconditionFailed", "412"} and status != 412:
+                raise TenantInfrastructureError("Tenant object upload failed") from exc
+            try:
+                existing = self.s3.head_object(Bucket=bucket, Key=stored_key)
+            except Exception as verify_exc:
+                raise TenantInfrastructureError("Concurrent tenant object upload could not be verified") from verify_exc
+            metadata = existing.get("Metadata", {}) or {}
+            if int(existing.get("ContentLength", -1)) != size or metadata.get("sha256") != digest:
+                raise TenantInfrastructureError("Tenant object key already contains different content") from exc
+            result = existing
+            already_present = True
+        else:
+            already_present = False
         return {
             "bucket": bucket, "key": stored_key, "bytes": size,
             "previous_usage_bytes": used, "etag": str(result.get("ETag", "")).strip('"'),
-            "already_present": False,
+            "already_present": already_present,
         }
 
     def get_tenant_object(self, tenant: dict, key: str) -> dict:
