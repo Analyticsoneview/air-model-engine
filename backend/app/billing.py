@@ -177,7 +177,7 @@ class BillingStore:
                 existing=self._invoice(conn,tenant_id,prior[0])
                 expected_lines=[{"description":x["description"],"quantity":x["quantity"],"unit_amount_minor":x["unit_amount_minor"],"tax_breakdown":x["tax_breakdown"]} for x in normalized]
                 actual_lines=[{"description":x["description"],"quantity":int(x["quantity"]),"unit_amount_minor":int(x["unit_amount_minor"]),"tax_breakdown":x["tax_breakdown"]} for x in existing["lines"]]
-                if prior[1]!=number or prior[2]!=code or int(prior[3])!=total or actual_lines!=expected_lines:
+                if (prior[1]!=number or prior[2]!=code or int(prior[3])!=total\n                    or sorted(actual_lines, key=lambda item: json.dumps(item, sort_keys=True))\n                    != sorted(expected_lines, key=lambda item: json.dumps(item, sort_keys=True))):
                     raise BillingConflict("Invoice idempotency key was reused with different content")
                 return existing | {"idempotent_replay":True}
             invoice_id=str(uuid4())
