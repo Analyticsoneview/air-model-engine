@@ -4,16 +4,16 @@ resource "aws_ecs_cluster" "air" {
     name  = "containerInsights"
     value = "enabled"
   }
-  tags = local.tags
+  tags               = local.tags
 }
 
 resource "aws_iam_role" "ecs_execution" {
   name = "${var.environment_name}-ecs-execution"
   assume_role_policy = jsonencode({
-    Version = "2012-10-17"
+    Version   = "2012-10-17"
     Statement = [{ Effect = "Allow", Principal = { Service = "ecs-tasks.amazonaws.com" }, Action = "sts:AssumeRole" }]
   })
-  tags = local.tags
+  tags               = local.tags
 }
 resource "aws_iam_role_policy_attachment" "ecs_execution" {
   role       = aws_iam_role.ecs_execution.name
@@ -23,7 +23,7 @@ resource "aws_iam_role_policy" "ecs_secrets" {
   name = "${var.environment_name}-read-runtime-secrets"
   role = aws_iam_role.ecs_execution.id
   policy = jsonencode({
-    Version = "2012-10-17"
+    Version   = "2012-10-17"
     Statement = [{
       Effect = "Allow"
       Action = ["secretsmanager:GetSecretValue"]
@@ -39,15 +39,15 @@ resource "aws_iam_role_policy" "ecs_secrets" {
   })
 }
 resource "aws_iam_role" "ecs_task" {
-  name = "${var.environment_name}-ecs-task"
+  name               = "${var.environment_name}-ecs-task"
   assume_role_policy = aws_iam_role.ecs_execution.assume_role_policy
-  tags = local.tags
+  tags               = local.tags
 }
 resource "aws_iam_role_policy" "ecs_task_storage" {
   name = "${var.environment_name}-efs-s3-access"
   role = aws_iam_role.ecs_task.id
   policy = jsonencode({
-    Version = "2012-10-17"
+    Version   = "2012-10-17"
     Statement = [
       { Effect = "Allow", Action = ["elasticfilesystem:ClientMount", "elasticfilesystem:ClientWrite", "elasticfilesystem:ClientRootAccess"], Resource = aws_efs_file_system.air.arn, Condition = { StringEquals = { "elasticfilesystem:AccessPointArn" = aws_efs_access_point.air.arn } } },
       { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], Resource = "${aws_s3_bucket.air.arn}/*" },
@@ -57,13 +57,13 @@ resource "aws_iam_role_policy" "ecs_task_storage" {
 }
 
 resource "aws_lb" "air" {
-  name               = substr("${var.environment_name}-alb", 0, 32)
-  internal           = false
-  load_balancer_type = "application"
-  security_groups    = [aws_security_group.alb.id]
-  subnets            = aws_subnet.public[*].id
+  name                       = substr("${var.environment_name}-alb", 0, 32)
+  internal                   = false
+  load_balancer_type         = "application"
+  security_groups            = [aws_security_group.alb.id]
+  subnets                    = aws_subnet.public[*].id
   enable_deletion_protection = true
-  tags = local.tags
+  tags               = local.tags
 }
 resource "aws_lb_target_group" "pwa" {
   name        = substr("${var.environment_name}-pwa", 0, 32)
@@ -75,7 +75,7 @@ resource "aws_lb_target_group" "pwa" {
     path    = "/health"
     matcher = "200-399"
   }
-  tags = local.tags
+  tags               = local.tags
 }
 resource "aws_lb_target_group" "api" {
   name        = substr("${var.environment_name}-api", 0, 32)
@@ -87,7 +87,7 @@ resource "aws_lb_target_group" "api" {
     path    = "/health"
     matcher = "200-399"
   }
-  tags = local.tags
+  tags               = local.tags
 }
 resource "aws_lb_listener" "https" {
   count             = var.acm_certificate_arn != "" ? 1 : 0
@@ -161,10 +161,10 @@ resource "aws_ecs_task_definition" "api" {
     }
   }
   container_definitions = jsonencode([{
-    name = "air-api"
-    image = var.backend_image_uri
-    essential = true
-    portMappings = [{ containerPort = 8000, hostPort = 8000, protocol = "tcp" }]
+    name         = "air-api"
+    image        = var.backend_image_uri
+    essential    = true
+    portMappings     = [{ containerPort = 8000, hostPort = 8000, protocol = "tcp" }]
     environment = [
       { name = "AIR_DEPLOYMENT_PROFILE", value = "aws-private-single" },
       { name = "AIR_DEPLOYMENT_MODE", value = "aws" },
@@ -178,9 +178,9 @@ resource "aws_ecs_task_definition" "api" {
       { name = "AIR_CREDENTIAL_KEY", valueFrom = aws_secretsmanager_secret.credential_key.arn },
       { name = "AIR_ADMIN_API_KEY", valueFrom = aws_secretsmanager_secret.admin_api_key.arn }
     ]
-    mountPoints = [{ sourceVolume = "air-data", containerPath = "/var/lib/air", readOnly = false }]
+    mountPoints      = [{ sourceVolume = "air-data", containerPath = "/var/lib/air", readOnly = false }]
     logConfiguration = { logDriver = "awslogs", options = { awslogs-group = aws_cloudwatch_log_group.api.name, awslogs-region = var.aws_region, awslogs-stream-prefix = "api" } }
-    healthCheck = { command = ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)\""], interval = 30, timeout = 5, retries = 3, startPeriod = 30 }
+    healthCheck      = { command = ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)\""], interval = 30, timeout = 5, retries = 3, startPeriod = 30 }
   }])
   lifecycle {
     precondition {
@@ -188,7 +188,7 @@ resource "aws_ecs_task_definition" "api" {
       error_message = "backend_image_uri is required when deploy_services=true."
     }
   }
-  tags = local.tags
+  tags               = local.tags
 }
 resource "aws_ecs_task_definition" "worker" {
   count                    = var.deploy_services ? 1 : 0
@@ -202,7 +202,7 @@ resource "aws_ecs_task_definition" "worker" {
   volume {
     name = "air-data"
     efs_volume_configuration {
-      file_system_id = aws_efs_file_system.air.id
+      file_system_id     = aws_efs_file_system.air.id
       transit_encryption = "ENABLED"
       authorization_config {
         access_point_id = aws_efs_access_point.air.id
@@ -211,10 +211,10 @@ resource "aws_ecs_task_definition" "worker" {
     }
   }
   container_definitions = jsonencode([{
-    name = "air-workflow-worker"
-    image = var.backend_image_uri
-    command = ["python", "-m", "app.workflow_worker"]
-    essential = true
+    name      = "air-workflow-worker"
+    image        = var.backend_image_uri
+    command   = ["python", "-m", "app.workflow_worker"]
+    essential    = true
     environment = [
       { name = "AIR_DEPLOYMENT_PROFILE", value = "aws-private-single" },
       { name = "AIR_DEPLOYMENT_MODE", value = "aws" },
@@ -224,7 +224,7 @@ resource "aws_ecs_task_definition" "worker" {
       { name = "AIR_DATABASE_URL", valueFrom = aws_secretsmanager_secret.postgres.arn },
       { name = "AIR_RABBITMQ_URL", valueFrom = aws_secretsmanager_secret.rabbitmq.arn }
     ]
-    mountPoints = [{ sourceVolume = "air-data", containerPath = "/var/lib/air", readOnly = false }]
+    mountPoints      = [{ sourceVolume = "air-data", containerPath = "/var/lib/air", readOnly = false }]
     logConfiguration = { logDriver = "awslogs", options = { awslogs-group = aws_cloudwatch_log_group.worker.name, awslogs-region = var.aws_region, awslogs-stream-prefix = "worker" } }
   }])
   lifecycle {
@@ -233,7 +233,7 @@ resource "aws_ecs_task_definition" "worker" {
       error_message = "backend_image_uri is required when deploy_services=true."
     }
   }
-  tags = local.tags
+  tags               = local.tags
 }
 resource "aws_ecs_task_definition" "pwa" {
   count                    = var.deploy_services ? 1 : 0
@@ -245,10 +245,10 @@ resource "aws_ecs_task_definition" "pwa" {
   execution_role_arn       = aws_iam_role.ecs_execution.arn
   task_role_arn            = aws_iam_role.ecs_task.arn
   container_definitions = jsonencode([{
-    name = "air-pwa"
-    image = var.pwa_image_uri
-    essential = true
-    portMappings = [{ containerPort = 8080, hostPort = 8080, protocol = "tcp" }]
+    name             = "air-pwa"
+    image            = var.pwa_image_uri
+    essential    = true
+    portMappings     = [{ containerPort = 8080, hostPort = 8080, protocol = "tcp" }]
     logConfiguration = { logDriver = "awslogs", options = { awslogs-group = aws_cloudwatch_log_group.pwa.name, awslogs-region = var.aws_region, awslogs-stream-prefix = "pwa" } }
   }])
   lifecycle {
@@ -257,16 +257,16 @@ resource "aws_ecs_task_definition" "pwa" {
       error_message = "pwa_image_uri is required when deploy_services=true."
     }
   }
-  tags = local.tags
+  tags               = local.tags
 }
 
 resource "aws_ecs_service" "api" {
-  count           = var.deploy_services ? 1 : 0
-  name            = "air-api"
-  cluster         = aws_ecs_cluster.air.id
-  task_definition = aws_ecs_task_definition.api[0].arn
-  desired_count   = 1
-  launch_type     = "FARGATE"
+  count            = var.deploy_services ? 1 : 0
+  name             = "air-api"
+  cluster          = aws_ecs_cluster.air.id
+  task_definition  = aws_ecs_task_definition.api[0].arn
+  desired_count    = 1
+  launch_type      = "FARGATE"
   platform_version = "LATEST"
   network_configuration {
     subnets          = aws_subnet.private[*].id
@@ -279,15 +279,15 @@ resource "aws_ecs_service" "api" {
     container_port   = 8000
   }
   depends_on = [aws_lb_listener.https, aws_lb_listener.http, aws_iam_role_policy_attachment.ecs_execution, aws_iam_role_policy.ecs_secrets]
-  tags = local.tags
+  tags               = local.tags
 }
 resource "aws_ecs_service" "worker" {
-  count           = var.deploy_services ? 1 : 0
-  name            = "air-workflow-worker"
-  cluster         = aws_ecs_cluster.air.id
-  task_definition = aws_ecs_task_definition.worker[0].arn
-  desired_count   = 1
-  launch_type     = "FARGATE"
+  count            = var.deploy_services ? 1 : 0
+  name             = "air-workflow-worker"
+  cluster          = aws_ecs_cluster.air.id
+  task_definition  = aws_ecs_task_definition.worker[0].arn
+  desired_count    = 1
+  launch_type      = "FARGATE"
   platform_version = "LATEST"
   network_configuration {
     subnets          = aws_subnet.private[*].id
@@ -295,15 +295,15 @@ resource "aws_ecs_service" "worker" {
     assign_public_ip = false
   }
   depends_on = [aws_iam_role_policy_attachment.ecs_execution, aws_iam_role_policy.ecs_secrets]
-  tags = local.tags
+  tags               = local.tags
 }
 resource "aws_ecs_service" "pwa" {
-  count           = var.deploy_services ? 1 : 0
-  name            = "air-pwa"
-  cluster         = aws_ecs_cluster.air.id
-  task_definition = aws_ecs_task_definition.pwa[0].arn
-  desired_count   = 1
-  launch_type     = "FARGATE"
+  count            = var.deploy_services ? 1 : 0
+  name             = "air-pwa"
+  cluster          = aws_ecs_cluster.air.id
+  task_definition  = aws_ecs_task_definition.pwa[0].arn
+  desired_count    = 1
+  launch_type      = "FARGATE"
   platform_version = "LATEST"
   network_configuration {
     subnets          = aws_subnet.private[*].id
@@ -316,5 +316,5 @@ resource "aws_ecs_service" "pwa" {
     container_port   = 8080
   }
   depends_on = [aws_lb_listener.https, aws_lb_listener.http, aws_iam_role_policy_attachment.ecs_execution]
-  tags = local.tags
+  tags               = local.tags
 }
