@@ -103,13 +103,6 @@ resource "aws_security_group" "rabbitmq" {
     protocol        = "tcp"
     security_groups = [aws_security_group.ecs.id]
   }
-  ingress {
-    description     = "RabbitMQ management API for tenant vhost provisioning"
-    from_port       = 15671
-    to_port         = 15671
-    protocol        = "tcp"
-    security_groups = [aws_security_group.ecs.id]
-  }
   egress {
     from_port   = 0
     to_port     = 0
@@ -135,4 +128,15 @@ resource "aws_security_group" "efs" {
     cidr_blocks = ["0.0.0.0/0"]
   }
   tags = merge(local.tags, { Name = "${var.environment_name}-efs-sg" })
+}
+
+resource "aws_security_group_rule" "rabbitmq_management" {
+  count                    = var.deployment_profile == "aws-saas-multi" ? 1 : 0
+  type                     = "ingress"
+  description              = "RabbitMQ management API for tenant vhost provisioning"
+  from_port                = 15671
+  to_port                  = 15671
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.rabbitmq.id
+  source_security_group_id = aws_security_group.ecs.id
 }
