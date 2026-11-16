@@ -103,10 +103,11 @@ def _claim_delivery(alert_key: str, repeat_after_minutes: int = 30) -> bool:
 
 
 def deliver_runtime_alerts(alerts: list[dict[str, str]]) -> dict[str, int]:
-    """Deliver admin/platform alerts through the AIR_WORKFLOW Telegram route.
+    """Deliver admin/platform alerts with per-destination deduplication.
 
     No customer ID is attached, so customer-owned notification destinations are
-    never used for platform health information.
+    never used for platform health information. Failed destinations remain
+    retryable without resending to destinations that already accepted the alert.
     """
     if not alerts:
         return {"attempted": 0, "sent": 0}
@@ -120,32 +121,33 @@ def deliver_runtime_alerts(alerts: list[dict[str, str]]) -> dict[str, int]:
     attempted = sent = 0
     for alert in alerts:
         stable_key = hashlib.sha256(alert["key"].encode("utf-8")).hexdigest()
-        if not _claim_delivery(stable_key):
-            continue
         message = (
-            "<b>AIR WORKFLOW OPERATIONS ALERT</b>\n"
-            f"<b>{alert['title']}</b>\n{alert['detail']}\n\n"
+            "<b>AIR WORKFLOW OPERATIONS ALERT</b>\\n"
+            f"<b>{alert['title']}</b>\\n{alert['detail']}\\n\\n"
             "<i>Operator action may be required. No broker orders are placed by this service.</i>"
         )
-        attempted += 1
-        try:
-            result = asyncio.run(send_telegram_message(message, destination_ids=destinations))
-            delivered = int(result.get("sent", 0))
-            sent += delivered
-            if delivered == 0:
-                # Permit retry on the next poll when Telegram delivery failed.
+        for chat_id in destinations:
+            destination_key = hashlib.sha256(f"{stable_key}:{chat_id}".encode("utf-8")).hexdigest()
+            if not _claim_delivery(destination_key):
+                continue
+            attempted += 1
+            try:
+                result = asyncio.run(send_telegram_message(message, destination_ids=[chat_id]))
+                delivered = int(result.get("sent", 0))
+                sent += delivered
+                if delivered == 0:
+                    db = _connect_dedupe()
+                    try:
+                        db.execute("DELETE FROM workflow_alert_deliveries WHERE alert_key=?", (destination_key,))
+                        db.commit()
+                    finally:
+                        db.close()
+            except Exception as exc:
+                log.warning("AIR workflow operational alert delivery failed (%s)", type(exc).__name__)
                 db = _connect_dedupe()
                 try:
-                    db.execute("DELETE FROM workflow_alert_deliveries WHERE alert_key=?", (stable_key,))
+                    db.execute("DELETE FROM workflow_alert_deliveries WHERE alert_key=?", (destination_key,))
                     db.commit()
                 finally:
                     db.close()
-        except Exception as exc:
-            log.warning("AIR workflow operational alert delivery failed (%s)", type(exc).__name__)
-            db = _connect_dedupe()
-            try:
-                db.execute("DELETE FROM workflow_alert_deliveries WHERE alert_key=?", (stable_key,))
-                db.commit()
-            finally:
-                db.close()
     return {"attempted": attempted, "sent": sent}
