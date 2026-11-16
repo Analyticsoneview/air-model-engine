@@ -467,6 +467,26 @@ class NSEBhavcopyStore:
         "trading_calendar": self.get_meta(f"trading_calendar_{datetime.now(IST).year}") or {},
         }
 
+    def query_exact_symbol(self, market: str, symbol: str,
+                            start_date: str | None = None, end_date: str | None = None,
+                            limit: int = 5000) -> list[dict[str, Any]]:
+        clauses = ["market=?", "symbol=?"]
+        params: list[Any] = [market, symbol.strip().upper()]
+        if start_date:
+            clauses.append("trade_date>=?")
+            params.append(start_date)
+        if end_date:
+            clauses.append("trade_date<=?")
+            params.append(end_date)
+        params.append(max(1, min(limit, 5000)))
+        with self._db() as db:
+            rows = db.execute(
+                "SELECT * FROM nse_bhavcopy WHERE " + " AND ".join(clauses) +
+                " ORDER BY trade_date ASC, expiry ASC, strike ASC",
+                params,
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def query(self, market: str, symbol: str | None = None,
               start_date: str | None = None, end_date: str | None = None,
               instrument_type: str | None = None, instrument_id: str | None = None,
@@ -811,3 +831,7 @@ def stop_nse_data_jobs() -> None:
     if _scheduler is not None:
         _scheduler.shutdown(wait=False)
         _scheduler = None
+
+
+def nse_data_rows_exact_symbol(market: str, symbol: str, **filters: Any) -> list[dict[str, Any]]:
+    return _get_store().query_exact_symbol(market, symbol, **filters)
