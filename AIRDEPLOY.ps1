@@ -14,14 +14,14 @@ $python = Get-Command python -ErrorAction SilentlyContinue
 $pythonArgs = @()
 if ($python) {
     $versionText = & $python.Source --version 2>&1
-    if ($versionText -notmatch "Python 3\\.(1[0-9]|[2-9][0-9])") { $python = $null }
+    if ($versionText -notmatch "Python 3\.(1[0-9]|[2-9][0-9])") { $python = $null }
 }
 if (!$python) {
     $python = Get-Command py -ErrorAction SilentlyContinue
     if ($python) {
         $pythonArgs += "-3"
         $versionText = & $python.Source -3 --version 2>&1
-        if ($LASTEXITCODE -ne 0 -or $versionText -notmatch "Python 3\\.(1[0-9]|[2-9][0-9])") {
+        if ($LASTEXITCODE -ne 0 -or $versionText -notmatch "Python 3\.(1[0-9]|[2-9][0-9])") {
             throw "Python 3.10 or newer is required for AIR Deployment Manager."
         }
     }
