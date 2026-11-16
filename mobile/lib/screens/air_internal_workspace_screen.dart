@@ -208,23 +208,27 @@ class _AirInternalWorkspaceScreenState extends State<AirInternalWorkspaceScreen>
         )),
       if (_error != null)
         Padding(padding: const EdgeInsets.all(12), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
-      Padding(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), child: Row(children: [
-        SegmentedButton<String>(
-          segments: const [
-            ButtonSegment(value: 'watchlists', label: Text('Watchlists'), icon: Icon(Icons.visibility)),
-            ButtonSegment(value: 'notes', label: Text('Research notes'), icon: Icon(Icons.notes)),
-          ],
-          selected: {_section},
-          onSelectionChanged: (value) => setState(() => _section = value.first),
-        ),
-        const Spacer(),
-        IconButton(onPressed: _busy ? null : _load, tooltip: 'Refresh', icon: const Icon(Icons.refresh)),
-        FilledButton.icon(
-          onPressed: _busy ? null : () => _section == 'watchlists' ? _editWatchlist() : _editNote(),
-          icon: const Icon(Icons.add),
-          label: Text(_section == 'watchlists' ? 'NEW WATCHLIST' : 'NEW NOTE'),
-        ),
-      ])),
+      Padding(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: 'watchlists', label: Text('Watchlists'), icon: Icon(Icons.visibility)),
+              ButtonSegment(value: 'notes', label: Text('Research notes'), icon: Icon(Icons.notes)),
+            ],
+            selected: {_section},
+            onSelectionChanged: (value) => setState(() => _section = value.first),
+          ),
+          IconButton(onPressed: _busy ? null : _load, tooltip: 'Refresh', icon: const Icon(Icons.refresh)),
+          FilledButton.icon(
+            onPressed: _busy ? null : () => _section == 'watchlists' ? _editWatchlist() : _editNote(),
+            icon: const Icon(Icons.add),
+            label: Text(_section == 'watchlists' ? 'NEW WATCHLIST' : 'NEW NOTE'),
+          ),
+        ],
+      )),
       if (_busy) const LinearProgressIndicator(),
       Expanded(child: items.isEmpty
           ? const Center(child: Text('No private records yet. Add a watchlist or research note.'))
