@@ -174,6 +174,16 @@ def test_pending_upload_resumes_after_ambiguous_s3_failure(monkeypatch):
     assert registry.objects["reports/resume.csv"]["status"] == "STORED"
 
 
+def test_registry_membership_must_match_verified_request_tenant(monkeypatch):
+    client, registry, _ = _client(monkeypatch)
+    registry.get_customer_context = lambda customer_id: {
+        "tenant_id": "99999999-2222-4333-8444-555555555555",
+        "tenant_status": "ACTIVE", "max_storage_bytes": 10, "storage_used_bytes": 0,
+    }
+    response = client.get("/api/v1/tenant/objects")
+    assert response.status_code == 403
+
+
 def test_storage_api_is_disabled_outside_aws_saas(monkeypatch):
     client, _, _ = _client(monkeypatch)
     with patch.dict("os.environ", {"AIR_DEPLOYMENT_PROFILE": "onprem-single"}):
