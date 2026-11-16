@@ -6,7 +6,7 @@ from pathlib import Path
 
 from app.model_engine_ledger import ModelEngineLedger
 from app.nse_bhavcopy import (
-    NSEBhavcopyStore, _archive_url, _normalize, _parse_nse_calendar, _subtract_months, _date_range, _configured_history_months, nse_bootstrap_is_ready,
+    NSEBhavcopyStore, _archive_url, _normalize, _parse_nse_calendar, _subtract_months, _date_range, _configured_history_months, nse_bootstrap_is_ready, _bootstrap_end_date,
 )
 
 
@@ -34,6 +34,19 @@ class NSEBhavcopyTests(unittest.TestCase):
                 os.environ.pop("AIR_NSE_HISTORY_MONTHS", None)
             else:
                 os.environ["AIR_NSE_HISTORY_MONTHS"] = previous
+
+    def test_initial_bootstrap_excludes_current_day_until_eod_window(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        ist = ZoneInfo("Asia/Kolkata")
+        self.assertEqual(
+            _bootstrap_end_date(datetime(2026, 11, 16, 10, 0, tzinfo=ist)),
+            date(2026, 11, 15),
+        )
+        self.assertEqual(
+            _bootstrap_end_date(datetime(2026, 11, 16, 21, 0, tzinfo=ist)),
+            date(2026, 11, 16),
+        )
 
     def test_readiness_rejects_legacy_three_month_ready_marker(self):
         self.assertFalse(nse_bootstrap_is_ready({"status": "READY"}))
