@@ -5,8 +5,8 @@ cd "$ROOT"
 
 PYTHON_BIN="${AIR_PYTHON:-}"
 if [[ -z "$PYTHON_BIN" ]]; then PYTHON_BIN="$(command -v python3 || command -v python || true)"; fi
-if [[ -z "$PYTHON_BIN" ]] || ! "$PYTHON_BIN" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)'; then
-  echo "Python 3.12 or newer is required for AIR installation." >&2
+if [[ -z "$PYTHON_BIN" ]] || ! "$PYTHON_BIN" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)'; then
+  echo "Python 3.10 or newer is required for AIR installation." >&2
   exit 1
 fi
 PROFILE="${AIR_DEPLOYMENT_PROFILE:-onprem-single}"
