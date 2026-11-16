@@ -103,7 +103,7 @@ class TenantRegistry:
             raise ValueError("Member role must be ADMIN, MEMBER or READ_ONLY")
         with tenant_scope(is_admin=True):
             with self.engine.begin() as conn:
-                state = conn.execute(text("SELECT status,max_members FROM air_tenants WHERE tenant_id=:tenant"),
+                state = conn.execute(text("SELECT status,max_members FROM air_tenants WHERE tenant_id=:tenant FOR UPDATE"),
                                      {"tenant": tenant}).first()
                 if not state or state[0] != "ACTIVE":
                     raise ValueError("Tenant must be ACTIVE before members can be added")
