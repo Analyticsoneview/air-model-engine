@@ -13,7 +13,7 @@ PROFILE_FILE="$ROOT/backend/config/deployment_profiles/$PROFILE.json"
 [[ -f "$PROFILE_FILE" ]] || { echo "AIR deployment profile not found: $PROFILE_FILE" >&2; exit 1; }
 
 echo "Validating AIR deployment profile: $PROFILE"
-docker run --rm --mount "type=bind,source=$ROOT/backend,target=/app" -w /app python:3.12-slim python -m app.deployment_profiles --profile "$PROFILE" --require-cloud-env
+docker run --rm --env AWS_REGION --env AWS_DEFAULT_REGION --mount "type=bind,source=$ROOT/backend,target=/app" -w /app python:3.12-slim python -m app.deployment_profiles --profile "$PROFILE" --require-cloud-env
 export AIR_DEPLOYMENT_PROFILE="$PROFILE"
 case "$PROFILE" in
   onprem-single) export AIR_DEPLOYMENT_MODE="on_prem"; export AIR_TENANCY_MODE="single" ;;
