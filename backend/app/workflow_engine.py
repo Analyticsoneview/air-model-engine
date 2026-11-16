@@ -878,7 +878,7 @@ class WorkflowStore:
             self.db.execute("BEGIN IMMEDIATE")
             try:
                 rows = self.db.execute(
-                    """SELECT run_id FROM air_workflow_runs
+                    """SELECT run_id,customer_id,tenant_id FROM air_workflow_runs
                        WHERE status IN ('QUEUED','RUNNING')
                          AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
                        ORDER BY started_at LIMIT ?""", (now, limit),
