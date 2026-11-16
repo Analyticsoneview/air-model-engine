@@ -1,8 +1,13 @@
 import os
 import pytest
 import sqlite3
+from uuid import uuid4
 
 from app.air_qoc_store import AirQocStore
+from app.tenant_context import tenant_scope
+from app.tenant_provisioning import TenantRegistry
+from app.brokers.customer_accounts import CustomerTradingAccount
+from app.brokers.customer_accounts_postgres import PostgresCustomerAccountDirectory
 from scripts.import_sqlite_qoc import run as import_qoc_store
 
 
@@ -10,6 +15,16 @@ from scripts.import_sqlite_qoc import run as import_qoc_store
 def test_qoc_observations_import_to_postgres_and_remain_readable(tmp_path, monkeypatch):
     source = tmp_path / "air_qoc.sqlite3"
     monkeypatch.setenv("AIR_QOC_DB_PATH", str(source))
+    customer_id = "+91" + str(7000000000 + (uuid4().int % 999999999)).zfill(10)
+    account_id = "test-account-" + uuid4().hex
+    registry = TenantRegistry()
+    tenant = registry.create_or_update_tenant(
+        owner_customer_id=customer_id, name="QOC integration " + account_id,
+    )
+    tenant_id = tenant["tenant_id"]
+    accounts = PostgresCustomerAccountDirectory(os.environ["AIR_CUSTOMER_DATABASE_URL"])
+    accounts.add(CustomerTradingAccount(customer_id, "dhan", account_id))
+    accounts.add(CustomerTradingAccount(customer_id, "zerodha", account_id))
     db = sqlite3.connect(source)
     db.execute("""
         CREATE TABLE option_observations (
@@ -30,7 +45,7 @@ def test_qoc_observations_import_to_postgres_and_remain_readable(tmp_path, monke
             open_interest,previous_oi,bid_price,bid_quantity,ask_price,ask_quantity,
             implied_volatility,observed_at
         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    """, (7, "dhan", "test-account", 13, "IDX_I", "2026-12-31", 24500.0,
+    """, (7, "dhan", account_id, 13, "IDX_I", "2026-12-31", 24500.0,
           "24500", "CE", "sec-1", 125.5, 120.0, 5000, 4000, 12000, 11000,
           125.0, 50, 126.0, 60, 18.2, "2026-11-11T10:00:00+05:30"))
     db.commit()
@@ -103,4 +118,10 @@ def test_qoc_observations_import_to_postgres_and_remain_readable(tmp_path, monke
         )
         assert symbol_rows[0]["underlying_scrip"] == "NIFTY"
     finally:
+        with tenant_scope(is_admin=True):
+            store.db.execute("DELETE FROM option_observations WHERE account_id=?", (account_id,))
+            store.db.execute("DELETE FROM air_domain_store_imports WHERE import_name=?",
+                             ("sqlite_qoc_observations_v1",))
         store.close()
+        accounts.close()
+        registry.close()
