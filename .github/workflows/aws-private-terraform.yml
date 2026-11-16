@@ -24,9 +24,7 @@ jobs:
         with:
           terraform_version: '1.10.5'
       - name: Check Terraform formatting
-        run: |
-          terraform fmt -diff -recursive
-          terraform fmt -check -recursive
+        run: terraform fmt -check -recursive
       - name: Initialize without remote backend
         run: terraform init -backend=false -input=false
       - name: Validate Terraform configuration
