@@ -213,6 +213,15 @@ class OnboardingStore:
                 raise KeyError("Onboarding record not found")
         return self.get(tenant_id, customer_id)
 
+    def has_used_trial(self, tenant_id, customer_id, product_code):
+        with self._scope(tenant_id, customer_id), self.engine.connect() as conn:
+            row = conn.execute(text("""SELECT 1 FROM air_customer_onboarding_events e
+                JOIN air_customer_onboarding o ON o.tenant_id=e.tenant_id AND o.onboarding_id=e.onboarding_id
+                WHERE e.tenant_id=:t AND o.customer_id=:c AND o.product_code=:p
+                  AND e.event_type='TRIAL' LIMIT 1"""),
+                {"t": tenant_id, "c": customer_id, "p": product_code}).first()
+            return bool(row)
+
     def events(self, tenant_id, customer_id, onboarding_id):
         with self._scope(tenant_id, customer_id), self.engine.connect() as conn:
             rows = conn.execute(text("""SELECT event_id,actor_id,event_type,from_status,to_status,details,occurred_at
