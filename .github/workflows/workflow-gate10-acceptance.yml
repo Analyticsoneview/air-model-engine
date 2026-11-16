@@ -38,6 +38,7 @@ jobs:
       AIR_CUSTOMER_DATABASE_URL: postgresql+psycopg://air_test:air_test@127.0.0.1:5432/air_test
       AIR_DATABASE_URL: postgresql+psycopg://air_test:air_test@127.0.0.1:5432/air_test
       AIR_WORKFLOW_RESTORE_DATABASE_URL: postgresql+psycopg://air_test:air_test@127.0.0.1:5432/air_restore
+      AIR_WORKFLOW_PG_CLIENT_DOCKER_IMAGE: postgres:16-alpine
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
