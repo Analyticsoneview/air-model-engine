@@ -141,3 +141,21 @@ def test_issue_replay_returns_same_signed_license_and_rejects_changed_terms(tmp_
     assert replay["license_token"] == first["license_token"]
     with pytest.raises(EnterpriseLicenseError, match="different binding terms"):
         store.issue_and_bind(**(args | {"max_seats": 20}))
+
+def test_signed_grace_period_is_allowed_only_until_grace_end(tmp_path, keypair):
+    store = EnterpriseLicenseStore(database_url="", sqlite_path=str(tmp_path / "license.db"))
+    _active_contract(store)
+    deployment = store.register_deployment(tenant_id="tenant-a", instance_key="prod-1",
+        profile_id="onprem-single", fingerprint="hardware-fingerprint-0001")
+    result = store.issue_and_bind(tenant_id="tenant-a", contract_id="contract-1",
+        deployment_id=deployment["deployment_id"], max_seats=25, max_deployments=1,
+        valid_from=date(2026,1,1), valid_until=date(2026,11,1), grace_until=date(2026,11,30),
+        actor_id="operator", idempotency_key="grace-test", private_key_b64=keypair[0])
+    grace = verify_license(result["license_token"], keypair[1], tenant_id="tenant-a",
+        deployment_id=deployment["deployment_id"], profile_id="onprem-single",
+        fingerprint="hardware-fingerprint-0001", today=date(2026,11,17))
+    assert grace["status"] == "GRACE"
+    with pytest.raises(EnterpriseLicenseError, match="expired"):
+        verify_license(result["license_token"], keypair[1], tenant_id="tenant-a",
+            deployment_id=deployment["deployment_id"], profile_id="onprem-single",
+            fingerprint="hardware-fingerprint-0001", today=date(2026,12,1))
