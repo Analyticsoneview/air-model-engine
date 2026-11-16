@@ -214,6 +214,16 @@ class AwsTenantProvisionerTests(unittest.TestCase):
                 self.tenant, "reports/daily.csv", b"other", quota_prevalidated=True,
             )
 
+    def test_rejects_declared_digest_that_does_not_match_upload_body(self):
+        self.provisioner.provision(self.tenant)
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            self.provisioner.put_tenant_object(
+                self.tenant, "reports/mismatch.csv", b"tampered",
+                sha256="8ed3f6ad685b959ead7022518e1af76cd816f8e8ec7ccdda1ed4018e8f2223f8",
+                quota_prevalidated=True,
+            )
+        self.assertFalse(any(call[0] == "put_object" for call in self.s3.calls))
+
     def test_suspend_revokes_tenant_user_permissions_without_deleting_data(self):
         self.provisioner.provision(self.tenant)
         self.requests.clear()

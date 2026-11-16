@@ -32,6 +32,8 @@ curl --fail-with-body \
 - PostgreSQL row-level security protects `air_tenant_objects`; tenant-scoped row locking serializes quota reservations.
 - `air_tenants.storage_used_bytes` is reserved transactionally before the S3 write. Concurrent uploads cannot both spend the same remaining quota.
 - Every object key is immutable. Reusing a key with identical size and SHA-256 is idempotent; different content at an existing key returns HTTP 409.
+- The S3 provisioner verifies the supplied SHA-256 against the actual bytes before upload. Downloads verify both byte length and SHA-256 against PostgreSQL metadata before returning data; an integrity mismatch fails closed with HTTP 502.
+- The PostgreSQL registry independently verifies active tenant membership for every reserve, completion, list and download-metadata operation. Read-only roles cannot reserve or complete uploads even if a caller bypasses the HTTP route.
 - A `PENDING` reservation is retained after an ambiguous S3/network failure. Retrying the same key and content verifies S3 object metadata and completes the existing reservation without double-counting.
 - S3 objects use the provisioned tenant bucket and tenant prefix, server-side encryption, private bucket controls and TLS-only bucket policy.
 - The API lists and downloads only objects recorded as `STORED` for the authenticated tenant.

@@ -363,6 +363,41 @@ def test_tenant_storage_quota_serializes_concurrent_upload_reservations(customer
         registry.close()
 
 
+def test_tenant_storage_registry_enforces_membership_and_read_only_role(customer_store):
+    from app.tenant_provisioning import TenantRegistry
+
+    registry = TenantRegistry(database_url=os.environ["AIR_TEST_CUSTOMER_DATABASE_URL"])
+    owner_a, owner_b, reader = "+919876543251", "+919876543252", "+919876543253"
+    try:
+        tenant_a = registry.create_or_update_tenant(
+            owner_customer_id=owner_a, name="AIR Storage Tenant A",
+            plan_code="PAID", status="ACTIVE",
+        )
+        tenant_b = registry.create_or_update_tenant(
+            owner_customer_id=owner_b, name="AIR Storage Tenant B", status="ACTIVE",
+        )
+        registry.add_member(tenant_a["tenant_id"], reader, role="READ_ONLY")
+
+        with pytest.raises(PermissionError):
+            registry.reserve_object_upload(
+                tenant_a["tenant_id"], reader, "blocked/read-only.bin",
+                size_bytes=1,
+                sha256="2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+                content_type="application/octet-stream",
+            )
+
+        with pytest.raises(PermissionError):
+            registry.list_tenant_objects(tenant_b["tenant_id"], owner_a)
+
+        with pytest.raises(PermissionError):
+            registry.get_tenant_object(tenant_b["tenant_id"], owner_a, "private/object.bin")
+
+        with tenant_scope(tenant_id=tenant_a["tenant_id"], customer_id=reader):
+            assert registry.list_tenant_objects(tenant_a["tenant_id"], reader) == []
+    finally:
+        registry.close()
+
+
 def test_state_persists_after_store_recreation(customer_store):
     request = customer_store.request_access("+919876543212", "android-device-0004")
     customer_store.review(request["request_id"], "APPROVED", reviewer_admin_id="admin-test",
