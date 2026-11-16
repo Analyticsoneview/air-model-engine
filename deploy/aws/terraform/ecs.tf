@@ -10,7 +10,7 @@ resource "aws_ecs_cluster" "air" {
 resource "aws_iam_role" "ecs_execution" {
   name = "${var.environment_name}-ecs-execution"
   assume_role_policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = [{ Effect = "Allow", Principal = { Service = "ecs-tasks.amazonaws.com" }, Action = "sts:AssumeRole" }]
   })
   tags               = local.tags
@@ -23,7 +23,7 @@ resource "aws_iam_role_policy" "ecs_secrets" {
   name = "${var.environment_name}-read-runtime-secrets"
   role = aws_iam_role.ecs_execution.id
   policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = [{
       Effect = "Allow"
       Action = ["secretsmanager:GetSecretValue"]
@@ -47,7 +47,7 @@ resource "aws_iam_role_policy" "ecs_task_storage" {
   name = "${var.environment_name}-efs-s3-access"
   role = aws_iam_role.ecs_task.id
   policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = [
       { Effect = "Allow", Action = ["elasticfilesystem:ClientMount", "elasticfilesystem:ClientWrite", "elasticfilesystem:ClientRootAccess"], Resource = aws_efs_file_system.air.arn, Condition = { StringEquals = { "elasticfilesystem:AccessPointArn" = aws_efs_access_point.air.arn } } },
       { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], Resource = "${aws_s3_bucket.air.arn}/*" },
@@ -63,7 +63,7 @@ resource "aws_lb" "air" {
   security_groups            = [aws_security_group.alb.id]
   subnets                    = aws_subnet.public[*].id
   enable_deletion_protection = true
-  tags               = local.tags
+  tags                       = local.tags
 }
 resource "aws_lb_target_group" "pwa" {
   name        = substr("${var.environment_name}-pwa", 0, 32)
@@ -162,9 +162,9 @@ resource "aws_ecs_task_definition" "api" {
   }
   container_definitions = jsonencode([{
     name         = "air-api"
-    image        = var.backend_image_uri
+    image     = var.backend_image_uri
     essential    = true
-    portMappings     = [{ containerPort = 8000, hostPort = 8000, protocol = "tcp" }]
+    portMappings = [{ containerPort = 8000, hostPort = 8000, protocol = "tcp" }]
     environment = [
       { name = "AIR_DEPLOYMENT_PROFILE", value = "aws-private-single" },
       { name = "AIR_DEPLOYMENT_MODE", value = "aws" },
@@ -212,9 +212,9 @@ resource "aws_ecs_task_definition" "worker" {
   }
   container_definitions = jsonencode([{
     name      = "air-workflow-worker"
-    image        = var.backend_image_uri
+    image     = var.backend_image_uri
     command   = ["python", "-m", "app.workflow_worker"]
-    essential    = true
+    essential = true
     environment = [
       { name = "AIR_DEPLOYMENT_PROFILE", value = "aws-private-single" },
       { name = "AIR_DEPLOYMENT_MODE", value = "aws" },
@@ -247,8 +247,8 @@ resource "aws_ecs_task_definition" "pwa" {
   container_definitions = jsonencode([{
     name             = "air-pwa"
     image            = var.pwa_image_uri
-    essential    = true
-    portMappings     = [{ containerPort = 8080, hostPort = 8080, protocol = "tcp" }]
+    essential        = true
+    portMappings = [{ containerPort = 8080, hostPort = 8080, protocol = "tcp" }]
     logConfiguration = { logDriver = "awslogs", options = { awslogs-group = aws_cloudwatch_log_group.pwa.name, awslogs-region = var.aws_region, awslogs-stream-prefix = "pwa" } }
   }])
   lifecycle {
