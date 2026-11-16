@@ -178,16 +178,28 @@ def verify_release(archive: Path) -> None:
             raise ValueError("Release archive must contain exactly one top-level release directory.")
         stage = roots[0]
         manifest = json.loads((stage / "RELEASE-MANIFEST.json").read_text(encoding="utf-8"))
+        expected_sums = {}
         for item in manifest["files"]:
-            target = stage / item["path"]
+            relative = Path(item["path"])
+            if relative.is_absolute() or ".." in relative.parts:
+                raise ValueError("Release manifest contains an unsafe file path.")
+            target = stage / relative
             if not target.is_file() or sha256(target) != item["sha256"]:
                 raise ValueError(f"Release file checksum failed: {item['path']}")
-        sums = {}
+            expected_sums[relative.as_posix()] = item["sha256"]
+        expected_sums["RELEASE-MANIFEST.json"] = sha256(stage / "RELEASE-MANIFEST.json")
+        actual_sums = {}
         for line in (stage / "SHA256SUMS").read_text(encoding="utf-8").splitlines():
             digest, filename = line.split("  ", 1)
-            sums[filename] = digest
-        if sums.get("RELEASE-MANIFEST.json") != sha256(stage / "RELEASE-MANIFEST.json"):
-            raise ValueError("Release manifest checksum failed.")
+            relative = Path(filename)
+            if relative.is_absolute() or ".." in relative.parts:
+                raise ValueError("SHA256SUMS contains an unsafe file path.")
+            target = stage / relative
+            if not target.is_file() or sha256(target) != digest:
+                raise ValueError(f"Release SHA256SUMS entry failed: {filename}")
+            actual_sums[relative.as_posix()] = digest
+        if actual_sums != expected_sums:
+            raise ValueError("SHA256SUMS does not match the release manifest.")
     print(json.dumps({"status": "VERIFIED", "archive": str(archive), "sha256": actual}, sort_keys=True))
 
 
