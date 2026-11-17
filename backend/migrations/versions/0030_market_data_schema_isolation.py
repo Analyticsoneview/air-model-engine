@@ -1,10 +1,10 @@
 """Create isolated PostgreSQL schemas for AIR market-data domains.
-Revision ID: 0030_market_data_schema_isolation
+Revision ID: 0030_market_schema
 Revises: 0029_customer_credentials
 """
 from alembic import op
 
-revision = "0030_market_data_schema_isolation"
+revision = "0030_market_schema"
 down_revision = "0029_customer_credentials"
 branch_labels = None
 depends_on = None
@@ -160,5 +160,3 @@ def downgrade() -> None:
     op.execute("DROP TABLE IF EXISTS ingestion.feed_checkpoints")
     op.execute("DROP TABLE IF EXISTS ingestion.source_artifacts")
     op.execute("DROP TABLE IF EXISTS ingestion.feed_runs")
-    for schema in (*MARKET_SCHEMAS, "market_ref", "ingestion", "research"):
-        op.execute(f'DROP SCHEMA IF EXISTS "{schema}"')
