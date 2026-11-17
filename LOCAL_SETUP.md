@@ -72,3 +72,25 @@ Do not use `down -v` unless you intentionally want to delete the local AIR datab
 4. If API health fails, inspect the backend logs before opening the app.
 5. If NSE bootstrap reports partial coverage, use the in-app retry action after checking connectivity and available disk space.
 6. For real broker data, configure each account in AIR Admin and verify both historical and live channels. A connected account is not proof of tick delivery.
+
+## Windows recovery/startup when PostgreSQL and Redis already exist
+
+When the local PostgreSQL and Redis containers already contain AIR data, use the targeted starter instead of running `AIRSTART.ps1`. It checks those two containers, creates a custom-format PostgreSQL backup under `%USERPROFILE%\\AIR-backups`, verifies the dump with `pg_restore --list`, then starts RabbitMQ, rebuilds FastAPI and the workflow worker, and rebuilds the PWA. API and worker updates use Compose `--no-deps`; the script does not run `down`, delete volumes, prune Docker data, or target PostgreSQL/Redis for recreation.
+
+From an elevated or normal PowerShell window in the repository:
+
+```powershell
+Set-Location C:\\air-model-engine
+git pull --ff-only origin main
+.\\scripts\\windows\\Start-AIR-Local.ps1
+```
+
+The script stops before updating the API if the existing database secret files are missing, PostgreSQL/Redis are unhealthy, or the PostgreSQL backup cannot be created and validated. Keep the original `.air-secrets` folder safe; it contains the encryption key and database credentials for the existing local data.
+
+The same PWA image serves both Flutter entry points:
+- Customer research workspace: `http://localhost:8080/`
+- Administrator Console: `http://localhost:8080/admin/`
+
+The administrator console uses a separate Super Admin identity and TOTP MFA. On a fresh database, the targeted starter invokes the existing interactive bootstrap flow. It creates no administrator if TOTP verification fails. Follow its displayed second-PowerShell command to copy the temporary MFA QR from the API container, scan it, and then enter the current six-digit code. Delete the copied QR from the Windows host after enrollment.
+
+The API `/ready` endpoint is a full installation/data gate and can return HTTP 503 while the initial market-data bootstrap is running. This does not mean the API is down; use `/health` for API and dependency liveness, and require a fresh RabbitMQ-connected workflow heartbeat for runtime acceptance.
