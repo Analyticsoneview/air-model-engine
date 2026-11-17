@@ -112,13 +112,13 @@ AIR_SMTP_PORT=587
         }
         if ($allHealthy) {
             try {
-                $api = Invoke-WebRequest -Uri "http://localhost:8000/ready" -TimeoutSec 5
+                $api = Invoke-WebRequest -Uri "http://localhost:8000/health" -TimeoutSec 5
                 $pwa = Invoke-WebRequest -Uri "http://localhost:8080/health" -TimeoutSec 3
                 if ($api.StatusCode -eq 200 -and $pwa.StatusCode -eq 200) { $ready = $true; break }
             } catch { }
         }
         if (((Get-Date) - $lastProgressAt).TotalSeconds -ge 60) {
-            Write-Host "AIR is waiting for the initial three-month NSE history and research readiness gate..." -ForegroundColor Yellow
+            Write-Host "AIR services are starting; historical market data continues loading in the background..." -ForegroundColor Yellow
             $lastProgressAt = Get-Date
         }
         Start-Sleep -Seconds 15
@@ -126,9 +126,9 @@ AIR_SMTP_PORT=587
     if (!$ready) {
         docker compose -f compose.local.yml ps
         docker compose -f compose.local.yml logs --tail 100
-        throw "AIR did not reach full readiness within $timeoutMinutes minutes. Check service logs and NSE bootstrap status; do not use the app until the readiness gate passes."
+        throw "AIR core services did not become healthy within $timeoutMinutes minutes. Check service logs and dependency health."
     }
-    Write-Host "PostgreSQL, Redis, RabbitMQ, FastAPI, workflow worker, PWA and initial market-data readiness are verified." -ForegroundColor Green
+    Write-Host "AIR core services are healthy. The dashboard is available while historical market data continues loading; research features unlock as their datasets become ready." -ForegroundColor Green
     docker compose -f compose.local.yml ps
     if ($env:AIR_START_SKIP_OPEN -ne "true") { Start-Process "http://localhost:8080" }
 
