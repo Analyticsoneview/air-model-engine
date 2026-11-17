@@ -53,7 +53,7 @@ class NSEBhavcopyTests(unittest.TestCase):
             date(2026, 11, 16),
         )
 
-    def test_readiness_rejects_legacy_three_month_ready_marker(self):
+    def test_readiness_requires_complete_three_month_initial_window(self):
         self.assertFalse(nse_bootstrap_is_ready({"status": "READY"}))
         self.assertFalse(nse_bootstrap_is_ready({
             "status": "READY", "history_months": 3,
