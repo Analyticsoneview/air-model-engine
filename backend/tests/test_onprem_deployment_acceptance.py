@@ -153,6 +153,9 @@ class OnPremDeploymentAcceptanceTests(unittest.TestCase):
         self.assertIn("--target lib/admin_main.dart", dockerfile)
         self.assertIn('--base-href "/admin/"', dockerfile)
         self.assertIn("/usr/share/nginx/html/admin", dockerfile)
+        nginx = read("deploy/nginx-air-pwa.conf")
+        self.assertIn("location /admin/", nginx)
+        self.assertIn("/admin/index.html", nginx)
 
     def test_windows_local_startup_backs_up_before_migrations_and_preserves_database_services(self):
         starter = read("scripts/windows/Start-AIR-Local.ps1")
