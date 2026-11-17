@@ -55,7 +55,7 @@ jobs:
       - name: Validate Windows and shell launcher syntax
         shell: pwsh
         run: |
-          $files = @('AIRSTART.ps1', 'LOCAL-APP-STARTUP/AIRSTART.ps1')
+          $files = @('AIRSTART.ps1', 'LOCAL-APP-STARTUP/AIRSTART.ps1', 'scripts/windows/Start-AIR-Local.ps1')
           foreach ($file in $files) {
             if (-not (Test-Path -LiteralPath $file)) { continue }
             $tokens = $null
