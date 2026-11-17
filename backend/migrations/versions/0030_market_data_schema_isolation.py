@@ -13,7 +13,9 @@ MARKET_SCHEMAS = ("nse_cm", "nse_fo", "nse_com", "nse_cd", "us_market")
 
 
 def upgrade() -> None:
-    # Keep namespaces: they may have pre-existed or host objects from later revisions.
+    # Create every namespace before creating schema-qualified objects.
+    for schema in (*MARKET_SCHEMAS, "market_ref", "ingestion", "research"):
+        op.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
 
     op.execute("""
         CREATE TABLE ingestion.feed_runs (
