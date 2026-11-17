@@ -33,7 +33,7 @@ class NSEBhavcopyTests(unittest.TestCase):
             os.environ["AIR_NSE_HISTORY_MONTHS"] = "99"
             self.assertEqual(_configured_history_months(), 60)
             os.environ["AIR_NSE_HISTORY_MONTHS"] = "invalid"
-            self.assertEqual(_configured_history_months(), 12)
+            self.assertEqual(_configured_history_months(), 3)
         finally:
             if previous is None:
                 os.environ.pop("AIR_NSE_HISTORY_MONTHS", None)
@@ -62,7 +62,7 @@ class NSEBhavcopyTests(unittest.TestCase):
 
     def test_readiness_requires_full_archive_and_paired_session_coverage(self):
         complete = {
-            "status": "READY", "history_months": 12,
+            "status": "READY", "history_months": 3,
             "archive_coverage_pct": 100, "paired_session_coverage_pct": 100,
             "universe": {
                 "status": "READY",
