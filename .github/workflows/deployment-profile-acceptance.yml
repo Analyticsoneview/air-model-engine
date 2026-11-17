@@ -84,7 +84,7 @@ jobs:
           for profile in onprem-single aws-private-single aws-saas-multi; do
             python scripts/air_manager.py --profile "$profile" validate
           done
-          python -m py_compile scripts/air_manager.py scripts/release/build_release.py
+          python -m py_compile scripts/air_manager.py scripts/release/build_release.py backend/scripts/bootstrap_admin.py backend/scripts/check_admin_bootstrap.py backend/scripts/check_workflow_runtime.py
       - name: Run Deployment Manager and release package tests
         env:
           PYTHONPATH: backend
@@ -96,7 +96,7 @@ jobs:
       - name: Parse Windows Deployment Manager and startup scripts
         shell: pwsh
         run: |
-          foreach ($file in @("AIRDEPLOY.ps1", "AIRSTART.ps1")) {
+          foreach ($file in @("AIRDEPLOY.ps1", "AIRSTART.ps1", "scripts/windows/Start-AIR-Local.ps1")) {
             $tokens = $null
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile(
