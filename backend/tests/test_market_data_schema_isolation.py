@@ -12,10 +12,11 @@ def test_market_data_schema_migration_is_latest_linear_revision():
     assert script.get_heads() == ["0030_market_schema"]
     revision = script.get_revision("0030_market_schema")
     assert revision.down_revision == "0029_customer_credentials"
+    assert len(revision.revision) <= 32
 
 
 def test_market_data_schemas_are_isolated_and_have_shared_ingestion_ledger():
-    migration = Path("migrations/versions/0030_market_schema.py").read_text()
+    migration = Path("migrations/versions/0030_market_data_schema_isolation.py").read_text()
     for schema in EXPECTED_MARKET_SCHEMAS | EXPECTED_SHARED_SCHEMAS:
         assert f'"{schema}"' in migration
     for table in (
