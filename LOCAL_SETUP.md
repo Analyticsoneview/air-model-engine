@@ -75,14 +75,14 @@ Do not use `down -v` unless you intentionally want to delete the local AIR datab
 
 ## Windows recovery/startup when PostgreSQL and Redis already exist
 
-When the local PostgreSQL and Redis containers already contain AIR data, use the targeted starter instead of running `AIRSTART.ps1`. It checks those two containers, creates a custom-format PostgreSQL backup under `%USERPROFILE%\\AIR-backups`, verifies the dump with `pg_restore --list`, then starts RabbitMQ, rebuilds FastAPI and the workflow worker, and rebuilds the PWA. API and worker updates use Compose `--no-deps`; the script does not run `down`, delete volumes, prune Docker data, or target PostgreSQL/Redis for recreation.
+When the local PostgreSQL and Redis containers already contain AIR data, use the targeted starter instead of running `AIRSTART.ps1`. It checks those two containers, creates a custom-format PostgreSQL backup under `%USERPROFILE%\AIR-backups`, verifies the dump with `pg_restore --list`, then starts RabbitMQ, rebuilds FastAPI and the workflow worker, and rebuilds the PWA. API and worker updates use Compose `--no-deps`; the script does not run `down`, delete volumes, prune Docker data, or target PostgreSQL/Redis for recreation.
 
 From an elevated or normal PowerShell window in the repository:
 
 ```powershell
-Set-Location C:\\air-model-engine
+Set-Location C:\air-model-engine
 git pull --ff-only origin main
-.\\scripts\\windows\\Start-AIR-Local.ps1
+.\scripts\windows\Start-AIR-Local.ps1
 ```
 
 The script stops before updating the API if the existing database secret files are missing, PostgreSQL/Redis are unhealthy, or the PostgreSQL backup cannot be created and validated. Keep the original `.air-secrets` folder safe; it contains the encryption key and database credentials for the existing local data.
