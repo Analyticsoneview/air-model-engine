@@ -73,7 +73,7 @@ while (( SECONDS - readiness_started < readiness_timeout_seconds )); do
   all_healthy=false
   elapsed=$((SECONDS - readiness_started))
   if (( elapsed - last_progress_seconds >= 60 )); then
-    echo "AIR is waiting for the complete 12-month NSE history and research readiness gate..."
+    echo "AIR is waiting for the initial three-month NSE history and research readiness gate..."
     last_progress_seconds=$elapsed
   fi
   sleep 15
