@@ -52,6 +52,7 @@ jobs:
       AIR_TEST_CUSTOMER_DATABASE_URL: postgresql+psycopg://air_test:air_test@127.0.0.1:5432/air_test
       AIR_TEST_USAGE_DATABASE_URL: postgresql+psycopg://air_usage_test:air_usage_test@127.0.0.1:5432/air_test
       AIR_TEST_ADMIN_REDIS_URL: redis://127.0.0.1:6379/0
+      AIR_TEST_REDIS_URL: redis://127.0.0.1:6379/0
     steps:
       - uses: actions/checkout@v4
 
@@ -87,4 +88,4 @@ jobs:
 
       - name: Run admin and customer PostgreSQL integration tests
         working-directory: backend
-        run: python -m pytest -q tests/test_admin_auth_postgres_store.py tests/test_customer_auth_postgres.py tests/test_broker_persistence_postgres.py tests/test_qoc_postgres_store.py tests/test_market_instrument_postgres.py tests/test_market_data_source_postgres.py tests/test_execution_order_postgres.py tests/test_portfolio_postgres_store.py tests/test_support_center_postgres.py tests/test_workflow_runtime_postgres.py tests/test_usage_metering_postgres.py
+        run: python -m pytest -q tests/test_admin_auth_postgres_store.py tests/test_customer_auth_postgres.py tests/test_customer_credentials_postgres.py tests/test_oauth_state.py tests/test_broker_persistence_postgres.py tests/test_qoc_postgres_store.py tests/test_market_instrument_postgres.py tests/test_market_data_source_postgres.py tests/test_execution_order_postgres.py tests/test_portfolio_postgres_store.py tests/test_support_center_postgres.py tests/test_workflow_runtime_postgres.py tests/test_usage_metering_postgres.py
