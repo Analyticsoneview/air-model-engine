@@ -21,13 +21,13 @@ class NSEBhavcopyTests(unittest.TestCase):
         self.assertEqual(_subtract_months(date(2026, 5, 31), 3), date(2026, 2, 28))
 
 
-    def test_initial_history_configuration_defaults_to_at_least_twelve_months(self):
+    def test_initial_history_configuration_defaults_to_three_months(self):
         previous = os.environ.get("AIR_NSE_HISTORY_MONTHS")
         try:
             os.environ.pop("AIR_NSE_HISTORY_MONTHS", None)
-            self.assertEqual(_configured_history_months(), 12)
+            self.assertEqual(_configured_history_months(), 3)
             os.environ["AIR_NSE_HISTORY_MONTHS"] = "3"
-            self.assertEqual(_configured_history_months(), 12)
+            self.assertEqual(_configured_history_months(), 3)
             os.environ["AIR_NSE_HISTORY_MONTHS"] = "18"
             self.assertEqual(_configured_history_months(), 18)
             os.environ["AIR_NSE_HISTORY_MONTHS"] = "99"
