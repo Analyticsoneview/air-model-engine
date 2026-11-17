@@ -28,3 +28,36 @@ def test_market_data_schemas_are_isolated_and_have_shared_ingestion_ledger():
     assert "UNIQUE (effective_date, sha256)" in migration
     assert "PRIMARY KEY (snapshot_id, instrument_id)" in migration
     assert "source_artifact_id UUID REFERENCES ingestion.source_artifacts" in migration
+
+import os
+import pytest
+from sqlalchemy import create_engine, text
+
+
+@pytest.mark.skipif(not os.getenv("AIR_DATABASE_URL"), reason="requires disposable PostgreSQL with migrations applied")
+def test_market_data_postgres_schemas_and_tables_exist():
+    engine = create_engine(os.environ["AIR_DATABASE_URL"])
+    expected = EXPECTED_MARKET_SCHEMAS | EXPECTED_SHARED_SCHEMAS
+    try:
+        with engine.connect() as connection:
+            schemas = set(connection.execute(text(
+                "SELECT schema_name FROM information_schema.schemata WHERE schema_name = ANY(:names)"
+            ), {"names": list(expected)}).scalars())
+            assert schemas == expected
+
+            tables = set(connection.execute(text("""
+                SELECT table_schema || '.' || table_name
+                FROM information_schema.tables
+                WHERE table_schema = ANY(:names) AND table_type = 'BASE TABLE'
+            """), {"names": list(expected)}).scalars())
+
+            for schema in EXPECTED_MARKET_SCHEMAS:
+                assert f"{schema}.daily_bars" in tables
+            assert {
+                "ingestion.feed_runs", "ingestion.source_artifacts",
+                "ingestion.feed_checkpoints", "ingestion.dataset_coverage",
+                "market_ref.instruments", "market_ref.trading_sessions",
+                "nse_fo.contract_master_snapshots", "nse_fo.contracts",
+            }.issubset(tables)
+    finally:
+        engine.dispose()
