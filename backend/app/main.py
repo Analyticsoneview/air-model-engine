@@ -62,6 +62,7 @@ from app.usage_metering_api import router as usage_metering_router
 from app.payment_providers_api import router as payment_providers_router
 from app.billing_api import router as billing_router
 from app.commercial_reporting_api import router as commercial_reporting_router
+from app.commercial_release_controls_api import router as commercial_release_controls_router
 from app.onboarding_api import router as onboarding_router
 from app.tenant_memberships_api import router as tenant_memberships_router
 from app.enterprise_licensing_api import router as enterprise_licensing_router
@@ -82,6 +83,7 @@ app.include_router(usage_metering_router)
 app.include_router(payment_providers_router)
 app.include_router(billing_router)
 app.include_router(commercial_reporting_router)
+app.include_router(commercial_release_controls_router)
 app.include_router(onboarding_router)
 app.include_router(tenant_memberships_router)
 app.include_router(enterprise_licensing_router)
