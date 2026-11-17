@@ -45,7 +45,27 @@ def emit(payload: dict[str, Any]) -> None:
     print(json.dumps(payload, indent=2, sort_keys=True))
 
 
-def validate(profile_id: str) -> dict[str, Any]:
+def choose_orchestrator(requested: str | None, *, interactive: bool) -> str:
+    """Resolve Compose/Swarm before any host or deployment mutation."""
+    if requested:
+        if requested not in {"compose", "swarm"}:
+            raise ManagerError("Deployment mode must be 'compose' or 'swarm'.")
+        return requested
+    if not interactive:
+        return "compose"
+    print("\\nChoose AIR deployment mode:")
+    print("  1. Docker Compose — recommended for a single-machine local setup")
+    print("  2. Docker Swarm — single-node or multi-node Swarm deployment")
+    while True:
+        choice = input("Select 1 or 2 [1]: ").strip() or "1"
+        if choice == "1":
+            return "compose"
+        if choice == "2":
+            return "swarm"
+        print("Invalid selection. Enter 1 for Compose or 2 for Swarm.")
+
+
+def validate(profile_id: str, orchestrator: str = "compose") -> dict[str, Any]:
     profile = load_profile(profile_id, require_cloud_env=False)
     missing = [name for name in REQUIRED_FILES if not (ROOT / name).is_file()]
     if missing:
@@ -65,7 +85,7 @@ def validate(profile_id: str) -> dict[str, Any]:
         "profile_id": profile_id,
         "provider": provider,
         "tenancy": profile["deployment"]["tenancy"],
-        "orchestrator": profile["deployment"]["orchestrator"],
+        "orchestrator": orchestrator,
         "services": sorted(profile["services"]),
         "deployment_status": "READY_FOR_LOCAL_PREFLIGHT" if provider == "on_prem" else "DEFERRED_UNTIL_AWS_ENVIRONMENT",
     }
@@ -131,7 +151,44 @@ def local_status() -> dict[str, Any]:
     }
 
 
-def invoke_installer(*, upgrade: bool) -> int:
+def invoke_swarm_installer(*, upgrade: bool) -> int:
+    """Run the guarded Swarm deployment path on a prepared Swarm manager."""
+    if os.name == "nt":
+        raise ManagerError(
+            "The AIR Swarm installer currently requires a Linux Docker Swarm manager. "
+            "Use Docker Compose on Windows, or run AIRDEPLOY.sh on the Linux manager."
+        )
+    docker = shutil.which("docker")
+    if not docker:
+        raise ManagerError("Docker CLI is not installed.")
+    swarm = run([docker, "info", "--format", "{{.Swarm.LocalNodeState}}"])
+    if swarm.returncode:
+        raise ManagerError(swarm.stderr.strip() or "Could not inspect Docker Swarm state.")
+    if swarm.stdout.strip() != "active":
+        raise ManagerError(
+            "Docker Swarm is not initialized on this host. Compose mode never initializes Swarm. "
+            "For Swarm mode, initialize or join the intended cluster first, then retry."
+        )
+    env_file = Path(os.getenv("AIR_DEPLOY_ENV_FILE", "/etc/air/air.env"))
+    if not env_file.is_file():
+        raise ManagerError(
+            f"Swarm deployment configuration is missing: {env_file}. "
+            "Prepare the protected AIR deployment environment and Docker secrets first; "
+            "the installer will not invent operator IDs, domains or credentials."
+        )
+    command = ["bash", str(ROOT / "deploy/deploy-swarm.sh")]
+    environment = os.environ.copy()
+    if upgrade:
+        environment["AIR_SKIP_IMAGE_PULL"] = "false"
+    try:
+        return subprocess.run(command, cwd=ROOT, env=environment, check=False).returncode
+    except OSError as exc:
+        raise ManagerError(f"Could not start AIR Swarm deployment: {exc}") from exc
+
+
+def invoke_installer(*, upgrade: bool, orchestrator: str) -> int:
+    if orchestrator == "swarm":
+        return invoke_swarm_installer(upgrade=upgrade)
     environment = os.environ.copy()
     if upgrade:
         environment["AIR_START_SKIP_OPEN"] = "true"
@@ -163,6 +220,7 @@ def main() -> int:
     parser.add_argument("--profile", choices=sorted(SUPPORTED_PROFILES), default="onprem-single")
     parser.add_argument("--version", default=os.getenv("AIR_RELEASE_VERSION", "dev"))
     parser.add_argument("--output-dir", type=Path, default=ROOT / "dist")
+    parser.add_argument("--orchestrator", choices=("compose", "swarm"), default=None, help="Choose Docker Compose or Docker Swarm; install prompts when omitted in an interactive terminal.")
     sub = parser.add_subparsers(dest="action", required=True)
     for action in ACTIONS:
         sub.add_parser(action)
@@ -173,7 +231,11 @@ def main() -> int:
         return 2
 
     try:
-        profile = validate(args.profile)
+        orchestrator = choose_orchestrator(
+            args.orchestrator,
+            interactive=(args.action == "install" and sys.stdin.isatty()),
+        )
+        profile = validate(args.profile, orchestrator)
         provider = profile["provider"]
 
         if args.action == "validate":
@@ -245,7 +307,7 @@ def main() -> int:
                 raise ManagerError(
                     f"Only {checks['free_disk_gb']} GB is free; AIR installation requires at least 5 GB."
                 )
-            return invoke_installer(upgrade=False)
+            return invoke_installer(upgrade=False, orchestrator=orchestrator)
 
         if args.action == "upgrade":
             checks = docker_doctor()
@@ -253,7 +315,7 @@ def main() -> int:
                 raise ManagerError(
                     f"Only {checks['free_disk_gb']} GB is free; free at least 5 GB before upgrading AIR."
                 )
-            return invoke_installer(upgrade=True)
+            return invoke_installer(upgrade=True, orchestrator=orchestrator)
 
         raise ManagerError(f"Unsupported action: {args.action}")
     except (DeploymentProfileError, ManagerError, OSError, ValueError) as exc:
