@@ -34,7 +34,7 @@ EXPECTED_CHAIN = [
     "0027_organisation_memberships",
     "0028_enterprise_license",
     "0029_customer_credentials",
-    "0030_market_data_schema_isolation",
+    "0030_market_schema",
 ]
 
 
