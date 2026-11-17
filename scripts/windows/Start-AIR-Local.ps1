@@ -183,11 +183,12 @@ try {
         throw "FastAPI health/dependency check did not pass."
     }
     $openapi = Invoke-RestMethod -Uri "http://localhost:8000/openapi.json" -TimeoutSec 20
+    $apiPaths = @($openapi.paths.PSObject.Properties.Name)
     foreach ($route in @("/ready", "/api/v1/admin/auth/login", "/api/v1/backtest/strategies")) {
-        if (!$openapi.paths.ContainsKey($route)) { throw "Expected API route is missing: $route" }
+        if ($apiPaths -notcontains $route) { throw "Expected API route is missing: $route" }
     }
-    $null = Invoke-WebRequest -Uri "http://localhost:8080/health" -TimeoutSec 10
-    $adminPage = Invoke-WebRequest -Uri "http://localhost:8080/admin/" -TimeoutSec 20
+    $null = Invoke-WebRequest -UseBasicParsing -Uri "http://localhost:8080/health" -TimeoutSec 10
+    $adminPage = Invoke-WebRequest -UseBasicParsing -Uri "http://localhost:8080/admin/" -TimeoutSec 20
     if ($adminPage.StatusCode -ne 200 -or $adminPage.Content -notmatch "AIR") {
         throw "Administrator web console did not load from /admin/."
     }
