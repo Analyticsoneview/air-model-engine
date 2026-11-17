@@ -189,7 +189,7 @@ try {
     }
     $null = Invoke-WebRequest -UseBasicParsing -Uri "http://localhost:8080/health" -TimeoutSec 10
     $adminPage = Invoke-WebRequest -UseBasicParsing -Uri "http://localhost:8080/admin/" -TimeoutSec 20
-    if ($adminPage.StatusCode -ne 200 -or $adminPage.Content -notmatch "AIR") {
+    if ($adminPage.StatusCode -ne 200 -or $adminPage.Content -notmatch '<base href="/admin/">') {
         throw "Administrator web console did not load from /admin/."
     }
 
