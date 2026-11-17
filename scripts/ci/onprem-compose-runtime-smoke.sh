@@ -55,7 +55,7 @@ docker compose -f compose.local.yml up -d --build --wait --wait-timeout 600
 for attempt in $(seq 1 60); do
   if curl --fail --silent http://127.0.0.1:8000/health >/dev/null \
     && curl --fail --silent http://127.0.0.1:8080/health >/dev/null \
-    && curl --fail --silent http://127.0.0.1:8080/admin/ | grep -q "AIR"; then
+    && curl --fail --silent http://127.0.0.1:8080/admin/ | grep -q '<base href="/admin/">'; then
     break
   fi
   if [[ "$attempt" -eq 60 ]]; then
