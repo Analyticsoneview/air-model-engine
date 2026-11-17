@@ -118,7 +118,7 @@ AIR_SMTP_PORT=587
             } catch { }
         }
         if (((Get-Date) - $lastProgressAt).TotalSeconds -ge 60) {
-            Write-Host "AIR is waiting for the complete 12-month NSE history and research readiness gate..." -ForegroundColor Yellow
+            Write-Host "AIR is waiting for the initial three-month NSE history and research readiness gate..." -ForegroundColor Yellow
             $lastProgressAt = Get-Date
         }
         Start-Sleep -Seconds 15
