@@ -205,8 +205,6 @@ try {
     }
 
     if (!$SkipAdminBootstrap) {
-        & docker compose -f .\compose.local.yml exec -T air-api python /app/scripts/check_admin_bootstrap.py
-        if ($LASTEXITCODE -ne 0) { throw "Could not inspect the administrator bootstrap state." }
         $adminStatusText = & docker compose -f .\compose.local.yml exec -T air-api python /app/scripts/check_admin_bootstrap.py
         if ($LASTEXITCODE -ne 0) { throw "Could not inspect the administrator bootstrap state." }
         $adminStatus = $adminStatusText | ConvertFrom-Json
@@ -235,7 +233,7 @@ try {
     }
 }
 catch {
-    Write-Error $_
+    Write-Host ("ERROR: " + $_.Exception.Message) -ForegroundColor Red
     Write-Host ""
     Write-Host "Diagnostics:" -ForegroundColor Yellow
     Write-Host "docker compose -f .\compose.local.yml ps"
