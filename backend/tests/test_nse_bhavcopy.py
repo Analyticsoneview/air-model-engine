@@ -21,19 +21,19 @@ class NSEBhavcopyTests(unittest.TestCase):
         self.assertEqual(_subtract_months(date(2026, 5, 31), 3), date(2026, 2, 28))
 
 
-    def test_initial_history_configuration_defaults_to_at_least_twelve_months(self):
+    def test_initial_history_configuration_defaults_to_three_months(self):
         previous = os.environ.get("AIR_NSE_HISTORY_MONTHS")
         try:
             os.environ.pop("AIR_NSE_HISTORY_MONTHS", None)
-            self.assertEqual(_configured_history_months(), 12)
+            self.assertEqual(_configured_history_months(), 3)
             os.environ["AIR_NSE_HISTORY_MONTHS"] = "3"
-            self.assertEqual(_configured_history_months(), 12)
+            self.assertEqual(_configured_history_months(), 3)
             os.environ["AIR_NSE_HISTORY_MONTHS"] = "18"
             self.assertEqual(_configured_history_months(), 18)
             os.environ["AIR_NSE_HISTORY_MONTHS"] = "99"
             self.assertEqual(_configured_history_months(), 60)
             os.environ["AIR_NSE_HISTORY_MONTHS"] = "invalid"
-            self.assertEqual(_configured_history_months(), 12)
+            self.assertEqual(_configured_history_months(), 3)
         finally:
             if previous is None:
                 os.environ.pop("AIR_NSE_HISTORY_MONTHS", None)
@@ -53,7 +53,7 @@ class NSEBhavcopyTests(unittest.TestCase):
             date(2026, 11, 16),
         )
 
-    def test_readiness_rejects_legacy_three_month_ready_marker(self):
+    def test_readiness_requires_complete_three_month_initial_window(self):
         self.assertFalse(nse_bootstrap_is_ready({"status": "READY"}))
         self.assertFalse(nse_bootstrap_is_ready({
             "status": "READY", "history_months": 3,
@@ -62,7 +62,7 @@ class NSEBhavcopyTests(unittest.TestCase):
 
     def test_readiness_requires_full_archive_and_paired_session_coverage(self):
         complete = {
-            "status": "READY", "history_months": 12,
+            "status": "READY", "history_months": 3,
             "archive_coverage_pct": 100, "paired_session_coverage_pct": 100,
             "universe": {
                 "status": "READY",

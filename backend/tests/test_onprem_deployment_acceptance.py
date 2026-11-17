@@ -86,15 +86,17 @@ class OnPremDeploymentAcceptanceTests(unittest.TestCase):
         for forbidden in ("password: air", "jwt_secret: ", "credential_key: "):
             self.assertNotIn(forbidden, lowered)
 
-    def test_one_click_installers_gate_on_full_readiness_and_twelve_month_history(self):
+    def test_one_click_installers_gate_on_full_readiness_and_three_month_history(self):
         shell = read("AIRSTART.sh")
         powershell = read("AIRSTART.ps1")
         compose = read("compose.local.yml")
         self.assertIn("compose.local.yml up -d --build", shell)
         self.assertIn("compose.local.yml up -d --build", powershell)
-        self.assertIn("http://localhost:8000/ready", shell)
-        self.assertIn("http://localhost:8000/ready", powershell)
-        self.assertIn("AIR_NSE_HISTORY_MONTHS: \"12\"", compose)
+        self.assertIn("http://localhost:8000/health", shell)
+        self.assertNotIn("http://localhost:8000/ready", shell)
+        self.assertIn("http://localhost:8000/health", powershell)
+        self.assertNotIn("http://localhost:8000/ready", powershell)
+        self.assertIn("AIR_NSE_HISTORY_MONTHS: ${AIR_NSE_HISTORY_MONTHS:-3}", compose)
 
     def test_swarm_deployer_validates_rendered_stack_and_worker_runtime_heartbeat(self):
         deployer = read("deploy/deploy-swarm.sh")
@@ -109,7 +111,7 @@ class OnPremDeploymentAcceptanceTests(unittest.TestCase):
         stack = read("docker-stack.yml")
         self.assertIn("AIR_NSE_BOOTSTRAP_ENABLED: ${AIR_NSE_BOOTSTRAP_ENABLED:-true}", compose)
         self.assertIn("AIR_NSE_BOOTSTRAP_ENABLED: ${AIR_NSE_BOOTSTRAP_ENABLED:-true}", stack)
-        self.assertIn("AIR_NSE_HISTORY_MONTHS: ${AIR_NSE_HISTORY_MONTHS:-12}", stack)
+        self.assertIn("AIR_NSE_HISTORY_MONTHS: ${AIR_NSE_HISTORY_MONTHS:-3}", stack)
 
     def test_ci_compose_smoke_checks_api_pwa_and_rabbitmq_worker_heartbeat(self):
         smoke = read("scripts/ci/onprem-compose-runtime-smoke.sh")

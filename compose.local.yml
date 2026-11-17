@@ -85,7 +85,7 @@ services:
       AIR_NSE_DB_PATH: /var/lib/air/nse_bhavcopy.sqlite3
       AIR_NSE_ARCHIVE_DIR: /var/lib/air/nse_archives
       AIR_NSE_BOOTSTRAP_ENABLED: ${AIR_NSE_BOOTSTRAP_ENABLED:-true}
-      AIR_NSE_HISTORY_MONTHS: "12"
+      AIR_NSE_HISTORY_MONTHS: ${AIR_NSE_HISTORY_MONTHS:-3}
       AIR_NSE_UNIVERSE_DB_PATH: /var/lib/air/nse_universe.sqlite3
       AIR_TELEGRAM_BOT_TOKEN_FILE: /run/secrets/air_telegram_bot_token
       AIR_TELEGRAM_CONFIG_DB_PATH: /var/lib/air/air_telegram_config.sqlite3

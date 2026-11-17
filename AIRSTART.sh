@@ -67,13 +67,13 @@ while (( SECONDS - readiness_started < readiness_timeout_seconds )); do
     health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id")"
     if [[ "$health" != "healthy" ]]; then all_healthy=false; break; fi
   done
-  if [[ "$all_healthy" == true ]] && curl -fsS http://localhost:8000/ready >/dev/null && curl -fsS http://localhost:8080/health >/dev/null; then
+  if [[ "$all_healthy" == true ]] && curl -fsS http://localhost:8000/health >/dev/null && curl -fsS http://localhost:8080/health >/dev/null; then
     break
   fi
   all_healthy=false
   elapsed=$((SECONDS - readiness_started))
   if (( elapsed - last_progress_seconds >= 60 )); then
-    echo "AIR is waiting for the complete 12-month NSE history and research readiness gate..."
+    echo "AIR services are starting; historical market data continues loading in the background..."
     last_progress_seconds=$elapsed
   fi
   sleep 15
@@ -82,10 +82,10 @@ done
 if [[ "$all_healthy" != true ]]; then
   docker compose -f compose.local.yml ps
   docker compose -f compose.local.yml logs --tail 100
-  echo "AIR did not reach full readiness within ${readiness_timeout_minutes} minutes. Check service logs and NSE bootstrap status; do not use the app until the readiness gate passes." >&2
+  echo "AIR core services did not become healthy within ${readiness_timeout_minutes} minutes. Check service logs and dependency health." >&2
   exit 1
 fi
-echo "PostgreSQL, Redis, RabbitMQ, FastAPI, workflow worker, PWA and initial market-data readiness are verified."
+echo "AIR core services are healthy. The dashboard is available while historical market data continues loading; research features unlock as their datasets become ready."
 docker compose -f compose.local.yml ps
 if [[ "${AIR_START_SKIP_OPEN:-false}" != "true" ]]; then
   if command -v open >/dev/null 2>&1; then open http://localhost:8080
