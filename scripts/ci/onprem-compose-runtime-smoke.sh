@@ -54,7 +54,8 @@ docker compose -f compose.local.yml up -d --build --wait --wait-timeout 600
 
 for attempt in $(seq 1 60); do
   if curl --fail --silent http://127.0.0.1:8000/health >/dev/null \
-    && curl --fail --silent http://127.0.0.1:8080/health >/dev/null; then
+    && curl --fail --silent http://127.0.0.1:8080/health >/dev/null \
+    && curl --fail --silent http://127.0.0.1:8080/admin/ | grep -q '<base href="/admin/">'; then
     break
   fi
   if [[ "$attempt" -eq 60 ]]; then
@@ -80,5 +81,5 @@ if [[ "$heartbeat_ready" != true ]]; then
   exit 1
 fi
 
-echo "PASS: Compose PostgreSQL, Redis, RabbitMQ, API, worker and PWA runtime smoke test."
+echo "PASS: Compose PostgreSQL, Redis, RabbitMQ, API, worker, customer PWA and admin console smoke test."
 echo "NOTE: NSE history bootstrap and full /ready acceptance are intentionally tested separately."
