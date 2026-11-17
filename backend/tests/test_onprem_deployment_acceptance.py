@@ -147,6 +147,32 @@ class OnPremDeploymentAcceptanceTests(unittest.TestCase):
         self.assertIn("## 2. Create Docker secrets", guide)
 
 
+    def test_local_pwa_image_builds_customer_and_admin_entrypoints(self):
+        dockerfile = read("deploy/pwa.Dockerfile")
+        self.assertIn("--target lib/main.dart", dockerfile)
+        self.assertIn("--target lib/admin_main.dart", dockerfile)
+        self.assertIn('--base-href "/admin/"', dockerfile)
+        self.assertIn("/usr/share/nginx/html/admin", dockerfile)
+
+    def test_windows_local_startup_backs_up_before_migrations_and_preserves_database_services(self):
+        starter = read("scripts/windows/Start-AIR-Local.ps1")
+        self.assertIn("pg_dump", starter)
+        self.assertIn("pg_restore", starter)
+        self.assertIn("Get-FileHash", starter)
+        self.assertIn('"--no-deps", "air-api"', starter)
+        self.assertIn('"--no-deps", "air-workflow-worker"', starter)
+        self.assertIn("check_workflow_runtime.py", starter)
+        self.assertIn("check_admin_bootstrap.py", starter)
+        self.assertNotIn("down -v", starter.lower())
+        self.assertNotIn("system prune", starter.lower())
+
+    def test_initial_admin_bootstrap_is_existing_interactive_totp_flow(self):
+        bootstrap = read("backend/scripts/bootstrap_admin.py")
+        self.assertIn("verify_totp", bootstrap)
+        self.assertIn("store.bootstrap(email, password, secret)", bootstrap)
+        self.assertIn("air-admin-mfa-setup.svg", bootstrap)
+        self.assertIn("No Super Admin account was created", bootstrap)
+
     def test_local_pwa_does_not_bake_an_insecure_http_api_url(self):
         compose = read("compose.local.yml")
         pwa = service_block(compose, "air-pwa")
