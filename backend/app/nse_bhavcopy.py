@@ -1,7 +1,7 @@
 """NSE CM and F&O UDiFF bhavcopy bootstrap and query store.
 
-Downloads official NSE end-of-day CM and FO UDiFF ZIP archives for at least
-the configured initial history window (12 calendar months by default). Raw
+Downloads official NSE end-of-day CM and FO UDiFF ZIP archives for the configured
+initial history window (3 calendar months by default). Raw
 ZIPs are retained; normalized contract rows are indexed in SQLite for app
 queries. This is EOD data, not intraday ticks or full bid/ask snapshots.
 """
@@ -39,12 +39,12 @@ def _subtract_months(value: date, months: int) -> date:
 
 
 def _configured_history_months() -> int:
-    """Initial AIR research history must never be configured below 12 months."""
+    """Initial AIR bootstrap defaults to three months; older history is an explicit backfill."""
     try:
-        requested = int(os.getenv("AIR_NSE_HISTORY_MONTHS", "12"))
+        requested = int(os.getenv("AIR_NSE_HISTORY_MONTHS", "3"))
     except (TypeError, ValueError):
-        requested = 12
-    return max(12, min(requested, 60))
+        requested = 3
+    return max(3, min(requested, 60))
 
 
 def _bootstrap_end_date(now: datetime) -> date:
