@@ -19,7 +19,8 @@ function Get-ServiceContainerId {
     param([string]$Service)
     $id = & docker compose -f .\compose.local.yml ps -q $Service
     if ($LASTEXITCODE -ne 0) { throw "Could not locate Compose service '$Service'." }
-    return (($id | Select-Object -First 1) -as [string]).Trim()
+    $value = [string]($id | Select-Object -First 1)
+    return $value.Trim()
 }
 
 function Get-ContainerHealth {
