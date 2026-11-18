@@ -108,7 +108,18 @@ try {
     $sourceDump = $pgId + ":" + $containerDump
     Invoke-Docker -Arguments @("cp", $sourceDump, $backupFile) -Failure "Could not copy PostgreSQL backup to Windows."
     $backup = Get-Item -LiteralPath $backupFile
-    if ($backup.Length -lt 1024) { throw "PostgreSQL backup file is unexpectedly small: $($backup.Length) bytes." }
+    if ($backup.Length -lt 1) { throw "PostgreSQL backup file is empty." }
+
+    # Validate the Windows copy too; a successful container-side dump is not enough
+    # if the copy is truncated or corrupted.
+    $verificationDump = "/tmp/air-backup-copy-verify-$stamp.dump"
+    $verificationTarget = $pgId + ":" + $verificationDump
+    Invoke-Docker -Arguments @("cp", $backupFile, $verificationTarget) -Failure "Could not stage the Windows backup for validation."
+    & docker exec $pgId pg_restore --list $verificationDump | Out-Null
+    $restoreListExitCode = $LASTEXITCODE
+    & docker exec $pgId rm -f $verificationDump | Out-Null
+    if ($restoreListExitCode -ne 0) { throw "Copied PostgreSQL backup failed pg_restore validation." }
+
     $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $backupFile).Hash
     ($hash + "  " + $backup.Name) | Set-Content -LiteralPath ($backupFile + ".sha256") -Encoding ascii
     Write-Host "PASS PostgreSQL backup: $backupFile ($($backup.Length) bytes)" -ForegroundColor Green
