@@ -1,0 +1,66 @@
+name: AIR Android Debug APK
+
+on:
+  push:
+    branches:
+      - build/android-debug-apk
+
+permissions:
+  contents: read
+
+concurrency:
+  group: air-android-debug-apk
+  cancel-in-progress: false
+
+jobs:
+  build-debug-apk:
+    name: Build installable Android debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout GitHub source
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Generate Android platform files
+        working-directory: mobile
+        run: flutter create . --platforms=android --org com.analyticalstocks
+
+      - name: Resolve Flutter dependencies
+        working-directory: mobile
+        run: flutter pub get
+
+      - name: Build debug APK
+        working-directory: mobile
+        run: flutter build apk --debug
+
+      - name: Verify APK and calculate SHA-256
+        run: |
+          APK="mobile/build/app/outputs/flutter-apk/app-debug.apk"
+          test -s "$APK"
+          ls -lh "$APK"
+          sha256sum "$APK" | tee AIR-Android-Debug-SHA256.txt
+
+      - name: Upload installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AIR-Model-Engine-Android-Debug-APK
+          path: |
+            mobile/build/app/outputs/flutter-apk/app-debug.apk
+            AIR-Android-Debug-SHA256.txt
+          if-no-files-found: error
+          retention-days: 30
