@@ -93,9 +93,11 @@ class OnPremDeploymentAcceptanceTests(unittest.TestCase):
         self.assertIn("compose.local.yml up -d --build", shell)
         self.assertIn("compose.local.yml up -d --build", powershell)
         self.assertIn("http://localhost:8000/health", shell)
-        self.assertNotIn("http://localhost:8000/ready", shell)
+        self.assertIn("http://localhost:8000/ready", shell)
         self.assertIn("http://localhost:8000/health", powershell)
-        self.assertNotIn("http://localhost:8000/ready", powershell)
+        self.assertIn("http://localhost:8000/ready", powershell)
+        self.assertLess(shell.index("http://localhost:8000/ready"), shell.index("http://localhost:8080"))
+        self.assertLess(powershell.index("http://localhost:8000/ready"), powershell.index('Start-Process "http://localhost:8080"'))
         self.assertIn("AIR_NSE_HISTORY_MONTHS: ${AIR_NSE_HISTORY_MONTHS:-3}", compose)
 
     def test_swarm_deployer_validates_rendered_stack_and_worker_runtime_heartbeat(self):
@@ -104,6 +106,9 @@ class OnPremDeploymentAcceptanceTests(unittest.TestCase):
         self.assertIn("workflow-runtime", deployer)
         self.assertIn("rabbitmq_connected", deployer)
         self.assertIn("docker stack deploy", deployer)
+        self.assertIn("http://127.0.0.1:8000/health", deployer)
+        self.assertIn("http://127.0.0.1:8000/ready", deployer)
+        self.assertIn("AIR_INSTALL_READINESS_TIMEOUT_MINUTES", deployer)
 
 
     def test_nse_bootstrap_can_be_disabled_only_by_explicit_environment_override(self):
@@ -168,6 +173,15 @@ class OnPremDeploymentAcceptanceTests(unittest.TestCase):
         self.assertIn("check_admin_bootstrap.py", starter)
         self.assertNotIn("down -v", starter.lower())
         self.assertNotIn("system prune", starter.lower())
+
+    def test_windows_local_runtime_waits_for_full_readiness_before_opening_apps(self):
+        starter = read("scripts/windows/Start-AIR-Local.ps1")
+        self.assertIn('Invoke-RestMethod -Uri "http://localhost:8000/ready"', starter)
+        self.assertIn("RabbitMQ-connected worker runtime are ready", starter)
+        self.assertLess(
+            starter.index('Invoke-RestMethod -Uri "http://localhost:8000/ready"'),
+            starter.index('Start-Process "http://localhost:8080/admin/"'),
+        )
 
     def test_initial_admin_bootstrap_is_existing_interactive_totp_flow(self):
         bootstrap = read("backend/scripts/bootstrap_admin.py")
