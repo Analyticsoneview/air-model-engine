@@ -81,7 +81,7 @@ Never treat a placeholder, sample response or unverified broker connection as a 
 
 ## One-command cross-platform local startup
 
-Use Docker Compose v2 for the same local AIR stack on Windows, macOS and Linux. Follow [Local Setup](LOCAL_SETUP.md). After the one-time bootstrap, open a terminal in the repository and run the single command `AIRSTART`. The launcher generates local secrets, builds the backend and Flutter PWA, starts services, waits for API health and opens the local app. Local trading execution remains disabled; QOC and Telegram schedulers remain off until deliberately configured.
+Use Docker Compose v2 for the same local AIR stack on Windows, macOS and Linux. Follow [Local Setup](LOCAL_SETUP.md). After the one-time bootstrap, open a terminal in the repository and run the single command `AIRSTART`. The launcher preserves existing local secrets, builds the backend and Flutter PWA, starts services, and waits for FastAPI `/health`, full `/ready` (including market-data bootstrap), and a fresh RabbitMQ-connected workflow-worker heartbeat before opening the local app. Local trading execution remains disabled; QOC and Telegram schedulers remain off until deliberately configured.
 
 
 ## AIR Global Strategy and Commercial Programme
