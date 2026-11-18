@@ -65,12 +65,20 @@ def choose_orchestrator(requested: str | None, *, interactive: bool) -> str:
         print("Invalid selection. Enter 1 for Compose or 2 for Swarm.")
 
 
-def validate(profile_id: str, orchestrator: str = "compose") -> dict[str, Any]:
+def validate(profile_id: str, orchestrator: str | None = None) -> dict[str, Any]:
     profile = load_profile(profile_id, require_cloud_env=False)
     missing = [name for name in REQUIRED_FILES if not (ROOT / name).is_file()]
     if missing:
         raise ManagerError("Required deployment inputs are missing: " + ", ".join(missing))
     provider = profile["deployment"]["provider"]
+    if provider != "on_prem" and orchestrator is not None:
+        raise ManagerError("--orchestrator is only supported for on-premises AIR profiles.")
+    if provider == "on_prem":
+        resolved_orchestrator = orchestrator or (
+            "swarm" if profile["deployment"]["orchestrator"] == "docker_swarm" else "compose"
+        )
+    else:
+        resolved_orchestrator = profile["deployment"]["orchestrator"]
     if provider == "aws":
         terraform_files = ("versions.tf", "variables.tf", "network.tf", "ecs.tf", "data.tf", "security.tf", "outputs.tf")
         missing_tf = [
@@ -85,7 +93,7 @@ def validate(profile_id: str, orchestrator: str = "compose") -> dict[str, Any]:
         "profile_id": profile_id,
         "provider": provider,
         "tenancy": profile["deployment"]["tenancy"],
-        "orchestrator": orchestrator,
+        "orchestrator": resolved_orchestrator,
         "services": sorted(profile["services"]),
         "deployment_status": "READY_FOR_LOCAL_PREFLIGHT" if provider == "on_prem" else "DEFERRED_UNTIL_AWS_ENVIRONMENT",
     }
