@@ -231,10 +231,16 @@ def main() -> int:
         return 2
 
     try:
-        orchestrator = choose_orchestrator(
-            args.orchestrator,
-            interactive=(args.action == "install" and sys.stdin.isatty()),
-        )
+        configured_profile = load_profile(args.profile, require_cloud_env=False)
+        if configured_profile["deployment"]["provider"] == "on_prem":
+            orchestrator = choose_orchestrator(
+                args.orchestrator,
+                interactive=(args.action == "install" and sys.stdin.isatty()),
+            )
+        else:
+            if args.orchestrator is not None:
+                raise ManagerError("--orchestrator is only supported for on-premises AIR profiles.")
+            orchestrator = None
         profile = validate(args.profile, orchestrator)
         provider = profile["provider"]
 
