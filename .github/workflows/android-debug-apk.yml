@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   build-release-test-apk:
-    name: Build installable Android release-test APK
+    name: Build optimized ARM64 Android release-test APK
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -47,21 +47,26 @@ jobs:
         working-directory: mobile
         run: flutter pub get
 
-      - name: Build release-test APK
+      - name: Build optimized ARM64 release-test APK
         working-directory: mobile
-        run: flutter build apk --release
+        run: flutter build apk --release --target-platform android-arm64
 
-      - name: Verify APK and calculate SHA-256
+      - name: Verify APK architecture and calculate SHA-256
         run: |
           APK="mobile/build/app/outputs/flutter-apk/app-release.apk"
           test -s "$APK"
+          if unzip -l "$APK" | grep -Eq 'lib/(armeabi-v7a|x86_64)/'; then
+            echo "Unexpected non-ARM64 native libraries found in optimized APK"
+            exit 1
+          fi
+          unzip -l "$APK" | grep 'lib/arm64-v8a/'
           ls -lh "$APK"
           sha256sum "$APK" | tee AIR-Android-Release-Test-SHA256.txt
 
-      - name: Upload installable APK
+      - name: Upload optimized installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: AIR-Model-Engine-Android-Release-Test-APK
+          name: AIR-Model-Engine-Android-ARM64-Release-Test-APK
           path: |
             mobile/build/app/outputs/flutter-apk/app-release.apk
             AIR-Android-Release-Test-SHA256.txt
