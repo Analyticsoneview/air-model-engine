@@ -53,7 +53,7 @@ def choose_orchestrator(requested: str | None, *, interactive: bool) -> str:
         return requested
     if not interactive:
         return "compose"
-    print("\\nChoose AIR deployment mode:")
+    print("\nChoose AIR deployment mode:")
     print("  1. Docker Compose — recommended for a single-machine local setup")
     print("  2. Docker Swarm — single-node or multi-node Swarm deployment")
     while True:
@@ -65,18 +65,12 @@ def choose_orchestrator(requested: str | None, *, interactive: bool) -> str:
         print("Invalid selection. Enter 1 for Compose or 2 for Swarm.")
 
 
-def validate(profile_id: str, orchestrator: str | None = None) -> dict[str, Any]:
+def validate(profile_id: str, orchestrator: str = "compose") -> dict[str, Any]:
     profile = load_profile(profile_id, require_cloud_env=False)
     missing = [name for name in REQUIRED_FILES if not (ROOT / name).is_file()]
     if missing:
         raise ManagerError("Required deployment inputs are missing: " + ", ".join(missing))
     provider = profile["deployment"]["provider"]
-    if provider != "on_prem" and orchestrator is not None:
-        raise ManagerError("--orchestrator is only supported for on-premises AIR profiles.")
-    if provider == "on_prem":
-        orchestrator = orchestrator or ("swarm" if profile["deployment"]["orchestrator"] == "docker_swarm" else "compose")
-    else:
-        orchestrator = profile["deployment"]["orchestrator"]
     if provider == "aws":
         terraform_files = ("versions.tf", "variables.tf", "network.tf", "ecs.tf", "data.tf", "security.tf", "outputs.tf")
         missing_tf = [
@@ -237,16 +231,10 @@ def main() -> int:
         return 2
 
     try:
-        configured_profile = load_profile(args.profile, require_cloud_env=False)
-        if configured_profile["deployment"]["provider"] == "on_prem":
-            orchestrator = choose_orchestrator(
-                args.orchestrator,
-                interactive=(args.action == "install" and sys.stdin.isatty()),
-            )
-        else:
-            if args.orchestrator is not None:
-                raise ManagerError("--orchestrator is only supported for on-premises AIR profiles.")
-            orchestrator = None
+        orchestrator = choose_orchestrator(
+            args.orchestrator,
+            interactive=(args.action == "install" and sys.stdin.isatty()),
+        )
         profile = validate(args.profile, orchestrator)
         provider = profile["provider"]
 
