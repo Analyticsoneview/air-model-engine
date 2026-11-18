@@ -112,13 +112,17 @@ AIR_SMTP_PORT=587
         }
         if ($allHealthy) {
             try {
-                $api = Invoke-WebRequest -Uri "http://localhost:8000/health" -TimeoutSec 5
-                $pwa = Invoke-WebRequest -Uri "http://localhost:8080/health" -TimeoutSec 3
-                if ($api.StatusCode -eq 200 -and $pwa.StatusCode -eq 200) { $ready = $true; break }
+                $api = Invoke-WebRequest -UseBasicParsing -Uri "http://localhost:8000/health" -TimeoutSec 5
+                $application = Invoke-WebRequest -UseBasicParsing -Uri "http://localhost:8000/ready" -TimeoutSec 10
+                $pwa = Invoke-WebRequest -UseBasicParsing -Uri "http://localhost:8080/health" -TimeoutSec 3
+                if ($api.StatusCode -eq 200 -and $application.StatusCode -eq 200 -and $pwa.StatusCode -eq 200) {
+                    $ready = $true
+                    break
+                }
             } catch { }
         }
         if (((Get-Date) - $lastProgressAt).TotalSeconds -ge 60) {
-            Write-Host "AIR services are starting; historical market data continues loading in the background..." -ForegroundColor Yellow
+            Write-Host "AIR services are starting; waiting for API /ready, market-data bootstrap and RabbitMQ worker heartbeat..." -ForegroundColor Yellow
             $lastProgressAt = Get-Date
         }
         Start-Sleep -Seconds 15
@@ -126,9 +130,9 @@ AIR_SMTP_PORT=587
     if (!$ready) {
         docker compose -f compose.local.yml ps
         docker compose -f compose.local.yml logs --tail 100
-        throw "AIR core services did not become healthy within $timeoutMinutes minutes. Check service logs and dependency health."
+        throw "AIR full application readiness (/ready) did not pass within $timeoutMinutes minutes. Check service logs, market-data bootstrap and RabbitMQ worker heartbeat."
     }
-    Write-Host "AIR core services are healthy. The dashboard is available while historical market data continues loading; research features unlock as their datasets become ready." -ForegroundColor Green
+    Write-Host "AIR full readiness passed: API dependencies, market-data bootstrap and RabbitMQ-connected workflow heartbeat are healthy." -ForegroundColor Green
     docker compose -f compose.local.yml ps
     if ($env:AIR_START_SKIP_OPEN -ne "true") { Start-Process "http://localhost:8080" }
 

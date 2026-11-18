@@ -138,5 +138,36 @@ fi
 
 echo "PASS: workflow worker heartbeat is fresh, RUNNING and RabbitMQ-connected."
 
+# Do not report deployment success until the complete FastAPI /ready gate passes.
+API_SERVICE="${STACK_NAME}_air-api"
+API_CONTAINER="$(docker ps --filter "label=com.docker.swarm.service.name=$API_SERVICE" --format '{{.ID}}' | head -n 1)"
+if [[ -z "$API_CONTAINER" ]]; then
+  echo "FastAPI container is unavailable for the full readiness gate." >&2
+  exit 1
+fi
+
+READINESS_TIMEOUT_MINUTES="${AIR_INSTALL_READINESS_TIMEOUT_MINUTES:-720}"
+if ! [[ "$READINESS_TIMEOUT_MINUTES" =~ ^[0-9]+$ ]] || (( READINESS_TIMEOUT_MINUTES < 1 )); then
+  READINESS_TIMEOUT_MINUTES=720
+fi
+READINESS_DEADLINE=$((SECONDS + READINESS_TIMEOUT_MINUTES * 60))
+application_ready=0
+while (( SECONDS < READINESS_DEADLINE )); do
+  if docker exec "$API_CONTAINER" python -c \
+    'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=5); urllib.request.urlopen("http://127.0.0.1:8000/ready", timeout=10)' \
+    >/dev/null 2>&1; then
+    application_ready=1
+    break
+  fi
+  sleep 15
+done
+if [[ "$application_ready" -ne 1 ]]; then
+  echo "AIR full application readiness (/ready) did not pass within $READINESS_TIMEOUT_MINUTES minutes." >&2
+  docker service ps "$API_SERVICE" --no-trunc || true
+  docker logs "$API_CONTAINER" --tail 120 || true
+  exit 1
+fi
+
+echo "PASS: FastAPI /health and /ready passed, including market-data bootstrap and RabbitMQ-connected worker heartbeat."
 echo "AIR Swarm services report 1/1 replicas:"
 docker service ls --filter "label=com.docker.stack.namespace=$STACK_NAME"

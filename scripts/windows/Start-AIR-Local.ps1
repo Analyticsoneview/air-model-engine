@@ -217,6 +217,34 @@ try {
         throw "Worker container is running but a fresh RabbitMQ-connected runtime heartbeat was not verified."
     }
 
+    Write-Host ""
+    Write-Host "Waiting for full FastAPI /ready acceptance (including NSE history and workflow runtime)..." -ForegroundColor Cyan
+    $readinessTimeoutMinutes = 720
+    if ($env:AIR_INSTALL_READINESS_TIMEOUT_MINUTES) {
+        $parsedTimeout = 0
+        if ([int]::TryParse($env:AIR_INSTALL_READINESS_TIMEOUT_MINUTES, [ref]$parsedTimeout) -and $parsedTimeout -gt 0) {
+            $readinessTimeoutMinutes = $parsedTimeout
+        }
+    }
+    $readinessDeadline = (Get-Date).AddMinutes($readinessTimeoutMinutes)
+    $applicationReady = $false
+    while ((Get-Date) -lt $readinessDeadline) {
+        try {
+            $fullReadiness = Invoke-RestMethod -Uri "http://localhost:8000/ready" -TimeoutSec 10
+            if ($fullReadiness.status -eq "READY") {
+                $applicationReady = $true
+                break
+            }
+        } catch { }
+        Start-Sleep -Seconds 15
+    }
+    if (!$applicationReady) {
+        & docker compose -f .\compose.local.yml ps
+        & docker compose -f .\compose.local.yml logs --tail 120 air-api air-workflow-worker
+        throw "AIR full application readiness (/ready) did not pass within $readinessTimeoutMinutes minutes."
+    }
+    Write-Host "PASS FastAPI /ready: market-data bootstrap and RabbitMQ-connected worker runtime are ready." -ForegroundColor Green
+
     if (!$SkipAdminBootstrap) {
         $adminStatusText = & docker compose -f .\compose.local.yml exec -T air-api python /app/scripts/check_admin_bootstrap.py
         if ($LASTEXITCODE -ne 0) { throw "Could not inspect the administrator bootstrap state." }
