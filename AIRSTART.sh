@@ -67,13 +67,16 @@ while (( SECONDS - readiness_started < readiness_timeout_seconds )); do
     health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id")"
     if [[ "$health" != "healthy" ]]; then all_healthy=false; break; fi
   done
-  if [[ "$all_healthy" == true ]] && curl -fsS http://localhost:8000/health >/dev/null && curl -fsS http://localhost:8080/health >/dev/null; then
+  if [[ "$all_healthy" == true ]] \
+    && curl -fsS http://localhost:8000/health >/dev/null \
+    && curl -fsS http://localhost:8000/ready >/dev/null \
+    && curl -fsS http://localhost:8080/health >/dev/null; then
     break
   fi
   all_healthy=false
   elapsed=$((SECONDS - readiness_started))
   if (( elapsed - last_progress_seconds >= 60 )); then
-    echo "AIR services are starting; historical market data continues loading in the background..."
+    echo "AIR services are starting; waiting for API /ready, market-data bootstrap and RabbitMQ worker heartbeat..."
     last_progress_seconds=$elapsed
   fi
   sleep 15
@@ -82,10 +85,10 @@ done
 if [[ "$all_healthy" != true ]]; then
   docker compose -f compose.local.yml ps
   docker compose -f compose.local.yml logs --tail 100
-  echo "AIR core services did not become healthy within ${readiness_timeout_minutes} minutes. Check service logs and dependency health." >&2
+  echo "AIR full application readiness (/ready) did not pass within ${readiness_timeout_minutes} minutes. Check service logs, market-data bootstrap and RabbitMQ worker heartbeat." >&2
   exit 1
 fi
-echo "AIR core services are healthy. The dashboard is available while historical market data continues loading; research features unlock as their datasets become ready."
+echo "AIR full readiness passed: API dependencies, market-data bootstrap and RabbitMQ-connected workflow heartbeat are healthy."
 docker compose -f compose.local.yml ps
 if [[ "${AIR_START_SKIP_OPEN:-false}" != "true" ]]; then
   if command -v open >/dev/null 2>&1; then open http://localhost:8080
