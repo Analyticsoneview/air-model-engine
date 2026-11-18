@@ -5,7 +5,9 @@ param(
     [ValidateSet("validate", "doctor", "install", "upgrade", "status", "diagnose", "package")]
     [string]$Action = "",
     [string]$Version = "",
-    [string]$OutputDirectory = ""
+    [string]$OutputDirectory = "",
+    [ValidateSet("compose", "swarm")]
+    [string]$Orchestrator = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -37,6 +39,7 @@ $pythonArgs += (Join-Path $Root "scripts/air_manager.py")
 $pythonArgs += @("--profile", $DeploymentProfile)
 if ($Version) { $pythonArgs += @("--version", $Version) }
 if ($OutputDirectory) { $pythonArgs += @("--output-dir", $OutputDirectory) }
+if ($Orchestrator) { $pythonArgs += @("--orchestrator", $Orchestrator) }
 $pythonArgs += $Action
 
 & $python.Source @pythonArgs
