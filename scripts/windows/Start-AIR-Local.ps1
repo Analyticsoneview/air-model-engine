@@ -239,8 +239,8 @@ try {
         Start-Sleep -Seconds 15
     }
     if (!$applicationReady) {
-        & docker compose -f .\\compose.local.yml ps
-        & docker compose -f .\\compose.local.yml logs --tail 120 air-api air-workflow-worker
+        & docker compose -f .\compose.local.yml ps
+        & docker compose -f .\compose.local.yml logs --tail 120 air-api air-workflow-worker
         throw "AIR full application readiness (/ready) did not pass within $readinessTimeoutMinutes minutes."
     }
     Write-Host "PASS FastAPI /ready: market-data bootstrap and RabbitMQ-connected worker runtime are ready." -ForegroundColor Green
