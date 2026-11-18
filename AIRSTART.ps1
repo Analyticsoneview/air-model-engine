@@ -22,13 +22,101 @@ function Install-AirCommand {
 
 if ($InstallCommand) { Install-AirCommand; exit 0 }
 
-if (!(Get-Command docker -ErrorAction SilentlyContinue)) {
-    throw "Docker is missing. Install Docker Desktop, start it, then run AIRSTART again."
+function Test-IsAdministrator {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = [Security.Principal.WindowsPrincipal]::new($identity)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
-docker compose version | Out-Null
-if ($LASTEXITCODE -ne 0) { throw "Docker Compose v2 is unavailable. Install or update Docker Desktop and retry." }
-docker info | Out-Null
-if ($LASTEXITCODE -ne 0) { throw "Docker Desktop/Engine is not running. Start Docker and retry." }
+
+function Ensure-WindowsHostPrerequisites {
+    # Installing WSL2 and Docker Desktop requires elevation. Relaunch this same
+    # installer once with UAC; never silently reboot the customer's PC.
+    if (-not (Test-IsAdministrator)) {
+        $arguments = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$ScriptPath`"")
+        if ($InstallCommand) { $arguments += "-InstallCommand" }
+        Start-Process -FilePath "powershell.exe" -ArgumentList $arguments -Verb RunAs
+        exit 0
+    }
+
+    $winget = Get-Command winget -ErrorAction SilentlyContinue
+    if (-not $winget) {
+        throw "Windows Package Manager (winget) is required to provision AIR prerequisites automatically. Install/update 'App Installer' from Microsoft Store, then rerun AIRSTART."
+    }
+
+    # Python is used by the AIR Deployment Manager and local secret generator.
+    $python = Get-Command python -ErrorAction SilentlyContinue
+    $pythonOk = $false
+    if ($python) {
+        $versionText = & $python.Source --version 2>&1
+        $pythonOk = ($versionText -match "Python 3\.(1[0-9]|[2-9][0-9])")
+    }
+    if (-not $pythonOk) {
+        Write-Host "Installing Python 3.12 prerequisite..." -ForegroundColor Cyan
+        & winget install --id Python.Python.3.12 --exact --silent --accept-package-agreements --accept-source-agreements
+        if ($LASTEXITCODE -ne 0) { throw "Automatic Python 3.12 installation failed. Install Python 3.10+ and rerun AIRSTART." }
+        $env:Path = "$env:LOCALAPPDATA\Programs\Python\Python312;$env:LOCALAPPDATA\Programs\Python\Python312\Scripts;$env:Path"
+        $python = Get-Command python -ErrorAction SilentlyContinue
+        if (-not $python) { throw "Python was installed but is not yet available in PATH. Open a new PowerShell window and rerun AIRSTART." }
+    }
+
+    # WSL2 is the supported Linux container backend for Docker Desktop on Windows.
+    $wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
+    $wslReady = $false
+    if ($wsl) {
+        & wsl.exe --status *> $null
+        $wslReady = ($LASTEXITCODE -eq 0)
+    }
+    if (-not $wslReady) {
+        Write-Host "Installing WSL2 prerequisites (no Linux distribution is required)..." -ForegroundColor Cyan
+        & wsl.exe --install --no-distribution
+        if ($LASTEXITCODE -ne 0) {
+            throw "WSL2 installation could not complete. Check Windows optional features and hardware virtualization, reboot if requested, then rerun AIRSTART."
+        }
+        throw "WSL2 components have been installed. Restart Windows to finish enabling WSL2, then run AIRSTART again. AIR will resume automatically."
+    }
+
+    # Docker Desktop includes Docker Engine, CLI and Compose v2. RabbitMQ,
+    # PostgreSQL and Redis are provisioned later as AIR Compose services.
+    $docker = Get-Command docker -ErrorAction SilentlyContinue
+    if (-not $docker) {
+        Write-Host "Installing Docker Desktop..." -ForegroundColor Cyan
+        & winget install --id Docker.DockerDesktop --exact --silent --accept-package-agreements --accept-source-agreements
+        if ($LASTEXITCODE -ne 0) { throw "Automatic Docker Desktop installation failed. Install Docker Desktop and rerun AIRSTART." }
+        $candidatePaths = @(
+            "$env:ProgramFiles\Docker\Docker\resources\bin",
+            "$env:ProgramFiles\Docker\Docker\resources"
+        )
+        foreach ($candidate in $candidatePaths) {
+            if (Test-Path $candidate) { $env:Path = "$candidate;$env:Path" }
+        }
+        $docker = Get-Command docker -ErrorAction SilentlyContinue
+        if (-not $docker) {
+            throw "Docker Desktop installed, but its CLI is not yet available. Restart PowerShell (or Windows if requested) and rerun AIRSTART."
+        }
+    }
+
+    docker compose version | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Docker Compose v2 is unavailable after Docker Desktop provisioning. Update Docker Desktop and rerun AIRSTART." }
+
+    # Start Docker Desktop if its Linux engine is not already running.
+    docker info *> $null
+    if ($LASTEXITCODE -ne 0) {
+        $desktop = Join-Path $env:ProgramFiles "Docker\Docker\Docker Desktop.exe"
+        if (Test-Path $desktop) { Start-Process -FilePath $desktop }
+        $deadline = (Get-Date).AddMinutes(5)
+        do {
+            Start-Sleep -Seconds 5
+            docker info *> $null
+            if ($LASTEXITCODE -eq 0) { break }
+        } while ((Get-Date) -lt $deadline)
+    }
+    docker info *> $null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Docker Desktop is installed but its Linux engine is not ready. Complete Docker Desktop first-run setup, enable the WSL2 engine, accept its service prompt if shown, then rerun AIRSTART."
+    }
+}
+
+Ensure-WindowsHostPrerequisites
 
 Push-Location $Root
 try {
