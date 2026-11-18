@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [switch]$SkipAdminBootstrap,
     [switch]$DoNotOpenBrowser
@@ -56,7 +56,7 @@ function Wait-ServiceHealthy {
 
 try {
     Write-Host ""
-    Write-Host "AIR LOCAL START — Windows / Docker Desktop / Compose only" -ForegroundColor Cyan
+    Write-Host "AIR LOCAL START - Windows / Docker Desktop / Compose only" -ForegroundColor Cyan
     Write-Host "Project: $Root"
 
     if (!(Get-Command docker -ErrorAction SilentlyContinue)) {
