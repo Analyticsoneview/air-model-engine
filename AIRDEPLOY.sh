@@ -16,7 +16,11 @@ while (($#)); do
       option="$1"; shift
       if (($# == 0)); then echo "$option requires a value." >&2; exit 2; fi
       MANAGER_ARGS+=("$option" "$1"); shift ;;
-    --help|-h)
+    --orchestrator)
+      shift
+      if [[ $# == 0 ]]; then echo "--orchestrator requires compose or swarm." >&2; exit 2; fi
+      if [[ "$1" != "compose" && "$1" != "swarm" ]]; then echo "--orchestrator must be compose or swarm." >&2; exit 2; fi
+      MANAGER_ARGS+=(--orchestrator "$1"); shift ;;\n    --help|-h)
       exec python3 "$ROOT/scripts/air_manager.py" --help ;;
     *)
       echo "Unknown AIR deployment argument: $1" >&2
