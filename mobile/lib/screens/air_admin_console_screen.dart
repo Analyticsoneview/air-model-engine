@@ -374,9 +374,15 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     if (accepted != true) { current.dispose(); next.dispose(); return; }
     try {
       await _request('PUT', '/api/v1/admin/auth/password', body: {'current_password': current.text, 'new_password': next.text});
+      await _storage.delete(key: 'air_admin_access_token');
+      await _storage.delete(key: 'air_admin_refresh_token');
+      _token = null;
+      _role = '';
       _mustChangePassword = false;
-      await _load();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password changed. Other sessions were revoked.')));
+      if (mounted) {
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password changed. Sign in again to establish a new administrator session.')));
+      }
     } catch (e) { if (mounted) setState(() => _error = e.toString()); }
     current.dispose(); next.dispose();
   }
