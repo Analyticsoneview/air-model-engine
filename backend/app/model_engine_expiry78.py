@@ -8,6 +8,8 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
+ENGINE_VERSION = "EXPIRY78_DAILY_OHLCV_V2_UNRESOLVED_SAME_SESSION"
+
 RULES = {
     "valid_ohlcv": "O/H/L/C and quantity must be positive; high/low must contain open and close",
     "bullish_engulfing": "Current bullish candle body engulfs the previous bearish candle body",
@@ -244,6 +246,7 @@ def evaluate_expiry78_contract(
         status = "WAIT"
         reason = "No qualifying bullish-engulfing setup with a subsequent limit touch before expiry"
     return {
+        "strategy_version": ENGINE_VERSION,
         "status": status,
         "reason": reason,
         "trades": trades,
