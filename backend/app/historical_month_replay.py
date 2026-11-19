@@ -323,8 +323,16 @@ def historical_month_report(*, month: str, strategies: list[str],
                         "reason": STRATEGY_LIMITATIONS.get(strategy,
                             "Strategy is not registered for this historical evidence replay."),
                         "trade_count": 0, "trades": []})
+    has_limitations = any(
+        item.get("status") == "NOT_REPLAYED"
+        or (
+            isinstance(item.get("baseline_reconciliation"), dict)
+            and item["baseline_reconciliation"].get("status") != "MATCHED"
+        )
+        for item in results
+    )
     return {
-        "status": "COMPLETED_WITH_LIMITATIONS" if any(item["status"] == "NOT_REPLAYED" for item in results) else "COMPLETED",
+        "status": "COMPLETED_WITH_LIMITATIONS" if has_limitations else "COMPLETED",
         "mode": "HISTORICAL_SIGNAL_MONTH" if basis == "signal" else "HISTORICAL_EXPIRY_MONTH",
         "month": month, "month_basis": basis,
         "signal_month": month if basis == "signal" else None,
