@@ -55,6 +55,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
   String _tab = 'overview';
   bool _busy = false;
   bool _mustChangePassword = false;
+  Future<bool>? _refreshInFlight;
   String _newRole = 'ADMIN';
   String _subscriptionPlan = 'MONTHLY';
   String _requestFilter = 'PENDING';
@@ -109,7 +110,15 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     _restore();
   }
 
-  Future<bool> _refreshSession() async {
+  Future<bool> _refreshSession() {
+    final active = _refreshInFlight;
+    if (active != null) return active;
+    final pending = _performRefresh();
+    _refreshInFlight = pending;
+    return pending.whenComplete(() => _refreshInFlight = null);
+  }
+
+  Future<bool> _performRefresh() async {
     final refreshToken = await _storage.read(key: 'air_admin_refresh_token');
     if (refreshToken == null || refreshToken.isEmpty) return false;
     try {
