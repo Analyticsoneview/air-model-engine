@@ -202,3 +202,21 @@ def test_trailing_stop_gap_exits_at_observed_open():
     assert trade["exit_reason"] == "GAP_THROUGH_STOP"
     assert trade["exit_price"] == 9.2
     assert trade["stop_loss"] == 9.6
+
+
+
+def test_unresolved_expiry78_trade_remains_visible_in_strategy_tab():
+    from app.model_engine_strategies import build_strategy_views
+
+    item = contract(bars=base_bars()[:2] + [
+        bar("2026-11-05", 9, 10, 7.5, 8.5),
+    ])
+    item.update({
+        "signal_id": "ambiguous-entry-stop",
+        "classification": "WAIT",
+        "signal_date": "2026-11-04",
+    })
+    views = build_strategy_views([item])
+    assert views["EXPIRY78"]["counts"]["UNRESOLVED"] == 1
+    trade = views["EXPIRY78"]["groups"]["UNRESOLVED"][0]
+    assert trade["position_status"] == "UNRESOLVED"
