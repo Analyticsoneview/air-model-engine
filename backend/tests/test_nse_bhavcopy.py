@@ -80,7 +80,7 @@ class NSEBhavcopyTests(unittest.TestCase):
         }
         self.assertTrue(nse_bootstrap_is_ready(complete))
         warning_coverage = dict(complete, symbol_coverage={
-            "status": "READY_WITH_WARNINGS", "expected_symbols": 500, "missing_count": 0,
+            "status": "READY_WITH_WARNINGS", "expected_symbols": 501, "missing_count": 0,
         })
         self.assertTrue(nse_bootstrap_is_ready(warning_coverage))
         incomplete = dict(complete, archive_coverage_pct=99.9)
@@ -102,7 +102,7 @@ class NSEBhavcopyTests(unittest.TestCase):
         incomplete = dict(complete, monthly_pd_scan={"status": "DATA_INSUFFICIENT"})
         self.assertFalse(nse_bootstrap_is_ready(incomplete))
         incomplete = dict(complete, symbol_coverage={
-            "status": "BLOCKED", "expected_symbols": 500, "missing_count": 1,
+            "status": "BLOCKED", "expected_symbols": 501, "missing_count": 1,
         })
         self.assertFalse(nse_bootstrap_is_ready(incomplete))
 
