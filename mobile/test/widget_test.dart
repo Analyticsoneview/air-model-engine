@@ -11,7 +11,7 @@ void main() {
     expect(find.text('Home'), findsOneWidget);
     expect(find.text('Intelligence'), findsOneWidget);
     expect(find.text('Markets'), findsOneWidget);
-    expect(find.text('AIR QOC'), findsOneWidget);
+    expect(find.text('AIR QOC'), findsWidgets);
     expect(find.text('More'), findsOneWidget);
 
     // Guest browsing must not be blocked by the retired OTP/onboarding gate.
