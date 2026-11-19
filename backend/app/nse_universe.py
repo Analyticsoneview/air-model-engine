@@ -43,7 +43,7 @@ INDEX_UNIVERSES: dict[str, dict[str, Any]] = {
     },
     "NIFTYSMALLCAP250": {
         "name": "Nifty Smallcap 250",
-        "expected_count": 250,
+        "expected_count": 251,
         "urls": (
             "https://nsearchives.nseindia.com/content/indices/ind_niftysmallcap250list.csv",
             "https://www.niftyindices.com/IndexConstituent/ind_niftysmallcap250list.csv",
@@ -238,10 +238,11 @@ class NSEUniverseStore:
                     })
                     member["index_memberships"].append(output_code)
                     member["retrieved_at"][output_code] = item["snapshot_date"]
-        if len(members) != 500:
+        expected_unique_count = sum(int(spec["expected_count"]) for spec in INDEX_UNIVERSES.values())
+        if len(members) != expected_unique_count:
             return {
                 "status": "DATA_INSUFFICIENT",
-                "reason": f"Expected 500 unique symbols across the three indices; received {len(members)}",
+                "reason": f"Expected {expected_unique_count} unique symbols across the three official index snapshots; received {len(members)}",
                 "index_counts": index_counts, "unique_symbol_count": len(members),
                 "constituents": [],
             }
