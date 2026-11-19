@@ -126,6 +126,56 @@ class SignalRecord(BaseModel):
     evidence: dict = Field(default_factory=dict)
 
 
+@router.get("/public-preview")
+async def get_public_model_engine_preview(
+    limit: int = Query(default=100, ge=1, le=200),
+) -> dict:
+    """Bounded, read-only preview of records explicitly published by AIR operator."""
+    publishers = [
+        value.strip() for value in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",")
+        if value.strip()
+    ]
+    if not publishers:
+        raise HTTPException(status_code=503, detail="Published strategy feed is not configured")
+    rows = _ledger.list_signals(publishers[0], limit)
+    result = build_master(rows)
+    public_fields = (
+        "signal_id", "classification", "signal_date", "symbol", "instrument_type",
+        "option_type", "expiry", "strike", "entry_price", "latest_price",
+        "stop_loss", "target_1", "target_2", "target_3", "score",
+        "pnl", "pnl_pct", "days_to_expiry", "position_status", "reason",
+        "updated_at",
+    )
+    def preview_rows(items):
+        return [{key: row.get(key) for key in public_fields if key in row}
+                for row in items[:limit]]
+    groups = {key: preview_rows(items) for key, items in result["groups"].items()}
+    strategies = {}
+    for name, strategy in result.get("strategies", {}).items():
+        if not isinstance(strategy, dict):
+            continue
+        strategies[name] = {
+            **{key: value for key, value in strategy.items() if key not in ("groups",)},
+            "groups": {
+                key: preview_rows(items)
+                for key, items in (strategy.get("groups") or {}).items()
+                if isinstance(items, list)
+            },
+        }
+    return {
+        "source": "AIR operator-published strategy preview",
+        "data_status": "POPULATED" if rows else "AWAITING_VERIFIED_SIGNALS",
+        "count": len(rows),
+        "counts": result["counts"],
+        "summary": result["summary"],
+        "breakdowns": result["breakdowns"],
+        "groups": groups,
+        "strategies": strategies,
+        "access": "PUBLIC_READ_ONLY_PREVIEW",
+        "note": "Published persisted signals only; customer portfolio, broker credentials, account data and write operations are excluded.",
+    }
+
+
 @router.get("/ledger")
 async def get_model_engine_ledger(
     limit: int = Query(default=500, ge=1, le=2000),
