@@ -831,11 +831,12 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
         any_failed = state["failed_files"] > 0
         any_missing_archive = state["no_file_days"] > 0
         expected_paired_sessions = int(state.get("expected_paired_sessions", 0))
-        from app.nse_universe import NSEUniverseStore, run_nse_universe_bootstrap
+        from app.nse_universe import INDEX_UNIVERSES, NSEUniverseStore, run_nse_universe_bootstrap
         universe_result = await run_nse_universe_bootstrap()
         state["universe"] = universe_result
         universe_store = NSEUniverseStore()
         universe_symbols = universe_store.symbols()
+        expected_universe_symbols = sum(int(spec["expected_count"]) for spec in INDEX_UNIVERSES.values())
         expected_cm_sessions = sum(
             1 for day in days
             if day >= history_start and day.isoformat() not in cm_holidays
@@ -847,7 +848,7 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
         state["symbol_coverage"] = symbol_coverage
         universe_ready = (
             universe_result.get("status") == "READY"
-            and len(universe_symbols) == 500
+            and len(universe_symbols) == expected_universe_symbols
             and symbol_coverage.get("status") in {"READY", "READY_WITH_WARNINGS"}
         )
         complete_archive_set = (
@@ -955,7 +956,7 @@ def nse_bootstrap_is_ready(bootstrap: dict[str, Any] | None) -> bool:
         return False
     universes = bootstrap.get("universe") or {}
     indices = universes.get("indices") or {}
-    required = {"NIFTY100": 100, "NIFTYMIDCAP150": 150, "NIFTYSMALLCAP250": 250}
+    required = {"NIFTY100": 100, "NIFTYMIDCAP150": 150, "NIFTYSMALLCAP250": 251}
     universes_ready = universes.get("status") == "READY" and all(
         (indices.get(code) or {}).get("status") == "READY"
         and (indices.get(code) or {}).get("actual_count") == expected
@@ -964,7 +965,7 @@ def nse_bootstrap_is_ready(bootstrap: dict[str, Any] | None) -> bool:
     symbol_coverage = bootstrap.get("symbol_coverage") or {}
     coverage_ready = (
         symbol_coverage.get("status") in {"READY", "READY_WITH_WARNINGS"}
-        and symbol_coverage.get("expected_symbols") == 500
+        and symbol_coverage.get("expected_symbols") == sum(required.values())
         and symbol_coverage.get("missing_count") == 0
     )
     strategy_run = bootstrap.get("strategy_run") or {}
