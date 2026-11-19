@@ -1269,7 +1269,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
             )),
             Wrap(spacing: 7, runSpacing: 7, children: (selectedSection == 'RECOVERED'
               ? ['OPEN', 'TARGETS', 'SLHIT', 'EXPIRED', 'WAIT']
-              : ['OPEN', 'NEW', 'HOLD', 'WAIT', 'SLHIT', 'REENTRY']).map((status) => ChoiceChip(
+              : ['OPEN', 'NEW', 'HOLD', 'WAIT', 'UNRESOLVED', 'SLHIT', 'REENTRY']).map((status) => ChoiceChip(
               label: Text('$status  ${((strategyData?['counts'] as Map?)?[status] ?? 0)}', style: const TextStyle(fontSize: 10)),
               selected: _strategyStatus == status,
               onSelected: (_) => setState(() => _strategyStatus = status),
