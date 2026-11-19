@@ -126,14 +126,14 @@ class PostgresAdminAuthStore:
                 return None
             conn.execute(text("DELETE FROM air_admin_login_limits WHERE rate_key=:key"), {"key": key})
             conn.execute(text("""INSERT INTO air_admin_sessions(session_id,admin_id,expires_at)
-                VALUES(:sid,:id,CURRENT_TIMESTAMP + INTERVAL '20 minutes')"""),
+                VALUES(:sid,:id,CURRENT_TIMESTAMP + INTERVAL '30 days')"""),
                 {"sid": sid, "id": row["admin_id"]})
             self._audit(conn, row["admin_id"], "LOGIN_SUCCESS", row["admin_id"])
         if self.redis is not None:
             self._clear_login_limit(key)
-            self.redis.setex("air:admin:session:" + sid, 1200, row["admin_id"])
+            self.redis.setex("air:admin:session:" + sid, 30 * 24 * 60 * 60, row["admin_id"])
             self.redis.sadd("air:admin:user-sessions:" + row["admin_id"], sid)
-            self.redis.expire("air:admin:user-sessions:" + row["admin_id"], 1200)
+            self.redis.expire("air:admin:user-sessions:" + row["admin_id"], 30 * 24 * 60 * 60)
         return {"admin_id": row["admin_id"], "email": row["email"], "role": row["role"],
                 "session_id": sid, "must_change_password": bool(row["must_change_password"])}
 
@@ -288,7 +288,7 @@ class PostgresAdminAuthStore:
             if not cached_admin_id:
                 return None
         with self.engine.connect() as conn:
-            row = conn.execute(text("""SELECT u.admin_id,u.email,u.role,u.must_change_password
+            row = conn.execute(text("""SELECT s.session_id,u.admin_id,u.email,u.role,u.must_change_password
                 FROM air_admin_sessions s JOIN air_admin_users u ON u.admin_id=s.admin_id
                 WHERE s.session_id=:sid AND s.active=true AND u.is_active=true
                   AND s.expires_at > CURRENT_TIMESTAMP"""), {"sid": session_id}).mappings().first()
@@ -299,6 +299,48 @@ class PostgresAdminAuthStore:
             conn.execute(text("UPDATE air_admin_sessions SET active=false WHERE session_id=:sid"), {"sid": session_id})
         if self.redis is not None:
             self.redis.delete("air:admin:session:" + session_id)
+
+    def create_refresh_token(self, session_id: str, token_hash: str, expires_at: int) -> None:
+        with self.engine.begin() as conn:
+            active = conn.execute(text("""SELECT 1 FROM air_admin_sessions
+                WHERE session_id=:sid AND active=true AND expires_at>CURRENT_TIMESTAMP"""),
+                {"sid": session_id}).first()
+            if not active:
+                raise PermissionError("Administrator session is not active")
+            conn.execute(text("""INSERT INTO air_admin_refresh_tokens
+                (token_hash,session_id,expires_at) VALUES(:hash,:sid,to_timestamp(:expiry))"""),
+                {"hash": token_hash, "sid": session_id, "expiry": expires_at})
+
+    def rotate_refresh_token(self, token_hash: str, new_token_hash: str, now: int | None = None):
+        with self.engine.begin() as conn:
+            row = conn.execute(text("""SELECT r.session_id,extract(epoch from r.expires_at)::bigint AS expires_at
+                FROM air_admin_refresh_tokens r
+                JOIN air_admin_sessions s ON s.session_id=r.session_id
+                WHERE r.token_hash=:hash AND r.revoked_at IS NULL
+                  AND r.expires_at>CURRENT_TIMESTAMP AND s.active=true
+                FOR UPDATE OF r"""), {"hash": token_hash}).mappings().first()
+            if not row:
+                return None
+            user = conn.execute(text("""SELECT s.session_id,u.admin_id,u.email,u.role,u.must_change_password
+                FROM air_admin_sessions s JOIN air_admin_users u ON u.admin_id=s.admin_id
+                WHERE s.session_id=:sid AND s.active=true AND u.is_active=true
+                  AND s.expires_at>CURRENT_TIMESTAMP"""), {"sid": row["session_id"]}).mappings().first()
+            if not user:
+                return None
+            changed = conn.execute(text("""UPDATE air_admin_refresh_tokens
+                SET revoked_at=CURRENT_TIMESTAMP WHERE token_hash=:hash AND revoked_at IS NULL"""),
+                {"hash": token_hash})
+            if changed.rowcount != 1:
+                return None
+            conn.execute(text("""INSERT INTO air_admin_refresh_tokens(token_hash,session_id,expires_at)
+                VALUES(:new_hash,:sid,to_timestamp(:expiry))"""),
+                {"new_hash": new_token_hash, "sid": row["session_id"], "expiry": row["expires_at"]})
+        return dict(user), int(row["expires_at"])
+
+    def revoke_refresh_tokens(self, session_id: str) -> None:
+        with self.engine.begin() as conn:
+            conn.execute(text("""UPDATE air_admin_refresh_tokens SET revoked_at=CURRENT_TIMESTAMP
+                WHERE session_id=:sid AND revoked_at IS NULL"""), {"sid": session_id})
 
     def close(self):
         if self.redis is not None:
