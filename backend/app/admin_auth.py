@@ -40,6 +40,10 @@ class AdminAuthStore:
         self.db.execute("""CREATE TABLE IF NOT EXISTS air_admin_sessions(
             session_id TEXT PRIMARY KEY,admin_id TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+        self.db.execute("""CREATE TABLE IF NOT EXISTS air_admin_refresh_tokens(
+            token_hash TEXT PRIMARY KEY,session_id TEXT NOT NULL,expires_at INTEGER NOT NULL,
+            created_at INTEGER NOT NULL,revoked_at INTEGER)""")
+        self.db.execute("CREATE INDEX IF NOT EXISTS ix_air_admin_refresh_session ON air_admin_refresh_tokens(session_id)")
         self.db.execute("""CREATE TABLE IF NOT EXISTS air_admin_login_limits(
             rate_key TEXT PRIMARY KEY, failures INTEGER NOT NULL DEFAULT 0,
             window_started INTEGER NOT NULL, locked_until INTEGER NOT NULL DEFAULT 0)""")
@@ -238,13 +242,51 @@ class AdminAuthStore:
         return [dict(r) for r in rows]
 
     def session(self, session_id: str):
-        return self.db.execute("""SELECT u.admin_id,u.email,u.role,u.must_change_password FROM air_admin_sessions s
+        return self.db.execute("""SELECT s.session_id,u.admin_id,u.email,u.role,u.must_change_password FROM air_admin_sessions s
             JOIN air_admin_users u ON u.admin_id=s.admin_id
             WHERE s.session_id=? AND s.active=1 AND u.is_active=1""", (session_id,)).fetchone()
 
     def revoke(self, session_id: str) -> None:
         with self.db:
             self.db.execute("UPDATE air_admin_sessions SET active=0 WHERE session_id=?", (session_id,))
+
+    def create_refresh_token(self, session_id: str, token_hash: str, expires_at: int) -> None:
+        if not self.session(session_id):
+            raise PermissionError("Administrator session is not active")
+        with self.db:
+            self.db.execute(
+                "INSERT INTO air_admin_refresh_tokens(token_hash,session_id,expires_at,created_at) VALUES(?,?,?,?)",
+                (token_hash, session_id, expires_at, int(time.time())),
+            )
+
+    def rotate_refresh_token(self, token_hash: str, new_token_hash: str, now: int | None = None) -> tuple[dict, int] | None:
+        current = int(time.time() if now is None else now)
+        with self.db:
+            row = self.db.execute("""SELECT r.session_id,r.expires_at,s.admin_id
+                FROM air_admin_refresh_tokens r JOIN air_admin_sessions s ON s.session_id=r.session_id
+                WHERE r.token_hash=? AND r.revoked_at IS NULL AND r.expires_at>? AND s.active=1""",
+                (token_hash, current)).fetchone()
+            if not row:
+                return None
+            user = self.session(row["session_id"])
+            if not user:
+                return None
+            changed = self.db.execute(
+                "UPDATE air_admin_refresh_tokens SET revoked_at=? WHERE token_hash=? AND revoked_at IS NULL",
+                (current, token_hash),
+            )
+            if changed.rowcount != 1:
+                return None
+            self.db.execute(
+                "INSERT INTO air_admin_refresh_tokens(token_hash,session_id,expires_at,created_at) VALUES(?,?,?,?)",
+                (new_token_hash, row["session_id"], row["expires_at"], current),
+            )
+        return dict(user), int(row["expires_at"])
+
+    def revoke_refresh_tokens(self, session_id: str) -> None:
+        with self.db:
+            self.db.execute("UPDATE air_admin_refresh_tokens SET revoked_at=? WHERE session_id=? AND revoked_at IS NULL",
+                            (int(time.time()), session_id))
 
     def close(self):
         self.db.close()
