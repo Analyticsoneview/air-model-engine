@@ -895,11 +895,17 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                           final milestone = item is Map ? item['milestone_gain_pct'] : null;
                           return milestone == null ? null : '+$milestone%';
                         }).whereType<String>().join(', ')}';
-                  final pnl = trade['current_pnl_rupees'] != null
-                      ? '₹${trade['current_pnl_rupees']}'
-                      : trade['current_pnl_points'] != null
-                          ? '${trade['current_pnl_points']} pts'
-                          : '—';
+                  final pnlPoints = double.tryParse(trade['current_pnl_points']?.toString() ?? '');
+                  final entryPremium = double.tryParse(trade['entry_price']?.toString() ?? '');
+                  final pnlPercent = pnlPoints != null && entryPremium != null && entryPremium > 0
+                      ? pnlPoints / entryPremium * 100
+                      : null;
+                  final pnl = [
+                    if (trade['current_pnl_rupees'] != null) '₹${trade['current_pnl_rupees']}',
+                    if (pnlPoints != null) '${pnlPoints.toStringAsFixed(2)} pts',
+                    if (pnlPercent != null) '${pnlPercent.toStringAsFixed(1)}%',
+                  ].join(' • ');
+
                   final instrumentCode = (trade['instrument_type']?.toString() ?? '').toUpperCase();
                   final instrument = instrumentCode == 'OPTSTK' || instrumentCode == 'STK'
                       ? 'STOCK'
