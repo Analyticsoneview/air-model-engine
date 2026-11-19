@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'theme/air_theme.dart';
+import 'auth/air_access_gate.dart';
 
 import 'screens/air_connection_screen.dart';
 import 'screens/air_subscription_screen.dart';
@@ -86,9 +87,27 @@ class _AirModelEngineAppState extends State<AirModelEngineApp> {
         ? const Scaffold(body: Center(child: CircularProgressIndicator()))
         : !_serverReady
             ? AirServerSetupScreen(onConnected: () => setState(() => _serverReady = true))
-            : AirShell(
-                look: look,
-                onLookChanged: _setLook,
+            : AirAccessGate(
+                builder: (_) => AirShell(
+                  look: look,
+                  onLookChanged: _setLook,
+                ),
+                guestBuilder: (context, onSignIn) => Column(
+                  children: [
+                    SafeArea(
+                      bottom: false,
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton.icon(
+                          onPressed: onSignIn,
+                          icon: const Icon(Icons.login_rounded),
+                          label: const Text('SIGN IN FOR FULL AIR ACCESS'),
+                        ),
+                      ),
+                    ),
+                    const Expanded(child: ModelEngineScreen()),
+                  ],
+                ),
               ),
   );
 }
