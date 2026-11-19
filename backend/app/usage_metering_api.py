@@ -2,6 +2,7 @@
 from __future__ import annotations
 from functools import lru_cache
 from datetime import date
+import hashlib
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import text
@@ -94,7 +95,7 @@ def record_licensed_data_download(customer_id: str, customer_type: str, quantity
         plan = _active_plan(customer_id, tenant)
         result = _meter().consume(
             tenant, customer_id, "licensed_data_bytes", amount, plan_code=plan,
-            idempotency_key=f"licensed_data_bytes:{key}",
+            idempotency_key=f"licensed_data_bytes:{hashlib.sha256((customer_id + ':' + key).encode('utf-8')).hexdigest()}",
             metadata={"source": "nse_bhavcopy", **(metadata or {})},
         )
         return {"metered": True, "customer_type": "DATA_PRODUCT", **result}
