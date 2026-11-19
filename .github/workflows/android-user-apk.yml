@@ -76,12 +76,11 @@ jobs:
           manifest = Path("android/app/src/main/AndroidManifest.xml")
           source = manifest.read_text()
           if "android.permission.INTERNET" not in source:
-              source = source.replace("<manifest", '<manifest\\n    xmlns:android="http://schemas.android.com/apk/res/android"', 1) if 'xmlns:android=' not in source else source
-              source = source.replace("<application", '    <uses-permission android:name="android.permission.INTERNET" />\\n    <application', 1)
+              source = source.replace("<application", '    <uses-permission android:name="android.permission.INTERNET" />\n    <application', 1)
           if "android:usesCleartextTraffic" not in source:
-              source = re.sub(r"<application\\b", '<application android:usesCleartextTraffic="true"', source, count=1)
+              source = re.sub(r"<application\b", '<application android:usesCleartextTraffic="true"', source, count=1)
           manifest.write_text(source)
-          print("Enabled internet and HTTP access for trusted local AIR PC testing; production must use HTTPS.")
+          print("Configured Android network access for the AIR local-PC test endpoint; production must use HTTPS.")
           PY
       - name: Resolve Flutter dependencies
         working-directory: mobile
