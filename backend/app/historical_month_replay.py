@@ -81,8 +81,42 @@ def replay_expiry78_month(rows: list[dict[str, Any]], *, month: str,
             "evidence": {"daily_option_bars": daily_bars},
         }
         evaluated = evaluate_expiry78_contract(contract, as_of=as_of)
+        # Latest mark is the last valid retained EOD option close on/before
+        # expiry and the report as-of date. It is not an intraday executable quote.
+        valid_mark_bars = []
+        for bar in daily_bars:
+            try:
+                op, high, low, close, quantity = (
+                    float(bar[key]) for key in ("open", "high", "low", "close", "quantity")
+                )
+            except (TypeError, ValueError, KeyError):
+                continue
+            if (min(op, high, low, close, quantity) > 0
+                    and high >= max(op, close, low)
+                    and low <= min(op, close)):
+                valid_mark_bars.append(bar)
+        latest_mark = valid_mark_bars[-1] if valid_mark_bars else None
+        expiry_day = date.fromisoformat(expiry)
+        as_of_day = date.fromisoformat(as_of)
+        days_to_expiry = (expiry_day - as_of_day).days
         month_trades = [item for item in evaluated.get("trades", [])
                         if first.isoformat() <= item.get("signal_date", "") <= last.isoformat()]
+        for item in month_trades:
+            item["latest_price"] = latest_mark.get("close") if latest_mark else None
+            item["latest_price_date"] = latest_mark.get("date") if latest_mark else None
+            item["days_to_expiry"] = days_to_expiry
+            mark_pnl = (
+                round(float(latest_mark["close"]) - float(item["entry_price"]), 4)
+                if latest_mark and item.get("entry_price") is not None else None
+            )
+            item["mark_to_market_pnl_points"] = mark_pnl
+            item["current_pnl_points"] = (
+                item.get("pnl_points") if item.get("position_status") != "OPEN"
+                else mark_pnl
+            )
+            # Position quantity and charges are not supplied by NSE bhavcopy.
+            item["current_pnl_rupees"] = None
+            item["lot_size"] = raw_bars[-1].get("lot_size")
         if month_trades:
             contracts.append({
                 "symbol": symbol, "expiry": expiry, "strike": strike,
