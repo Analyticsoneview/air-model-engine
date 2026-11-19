@@ -129,8 +129,14 @@ try {
     # Preserve existing database/encryption secrets. Only add the missing RabbitMQ secret
     # and the optional Telegram token file when no old RabbitMQ data volume exists.
     if (!(Test-Path -LiteralPath ".air-secrets\rabbitmq_password")) {
-        & docker volume inspect air-model-engine_rabbitmq_data *> $null
-        if ($LASTEXITCODE -eq 0) {
+        # Avoid "docker volume inspect" for an expected-missing volume:
+        # Windows PowerShell can promote Docker's stderr into a terminating
+        # NativeCommandError when ErrorActionPreference is Stop.
+        $volumeNames = & docker volume ls --format "{{.Name}}"
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not safely inspect Docker volumes before preparing RabbitMQ credentials."
+        }
+        if ($volumeNames -contains "air-model-engine_rabbitmq_data") {
             throw "RabbitMQ data volume already exists but its password file is missing. Restore that original password; do not generate a new one."
         }
     }
