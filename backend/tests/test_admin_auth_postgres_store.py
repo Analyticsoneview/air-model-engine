@@ -77,7 +77,7 @@ def _clear_database(url: str):
     engine = create_engine(url)
     try:
         with engine.begin() as conn:
-            for table in ("air_admin_audit", "air_admin_login_limits", "air_admin_sessions", "air_admin_users"):
+            for table in ("air_admin_audit", "air_admin_refresh_tokens", "air_admin_login_limits", "air_admin_sessions", "air_admin_users"):
                 conn.execute(text(f"DELETE FROM {table}"))
     finally:
         engine.dispose()
@@ -366,3 +366,24 @@ def test_admin_role_change_revokes_sessions_and_updates_next_login_role(admin_st
     second = admin_store.authenticate(credentials["email"], credentials["temporary_password"], _totp(secret, now + 30),
                                        rate_key="research|second", now=now + 30)
     assert second and second["role"] == "RESEARCH_ADMIN"
+
+
+def test_postgres_admin_refresh_token_rotation_and_session_revocation(admin_store):
+    import hashlib
+    admin_id, secret = admin_store.bootstrap("refresh-root@example.com", "Long-Strong-Password-123!")
+    now = 1_800_000_000
+    login = admin_store.authenticate("refresh-root@example.com", "Long-Strong-Password-123!",
+                                     _totp(secret, now), rate_key="refresh-root|local", now=now)
+    assert login and login["admin_id"] == admin_id
+    first = "first-refresh-secret-value-that-is-long-enough"
+    second = "second-refresh-secret-value-that-is-long-enough"
+    first_hash = hashlib.sha256(first.encode()).hexdigest()
+    second_hash = hashlib.sha256(second.encode()).hexdigest()
+    expiry = now + 86400
+    admin_store.create_refresh_token(login["session_id"], first_hash, expiry)
+    rotated = admin_store.rotate_refresh_token(first_hash, second_hash)
+    assert rotated and rotated[0]["admin_id"] == admin_id
+    assert rotated[1] > now
+    assert admin_store.rotate_refresh_token(first_hash, "third-hash") is None
+    admin_store.revoke(login["session_id"])
+    assert admin_store.rotate_refresh_token(second_hash, "fourth-hash") is None
