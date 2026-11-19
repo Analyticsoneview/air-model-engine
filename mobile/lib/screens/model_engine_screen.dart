@@ -758,7 +758,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   Widget _historicalMonthView() {
     final results = (_historicalReplay['strategies'] as List<dynamic>? ?? const [])
         .whereType<Map<String, dynamic>>().toList();
-    final dataRange = _historicalReplay['data_available'] as Map<String, dynamic>? ?? {};
+    final dataRange = (_historicalReplay['data_available'] ?? _historicalReplay['available_data']) as Map<String, dynamic>? ?? {};
     final limitations = (_historicalReplay['limitations'] as List<dynamic>? ?? const []);
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(
