@@ -113,7 +113,7 @@ async def expiryscan_historical_report(
 
 @router.get("/historical-month")
 async def historical_month_strategy_report(
-    month: str = Query(..., pattern=r"^\\d{4}-\\d{2}$", description="Selected option expiry month YYYY-MM"),
+    month: str = Query(..., pattern=r"^\d{4}-\d{2}$", description="Selected option expiry month YYYY-MM"),
     strategies: list[str] = Query(default=["EXPIRY78"], description="One or more strategy IDs"),
     customer_id: str = Depends(require_strategy_access),
 ) -> dict:
