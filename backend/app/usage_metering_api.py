@@ -89,9 +89,9 @@ def record_licensed_data_download(customer_id: str, customer_type: str, quantity
         raise HTTPException(status_code=422, detail="Downloaded data size must be positive")
     if not key:
         raise HTTPException(status_code=400, detail="Idempotency-Key is required for data-product downloads")
-    tenant, plan = _tenant(customer_id), None
-    plan = _active_plan(customer_id, tenant)
     try:
+        tenant = _tenant(customer_id)
+        plan = _active_plan(customer_id, tenant)
         result = _meter().consume(
             tenant, customer_id, "licensed_data_bytes", amount, plan_code=plan,
             idempotency_key=f"licensed_data_bytes:{key}",
