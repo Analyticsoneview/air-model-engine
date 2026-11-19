@@ -384,6 +384,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
   Future<void> _logout() async {
     try { await _request('POST', '/api/v1/admin/auth/logout'); } catch (_) {}
     await _storage.delete(key: 'air_admin_access_token');
+    await _storage.delete(key: 'air_admin_refresh_token');
     if (mounted) setState(() { _token = null; _role = ''; _admins = []; _audit = []; _requests = []; _supportTickets = []; });
   }
 
