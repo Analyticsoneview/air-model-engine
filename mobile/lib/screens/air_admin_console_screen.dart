@@ -83,10 +83,17 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     final uri = _uri(path);
     final headers = _headers(auth: auth);
     late http.Response response;
-    switch (method) {
-      case 'POST': response = await _client.post(uri, headers: headers, body: body == null ? null : jsonEncode(body)); break;
-      case 'PUT': response = await _client.put(uri, headers: headers, body: body == null ? null : jsonEncode(body)); break;
-      default: response = await _client.get(uri, headers: headers);
+    Future<http.Response> send(Map<String, String> requestHeaders) {
+      switch (method) {
+        case 'POST': return _client.post(uri, headers: requestHeaders, body: body == null ? null : jsonEncode(body));
+        case 'PUT': return _client.put(uri, headers: requestHeaders, body: body == null ? null : jsonEncode(body));
+        default: return _client.get(uri, headers: requestHeaders);
+      }
+    }
+    response = await send(headers);
+    if (response.statusCode == 401 && auth && path != '/api/v1/admin/auth/refresh') {
+      final renewed = await _refreshSession();
+      if (renewed) response = await send(_headers());
     }
     final decoded = jsonDecode(response.body);
     final data = decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
@@ -102,18 +109,48 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     _restore();
   }
 
+  Future<bool> _refreshSession() async {
+    final refreshToken = await _storage.read(key: 'air_admin_refresh_token');
+    if (refreshToken == null || refreshToken.isEmpty) return false;
+    try {
+      final response = await _client.post(
+        _uri('/api/v1/admin/auth/refresh'),
+        headers: {'Accept': 'application/json', 'Content-Type': 'application/json'},
+        body: jsonEncode({'refresh_token': refreshToken}),
+      );
+      if (response.statusCode < 200 || response.statusCode >= 300) return false;
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final access = data['access_token']?.toString();
+      final rotated = data['refresh_token']?.toString();
+      if (access == null || access.isEmpty || rotated == null || rotated.isEmpty) return false;
+      _token = access;
+      await _storage.write(key: 'air_admin_access_token', value: access);
+      await _storage.write(key: 'air_admin_refresh_token', value: rotated);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> _restore() async {
     final saved = await _storage.read(key: 'air_admin_access_token');
     if (saved == null || saved.isEmpty) return;
     _token = saved;
     try {
-      final me = await _request('GET', '/api/v1/admin/auth/me');
+      var me = <String, dynamic>{};
+      try {
+        me = await _request('GET', '/api/v1/admin/auth/me');
+      } catch (_) {
+        if (!await _refreshSession()) rethrow;
+        me = await _request('GET', '/api/v1/admin/auth/me');
+      }
       _role = me['role']?.toString() ?? '';
       _mustChangePassword = me['must_change_password'] == true;
       if (!_mustChangePassword) await _load();
       if (mounted) setState(() {});
     } catch (_) {
       await _storage.delete(key: 'air_admin_access_token');
+      await _storage.delete(key: 'air_admin_refresh_token');
       _token = null;
     }
   }
@@ -131,6 +168,9 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
       _token = result['access_token']?.toString();
       if (_token == null || _token!.isEmpty) throw Exception('Admin API did not return a session token.');
       await _storage.write(key: 'air_admin_access_token', value: _token);
+      final refreshToken = result['refresh_token']?.toString();
+      if (refreshToken == null || refreshToken.isEmpty) throw Exception('Admin API did not return a refresh token.');
+      await _storage.write(key: 'air_admin_refresh_token', value: refreshToken);
       final me = await _request('GET', '/api/v1/admin/auth/me');
       _role = me['role']?.toString() ?? '';
       _mustChangePassword = me['must_change_password'] == true;
