@@ -835,7 +835,8 @@ async def customer_market_intelligence_pulse(customer_id: str = Depends(require_
 
 
 @app.get("/api/v1/nse-data/status")
-async def nse_bhavcopy_status(customer_id: str = Depends(require_customer)) -> dict:
+async def nse_bhavcopy_status(admin: dict = Depends(require_admin)) -> dict:
+    """Expose shared NSE ingestion health to authenticated AIR administrators."""
     return nse_data_status()
 
 
@@ -861,8 +862,9 @@ async def nse_bhavcopy_rows(
 
 @app.post("/api/v1/nse-data/bootstrap")
 async def trigger_nse_bhavcopy_bootstrap(
-    customer_id: str = Depends(require_air_operator),
+    admin: dict = Depends(require_admin_management),
 ) -> dict:
+    """Allow authorized AIR administrators to trigger the shared NSE bootstrap."""
     return trigger_nse_bootstrap()
 
 
