@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.model_engine_expiry78 import evaluate_expiry78_rows
+from app.model_engine_expiry78 import ENGINE_VERSION as EXPIRY78_ENGINE_VERSION, evaluate_expiry78_rows
 from app.model_engine_original366 import evaluate_original366_rows
 from app.model_engine_physical_forecast import forecast_physical_settlement, physical_settlement_early_warning
 
@@ -33,6 +33,7 @@ STRATEGY_RULES = {
     "EXPIRY78": {
         "name": "EXPIRY78",
         "membership": "EXPIRY78",
+        "version": EXPIRY78_ENGINE_VERSION,
         "stock_entry_filter": "₹1–₹10 entry premium for stock CE/PE; index options retain existing rules",
         "qualification": "Seven-rule replay: valid positive option OHLCV; bullish real-body engulfing against the previous valid traded observation; entry limit = 40% of engulfing HIGH; later daily LOW touch strictly before expiry; entry premium >= ₹1 and entry-day quantity >= 10; initial 5% stop, then ratchet to the prior +20% premium milestone at every +20% gain (+20% locks entry, +40% locks +20%, etc.); if entry-day LOW also touches the initial stop, classify UNRESOLVED because daily OHLC cannot establish intraday sequence; later gap-through exits use observed OPEN; only unstopped positions with verified expiry intrinsic valuation qualify as survivors.",
         "candidate_filter_stage": "ENTRY_QUALIFICATION",
@@ -363,6 +364,7 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
         )
         result["EXPIRY78"]["audit"].update({
             "engine": "AIR_EXPIRY78_SEVEN_RULES",
+            "strategy_version": EXPIRY78_ENGINE_VERSION,
             "contracts_replayed": len(evaluated),
             "trades_replayed": engine_trade_count,
             "expiry_survivors": engine_survivors,
