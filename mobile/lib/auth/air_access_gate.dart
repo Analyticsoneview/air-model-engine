@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../services/air_api_client.dart';
-import '../screens/air_server_setup_screen.dart';
 
 class AirAccessGate extends StatefulWidget {
   const AirAccessGate({super.key, required this.builder});
@@ -29,26 +28,6 @@ class _AirAccessGateState extends State<AirAccessGate> {
     super.initState();
     _api = AirApiClient();
     _restoreSession();
-  }
-
-  Future<void> _changeServer() async {
-    await Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (setupContext) => AirServerSetupScreen(
-        onConnected: () => Navigator.of(setupContext).pop(),
-      ),
-    ));
-    if (!mounted) return;
-    // A bearer token belongs to the previous server; never forward it to a newly selected host.
-    AirApiClient.setAccessToken(null);
-    await _storage.delete(key: 'air_access_token');
-    _api.dispose();
-    _api = AirApiClient();
-    setState(() {
-      _busy = true;
-      _approved = false;
-      _status = 'NEW';
-    });
-    await _restoreSession();
   }
 
   Future<void> _restoreSession() async {
@@ -259,7 +238,6 @@ class _AirAccessGateState extends State<AirAccessGate> {
                               ]),
                             ),
                           const SizedBox(height: 12),
-                          TextButton.icon(onPressed: _busy ? null : _changeServer, icon: const Icon(Icons.dns_outlined, color: Color(0xFFE5B85C)), label: const Text('CHANGE AIR SERVER', style: TextStyle(color: Color(0xFFE5B85C), fontWeight: FontWeight.w800))),
                         ],
                       ));
                       const journey = _AirJourneyPanel();
