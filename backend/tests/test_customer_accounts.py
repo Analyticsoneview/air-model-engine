@@ -99,6 +99,26 @@ class CustomerAccountDirectoryTests(unittest.TestCase):
             reopened.close()
 
 
+    def test_customer_commercial_type_defaults_to_service_and_admin_can_assign_data_product(self):
+        directory = CustomerAccountDirectory(":memory:")
+        self.assertEqual(directory.get_customer_commercial_type("retail-1"), "SERVICE")
+        assigned = directory.set_customer_commercial_type("product-1", "DATA_PRODUCT", "admin-1")
+        self.assertEqual(assigned["customer_type"], "DATA_PRODUCT")
+        self.assertEqual(directory.get_customer_commercial_type("product-1"), "DATA_PRODUCT")
+        directory.set_customer_commercial_type("product-1", "SERVICE", "admin-2")
+        self.assertEqual(directory.get_customer_commercial_type("product-1"), "SERVICE")
+        directory.close()
+
+    def test_customer_commercial_type_persists_across_reopen(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = str(Path(temp) / "accounts.sqlite3")
+            directory = CustomerAccountDirectory(path)
+            directory.set_customer_commercial_type("product-1", "DATA_PRODUCT", "admin-1")
+            directory.close()
+            reopened = CustomerAccountDirectory(path)
+            self.assertEqual(reopened.get_customer_commercial_type("product-1"), "DATA_PRODUCT")
+            reopened.close()
+
     def test_removing_selected_broker_account_clears_customer_data_selection(self):
         directory = CustomerAccountDirectory(":memory:")
         directory.add(CustomerTradingAccount("customer-1", "Dhan", "D001"))
