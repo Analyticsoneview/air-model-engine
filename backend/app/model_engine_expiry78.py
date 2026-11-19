@@ -132,10 +132,16 @@ def evaluate_expiry78_contract(
                 continue
             if float(bar["low"]) <= active_stop:
                 exit_day = bar["date"]
-                exit_price = (float(bar["open"]) if day > entry_day and float(bar["open"]) < active_stop else active_stop)
-                exit_reason = "SAME_DAY_STOP" if day == entry_day else (
-                    "GAP_THROUGH_STOP" if float(bar["open"]) < active_stop else "TRAILING_STOP" if trail_history else "STOP_LOSS"
-                )
+                if day == entry_day:
+                    # Daily OHLC cannot prove whether the assumed limit fill
+                    # happened before or after the stop was crossed.
+                    exit_reason = "ENTRY_DAY_SEQUENCE_UNRESOLVED"
+                else:
+                    exit_price = (float(bar["open"]) if float(bar["open"]) < active_stop else active_stop)
+                    exit_reason = (
+                        "GAP_THROUGH_STOP" if float(bar["open"]) < active_stop
+                        else "TRAILING_STOP" if trail_history else "STOP_LOSS"
+                    )
                 break
             if day >= expiry_day:
                 break
@@ -182,7 +188,13 @@ def evaluate_expiry78_contract(
             "charges_rupees": None,
             "net_pnl_rupees": None,
         }
-        if exit_reason:
+        if exit_reason == "ENTRY_DAY_SEQUENCE_UNRESOLVED":
+            trade.update({
+                "classification": "UNRESOLVED",
+                "position_status": "UNRESOLVED",
+                "reason": "Entry limit and initial stop were both touched in the same daily bar; intraday sequence is unavailable",
+            })
+        elif exit_reason:
             trade.update({"classification": "SL", "position_status": "EXITED",
                           "reason": exit_reason,
                           "pnl_points": round(exit_price - entry_price, 4)})
