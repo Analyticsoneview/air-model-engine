@@ -28,6 +28,7 @@ def test_expiry_month_replay_finds_and_settles_expired_contract():
 
     assert report["status"] == "COMPLETED"
     assert report["month_basis"] == "expiry"
+    assert report["strategy_version"] == "EXPIRY78_DAILY_OHLCV_V2_UNRESOLVED_SAME_SESSION"
     assert report["contracts_examined"] == 1
     assert report["contracts_with_qualifying_entries"] == 1
     assert report["trade_count"] == 1
