@@ -11,7 +11,7 @@ from collections import defaultdict
 from datetime import date
 from typing import Any
 
-from app.model_engine_expiry78 import evaluate_expiry78_contract
+from app.model_engine_expiry78 import ENGINE_VERSION as EXPIRY78_ENGINE_VERSION, evaluate_expiry78_contract
 from app.nse_bhavcopy import _get_store, nse_data_status
 
 
@@ -159,7 +159,8 @@ def replay_expiry78_month(rows: list[dict[str, Any]], *, month: str,
     counts = {label: sum(item.get("classification") == label for item in trades)
               for label in ("NEW", "HOLD", "SL", "EXPIRED", "WAIT", "UNRESOLVED")}
     return {
-        "strategy": "EXPIRY78", "status": "COMPLETED",
+        "strategy": "EXPIRY78", "strategy_version": EXPIRY78_ENGINE_VERSION,
+        "status": "COMPLETED",
         "month": month, "month_basis": basis,
         "signal_month": month if basis == "signal" else None,
         "expiry_month": month if basis == "expiry" else None,
@@ -233,6 +234,7 @@ def historical_month_report(*, month: str, strategies: list[str],
         "period": {"start_date": first.isoformat(), "end_date": last.isoformat()},
         "data_available": {"first_date": earliest, "last_date": latest},
         "source": "Retained NSE FO EOD bhavcopy", "source_rows": len(normalized_rows),
+        "strategy_versions": {"EXPIRY78": EXPIRY78_ENGINE_VERSION},
         "selected_strategies": sorted(selected), "strategies": results,
         "limitations": [
             "Signal-month mode includes contracts expiring in that month or later; expiry-month mode includes contracts expiring in the selected month.",
