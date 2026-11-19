@@ -5,8 +5,6 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'theme/air_theme.dart';
 
-import 'auth/air_access_gate.dart';
-
 import 'screens/air_connection_screen.dart';
 import 'screens/air_subscription_screen.dart';
 import 'screens/air_support_screen.dart';
@@ -88,10 +86,10 @@ class _AirModelEngineAppState extends State<AirModelEngineApp> {
         ? const Scaffold(body: Center(child: CircularProgressIndicator()))
         : !_serverReady
             ? AirServerSetupScreen(onConnected: () => setState(() => _serverReady = true))
-            : AirAccessGate(builder: (_) => AirShell(
+            : AirShell(
                 look: look,
                 onLookChanged: _setLook,
-              )),
+              ),
   );
 }
 
