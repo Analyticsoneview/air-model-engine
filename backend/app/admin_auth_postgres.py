@@ -131,9 +131,9 @@ class PostgresAdminAuthStore:
             self._audit(conn, row["admin_id"], "LOGIN_SUCCESS", row["admin_id"])
         if self.redis is not None:
             self._clear_login_limit(key)
-            self.redis.setex("air:admin:session:" + sid, 1200, row["admin_id"])
+            self.redis.setex("air:admin:session:" + sid, 30 * 24 * 60 * 60, row["admin_id"])
             self.redis.sadd("air:admin:user-sessions:" + row["admin_id"], sid)
-            self.redis.expire("air:admin:user-sessions:" + row["admin_id"], 1200)
+            self.redis.expire("air:admin:user-sessions:" + row["admin_id"], 30 * 24 * 60 * 60)
         return {"admin_id": row["admin_id"], "email": row["email"], "role": row["role"],
                 "session_id": sid, "must_change_password": bool(row["must_change_password"])}
 
