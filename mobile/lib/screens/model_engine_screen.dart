@@ -751,7 +751,9 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       context: context,
       initialDate: DateTime(_historicalMonth.year, _historicalMonth.month, 1),
       firstDate: DateTime(2000, 1, 1),
-      lastDate: DateTime(now.year + 2, 12, 31),
+      lastDate: _historicalBasis == 'expiry'
+          ? DateTime(now.year + 2, 12, 31)
+          : DateTime(now.year, now.month, now.day),
       helpText: 'SELECT A DATE IN THE CALENDAR MONTH',
       fieldLabelText: 'Calendar month',
     );
