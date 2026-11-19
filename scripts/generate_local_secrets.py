@@ -44,7 +44,16 @@ values = {
 for name, value in values.items():
     write(name, value)
 # Optional secret: blank means Telegram notifications remain disabled until configured.
-write("telegram_bot_token", read("telegram_bot_token"))
+# If the file already exists, leave it completely untouched. On Windows it may
+# have restrictive ACLs (or be provisioned by an administrator); startup must
+# not need permission to read an optional token merely to preserve it.
+telegram_token_path = ROOT / "telegram_bot_token"
+if not telegram_token_path.exists():
+    telegram_token_path.write_text("", encoding="utf-8")
+    try:
+        telegram_token_path.chmod(0o600)
+    except OSError:
+        pass
 missing = [name for name in values if not (ROOT / name).is_file() or not read(name)]
 if missing:
     raise SystemExit("Failed to create required AIR secrets: " + ", ".join(missing))
