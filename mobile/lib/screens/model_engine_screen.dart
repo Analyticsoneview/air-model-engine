@@ -900,6 +900,12 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                       : trade['current_pnl_points'] != null
                           ? '${trade['current_pnl_points']} pts'
                           : '—';
+                  final instrumentCode = (trade['instrument_type']?.toString() ?? '').toUpperCase();
+                  final instrument = instrumentCode == 'OPTSTK' || instrumentCode == 'STK'
+                      ? 'STOCK'
+                      : instrumentCode == 'OPTIDX' || instrumentCode == 'IDX'
+                          ? 'INDEX'
+                          : instrumentCode.isEmpty ? '—' : instrumentCode;
                   final evidence = [
                     trade['reason'] ?? trade['exit_reason'],
                     if (trade['latest_price_date'] != null) 'Mark: ${trade['latest_price_date']}',
@@ -909,7 +915,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                     trade['signal_date']?.toString() ?? '—',
                     trade['entry_date']?.toString() ?? '—',
                     trade['classification_label']?.toString() ?? trade['classification']?.toString() ?? '—',
-                    trade['instrument_type']?.toString() ?? '—',
+                    instrument,
                     trade['symbol']?.toString() ?? '—',
                     '—',
                     trade['option_type']?.toString() ?? '—',
