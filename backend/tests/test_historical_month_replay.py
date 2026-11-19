@@ -60,6 +60,19 @@ def test_signal_month_includes_later_expiry_contracts():
     assert trade["days_to_expiry"] == 21
 
 
+def test_future_expiry_month_can_replay_contracts_from_current_data():
+    rows = _bars("2026-12-31")[:3]
+    report = replay_expiry78_month(rows, month="2026-12", as_of="2026-11-19", basis="expiry")
+    assert report["month_basis"] == "expiry"
+    assert report["contracts_examined"] == 1
+    assert report["trade_count"] == 1
+    trade = report["trades"][0]
+    assert trade["signal_date"] == "2026-10-27"
+    assert trade["expiry"] == "2026-12-31"
+    assert trade["position_status"] == "OPEN"
+    assert trade["days_to_expiry"] == 64
+
+
 def test_expiry_month_does_not_include_other_expiry_months():
     rows = _bars() + [{
         **_bars()[-1], "expiry": "2026-11-26",
