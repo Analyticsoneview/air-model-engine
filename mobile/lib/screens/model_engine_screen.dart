@@ -10,7 +10,7 @@ class ModelEngineScreen extends StatefulWidget {
 
 class _ModelEngineScreenState extends State<ModelEngineScreen> {
   final AirApiClient _api = AirApiClient();
-  static const _sections = ['PORTFOLIO RISK', 'P&L CALENDAR', 'OPEN', 'NEW', 'HOLD', 'REENTRY', 'SURVIVOR', 'WAIT', 'SLHIT', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN', 'SETTLEMENT UP / DOWN', 'PHYSICAL SETTLEMENT', 'COMBINED', 'EXPIRY78', 'RECOVERED', 'RECOVERY'];
+  static const _sections = ['PORTFOLIO RISK', 'P&L CALENDAR', 'HISTORICAL REPLAY', 'OPEN', 'NEW', 'HOLD', 'REENTRY', 'SURVIVOR', 'WAIT', 'SLHIT', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN', 'SETTLEMENT UP / DOWN', 'PHYSICAL SETTLEMENT', 'COMBINED', 'EXPIRY78', 'RECOVERED', 'RECOVERY'];
   static const _strategyTabs = ['EXPIRY78', 'RECOVERED', 'RECOVERY'];
 
   String _strategyKey(String section) => section == 'RECOVERED' ? 'ORIGINAL366' : section;
@@ -39,6 +39,13 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   Map<String, dynamic> _pnlCalendar = {};
   DateTime _calendarMonth = DateTime(DateTime.now().year, DateTime.now().month);
   bool _calendarLoading = false;
+  DateTime _historicalMonth = DateTime(DateTime.now().year, DateTime.now().month - 1);
+  Map<String, dynamic> _historicalReplay = {};
+  bool _historicalLoading = false;
+  final Set<String> _historicalStrategies = {'EXPIRY78'};
+  static const _historicalStrategyOptions = [
+    'EXPIRY78', 'ORIGINAL366', 'RECOVERY', 'EXPIRYSCAN', 'ORB_MORNING', 'ORB_AFTERNOON',
+  ];
   final TextEditingController _reportEmailController = TextEditingController();
   final TextEditingController _reportCodeController = TextEditingController();
   Map<String, dynamic> _reportRecipient = {};
@@ -705,6 +712,156 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     }
   }
 
+  String get _historicalMonthKey =>
+      '${_historicalMonth.year.toString().padLeft(4, '0')}-${_historicalMonth.month.toString().padLeft(2, '0')}';
+
+  Future<void> _loadHistoricalReplay({DateTime? month}) async {
+    final selected = month ?? _historicalMonth;
+    setState(() {
+      _historicalMonth = DateTime(selected.year, selected.month);
+      _historicalLoading = true;
+      _error = null;
+    });
+    try {
+      final result = await _api.historicalMonthReplay(
+        month: _historicalMonthKey,
+        strategies: _historicalStrategies.toList()..sort(),
+      );
+      if (mounted) setState(() => _historicalReplay = result);
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Historical replay: $e');
+    } finally {
+      if (mounted) setState(() => _historicalLoading = false);
+    }
+  }
+
+  Future<void> _changeHistoricalMonth(int delta) async {
+    final next = DateTime(_historicalMonth.year, _historicalMonth.month + delta);
+    final now = DateTime.now();
+    if (next.isAfter(DateTime(now.year, now.month))) return;
+    await _loadHistoricalReplay(month: next);
+  }
+
+  Future<void> _chooseHistoricalMonth() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime(_historicalMonth.year, _historicalMonth.month, 1),
+      firstDate: DateTime(2000, 1, 1),
+      lastDate: DateTime(now.year, now.month, now.day),
+      helpText: 'SELECT A DATE IN THE EXPIRY MONTH',
+      fieldLabelText: 'Expiry month',
+    );
+    if (picked != null) await _loadHistoricalReplay(month: picked);
+  }
+
+  Widget _historicalMonthView() {
+    final results = (_historicalReplay['strategies'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>().toList();
+    final dataRange = _historicalReplay['data_available'] as Map<String, dynamic>? ?? {};
+    final limitations = (_historicalReplay['limitations'] as List<dynamic>? ?? const []);
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('HISTORICAL EXPIRY-MONTH STRATEGY REPLAY',
+              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
+          const SizedBox(height: 5),
+          const Text('Choose any date in the expiry month. AIR loads the entire selected month, including contracts that have already expired. This is a month-level historical replay, not a single-day filter.',
+              style: TextStyle(fontSize: 10)),
+          const SizedBox(height: 10),
+          Row(children: [
+            IconButton(onPressed: _historicalLoading ? null : () => _changeHistoricalMonth(-1),
+                icon: const Icon(Icons.chevron_left)),
+            Expanded(child: Text(_historicalMonthKey, textAlign: TextAlign.center,
+                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17))),
+            IconButton(onPressed: _historicalLoading ? null : () => _changeHistoricalMonth(1),
+                icon: const Icon(Icons.chevron_right)),
+          ]),
+          SizedBox(width: double.infinity, child: OutlinedButton.icon(
+            onPressed: _historicalLoading ? null : _chooseHistoricalMonth,
+            icon: const Icon(Icons.calendar_month_rounded),
+            label: const Text('SELECT DATE / EXPIRY MONTH'),
+          )),
+          const SizedBox(height: 7),
+          const Text('STRATEGIES TO REPLAY', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900)),
+          Wrap(spacing: 6, runSpacing: 4, children: _historicalStrategyOptions.map((strategy) => FilterChip(
+            label: Text(strategy, style: const TextStyle(fontSize: 9)),
+            selected: _historicalStrategies.contains(strategy),
+            onSelected: _historicalLoading ? null : (selected) {
+              setState(() {
+                if (selected) { _historicalStrategies.add(strategy); }
+                else if (_historicalStrategies.length > 1) { _historicalStrategies.remove(strategy); }
+              });
+              _loadHistoricalReplay();
+            },
+          )).toList()),
+          if (_historicalLoading) const LinearProgressIndicator(),
+          if (_historicalReplay.isNotEmpty) ...[
+            const Divider(),
+            Text('REPORT: ${_historicalReplay['status'] ?? '—'} • SOURCE: ${_historicalReplay['source'] ?? '—'}',
+                style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800)),
+            Text('RETAINED NSE FO DATA: ${dataRange['first_date'] ?? '—'} to ${dataRange['last_date'] ?? '—'} • SOURCE ROWS: ${_historicalReplay['source_rows'] ?? 0}',
+                style: const TextStyle(fontSize: 9)),
+            if (_historicalReplay['note'] != null)
+              Text(_historicalReplay['note'].toString(), style: const TextStyle(fontSize: 10)),
+          ],
+        ],
+      ))),
+      if (_historicalReplay.isEmpty && !_historicalLoading)
+        Card(child: Padding(padding: const EdgeInsets.all(14), child: Text(
+          'Select an expiry month and tap refresh to load historical strategy qualifications.',
+          style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant)))),
+      ...results.map((result) {
+        final trades = (result['trades'] as List<dynamic>? ?? const [])
+            .whereType<Map<String, dynamic>>().toList();
+        final counts = result['classification_counts'] as Map<String, dynamic>? ?? {};
+        return Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Expanded(child: Text(result['strategy']?.toString() ?? 'STRATEGY',
+                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12))),
+              Text(result['status']?.toString() ?? '—',
+                  style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900,
+                    color: result['status'] == 'COMPLETED' ? Colors.green : Theme.of(context).colorScheme.error)),
+            ]),
+            if (result['reason'] != null) Text(result['reason'].toString(), style: const TextStyle(fontSize: 10)),
+            if (result['rules'] != null) Text(result['rules'].toString(), style: const TextStyle(fontSize: 9)),
+            Wrap(spacing: 8, runSpacing: 6, children: [
+              _settlementMetric('CONTRACTS CHECKED', result['contracts_examined'] ?? '—'),
+              _settlementMetric('QUALIFIED CONTRACTS', result['contracts_with_qualifying_entries'] ?? '—'),
+              _settlementMetric('QUALIFYING ENTRIES', result['trade_count'] ?? trades.length),
+              ...counts.entries.map((entry) => _settlementMetric(entry.key, entry.value)),
+            ]),
+            if (trades.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              SingleChildScrollView(scrollDirection: Axis.horizontal, child: DataTable(
+                columns: const [
+                  DataColumn(label: Text('SIGNAL DATE')), DataColumn(label: Text('STOCK')),
+                  DataColumn(label: Text('CE/PE')), DataColumn(label: Text('STRIKE')),
+                  DataColumn(label: Text('EXPIRY')), DataColumn(label: Text('STATUS')),
+                  DataColumn(label: Text('ENTRY ₹')), DataColumn(label: Text('EXIT / EXPIRY ₹')),
+                ],
+                rows: trades.map((trade) => DataRow(cells: [
+                  for (final key in ['signal_date','symbol','option_type','strike','expiry','classification','entry_price'])
+                    DataCell(Text(trade[key]?.toString() ?? '—', style: const TextStyle(fontSize: 10))),
+                  DataCell(Text((trade['exit_price'] ?? trade['expiry_option_close'] ?? '—').toString(), style: const TextStyle(fontSize: 10))),
+                ])).toList(),
+              )),
+            ] else if (result['status'] == 'COMPLETED')
+              const Padding(padding: EdgeInsets.only(top: 8), child: Text('No qualifying entries were found for this strategy in the selected expiry month.', style: TextStyle(fontSize: 10))),
+          ],
+        )));
+      }),
+      if (limitations.isNotEmpty) Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('REPLAY LIMITATIONS', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 10)),
+          ...limitations.map((item) => Padding(padding: const EdgeInsets.only(top: 4),
+              child: Text('• $item', style: const TextStyle(fontSize: 9)))),
+        ],
+      ))),
+    ]);
+  }
+
   void _showPnlDate(DateTime date) {
     final key = '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
     final all = (_pnlCalendar['trades'] as List<dynamic>? ?? const [])
@@ -914,7 +1071,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
               Text('OPEN ${_summary['open'] ?? 0} • NEW ${_summary['new'] ?? 0} • HOLD ${_summary['hold'] ?? 0} • SURVIVOR ${_summary['survivor_watch'] ?? 0}',
                 style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
               const SizedBox(height: 8),
-              Wrap(spacing: 7, runSpacing: 7, children: _sections.where((x) => !['PORTFOLIO RISK','P&L CALENDAR','PHYSICAL SETTLEMENT','SETTLEMENT UP / DOWN','COMBINED'].contains(x)).map((name) => ChoiceChip(
+              Wrap(spacing: 7, runSpacing: 7, children: _sections.where((x) => !['PORTFOLIO RISK','P&L CALENDAR','HISTORICAL REPLAY','PHYSICAL SETTLEMENT','SETTLEMENT UP / DOWN','COMBINED'].contains(x)).map((name) => ChoiceChip(
                 label: Text('$name  ${_tabCount(name)}', style: const TextStyle(fontSize: 10)),
                 selected: _sections[_selected] == name,
                 onSelected: (_) => setState(() => _selected = _sections.indexOf(name)),
@@ -968,10 +1125,13 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
               Wrap(spacing: 7, runSpacing: 7, children: _sections.map((s) => ChoiceChip(
                 label: Text('$s  ${_tabCount(s)}', style: const TextStyle(fontSize: 10)),
                 selected: _sections[_selected] == s,
-                onSelected: (_) => setState(() {
-                  _selected = _sections.indexOf(s);
-                  _strategyStatus = s == 'RECOVERED' ? 'OPEN' : 'OPEN';
-                }),
+                onSelected: (_) {
+                  setState(() {
+                    _selected = _sections.indexOf(s);
+                    _strategyStatus = 'OPEN';
+                  });
+                  if (s == 'HISTORICAL REPLAY') _loadHistoricalReplay();
+                },
               )).toList()),
             ],
           ))),
