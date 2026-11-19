@@ -751,8 +751,8 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       initialDate: DateTime(_historicalMonth.year, _historicalMonth.month, 1),
       firstDate: DateTime(2000, 1, 1),
       lastDate: DateTime(now.year, now.month, now.day),
-      helpText: 'SELECT A DATE IN THE EXPIRY MONTH',
-      fieldLabelText: 'Expiry month',
+      helpText: 'SELECT A DATE IN THE CALENDAR MONTH',
+      fieldLabelText: 'Calendar month',
     );
     if (picked != null) await _loadHistoricalReplay(month: picked);
   }
@@ -784,7 +784,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
           SizedBox(width: double.infinity, child: OutlinedButton.icon(
             onPressed: _historicalLoading ? null : _chooseHistoricalMonth,
             icon: const Icon(Icons.calendar_month_rounded),
-            label: const Text('SELECT DATE / EXPIRY MONTH'),
+            label: const Text('SELECT DATE / CALENDAR MONTH'),
           )),
           const SizedBox(height: 7),
           Wrap(spacing: 6, children: [
