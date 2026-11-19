@@ -107,3 +107,58 @@ def test_month_replay_reports_empty_month_without_fabricating_signals():
     assert report["contracts_examined"] == 0
     assert report["trade_count"] == 0
     assert report["trades"] == []
+
+
+
+def test_october_trailing_reference_reconciliation_matches_saved_rows():
+    import csv
+    from pathlib import Path
+    from app.historical_month_replay import _reconcile_october_2026_trailing_reference
+
+    reference_path = Path(__file__).parents[1] / "app" / "reference_data" / "expiry78_45_trailing_backtest.csv"
+    with reference_path.open("r", encoding="utf-8-sig", newline="") as handle:
+        reference = list(csv.DictReader(handle))
+    trades = []
+    for row in reference:
+        reason = row["exit_reason"]
+        if reason == "EXPIRY_INTRINSIC":
+            reason = "EXPIRY_INTRINSIC_SETTLEMENT"
+        trades.append({
+            "symbol": row["underlying"], "option_type": row["type"],
+            "strike": float(row["strike"]), "expiry": "2026-10-27",
+            "entry_date": row["entry_date"], "entry_price": float(row["entry_price"]),
+            "exit_date": row["exit_date"], "exit_price": float(row["exit_price"]),
+            "exit_reason": reason,
+        })
+    result = _reconcile_october_2026_trailing_reference(trades)
+    assert result["status"] == "MATCHED"
+    assert result["reference_trade_count"] == 45
+    assert result["matched_entry_count"] == 45
+    assert result["exit_match_count"] == 45
+    assert result["gross_pnl_match_count"] == 45
+
+
+def test_october_trailing_reference_reports_row_level_mismatches():
+    import csv
+    from pathlib import Path
+    from app.historical_month_replay import _reconcile_october_2026_trailing_reference
+
+    reference_path = Path(__file__).parents[1] / "app" / "reference_data" / "expiry78_45_trailing_backtest.csv"
+    with reference_path.open("r", encoding="utf-8-sig", newline="") as handle:
+        reference = list(csv.DictReader(handle))
+    trades = []
+    for row in reference:
+        reason = "EXPIRY_INTRINSIC_SETTLEMENT" if row["exit_reason"] == "EXPIRY_INTRINSIC" else row["exit_reason"]
+        trades.append({
+            "symbol": row["underlying"], "option_type": row["type"],
+            "strike": float(row["strike"]), "expiry": "2026-10-27",
+            "entry_date": row["entry_date"], "entry_price": float(row["entry_price"]),
+            "exit_date": row["exit_date"], "exit_price": float(row["exit_price"]),
+            "exit_reason": reason,
+        })
+    trades[0]["exit_price"] += 1.0
+    result = _reconcile_october_2026_trailing_reference(trades)
+    assert result["status"] == "PARTIAL"
+    assert result["matched_entry_count"] == 45
+    assert result["exit_match_count"] == 44
+    assert result["gross_pnl_match_count"] == 44
