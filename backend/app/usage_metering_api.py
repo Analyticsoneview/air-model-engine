@@ -76,6 +76,38 @@ def require_usage(metric: str, quantity: int = 1):
     return enforce_usage
 
 
+def record_licensed_data_download(customer_id: str, customer_type: str, quantity: int,
+                                  idempotency_key: str, *, metadata: dict | None = None):
+    """Meter delivered bytes only for explicitly classified DATA_PRODUCT customers."""
+    kind = str(customer_type or "SERVICE").strip().upper()
+    if kind == "SERVICE":
+        return {"metered": False, "customer_type": "SERVICE"}
+    if kind != "DATA_PRODUCT":
+        raise HTTPException(status_code=403, detail="Unknown customer commercial classification")
+    amount, key = int(quantity), str(idempotency_key or "").strip()
+    if amount <= 0:
+        raise HTTPException(status_code=422, detail="Downloaded data size must be positive")
+    if not key:
+        raise HTTPException(status_code=400, detail="Idempotency-Key is required for data-product downloads")
+    tenant, plan = _tenant(customer_id), None
+    plan = _active_plan(customer_id, tenant)
+    try:
+        result = _meter().consume(
+            tenant, customer_id, "licensed_data_bytes", amount, plan_code=plan,
+            idempotency_key=f"licensed_data_bytes:{key}",
+            metadata={"source": "nse_bhavcopy", **(metadata or {})},
+        )
+        return {"metered": True, "customer_type": "DATA_PRODUCT", **result}
+    except UsageQuotaExceeded as exc:
+        raise HTTPException(status_code=429, detail="Licensed data download quota has been reached") from exc
+    except UnknownUsagePlan as exc:
+        raise HTTPException(status_code=403, detail="No licensed-data allowance exists for this plan") from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Licensed data usage ledger is unavailable") from exc
+
+
 @router.get("/me")
 def usage_me(customer_id:str=Depends(require_customer)):
     tenant=_tenant(customer_id)
