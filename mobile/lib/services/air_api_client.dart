@@ -612,8 +612,8 @@ class AirApiClient {
   }) async {
     // FastAPI list query parameters are repeated, not comma-separated.
     final uri = Uri.parse('$baseUrl/api/v1/backtest/historical-month')
-        .replace(queryParametersAll: {
-      'month': [month],
+        .replace(queryParameters: {
+      'month': month,
       'strategies': strategies,
     });
     return _decode(await _client.get(uri, headers: _headers));
