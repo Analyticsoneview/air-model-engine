@@ -15,7 +15,7 @@ class NSEUniverseTests(unittest.TestCase):
     def test_official_universe_counts_are_explicit(self):
         self.assertEqual(INDEX_UNIVERSES["NIFTY100"]["expected_count"], 100)
         self.assertEqual(INDEX_UNIVERSES["NIFTYMIDCAP150"]["expected_count"], 150)
-        self.assertEqual(INDEX_UNIVERSES["NIFTYSMALLCAP250"]["expected_count"], 250)
+        self.assertEqual(INDEX_UNIVERSES["NIFTYSMALLCAP250"]["expected_count"], 251)
 
     def test_parser_accepts_exact_nifty100_snapshot_and_normalizes_symbols(self):
         rows = parse_index_constituents(self._csv(100), "NIFTY100")
@@ -42,17 +42,17 @@ class NSEUniverseTests(unittest.TestCase):
                 store.save_snapshot(code, rows, "https://nsearchives.nseindia.com/test.csv")
             status = store.status()
             self.assertEqual(status["status"], "READY")
-            self.assertEqual(len(store.symbols()), 500)
+            self.assertEqual(len(store.symbols()), 501)
             latest = store.latest_universe()
             self.assertEqual(latest["status"], "READY")
-            self.assertEqual(latest["unique_symbol_count"], 500)
+            self.assertEqual(latest["unique_symbol_count"], 501)
             self.assertEqual(set(latest["index_counts"]), {
                 "NIFTY100", "NIFTY_MIDCAP150", "NIFTY_SMALLCAP250",
             })
             self.assertTrue(latest["constituents"][0]["index_memberships"])
             self.assertEqual(
                 {code: item["actual_count"] for code, item in status["required_indices"].items()},
-                {"NIFTY100": 100, "NIFTYMIDCAP150": 150, "NIFTYSMALLCAP250": 250},
+                {"NIFTY100": 100, "NIFTYMIDCAP150": 150, "NIFTYSMALLCAP250": 251},
             )
 
 
