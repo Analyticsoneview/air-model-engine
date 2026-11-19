@@ -46,3 +46,34 @@ def test_nse_status_rejects_customer_only_bearer(monkeypatch):
     response = client.get("/api/v1/nse-data/status")
     assert response.status_code == 401
     main.app.dependency_overrides.clear()
+
+
+def test_customer_commercial_type_is_admin_managed(nse_admin_client, monkeypatch):
+    recorded = {}
+    def assign(customer_id, customer_type, admin_id):
+        recorded.update(customer_id=customer_id, customer_type=customer_type, admin_id=admin_id)
+        return dict(recorded)
+    monkeypatch.setattr(main.account_directory, "set_customer_commercial_type", assign)
+    response = nse_admin_client.put(
+        "/api/v1/admin/customers/retail-123/commercial-type",
+        json={"customer_type": "DATA_PRODUCT"},
+    )
+    assert response.status_code == 200
+    assert recorded == {
+        "customer_id": "retail-123",
+        "customer_type": "DATA_PRODUCT",
+        "admin_id": "nse-admin-1",
+    }
+
+
+def test_customer_commercial_type_endpoint_rejects_customer_only_token():
+    main.app.dependency_overrides.clear()
+    from app.security import require_customer
+    main.app.dependency_overrides[require_customer] = lambda: "+919876543210"
+    client = TestClient(main.app)
+    response = client.put(
+        "/api/v1/admin/customers/retail-123/commercial-type",
+        json={"customer_type": "DATA_PRODUCT"},
+    )
+    assert response.status_code == 401
+    main.app.dependency_overrides.clear()

@@ -36,6 +36,7 @@ EXPECTED_CHAIN = [
     "0029_customer_credentials",
     "0030_market_schema",
     "0031_admin_refresh_tokens",
+    "0032_customer_commercial_types",
 ]
 
 

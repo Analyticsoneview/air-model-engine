@@ -6,6 +6,7 @@ from decimal import Decimal
 from uuid import uuid4
 import secrets
 import hashlib
+import json
 
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -59,7 +60,7 @@ from app.tenant_storage_api import router as tenant_storage_router
 from app.internal_workspace_api import router as internal_workspace_router
 from app.commercial_catalogue import public_catalogue, resolve_entitlements
 from app.commercial_contracts_api import router as commercial_contracts_router
-from app.usage_metering_api import router as usage_metering_router
+from app.usage_metering_api import router as usage_metering_router, record_licensed_data_download
 from app.payment_providers_api import router as payment_providers_router
 from app.billing_api import router as billing_router
 from app.commercial_reporting_api import router as commercial_reporting_router
@@ -631,6 +632,9 @@ class CustomerMarketDataAccessUpdate(BaseModel):
     tier: str = Field(pattern="^(STANDARD|PAID)$")
     broker_data_enabled: bool = False
 
+class CustomerCommercialTypeUpdate(BaseModel):
+    customer_type: str = Field(pattern="^(SERVICE|DATA_PRODUCT)$")
+
 
 class BrokerCredentialInput(BaseModel):
     credentials: dict[str, str]
@@ -843,6 +847,7 @@ async def nse_bhavcopy_status(admin: dict = Depends(require_admin)) -> dict:
 
 @app.get("/api/v1/nse-data/rows")
 async def nse_bhavcopy_rows(
+    request: Request,
     market: str = Query(pattern="^(CM|FO)$"),
     symbol: str | None = Query(default=None, max_length=40),
     start_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
@@ -857,8 +862,32 @@ async def nse_bhavcopy_rows(
         market, symbol=symbol, start_date=start_date, end_date=end_date,
         instrument_type=instrument_type, limit=limit,
     )
-    return {"market": market, "count": len(rows), "rows": rows,
-            "source": "NSE official UDiFF bhavcopy", "data_type": "EOD"}
+    payload = {"market": market, "count": len(rows), "rows": rows,
+               "source": "NSE official UDiFF bhavcopy", "data_type": "EOD"}
+    download_bytes = len(json.dumps(payload, separators=(",", ":"), default=str).encode("utf-8"))
+    usage = record_licensed_data_download(
+        customer_id, account_directory.get_customer_commercial_type(customer_id),
+        download_bytes, request.headers.get("Idempotency-Key", ""),
+        metadata={"market": market, "symbol": symbol, "row_count": len(rows)},
+    )
+    payload["download_usage"] = usage
+    return payload
+
+
+@app.put("/api/v1/admin/customers/{target_customer_id}/commercial-type")
+async def admin_set_customer_commercial_type(
+    target_customer_id: str,
+    body: CustomerCommercialTypeUpdate,
+    admin: dict = Depends(require_admin_management),
+) -> dict:
+    """Set customer download classification; only admins can change commercial type."""
+    try:
+        classification = account_directory.set_customer_commercial_type(
+            target_customer_id, body.customer_type, admin["admin_id"]
+        )
+        return {"classification": classification, "updated": True}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post("/api/v1/nse-data/bootstrap")

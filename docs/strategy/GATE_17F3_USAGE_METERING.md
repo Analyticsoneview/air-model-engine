@@ -34,3 +34,13 @@ The versioned internal quota matrix maps each B2C/B2B catalogue plan to soft and
 ## Acceptance
 
 Unit tests cover period rollover, idempotency, hard and soft boundaries, tenant isolation, unknown plans, invalid quantities and custom quota validation. PostgreSQL migration/RLS and full deployment acceptance are required before merge.
+
+
+## Customer commercial classification boundary
+
+- Customer type is explicitly assigned by an authenticated AIR administrator as `SERVICE` or `DATA_PRODUCT`.
+- Existing customers default to `SERVICE`; no existing retail/service customer is silently moved into a metered product tier.
+- NSE EOD downloads are metered by delivered response bytes only for `DATA_PRODUCT` customers, using the active annual contract `licensed_data_bytes` allowance and a required `Idempotency-Key`.
+- `SERVICE` customers receive permitted service data without product-download metering or an idempotency-key requirement.
+- Shared NSE ingestion/bootstrap remains a backend startup service and does not depend on browser login, customer JWTs or administrator access tokens.
+- Customer classification changes are exposed only through `PUT /api/v1/admin/customers/{customer_id}/commercial-type`; customer/operator tokens cannot change this classification.

@@ -27,3 +27,37 @@ def test_self_hosted_usage_does_not_apply_expired_contract(tmp_path, monkeypatch
     ledger.transition("customer-1",item["contract_id"],"ACTIVE",actor_id="customer-1",
         idempotency_key="expired-activate")
     assert usage_metering_api._active_plan("customer-1","customer-1")=="B2C_FREE"
+
+
+def test_service_customer_download_is_not_metered(monkeypatch):
+    calls = []
+    monkeypatch.setattr(usage_metering_api, "_meter", lambda: calls.append("meter"))
+    result = usage_metering_api.record_licensed_data_download("service-1", "SERVICE", 4096, "")
+    assert result == {"metered": False, "customer_type": "SERVICE"}
+    assert calls == []
+
+
+def test_data_product_download_is_metered_in_bytes(monkeypatch):
+    class Meter:
+        def consume(self, *args, **kwargs):
+            return {"metric": args[2], "quantity": args[3], "allowed": True}
+    monkeypatch.setattr(usage_metering_api, "_tenant", lambda customer: "tenant-1")
+    monkeypatch.setattr(usage_metering_api, "_active_plan", lambda customer, tenant: "B2C_TRADER_ANNUAL")
+    monkeypatch.setattr(usage_metering_api, "_meter", lambda: Meter())
+    result = usage_metering_api.record_licensed_data_download(
+        "product-1", "DATA_PRODUCT", 4096, "download-001",
+        metadata={"market": "FO", "row_count": 12},
+    )
+    assert result["metered"] is True
+    assert result["metric"] == "licensed_data_bytes"
+    assert result["quantity"] == 4096
+
+
+def test_data_product_download_requires_idempotency_key(monkeypatch):
+    import pytest
+    from fastapi import HTTPException
+    monkeypatch.setattr(usage_metering_api, "_tenant", lambda customer: "tenant-1")
+    monkeypatch.setattr(usage_metering_api, "_active_plan", lambda customer, tenant: "B2C_TRADER_ANNUAL")
+    with pytest.raises(HTTPException) as error:
+        usage_metering_api.record_licensed_data_download("product-1", "DATA_PRODUCT", 4096, "")
+    assert error.value.status_code == 400

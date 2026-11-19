@@ -164,5 +164,31 @@ class PostgresCustomerAccountDirectory:
         with self.engine.begin() as conn:
             conn.execute(text("DELETE FROM customer_market_data_selection WHERE customer_id=:customer"), {"customer": customer_id.strip()})
 
+    def get_customer_commercial_type(self, customer_id: str) -> str:
+        with self.engine.connect() as conn:
+            row = conn.execute(text("""
+                SELECT customer_type FROM customer_commercial_classification
+                WHERE customer_id=:customer
+            """), {"customer": customer_id.strip()}).mappings().first()
+        return str(row["customer_type"]) if row else "SERVICE"
+
+    @_admin_scoped
+    def set_customer_commercial_type(self, customer_id: str, customer_type: str,
+                                     admin_id: str) -> dict:
+        customer, kind, actor = customer_id.strip(), customer_type.strip().upper(), admin_id.strip()
+        if not customer or not actor or kind not in {"SERVICE", "DATA_PRODUCT"}:
+            raise ValueError("Customer, administrator and SERVICE/DATA_PRODUCT classification are required")
+        with self.engine.begin() as conn:
+            conn.execute(text("""
+                INSERT INTO customer_commercial_classification
+                    (customer_id,customer_type,assigned_by_admin_id,updated_at)
+                VALUES(:customer,:kind,:actor,CURRENT_TIMESTAMP)
+                ON CONFLICT(customer_id) DO UPDATE SET
+                    customer_type=EXCLUDED.customer_type,
+                    assigned_by_admin_id=EXCLUDED.assigned_by_admin_id,
+                    updated_at=CURRENT_TIMESTAMP
+            """), {"customer": customer, "kind": kind, "actor": actor})
+        return {"customer_id": customer, "customer_type": kind, "assigned_by_admin_id": actor}
+
     def close(self) -> None:
         self.engine.dispose()

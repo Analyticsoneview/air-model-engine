@@ -29,6 +29,7 @@ def stores():
     with engine.begin() as conn:
         conn.execute(text("SELECT set_config('air.is_admin','true',true)"))
         conn.execute(text("DELETE FROM broker_credentials"))
+        conn.execute(text("DELETE FROM customer_commercial_classification"))
         conn.execute(text("DELETE FROM customer_market_data_selection"))
         conn.execute(text("DELETE FROM customer_market_data_access"))
         conn.execute(text("DELETE FROM customer_trading_accounts"))
@@ -80,6 +81,16 @@ def test_postgres_market_data_entitlement_is_owned_and_transactional(stores):
     accounts.set_market_data_access("customer-1", "STANDARD", True)
     assert accounts.get_market_data_selection("customer-1") is None
     assert accounts.get_market_data_access("customer-1")["broker_data_enabled"] is False
+
+
+def test_postgres_customer_commercial_type_is_admin_managed_and_defaults_to_service(stores):
+    accounts, _, _ = stores
+    assert accounts.get_customer_commercial_type("customer-1") == "SERVICE"
+    assigned = accounts.set_customer_commercial_type("customer-1", "DATA_PRODUCT", "admin-1")
+    assert assigned["customer_type"] == "DATA_PRODUCT"
+    assert accounts.get_customer_commercial_type("customer-1") == "DATA_PRODUCT"
+    accounts.set_customer_commercial_type("customer-1", "SERVICE", "admin-2")
+    assert accounts.get_customer_commercial_type("customer-1") == "SERVICE"
 
 
 def test_postgres_credential_vault_encrypts_and_scopes_credentials(stores):
