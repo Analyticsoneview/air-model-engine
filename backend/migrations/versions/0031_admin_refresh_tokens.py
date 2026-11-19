@@ -7,7 +7,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "0031_admin_refresh_tokens"
-down_revision = "0030_market_data_schema_isolation"
+down_revision = "0030_market_schema"
 branch_labels = None
 depends_on = None
 
