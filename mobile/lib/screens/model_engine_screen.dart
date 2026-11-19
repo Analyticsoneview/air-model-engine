@@ -1138,6 +1138,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
           const SizedBox(height: 10),
           if (portfolioSelected) _portfolioRiskView(),
           if (pnlSelected) ...[_pnlCalendarView(), _accountReportsView()],
+          if (selectedSection == 'HISTORICAL REPLAY') _historicalMonthView(),
           if (settlementComparisonSelected) _settlementComparisonView(),
           if (strategySelected) ...[
             if (strategyData?['rules'] is Map) Card(child: Padding(
