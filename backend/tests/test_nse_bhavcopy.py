@@ -142,6 +142,30 @@ class NSEBhavcopyTests(unittest.TestCase):
             self.assertEqual(len(exact), 50)
             self.assertTrue(all(row["symbol"] == "AAA" for row in exact))
 
+    def test_symbol_coverage_exempts_official_non_tradable_index_placeholder(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = NSEBhavcopyStore(str(Path(folder) / "nse.sqlite3"))
+            for offset in range(50):
+                day = date.fromordinal(date(2026, 1, 1).toordinal() + offset).isoformat()
+                store.save_rows("CM", day, [{
+                    "FinInstrmId": f"A{offset}", "TckrSymb": "AAA", "FinInstrmTp": "STK",
+                    "ClsPric": "100", "TtlTradgVol": "1000",
+                }])
+
+            coverage = store.symbol_coverage(
+                ["AAA", "DUMMYHEG"], "2026-01-01", "2026-03-01",
+                expected_sessions=50, minimum_sessions=45,
+                excluded_symbols={"DUMMYHEG"},
+            )
+
+            self.assertEqual(coverage["status"], "READY")
+            self.assertEqual(coverage["expected_symbols"], 2)
+            self.assertEqual(coverage["observed_symbols"], 2)
+            self.assertEqual(coverage["missing_count"], 0)
+            self.assertEqual(coverage["excluded_symbols"], ["DUMMYHEG"])
+            dummy = next(item for item in coverage["by_symbol"] if item["symbol"] == "DUMMYHEG")
+            self.assertEqual(dummy["status"], "EXEMPT")
+
     def test_nse_calendar_normalizes_cm_and_fo_separately(self):
         calendar = _parse_nse_calendar({
             "CM": [{"tradingDate": "10-Nov-2026", "weekDay": "Tuesday", "description": "Diwali"}],

@@ -28,6 +28,10 @@ log = logging.getLogger("air.nse.bhavcopy")
 IST = ZoneInfo("Asia/Kolkata")
 NSE_BASE = "https://nsearchives.nseindia.com/content"
 MARKETS = ("CM", "FO")
+# NSE index constituent snapshots may include temporary zero-price placeholders
+# created for corporate-action index continuity. They remain in the official
+# index count but are not expected to have tradable CM EOD bhavcopy rows.
+NSE_NON_TRADABLE_INDEX_PLACEHOLDERS = frozenset({"DUMMYHEG"})
 
 
 def _subtract_months(value: date, months: int) -> date:
@@ -511,34 +515,49 @@ class NSEBhavcopyStore:
         }
 
     def symbol_coverage(self, symbols: list[str], start_date: str, end_date: str,
-                        expected_sessions: int, minimum_sessions: int = 45) -> dict[str, Any]:
-        """Report CM EOD coverage for each current index constituent."""
+                        expected_sessions: int, minimum_sessions: int = 45,
+                        excluded_symbols: set[str] | list[str] | tuple[str, ...] = ()) -> dict[str, Any]:
+        """Report CM EOD coverage while retaining official non-tradable placeholders."""
         unique_symbols = sorted({str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()})
+        excluded = sorted(set(unique_symbols).intersection(
+            {str(symbol).strip().upper() for symbol in excluded_symbols}
+        ))
+        checked_symbols = [symbol for symbol in unique_symbols if symbol not in set(excluded)]
         if not unique_symbols:
             return {
                 "status": "BLOCKED", "expected_symbols": 0, "observed_symbols": 0,
-                "missing_symbols": [], "below_minimum_symbols": [],
+                "missing_count": 0, "missing_symbols": [], "below_minimum_count": 0,
+                "below_minimum_symbols": [], "excluded_count": 0, "excluded_symbols": [],
                 "minimum_sessions": minimum_sessions, "expected_sessions": expected_sessions,
             }
-        placeholders = ",".join("?" for _ in unique_symbols)
-        with self._db() as db:
-            rows = db.execute(
-                f"""
-                SELECT symbol, COUNT(DISTINCT trade_date) AS sessions,
-                       MIN(trade_date) AS first_date, MAX(trade_date) AS last_date
-                FROM nse_bhavcopy
-                WHERE market='CM' AND instrument_type='STK'
-                  AND trade_date>=? AND trade_date<=?
-                  AND symbol IN ({placeholders})
-                GROUP BY symbol
-                """,
-                [start_date, end_date, *unique_symbols],
-            ).fetchall()
-        observed = {row["symbol"]: dict(row) for row in rows}
+        observed: dict[str, dict[str, Any]] = {}
+        if checked_symbols:
+            placeholders = ",".join("?" for _ in checked_symbols)
+            with self._db() as db:
+                rows = db.execute(
+                    f"""
+                    SELECT symbol, COUNT(DISTINCT trade_date) AS sessions,
+                           MIN(trade_date) AS first_date, MAX(trade_date) AS last_date
+                    FROM nse_bhavcopy
+                    WHERE market='CM' AND instrument_type='STK'
+                      AND trade_date>=? AND trade_date<=?
+                      AND symbol IN ({placeholders})
+                    GROUP BY symbol
+                    """,
+                    [start_date, end_date, *checked_symbols],
+                ).fetchall()
+            observed = {row["symbol"]: dict(row) for row in rows}
         by_symbol = []
         missing = []
         below_minimum = []
         for symbol in unique_symbols:
+            if symbol in set(excluded):
+                by_symbol.append({
+                    "symbol": symbol, "sessions": None, "coverage_pct": None,
+                    "first_date": None, "last_date": None, "status": "EXEMPT",
+                    "reason": "Official NSE index placeholder; no tradable CM bhavcopy expected",
+                })
+                continue
             item = observed.get(symbol)
             sessions = int(item["sessions"]) if item else 0
             if sessions == 0:
@@ -565,6 +584,9 @@ class NSEBhavcopyStore:
             "missing_symbols": missing,
             "below_minimum_count": len(below_minimum),
             "below_minimum_symbols": below_minimum,
+            "excluded_count": len(excluded),
+            "excluded_symbols": excluded,
+            "coverage_checked_symbols": len(checked_symbols),
             "minimum_sessions": minimum_sessions,
             "expected_sessions": expected_sessions,
             "by_symbol": by_symbol,
@@ -844,6 +866,7 @@ async def run_nse_bootstrap(*, force: bool = False) -> dict[str, Any]:
         symbol_coverage = store.symbol_coverage(
             universe_symbols, history_start.isoformat(), end_date.isoformat(),
             expected_sessions=expected_cm_sessions, minimum_sessions=45,
+            excluded_symbols=NSE_NON_TRADABLE_INDEX_PLACEHOLDERS,
         )
         state["symbol_coverage"] = symbol_coverage
         universe_ready = (
