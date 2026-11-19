@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 from decimal import Decimal
 from uuid import uuid4
 import secrets
+import hashlib
 
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -1056,6 +1057,9 @@ class AdminLoginRequest(BaseModel):
     password: str = Field(min_length=12, max_length=256)
     totp_code: str = Field(pattern=r"^\d{6}$")
 
+class AdminRefreshRequest(BaseModel):
+    refresh_token: str = Field(min_length=32, max_length=256)
+
 
 class AdminPasswordChangeRequest(BaseModel):
     current_password: str = Field(min_length=12, max_length=256)
@@ -1184,9 +1188,38 @@ async def admin_login(body: AdminLoginRequest, request: Request) -> dict:
     if not admin:
         raise HTTPException(status_code=429, detail="Administrator login failed or temporarily locked. Try again later.")
     token = create_admin_access_token(admin["admin_id"], admin["role"], admin["session_id"], expires_minutes=20)
+    refresh_token = secrets.token_urlsafe(48)
+    refresh_expires_at = int(datetime.now(timezone.utc).timestamp()) + 30 * 24 * 60 * 60
+    store.create_refresh_token(
+        admin["session_id"], hashlib.sha256(refresh_token.encode("utf-8")).hexdigest(),
+        refresh_expires_at,
+    )
     return {"access_token": token, "token_type": "bearer", "expires_in": 1200,
+            "refresh_token": refresh_token, "refresh_expires_in": 30 * 24 * 60 * 60,
             "admin": {"admin_id": admin["admin_id"], "email": admin["email"], "role": admin["role"], "must_change_password": admin["must_change_password"]}}
 
+
+
+@app.post("/api/v1/admin/auth/refresh")
+async def admin_refresh(body: AdminRefreshRequest) -> dict:
+    store = get_admin_auth_store()
+    next_refresh = secrets.token_urlsafe(48)
+    current_hash = hashlib.sha256(body.refresh_token.encode("utf-8")).hexdigest()
+    next_hash = hashlib.sha256(next_refresh.encode("utf-8")).hexdigest()
+    rotated = store.rotate_refresh_token(current_hash, next_hash)
+    if not rotated:
+        raise HTTPException(status_code=401, detail="Administrator refresh token is invalid, expired or already used")
+    admin, absolute_expiry = rotated
+    token = create_admin_access_token(
+        admin["admin_id"], admin["role"], admin["session_id"], expires_minutes=20
+    )
+    return {
+        "access_token": token, "token_type": "bearer", "expires_in": 1200,
+        "refresh_token": next_refresh,
+        "refresh_expires_in": max(0, absolute_expiry - int(datetime.now(timezone.utc).timestamp())),
+        "admin": {"admin_id": admin["admin_id"], "email": admin["email"], "role": admin["role"],
+                  "must_change_password": bool(admin["must_change_password"])},
+    }
 
 
 @app.put("/api/v1/admin/auth/password")
@@ -1200,7 +1233,8 @@ async def admin_change_password(body: AdminPasswordChangeRequest,
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return {"status": "password_changed", "other_sessions_revoked": True}
+    get_admin_auth_store().revoke_refresh_tokens(admin["session_id"])
+    return {"status": "password_changed", "other_sessions_revoked": True, "reauthentication_required": True}
 
 
 @app.get("/api/v1/admin/auth/me")
@@ -1210,7 +1244,9 @@ async def admin_me(admin: dict = Depends(require_admin)) -> dict:
 
 @app.post("/api/v1/admin/auth/logout")
 async def admin_logout(admin: dict = Depends(require_admin)) -> dict:
-    get_admin_auth_store().revoke(admin["session_id"])
+    store = get_admin_auth_store()
+    store.revoke_refresh_tokens(admin["session_id"])
+    store.revoke(admin["session_id"])
     return {"status": "signed_out"}
 
 
