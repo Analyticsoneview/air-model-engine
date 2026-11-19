@@ -185,10 +185,10 @@ def historical_month_report(*, month: str, strategies: list[str],
         return {"status": "DATA_UNAVAILABLE", "month": month, "month_basis": basis,
                 "available_data": {"first_date": earliest, "last_date": latest},
                 "strategies": [], "note": "No imported NSE FO daily records are available."}
-    if last.isoformat() < earliest or first.isoformat() > latest:
+    if last.isoformat() < earliest or (basis == "signal" and first.isoformat() > latest):
         return {"status": "OUTSIDE_RETENTION_WINDOW", "month": month, "month_basis": basis,
                 "available_data": {"first_date": earliest, "last_date": latest},
-                "strategies": [], "note": "Selected month is outside retained NSE FO daily records."}
+                "strategies": [], "note": "Selected signal period is outside retained NSE FO daily records."}
 
     store = _get_store()
     expiry_filter = "expiry>=?" if basis == "signal" else "expiry>=? AND expiry<=?"
@@ -203,6 +203,16 @@ def historical_month_report(*, month: str, strategies: list[str],
             ORDER BY symbol, expiry, strike, option_type, trade_date
         """, params).fetchall()
     normalized_rows = [dict(row) for row in rows]
+    if basis == "expiry" and first.isoformat() > latest and not normalized_rows:
+        return {
+            "status": "CONTRACTS_NOT_IN_RETAINED_DATA",
+            "mode": "HISTORICAL_EXPIRY_MONTH",
+            "month": month, "month_basis": basis, "expiry_month": month,
+            "period": {"start_date": first.isoformat(), "end_date": last.isoformat()},
+            "data_available": {"first_date": earliest, "last_date": latest},
+            "source": "Retained NSE FO EOD bhavcopy", "source_rows": 0,
+            "strategies": [], "note": "No option-contract rows for this future expiry month are present in the retained NSE FO data yet.",
+        }
     selected = {str(item).strip().upper() for item in strategies if str(item).strip()}
     if not selected:
         selected = {"EXPIRY78"}
