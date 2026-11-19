@@ -862,9 +862,10 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                 rows: trades.map((trade) {
                   final expiry = DateTime.tryParse(trade['expiry']?.toString() ?? '');
                   final asOf = DateTime.tryParse(result['as_of']?.toString() ?? '');
-                  final daysToExpiry = expiry == null || asOf == null
-                      ? '—'
-                      : expiry.difference(DateTime(asOf.year, asOf.month, asOf.day)).inDays.toString();
+                  final daysToExpiry = trade['days_to_expiry']?.toString() ??
+                      (expiry == null || asOf == null
+                          ? '—'
+                          : expiry.difference(DateTime(asOf.year, asOf.month, asOf.day)).inDays.toString());
                   final trail = trade['trail_history'] as List<dynamic>? ?? const [];
                   final targets = trail.isEmpty
                       ? 'No fixed target; trailing milestones not reached'
@@ -872,13 +873,11 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                           final milestone = item is Map ? item['milestone_gain_pct'] : null;
                           return milestone == null ? null : '+$milestone%';
                         }).whereType<String>().join(', ');
-                  final pnl = trade['net_pnl_rupees'] != null
-                      ? '₹${trade['net_pnl_rupees']} net'
-                      : trade['gross_pnl_rupees'] != null
-                          ? '₹${trade['gross_pnl_rupees']} gross'
-                          : trade['pnl_points'] != null
-                              ? '${trade['pnl_points']} pts'
-                              : '—';
+                  final pnl = trade['current_pnl_rupees'] != null
+                      ? '₹${trade['current_pnl_rupees']}'
+                      : trade['current_pnl_points'] != null
+                          ? '${trade['current_pnl_points']} pts'
+                          : '—';
                   final evidence = [
                     trade['reason'] ?? trade['exit_reason'],
                     if (trade['exit_date'] != null) 'Exit: ${trade['exit_date']}',
@@ -894,8 +893,8 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                     trade['strike']?.toString() ?? '—',
                     trade['expiry']?.toString() ?? '—',
                     trade['entry_price']?.toString() ?? '—',
-                    '—',
-                    '—',
+                    trade['latest_price']?.toString() ?? '—',
+                    trade['lot_size'] == null ? '—' : 'Position qty — (lot size ${trade['lot_size']})',
                     trade['stop_loss']?.toString() ?? '—',
                     targets,
                     pnl,
@@ -910,7 +909,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
               )),
               const Padding(
                 padding: EdgeInsets.only(top: 5),
-                child: Text('— means the current replay source does not provide verified sector, latest mark, or entered position quantity/lots. EOD bar volume is not position quantity. No fixed target is inferred from trailing-stop milestones.',
+                child: Text('— means the current replay source does not provide verified sector or entered position quantity/lots. Latest Price is the last valid retained EOD close, not an intraday executable quote. EOD bar volume is not position quantity. No fixed target is inferred from trailing-stop milestones.',
                     style: TextStyle(fontSize: 9, fontStyle: FontStyle.italic)),
               ),
               ...trades.map((trade) {
@@ -924,6 +923,9 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                       _settlementMetric('INITIAL STOP', trade['initial_stop_loss'] ?? '—'),
                       _settlementMetric('TRAILING STOP', trade['trailing_stop'] ?? '—'),
                       _settlementMetric('PEAK PREMIUM', trade['peak_premium'] ?? '—'),
+                      _settlementMetric('LATEST EOD MARK', trade['latest_price'] ?? '—'),
+                      _settlementMetric('LATEST MARK DATE', trade['latest_price_date'] ?? '—'),
+                      _settlementMetric('EXCHANGE LOT SIZE', trade['lot_size'] ?? '—'),
                       _settlementMetric('ENTRY-DAY TRADED QTY', trade['entry_day_quantity'] ?? '—'),
                       _settlementMetric('EXIT DATE', trade['exit_date'] ?? '—'),
                       _settlementMetric('EXIT / INTRINSIC ₹', trade['exit_price'] ?? trade['intrinsic_value'] ?? '—'),
