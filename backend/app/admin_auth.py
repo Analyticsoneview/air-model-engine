@@ -242,7 +242,7 @@ class AdminAuthStore:
         return [dict(r) for r in rows]
 
     def session(self, session_id: str):
-        return self.db.execute("""SELECT u.admin_id,u.email,u.role,u.must_change_password FROM air_admin_sessions s
+        return self.db.execute("""SELECT s.session_id,u.admin_id,u.email,u.role,u.must_change_password FROM air_admin_sessions s
             JOIN air_admin_users u ON u.admin_id=s.admin_id
             WHERE s.session_id=? AND s.active=1 AND u.is_active=1""", (session_id,)).fetchone()
 
