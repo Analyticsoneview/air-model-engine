@@ -43,6 +43,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   Map<String, dynamic> _historicalReplay = {};
   bool _historicalLoading = false;
   final Set<String> _historicalStrategies = {'EXPIRY78'};
+  String _historicalBasis = 'expiry';
   static const _historicalStrategyOptions = [
     'EXPIRY78', 'ORIGINAL366', 'RECOVERY', 'EXPIRYSCAN', 'ORB_MORNING', 'ORB_AFTERNOON',
   ];
@@ -726,6 +727,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       final result = await _api.historicalMonthReplay(
         month: _historicalMonthKey,
         strategies: _historicalStrategies.toList()..sort(),
+        basis: _historicalBasis,
       );
       if (mounted) setState(() => _historicalReplay = result);
     } catch (e) {
@@ -766,7 +768,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
           const Text('HISTORICAL EXPIRY-MONTH STRATEGY REPLAY',
               style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
           const SizedBox(height: 5),
-          const Text('Choose any date in the expiry month. AIR loads the entire selected month, including contracts that have already expired. This is a month-level historical replay, not a single-day filter.',
+          const Text('Choose a calendar month and select whether it represents signal month or contract expiry month. Signal-month mode includes qualifying signals in that month even when the option expires later.',
               style: TextStyle(fontSize: 10)),
           const SizedBox(height: 10),
           Row(children: [
@@ -784,6 +786,13 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
             icon: const Icon(Icons.calendar_month_rounded),
             label: const Text('SELECT DATE / EXPIRY MONTH'),
           )),
+          const SizedBox(height: 7),
+          Wrap(spacing: 6, children: [
+            ChoiceChip(label: const Text('SIGNAL MONTH'), selected: _historicalBasis == 'signal',
+              onSelected: _historicalLoading ? null : (_) { setState(() => _historicalBasis = 'signal'); _loadHistoricalReplay(); }),
+            ChoiceChip(label: const Text('EXPIRY MONTH'), selected: _historicalBasis == 'expiry',
+              onSelected: _historicalLoading ? null : (_) { setState(() => _historicalBasis = 'expiry'); _loadHistoricalReplay(); }),
+          ]),
           const SizedBox(height: 7),
           const Text('STRATEGIES TO REPLAY', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900)),
           Wrap(spacing: 6, runSpacing: 4, children: _historicalStrategyOptions.map((strategy) => FilterChip(
@@ -841,7 +850,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
               SingleChildScrollView(scrollDirection: Axis.horizontal, child: DataTable(
                 columns: const [
                   DataColumn(label: Text('MODEL SIGNAL DATE')),
-                  DataColumn(label: Text('ACTUAL ENTRY DATE')),
+                  DataColumn(label: Text('MODELLED ENTRY DATE')),
                   DataColumn(label: Text('CLASSIFICATION')),
                   DataColumn(label: Text('INSTRUMENT')),
                   DataColumn(label: Text('SYMBOL')),
@@ -868,8 +877,8 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                           : expiry.difference(DateTime(asOf.year, asOf.month, asOf.day)).inDays.toString());
                   final trail = trade['trail_history'] as List<dynamic>? ?? const [];
                   final targets = trail.isEmpty
-                      ? 'No fixed target; trailing milestones not reached'
-                      : trail.map((item) {
+                      ? 'No fixed target configured'
+                      : 'Trail-stop milestones: ' + trail.map((item) {
                           final milestone = item is Map ? item['milestone_gain_pct'] : null;
                           return milestone == null ? null : '+$milestone%';
                         }).whereType<String>().join(', ');
@@ -880,12 +889,13 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                           : '—';
                   final evidence = [
                     trade['reason'] ?? trade['exit_reason'],
+                    if (trade['latest_price_date'] != null) 'Mark: ${trade['latest_price_date']}',
                     if (trade['exit_date'] != null) 'Exit: ${trade['exit_date']}',
                   ].where((value) => value != null).join(' • ');
                   final values = [
                     trade['signal_date']?.toString() ?? '—',
                     trade['entry_date']?.toString() ?? '—',
-                    trade['classification']?.toString() ?? '—',
+                    trade['classification_label']?.toString() ?? trade['classification']?.toString() ?? '—',
                     trade['instrument_type']?.toString() ?? '—',
                     trade['symbol']?.toString() ?? '—',
                     '—',
@@ -894,7 +904,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                     trade['expiry']?.toString() ?? '—',
                     trade['entry_price']?.toString() ?? '—',
                     trade['latest_price']?.toString() ?? '—',
-                    trade['lot_size'] == null ? '—' : 'Position qty — (lot size ${trade['lot_size']})',
+                    'Not available',
                     trade['stop_loss']?.toString() ?? '—',
                     targets,
                     pnl,
@@ -909,7 +919,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
               )),
               const Padding(
                 padding: EdgeInsets.only(top: 5),
-                child: Text('— means the current replay source does not provide verified sector or entered position quantity/lots. Latest Price is the last valid retained EOD close, not an intraday executable quote. EOD bar volume is not position quantity. No fixed target is inferred from trailing-stop milestones.',
+                child: Text('— means verified sector and entered position quantity/lots are not available in this source. Entry date is a modelled daily-low touch, not a broker execution. Latest Price is trade-specific: exit/settlement for closed trades, latest retained EOD mark for open/unresolved trades. Trailing-stop milestones are not fixed targets.',
                     style: TextStyle(fontSize: 9, fontStyle: FontStyle.italic)),
               ),
               ...trades.map((trade) {
