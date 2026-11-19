@@ -573,6 +573,13 @@ class AirApiClient {
     return _decode(response);
   }
 
+  Future<Map<String, dynamic>> modelEnginePublicPreview({int limit = 100}) async {
+    final uri = Uri.parse('$baseUrl/api/v1/model-engine/public-preview')
+        .replace(queryParameters: {'limit': limit.toString()});
+    return _decode(await _client.get(uri, headers: _headers)
+        .timeout(const Duration(seconds: 12)));
+  }
+
   Future<Map<String, dynamic>> modelEngineMaster({int limit = 2000}) async {
     final response = await _client.get(
       Uri.parse('$baseUrl/api/v1/model-engine/master?limit=$limit'),
