@@ -37,6 +37,30 @@ jobs:
       - name: Generate Android platform files
         working-directory: mobile
         run: flutter create . --platforms=android --org com.analyticalstocks
+      - name: Set unique administrator Android application ID
+        working-directory: mobile
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          candidates = [Path("android/app/build.gradle.kts"), Path("android/app/build.gradle")]
+          path = next((p for p in candidates if p.exists()), None)
+          if path is None:
+              raise SystemExit("Android app Gradle file not found")
+          source = path.read_text()
+          patterns = [
+              (r'applicationId\\s*=\\s*"[^"]+"', 'applicationId = "com.analyticalstocks.air.admin"'),
+              (r'applicationId\\s+"[^"]+"', 'applicationId "com.analyticalstocks.air.admin"'),
+          ]
+          for pattern, replacement in patterns:
+              updated, count = re.subn(pattern, replacement, source, count=1)
+              if count:
+                  path.write_text(updated)
+                  print(f"Set administrator application ID in {path}")
+                  break
+          else:
+              raise SystemExit("Could not find applicationId declaration")
+          PY
       - name: Resolve Flutter dependencies
         working-directory: mobile
         run: flutter pub get
