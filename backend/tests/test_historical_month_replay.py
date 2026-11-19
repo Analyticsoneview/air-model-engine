@@ -35,6 +35,11 @@ def test_month_replay_finds_and_settles_expired_contract():
     assert trade["classification"] == "EXPIRED"
     assert trade["expiry_survivor"] is True
     assert trade["expiry_underlying_close"] == 110
+    assert trade["latest_price"] == 6
+    assert trade["latest_price_date"] == "2026-10-29"
+    assert trade["days_to_expiry"] == -21
+    assert trade["current_pnl_points"] == trade["pnl_points"] == 4.8
+    assert trade["current_pnl_rupees"] is None
 
 
 def test_month_replay_does_not_include_other_expiry_months():
