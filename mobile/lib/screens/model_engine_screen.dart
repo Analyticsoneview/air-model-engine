@@ -768,7 +768,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(
         crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('HISTORICAL EXPIRY-MONTH STRATEGY REPLAY',
+          const Text('HISTORICAL MONTH STRATEGY REPLAY',
               style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
           const SizedBox(height: 5),
           const Text('Choose a calendar month and select whether it represents signal month or contract expiry month. Signal-month mode includes qualifying signals in that month even when the option expires later.',
@@ -823,12 +823,13 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       ))),
       if (_historicalReplay.isEmpty && !_historicalLoading)
         Card(child: Padding(padding: const EdgeInsets.all(14), child: Text(
-          'Select an expiry month and tap refresh to load historical strategy qualifications.',
+          'Select a calendar month and tap refresh to load historical strategy qualifications.',
           style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant)))),
       ...results.map((result) {
         final trades = (result['trades'] as List<dynamic>? ?? const [])
             .whereType<Map<String, dynamic>>().toList();
         final counts = result['classification_counts'] as Map<String, dynamic>? ?? {};
+        final baseline = result['baseline_reconciliation'] as Map<String, dynamic>?;
         return Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(
           crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
@@ -838,6 +839,15 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                   style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900,
                     color: result['status'] == 'COMPLETED' ? Colors.green : Theme.of(context).colorScheme.error)),
             ]),
+            if (result['strategy_version'] != null)
+              Text('RULESET: ${result['strategy_version']}', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700)),
+            if (baseline != null) ...[
+              const SizedBox(height: 5),
+              Text('27-OCT TRAILING REFERENCE: ${baseline['status']} • Entries ${baseline['matched_entry_count'] ?? 0}/${baseline['reference_trade_count'] ?? 0} • Exit matches ${baseline['exit_match_count'] ?? 0} • P&L matches ${baseline['gross_pnl_match_count'] ?? 0}',
+                  style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w900)),
+              if (baseline['note'] != null)
+                Text(baseline['note'].toString(), style: const TextStyle(fontSize: 9)),
+            ],
             if (result['reason'] != null) Text(result['reason'].toString(), style: const TextStyle(fontSize: 10)),
             if (result['rules'] != null) Text(result['rules'].toString(), style: const TextStyle(fontSize: 9)),
             Wrap(spacing: 8, runSpacing: 6, children: [
