@@ -1,19 +1,22 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:air_model_engine/main.dart';
 
 void main() {
-  testWidgets('AIR phone onboarding gate renders before dashboard access', (tester) async {
-    await tester.pumpWidget(const AirModelEngineApp(initialServerUrl: 'http://127.0.0.1:8000'));
+  testWidgets('AIR User opens the guest dashboard without phone onboarding', (tester) async {
+    await tester.pumpWidget(
+      const AirModelEngineApp(initialServerUrl: 'http://127.0.0.1:8000'),
+    );
 
-    // Verify the deterministic first frame while session restoration is pending.
-    expect(find.text('ANALYTICAL INVESTMENT RESEARCH'), findsOneWidget);
-    expect(find.text('Your market intelligence workspace.'), findsOneWidget);
-    expect(find.text('International mobile number'), findsOneWidget);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
-    expect(find.text('DASHBOARD ACCESS  •  SUBSCRIPTION-BASED STRATEGIES'), findsOneWidget);
-    // Administrator authentication is deliberately not part of the customer gate.
+    // A configured server should open the application shell directly.
+    expect(find.text('Home'), findsOneWidget);
+    expect(find.text('Intelligence'), findsOneWidget);
+    expect(find.text('Markets'), findsOneWidget);
+    expect(find.text('AIR QOC'), findsOneWidget);
+    expect(find.text('More'), findsOneWidget);
+
+    // Guest browsing must not be blocked by the retired OTP/onboarding gate.
+    expect(find.text('International mobile number'), findsNothing);
+    expect(find.text('DASHBOARD ACCESS  •  SUBSCRIPTION-BASED STRATEGIES'), findsNothing);
     expect(find.text('ADMINISTRATOR SIGN IN'), findsNothing);
-    expect(find.textContaining('Verify ownership before enabling payments'), findsOneWidget);
   });
 }
