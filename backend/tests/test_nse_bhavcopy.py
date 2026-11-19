@@ -69,11 +69,11 @@ class NSEBhavcopyTests(unittest.TestCase):
                 "indices": {
                     "NIFTY100": {"status": "READY", "actual_count": 100},
                     "NIFTYMIDCAP150": {"status": "READY", "actual_count": 150},
-                    "NIFTYSMALLCAP250": {"status": "READY", "actual_count": 250},
+                    "NIFTYSMALLCAP250": {"status": "READY", "actual_count": 251},
                 },
             },
             "symbol_coverage": {
-                "status": "READY", "expected_symbols": 500, "missing_count": 0,
+                "status": "READY", "expected_symbols": 501, "missing_count": 0,
             },
             "strategy_run": {"status": "COMPLETED"},
             "monthly_pd_scan": {"status": "COMPLETED"},
