@@ -55,8 +55,8 @@ jobs:
               raise SystemExit("Android app Gradle file not found")
           source = path.read_text()
           patterns = [
-              (r'applicationId\\s*=\\s*"[^"]+"', 'applicationId = "com.analyticalstocks.air.user"'),
-              (r'applicationId\\s+"[^"]+"', 'applicationId "com.analyticalstocks.air.user"'),
+              (r'applicationId\s*=\s*"[^"]+"', 'applicationId = "com.analyticalstocks.air.user"'),
+              (r'applicationId\s+"[^"]+"', 'applicationId "com.analyticalstocks.air.user"'),
           ]
           for pattern, replacement in patterns:
               updated, count = re.subn(pattern, replacement, source, count=1)
