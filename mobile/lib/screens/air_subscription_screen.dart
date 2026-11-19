@@ -24,16 +24,21 @@ class _AirSubscriptionScreenState extends State<AirSubscriptionScreen> {
   Future<void> _load() async {
     setState(() { _loading = true; _error = null; });
     try {
-      final values = await Future.wait([_api.subscriptionCatalogue(), _api.mySubscription(), _api.marketingPreferences()]);
+      final catalogue = await _api.subscriptionCatalogue();
+      Map<String, dynamic>? status;
+      Map<String, dynamic>? preferences;
+      if (_api.isAuthenticated) {
+        final values = await Future.wait([_api.mySubscription(), _api.marketingPreferences()]);
+        status = values[0];
+        preferences = values[1];
+      }
       if (!mounted) return;
-      final status = values[1];
       setState(() {
-        _plans = (values[0]['b2c'] as List<dynamic>? ?? const [])
+        _plans = (catalogue['b2c'] as List<dynamic>? ?? const [])
             .whereType<Map<String, dynamic>>().toList(growable: false);
-        _subscription = status['subscription'] as Map<String, dynamic>?;
-        final preferences = values[2];
-        _marketingConsent = preferences['promotional_consent'] == true;
-        _consentUpdatedAt = preferences['consent_updated_at']?.toString();
+        _subscription = status?['subscription'] as Map<String, dynamic>?;
+        _marketingConsent = preferences?['promotional_consent'] == true;
+        _consentUpdatedAt = preferences?['consent_updated_at']?.toString();
       });
     } catch (error) {
       if (mounted) setState(() => _error = error.toString());
@@ -85,7 +90,7 @@ class _AirSubscriptionScreenState extends State<AirSubscriptionScreen> {
             ],
           ))),
           const SizedBox(height: 18),
-          Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(
+          if (_api.isAuthenticated) Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(
             crossAxisAlignment: CrossAxisAlignment.start, children: [
               const Text('PROMOTIONAL COMMUNICATION PREFERENCES', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: .5)),
               const SizedBox(height: 6),
@@ -121,7 +126,7 @@ class _AirSubscriptionScreenState extends State<AirSubscriptionScreen> {
           const SizedBox(height: 12),
           Card(color: theme.colorScheme.surfaceContainerHighest, child: const Padding(
             padding: EdgeInsets.all(14),
-            child: Text('Pre-launch catalogue: paid B2C plans are annual. Prices are not published and online payments, automatic renewals and self-service plan activation remain disabled until commercial, tax, data-licensing, security and legal approvals are complete.',
+            child: Text('Explore the AIR plan catalogue without signing in. Paid B2C plans are annual; prices and online activation remain unavailable until commercial, tax, data-licensing, security and legal approvals are complete.',
               style: TextStyle(fontSize: 12, height: 1.45)),
           )),
           if (_error != null) Padding(

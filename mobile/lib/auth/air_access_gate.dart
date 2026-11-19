@@ -4,11 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../services/air_api_client.dart';
-import '../screens/air_server_setup_screen.dart';
 
 class AirAccessGate extends StatefulWidget {
-  const AirAccessGate({super.key, required this.builder});
+  const AirAccessGate({super.key, required this.builder, this.guestBuilder});
   final WidgetBuilder builder;
+  final Widget Function(BuildContext context, VoidCallback onSignIn)? guestBuilder;
 
   @override
   State<AirAccessGate> createState() => _AirAccessGateState();
@@ -23,32 +23,13 @@ class _AirAccessGateState extends State<AirAccessGate> {
   String _message = 'Enter your international mobile number to open your AIR dashboard. Strategy access is activated separately through a subscription plan.';
   bool _busy = true;
   bool _approved = false;
+  bool _showGuestPreview = false;
 
   @override
   void initState() {
     super.initState();
     _api = AirApiClient();
     _restoreSession();
-  }
-
-  Future<void> _changeServer() async {
-    await Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (setupContext) => AirServerSetupScreen(
-        onConnected: () => Navigator.of(setupContext).pop(),
-      ),
-    ));
-    if (!mounted) return;
-    // A bearer token belongs to the previous server; never forward it to a newly selected host.
-    AirApiClient.setAccessToken(null);
-    await _storage.delete(key: 'air_access_token');
-    _api.dispose();
-    _api = AirApiClient();
-    setState(() {
-      _busy = true;
-      _approved = false;
-      _status = 'NEW';
-    });
-    await _restoreSession();
   }
 
   Future<void> _restoreSession() async {
@@ -154,6 +135,11 @@ class _AirAccessGateState extends State<AirAccessGate> {
   @override
   Widget build(BuildContext context) {
     if (_approved) return widget.builder(context);
+    if (_showGuestPreview && widget.guestBuilder != null) {
+      return widget.guestBuilder!(context, () {
+        if (mounted) setState(() => _showGuestPreview = false);
+      });
+    }
     final pending = _status == 'PENDING';
     final approvedStatus = _status == 'APPROVED';
     final denied = _status == 'REJECTED' || _status == 'BLOCKED';
@@ -258,8 +244,16 @@ class _AirAccessGateState extends State<AirAccessGate> {
                                 Expanded(child: Text(_message, style: const TextStyle(color: Colors.white, height: 1.45, fontSize: 12))),
                               ]),
                             ),
+                          if (widget.guestBuilder != null) ...[
+                            const SizedBox(height: 8),
+                            TextButton.icon(
+                              onPressed: _busy ? null : () => setState(() => _showGuestPreview = true),
+                              icon: const Icon(Icons.visibility_outlined),
+                              label: const Text('EXPLORE PUBLISHED STRATEGY PREVIEW'),
+                              style: TextButton.styleFrom(foregroundColor: const Color(0xFFE5B85C)),
+                            ),
+                          ],
                           const SizedBox(height: 12),
-                          TextButton.icon(onPressed: _busy ? null : _changeServer, icon: const Icon(Icons.dns_outlined, color: Color(0xFFE5B85C)), label: const Text('CHANGE AIR SERVER', style: TextStyle(color: Color(0xFFE5B85C), fontWeight: FontWeight.w800))),
                         ],
                       ));
                       const journey = _AirJourneyPanel();

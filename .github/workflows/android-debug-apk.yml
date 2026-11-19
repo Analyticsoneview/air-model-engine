@@ -1,0 +1,77 @@
+name: AIR Android Release Test APK
+
+on:
+  push:
+    branches:
+      - build/android-debug-apk
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: air-android-release-test-apk
+  cancel-in-progress: false
+
+jobs:
+  build-release-test-apk:
+    name: Build optimized ARM64 Android release-test APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout GitHub source
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Generate Android platform files
+        working-directory: mobile
+        run: flutter create . --platforms=android --org com.analyticalstocks
+
+      - name: Resolve Flutter dependencies
+        working-directory: mobile
+        run: flutter pub get
+
+      - name: Build optimized ARM64 release-test APK
+        working-directory: mobile
+        run: flutter build apk --release --target-platform android-arm64 --split-per-abi
+
+      - name: Verify ARM64 APK and calculate SHA-256
+        run: |
+          APK="mobile/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk"
+          test -s "$APK"
+          if ! unzip -l "$APK" | grep -q 'lib/arm64-v8a/'; then
+            echo "ARM64 native libraries are missing from the APK"
+            exit 1
+          fi
+          if unzip -l "$APK" | grep -Eq 'lib/(armeabi-v7a|x86_64)/'; then
+            echo "Unexpected non-ARM64 native libraries found in ARM64 split APK"
+            exit 1
+          fi
+          ls -lh "$APK"
+          sha256sum "$APK" | tee AIR-Android-Release-Test-SHA256.txt
+
+      - name: Upload optimized installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AIR-Model-Engine-Android-ARM64-Release-Test-APK
+          path: |
+            mobile/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+            AIR-Android-Release-Test-SHA256.txt
+          if-no-files-found: error
+          retention-days: 30

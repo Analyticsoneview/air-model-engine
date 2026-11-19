@@ -1,0 +1,118 @@
+name: AIR User Android APK
+
+on:
+  push:
+    branches:
+      - build/android-admin-user-apks
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/android-user-apk.yml'
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: 'AIR API base URL reachable from the test phone'
+        required: false
+        default: 'http://192.168.29.235:8000'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: air-user-android-apk
+  cancel-in-progress: false
+
+jobs:
+  build-user-apk:
+    name: Build AIR User ARM64 APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Generate Android platform files
+        working-directory: mobile
+        run: flutter create . --platforms=android --org com.analyticalstocks
+      - name: Set unique customer Android application ID
+        working-directory: mobile
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          candidates = [Path("android/app/build.gradle.kts"), Path("android/app/build.gradle")]
+          path = next((p for p in candidates if p.exists()), None)
+          if path is None:
+              raise SystemExit("Android app Gradle file not found")
+          source = path.read_text()
+          patterns = [
+              (r'applicationId\s*=\s*"[^"]+"', 'applicationId = "com.analyticalstocks.air.user"'),
+              (r'applicationId\s+"[^"]+"', 'applicationId "com.analyticalstocks.air.user"'),
+          ]
+          for pattern, replacement in patterns:
+              updated, count = re.subn(pattern, replacement, source, count=1)
+              if count:
+                  path.write_text(updated)
+                  print(f"Set customer application ID in {path}")
+                  break
+          else:
+              raise SystemExit("Could not find applicationId declaration")
+          PY
+      - name: Configure Android network permissions for AIR PC testing
+        working-directory: mobile
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          source = manifest.read_text()
+          if "android.permission.INTERNET" not in source:
+              source = source.replace("<application", '    <uses-permission android:name="android.permission.INTERNET" />\n    <application', 1)
+          if "android:usesCleartextTraffic" not in source:
+              source = re.sub(r"<application\b", '<application android:usesCleartextTraffic="true"', source, count=1)
+          manifest.write_text(source)
+          print("Configured Android network access for the AIR local-PC test endpoint; production must use HTTPS.")
+          PY
+      - name: Resolve Flutter dependencies
+        working-directory: mobile
+        run: flutter pub get
+      - name: Validate and build customer APK
+        working-directory: mobile
+        env:
+          AIR_API_BASE_URL: ${{ inputs.api_base_url || 'http://192.168.29.235:8000' }}
+        run: |
+          if [ -z "$AIR_API_BASE_URL" ]; then
+            echo "api_base_url is required. The customer APK must be provisioned with its AIR server URL."
+            exit 1
+          fi
+          case "$AIR_API_BASE_URL" in
+            http://*|https://*) ;;
+            *) echo "api_base_url must start with http:// or https://"; exit 1 ;;
+          esac
+          flutter build apk --release --target-platform android-arm64 --split-per-abi --target lib/main.dart --dart-define=AIR_API_BASE_URL="$AIR_API_BASE_URL"
+      - name: Verify and checksum customer APK
+        run: |
+          APK="mobile/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk"
+          test -s "$APK"
+          unzip -l "$APK" | grep -q 'lib/arm64-v8a/'
+          if unzip -l "$APK" | grep -Eq 'lib/(armeabi-v7a|x86_64)/'; then exit 1; fi
+          sha256sum "$APK" | tee AIR-User-Android-SHA256.txt
+          mkdir -p dist
+          cp "$APK" dist/AIR-User-ARM64.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AIR-User-Android-ARM64-APK
+          path: |
+            dist/AIR-User-ARM64.apk
+            AIR-User-Android-SHA256.txt
+          if-no-files-found: error
+          retention-days: 30
