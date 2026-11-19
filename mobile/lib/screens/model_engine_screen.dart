@@ -836,19 +836,114 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
             ]),
             if (trades.isNotEmpty) ...[
               const SizedBox(height: 8),
+              const Text('COMMON STRATEGY LEDGER • ALL 18 AGREED FIELDS',
+                  style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900)),
               SingleChildScrollView(scrollDirection: Axis.horizontal, child: DataTable(
                 columns: const [
-                  DataColumn(label: Text('SIGNAL DATE')), DataColumn(label: Text('STOCK')),
-                  DataColumn(label: Text('CE/PE')), DataColumn(label: Text('STRIKE')),
-                  DataColumn(label: Text('EXPIRY')), DataColumn(label: Text('STATUS')),
-                  DataColumn(label: Text('ENTRY ₹')), DataColumn(label: Text('EXIT / EXPIRY ₹')),
+                  DataColumn(label: Text('MODEL SIGNAL DATE')),
+                  DataColumn(label: Text('ACTUAL ENTRY DATE')),
+                  DataColumn(label: Text('CLASSIFICATION')),
+                  DataColumn(label: Text('INSTRUMENT')),
+                  DataColumn(label: Text('SYMBOL')),
+                  DataColumn(label: Text('SECTOR')),
+                  DataColumn(label: Text('CE/PE')),
+                  DataColumn(label: Text('STRIKE')),
+                  DataColumn(label: Text('EXPIRY')),
+                  DataColumn(label: Text('ENTRY PRICE')),
+                  DataColumn(label: Text('LATEST PRICE')),
+                  DataColumn(label: Text('QUANTITY / LOTS')),
+                  DataColumn(label: Text('STOP LOSS')),
+                  DataColumn(label: Text('TARGETS')),
+                  DataColumn(label: Text('CURRENT P&L')),
+                  DataColumn(label: Text('DAYS TO EXPIRY')),
+                  DataColumn(label: Text('POSITION STATUS')),
+                  DataColumn(label: Text('LATEST EVIDENCE')),
                 ],
-                rows: trades.map((trade) => DataRow(cells: [
-                  for (final key in ['signal_date','symbol','option_type','strike','expiry','classification','entry_price'])
-                    DataCell(Text(trade[key]?.toString() ?? '—', style: const TextStyle(fontSize: 10))),
-                  DataCell(Text((trade['exit_price'] ?? trade['expiry_option_close'] ?? '—').toString(), style: const TextStyle(fontSize: 10))),
-                ])).toList(),
+                rows: trades.map((trade) {
+                  final expiry = DateTime.tryParse(trade['expiry']?.toString() ?? '');
+                  final asOf = DateTime.tryParse(result['as_of']?.toString() ?? '');
+                  final daysToExpiry = expiry == null || asOf == null
+                      ? '—'
+                      : expiry.difference(DateTime(asOf.year, asOf.month, asOf.day)).inDays.toString();
+                  final trail = trade['trail_history'] as List<dynamic>? ?? const [];
+                  final targets = trail.isEmpty
+                      ? 'No fixed target; trailing milestones not reached'
+                      : trail.map((item) {
+                          final milestone = item is Map ? item['milestone_gain_pct'] : null;
+                          return milestone == null ? null : '+$milestone%';
+                        }).whereType<String>().join(', ');
+                  final pnl = trade['net_pnl_rupees'] != null
+                      ? '₹${trade['net_pnl_rupees']} net'
+                      : trade['gross_pnl_rupees'] != null
+                          ? '₹${trade['gross_pnl_rupees']} gross'
+                          : trade['pnl_points'] != null
+                              ? '${trade['pnl_points']} pts'
+                              : '—';
+                  final evidence = [
+                    trade['reason'] ?? trade['exit_reason'],
+                    if (trade['exit_date'] != null) 'Exit: ${trade['exit_date']}',
+                  ].where((value) => value != null).join(' • ');
+                  final values = [
+                    trade['signal_date']?.toString() ?? '—',
+                    trade['entry_date']?.toString() ?? '—',
+                    trade['classification']?.toString() ?? '—',
+                    trade['instrument_type']?.toString() ?? '—',
+                    trade['symbol']?.toString() ?? '—',
+                    '—',
+                    trade['option_type']?.toString() ?? '—',
+                    trade['strike']?.toString() ?? '—',
+                    trade['expiry']?.toString() ?? '—',
+                    trade['entry_price']?.toString() ?? '—',
+                    '—',
+                    '—',
+                    trade['stop_loss']?.toString() ?? '—',
+                    targets,
+                    pnl,
+                    daysToExpiry,
+                    trade['position_status']?.toString() ?? '—',
+                    evidence.isEmpty ? '—' : evidence,
+                  ];
+                  return DataRow(cells: values.map((value) => DataCell(
+                    Text(value, style: const TextStyle(fontSize: 10)),
+                  )).toList());
+                }).toList(),
               )),
+              const Padding(
+                padding: EdgeInsets.only(top: 5),
+                child: Text('— means the current replay source does not provide verified sector, latest mark, or entered position quantity/lots. EOD bar volume is not position quantity. No fixed target is inferred from trailing-stop milestones.',
+                    style: TextStyle(fontSize: 9, fontStyle: FontStyle.italic)),
+              ),
+              ...trades.map((trade) {
+                final trail = trade['trail_history'] as List<dynamic>? ?? const [];
+                return ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  title: Text('${trade['symbol'] ?? 'Contract'} • STRATEGY EVIDENCE',
+                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
+                  children: [
+                    Wrap(spacing: 12, runSpacing: 6, children: [
+                      _settlementMetric('INITIAL STOP', trade['initial_stop_loss'] ?? '—'),
+                      _settlementMetric('TRAILING STOP', trade['trailing_stop'] ?? '—'),
+                      _settlementMetric('PEAK PREMIUM', trade['peak_premium'] ?? '—'),
+                      _settlementMetric('ENTRY-DAY TRADED QTY', trade['entry_day_quantity'] ?? '—'),
+                      _settlementMetric('EXIT DATE', trade['exit_date'] ?? '—'),
+                      _settlementMetric('EXIT / INTRINSIC ₹', trade['exit_price'] ?? trade['intrinsic_value'] ?? '—'),
+                      _settlementMetric('EXPIRY UNDERLYING ₹', trade['expiry_underlying_close'] ?? '—'),
+                      _settlementMetric('GROSS P&L ₹', trade['gross_pnl_rupees'] ?? 'Not evidenced'),
+                      _settlementMetric('CHARGES ₹', trade['charges_rupees'] ?? 'Not evidenced'),
+                      _settlementMetric('NET P&L ₹', trade['net_pnl_rupees'] ?? 'Not evidenced'),
+                    ]),
+                    if (trail.isNotEmpty)
+                      ...trail.map((item) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Text(item.toString(), style: const TextStyle(fontSize: 9)),
+                      )),
+                    if (trade['reason'] != null)
+                      Align(alignment: Alignment.centerLeft, child: Text(
+                        'Evidence: ${trade['reason']}',
+                        style: const TextStyle(fontSize: 9))),
+                  ],
+                );
+              }),
             ] else if (result['status'] == 'COMPLETED')
               const Padding(padding: EdgeInsets.only(top: 8), child: Text('No qualifying entries were found for this strategy in the selected expiry month.', style: TextStyle(fontSize: 10))),
           ],
