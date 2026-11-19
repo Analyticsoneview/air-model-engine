@@ -178,3 +178,28 @@ def test_mfa_rotation_requires_password_and_revokes_existing_sessions(tmp_path, 
         assert new_login and new_login["admin_id"] == admin_id
     finally:
         store.close()
+
+
+def test_admin_refresh_token_rotates_once_and_expires_with_session(tmp_path, monkeypatch):
+    store = _store(tmp_path, monkeypatch)
+    try:
+        admin_id, secret = store.bootstrap("root@example.com", "Long-Strong-Password-123!")
+        now = 1_800_000_000
+        login = store.authenticate("root@example.com", "Long-Strong-Password-123!",
+                                   _totp(secret, now), rate_key="root|refresh", now=now)
+        assert login
+        import hashlib
+        first = "first-refresh-secret-value-that-is-long-enough"
+        second = "second-refresh-secret-value-that-is-long-enough"
+        first_hash = hashlib.sha256(first.encode()).hexdigest()
+        second_hash = hashlib.sha256(second.encode()).hexdigest()
+        store.create_refresh_token(login["session_id"], first_hash, now + 86400)
+        rotated = store.rotate_refresh_token(first_hash, second_hash, now=now + 10)
+        assert rotated and rotated[0]["admin_id"] == admin_id
+        assert rotated[1] == now + 86400
+        assert store.rotate_refresh_token(first_hash, "third-hash", now=now + 11) is None
+        assert store.rotate_refresh_token(second_hash, "third-hash", now=now + 86401) is None
+        store.revoke(login["session_id"])
+        assert store.rotate_refresh_token(second_hash, "fourth-hash", now=now + 20) is None
+    finally:
+        store.close()
