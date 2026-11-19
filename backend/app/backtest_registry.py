@@ -24,6 +24,9 @@ def registered_backtest_strategies() -> list[dict[str, Any]]:
             "source": "app.model_engine_expiry78.evaluate_expiry78_contract",
             "data_requirements": ["NSE FO daily option OHLCV", "contract expiry", "strike", "option type", "underlying expiry close"],
             "available_for_daily_backtest": True,
+            "available_for_historical_report": True,
+            "historical_report_mode": "MONTH_SELECTED_NSE_FO_EOD_REPLAY",
+            "historical_report_endpoint": "/api/v1/backtest/historical-month",
             "pnl_limitations": ["Rupee P&L requires verified historical lot size/position quantity and a configured charges model."],
         },
         {
