@@ -1,12 +1,6 @@
 name: AIR User Android APK
 
 on:
-  push:
-    branches:
-      - build/android-admin-user-apks
-    paths:
-      - 'mobile/**'
-      - '.github/workflows/android-user-apk.yml'
   workflow_dispatch:
     inputs:
       api_base_url:
