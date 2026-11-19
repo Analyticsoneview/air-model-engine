@@ -18,7 +18,7 @@ void main() {
       final path = request.url.path;
       Map<String, dynamic> data = {};
       if (path.endsWith('/auth/login')) {
-        data = {'access_token': 'local-test-session'};
+        data = {'access_token': 'local-test-session', 'refresh_token': 'local-test-refresh-token-value-long-enough'};
       } else if (path.endsWith('/auth/me')) {
         data = {'role': 'ADMIN', 'must_change_password': false};
       } else if (path.endsWith('/access-requests')) {
