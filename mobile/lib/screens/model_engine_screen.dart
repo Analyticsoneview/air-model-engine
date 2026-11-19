@@ -776,6 +776,8 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                 style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17))),
             IconButton(onPressed: _historicalLoading ? null : () => _changeHistoricalMonth(1),
                 icon: const Icon(Icons.chevron_right)),
+            IconButton(onPressed: _historicalLoading ? null : () => _loadHistoricalReplay(),
+                icon: const Icon(Icons.refresh_rounded), tooltip: 'Reload selected expiry month'),
           ]),
           SizedBox(width: double.infinity, child: OutlinedButton.icon(
             onPressed: _historicalLoading ? null : _chooseHistoricalMonth,
