@@ -164,7 +164,6 @@ class PostgresCustomerAccountDirectory:
         with self.engine.begin() as conn:
             conn.execute(text("DELETE FROM customer_market_data_selection WHERE customer_id=:customer"), {"customer": customer_id.strip()})
 
-    @_customer_scoped
     def get_customer_commercial_type(self, customer_id: str) -> str:
         with self.engine.connect() as conn:
             row = conn.execute(text("""
