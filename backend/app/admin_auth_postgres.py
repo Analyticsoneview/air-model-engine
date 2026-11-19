@@ -288,7 +288,7 @@ class PostgresAdminAuthStore:
             if not cached_admin_id:
                 return None
         with self.engine.connect() as conn:
-            row = conn.execute(text("""SELECT u.admin_id,u.email,u.role,u.must_change_password
+            row = conn.execute(text("""SELECT s.session_id,u.admin_id,u.email,u.role,u.must_change_password
                 FROM air_admin_sessions s JOIN air_admin_users u ON u.admin_id=s.admin_id
                 WHERE s.session_id=:sid AND s.active=true AND u.is_active=true
                   AND s.expires_at > CURRENT_TIMESTAMP"""), {"sid": session_id}).mappings().first()
