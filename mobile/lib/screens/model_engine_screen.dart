@@ -863,7 +863,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
               SingleChildScrollView(scrollDirection: Axis.horizontal, child: DataTable(
                 columns: const [
                   DataColumn(label: Text('MODEL SIGNAL DATE')),
-                  DataColumn(label: Text('MODELLED ENTRY DATE')),
+                  DataColumn(label: Text('ACTUAL ENTRY DATE')),
                   DataColumn(label: Text('CLASSIFICATION')),
                   DataColumn(label: Text('INSTRUMENT')),
                   DataColumn(label: Text('SYMBOL')),
