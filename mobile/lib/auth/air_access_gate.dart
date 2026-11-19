@@ -6,8 +6,9 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../services/air_api_client.dart';
 
 class AirAccessGate extends StatefulWidget {
-  const AirAccessGate({super.key, required this.builder});
+  const AirAccessGate({super.key, required this.builder, this.guestBuilder});
   final WidgetBuilder builder;
+  final Widget Function(BuildContext context, VoidCallback onSignIn)? guestBuilder;
 
   @override
   State<AirAccessGate> createState() => _AirAccessGateState();
@@ -22,6 +23,7 @@ class _AirAccessGateState extends State<AirAccessGate> {
   String _message = 'Enter your international mobile number to open your AIR dashboard. Strategy access is activated separately through a subscription plan.';
   bool _busy = true;
   bool _approved = false;
+  bool _showGuestPreview = false;
 
   @override
   void initState() {
@@ -133,6 +135,11 @@ class _AirAccessGateState extends State<AirAccessGate> {
   @override
   Widget build(BuildContext context) {
     if (_approved) return widget.builder(context);
+    if (_showGuestPreview && widget.guestBuilder != null) {
+      return widget.guestBuilder!(context, () {
+        if (mounted) setState(() => _showGuestPreview = false);
+      });
+    }
     final pending = _status == 'PENDING';
     final approvedStatus = _status == 'APPROVED';
     final denied = _status == 'REJECTED' || _status == 'BLOCKED';
@@ -237,6 +244,15 @@ class _AirAccessGateState extends State<AirAccessGate> {
                                 Expanded(child: Text(_message, style: const TextStyle(color: Colors.white, height: 1.45, fontSize: 12))),
                               ]),
                             ),
+                          if (widget.guestBuilder != null) ...[
+                            const SizedBox(height: 8),
+                            TextButton.icon(
+                              onPressed: _busy ? null : () => setState(() => _showGuestPreview = true),
+                              icon: const Icon(Icons.visibility_outlined),
+                              label: const Text('EXPLORE PUBLISHED STRATEGY PREVIEW'),
+                              style: TextButton.styleFrom(foregroundColor: const Color(0xFFE5B85C)),
+                            ),
+                          ],
                           const SizedBox(height: 12),
                         ],
                       ));
