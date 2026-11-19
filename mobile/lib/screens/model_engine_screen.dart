@@ -881,10 +881,10 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                   final trail = trade['trail_history'] as List<dynamic>? ?? const [];
                   final targets = trail.isEmpty
                       ? 'No fixed target configured'
-                      : 'Trail-stop milestones: ' + trail.map((item) {
+                      : 'Trail-stop milestones: ${trail.map((item) {
                           final milestone = item is Map ? item['milestone_gain_pct'] : null;
                           return milestone == null ? null : '+$milestone%';
-                        }).whereType<String>().join(', ');
+                        }).whereType<String>().join(', ')}';
                   final pnl = trade['current_pnl_rupees'] != null
                       ? '₹${trade['current_pnl_rupees']}'
                       : trade['current_pnl_points'] != null
