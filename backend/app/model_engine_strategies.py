@@ -160,7 +160,7 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for strategy, rules in STRATEGY_RULES.items():
         groups = {key: [] for key in
-                  ("OPEN", "NEW", "HOLD", "WAIT", "SLHIT", "REENTRY", "EXPIRED", "TARGETS", "RECOVERED")}
+                  ("OPEN", "NEW", "HOLD", "WAIT", "UNRESOLVED", "SLHIT", "REENTRY", "EXPIRED", "TARGETS", "RECOVERED")}
         accepted: list[dict[str, Any]] = []
         rejected_stock_filter = 0
         rejected_recovery_proof = 0
@@ -324,7 +324,7 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
         engine_groups = {key: [
             item for item in groups[key]
             if str(item.get("signal_id") or "") not in replayed_ids
-        ] for key in ("NEW", "HOLD", "WAIT", "SLHIT", "REENTRY", "EXPIRED", "TARGETS")}
+        ] for key in ("NEW", "HOLD", "WAIT", "UNRESOLVED", "SLHIT", "REENTRY", "EXPIRED", "TARGETS")}
         engine_groups["OPEN"] = []
         engine_trade_count = 0
         engine_survivors = 0
@@ -359,7 +359,7 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
         result["EXPIRY78"]["counts"] = {key: len(value) for key, value in engine_groups.items()}
         result["EXPIRY78"]["count"] = sum(
             len(engine_groups[key]) for key in
-            ("NEW", "HOLD", "WAIT", "SLHIT", "REENTRY", "EXPIRED", "TARGETS")
+            ("NEW", "HOLD", "WAIT", "UNRESOLVED", "SLHIT", "REENTRY", "EXPIRED", "TARGETS")
         )
         result["EXPIRY78"]["audit"].update({
             "engine": "AIR_EXPIRY78_SEVEN_RULES",
