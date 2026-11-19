@@ -740,7 +740,8 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   Future<void> _changeHistoricalMonth(int delta) async {
     final next = DateTime(_historicalMonth.year, _historicalMonth.month + delta);
     final now = DateTime.now();
-    if (next.isAfter(DateTime(now.year, now.month))) return;
+    if (_historicalBasis == 'signal' && next.isAfter(DateTime(now.year, now.month))) return;
+    if (next.isAfter(DateTime(now.year + 2, now.month))) return;
     await _loadHistoricalReplay(month: next);
   }
 
@@ -750,7 +751,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       context: context,
       initialDate: DateTime(_historicalMonth.year, _historicalMonth.month, 1),
       firstDate: DateTime(2000, 1, 1),
-      lastDate: DateTime(now.year, now.month, now.day),
+      lastDate: DateTime(now.year + 2, 12, 31),
       helpText: 'SELECT A DATE IN THE CALENDAR MONTH',
       fieldLabelText: 'Calendar month',
     );
