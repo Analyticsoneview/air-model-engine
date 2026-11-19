@@ -67,6 +67,14 @@ class CustomerAccountDirectory:
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        self._connection.execute("""
+            CREATE TABLE IF NOT EXISTS customer_commercial_classification (
+                customer_id TEXT PRIMARY KEY,
+                customer_type TEXT NOT NULL CHECK(customer_type IN ('SERVICE','DATA_PRODUCT')),
+                assigned_by_admin_id TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         self._connection.commit()
 
     def add(self, account: CustomerTradingAccount) -> None:
@@ -218,6 +226,30 @@ class CustomerAccountDirectory:
                 "DELETE FROM customer_market_data_selection WHERE customer_id=?",
                 (customer_id.strip(),),
             )
+
+    def get_customer_commercial_type(self, customer_id: str) -> str:
+        row = self._connection.execute(
+            "SELECT customer_type FROM customer_commercial_classification WHERE customer_id=?",
+            (customer_id.strip(),),
+        ).fetchone()
+        return str(row["customer_type"]) if row else "SERVICE"
+
+    def set_customer_commercial_type(self, customer_id: str, customer_type: str,
+                                     admin_id: str) -> dict:
+        customer, kind, actor = customer_id.strip(), customer_type.strip().upper(), admin_id.strip()
+        if not customer or not actor or kind not in {"SERVICE", "DATA_PRODUCT"}:
+            raise ValueError("Customer, administrator and SERVICE/DATA_PRODUCT classification are required")
+        with self._connection:
+            self._connection.execute("""
+                INSERT INTO customer_commercial_classification
+                    (customer_id,customer_type,assigned_by_admin_id,updated_at)
+                VALUES(?,?,?,CURRENT_TIMESTAMP)
+                ON CONFLICT(customer_id) DO UPDATE SET
+                    customer_type=excluded.customer_type,
+                    assigned_by_admin_id=excluded.assigned_by_admin_id,
+                    updated_at=CURRENT_TIMESTAMP
+            """, (customer, kind, actor))
+        return {"customer_id": customer, "customer_type": kind, "assigned_by_admin_id": actor}
 
     def close(self) -> None:
         self._connection.close()
