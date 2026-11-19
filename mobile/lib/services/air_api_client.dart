@@ -610,16 +610,12 @@ class AirApiClient {
     required String month,
     required List<String> strategies,
   }) async {
-    final params = <String, List<String>>{
-      'month': [month],
-      for (final strategy in strategies) 'strategies': [
-        ...(strategies),
-      ],
-    };
     // FastAPI list query parameters are repeated, not comma-separated.
-    params['strategies'] = strategies;
     final uri = Uri.parse('$baseUrl/api/v1/backtest/historical-month')
-        .replace(queryParametersAll: params);
+        .replace(queryParametersAll: {
+      'month': [month],
+      'strategies': strategies,
+    });
     return _decode(await _client.get(uri, headers: _headers));
   }
 
