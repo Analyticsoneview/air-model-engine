@@ -1,11 +1,18 @@
 name: AIR User Android APK
 
 on:
+  push:
+    branches:
+      - build/android-admin-user-apks
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/android-user-apk.yml'
   workflow_dispatch:
     inputs:
       api_base_url:
-        description: 'AIR API base URL reachable from the test phone (for example http://192.168.1.10:8000)'
-        required: true
+        description: 'AIR API base URL reachable from the test phone'
+        required: false
+        default: 'http://192.168.29.235:8000'
         type: string
 
 permissions:
@@ -42,7 +49,7 @@ jobs:
       - name: Validate and build customer APK
         working-directory: mobile
         env:
-          AIR_API_BASE_URL: ${{ inputs.api_base_url }}
+          AIR_API_BASE_URL: ${{ inputs.api_base_url || 'http://192.168.29.235:8000' }}
         run: |
           if [ -z "$AIR_API_BASE_URL" ]; then
             echo "api_base_url is required. The customer APK must be provisioned with its AIR server URL."
