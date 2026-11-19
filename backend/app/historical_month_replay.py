@@ -95,9 +95,14 @@ def replay_expiry78_month(rows: list[dict[str, Any]], *, month: str,
                     and high >= max(op, close, low)
                     and low <= min(op, close)):
                 valid_mark_bars.append(bar)
-        latest_mark = valid_mark_bars[-1] if valid_mark_bars else None
         expiry_day = date.fromisoformat(expiry)
         as_of_day = date.fromisoformat(as_of)
+        valid_mark_bars = [
+            bar for bar in valid_mark_bars
+            if date.fromisoformat(bar["date"]) <= expiry_day
+            and date.fromisoformat(bar["date"]) <= as_of_day
+        ]
+        latest_mark = valid_mark_bars[-1] if valid_mark_bars else None
         days_to_expiry = (expiry_day - as_of_day).days
         month_trades = [item for item in evaluated.get("trades", [])
                         if first.isoformat() <= item.get("signal_date", "") <= last.isoformat()]
@@ -111,7 +116,8 @@ def replay_expiry78_month(rows: list[dict[str, Any]], *, month: str,
             )
             item["mark_to_market_pnl_points"] = mark_pnl
             item["current_pnl_points"] = (
-                item.get("pnl_points") if item.get("position_status") != "OPEN"
+                item.get("pnl_points")
+                if item.get("position_status") in {"EXITED", "EXPIRY_SURVIVOR"}
                 else mark_pnl
             )
             # Position quantity and charges are not supplied by NSE bhavcopy.
