@@ -13,7 +13,7 @@ def _bars():
          "underlying_price": 106},
         {"trade_date": "2026-10-28", "symbol": "AAA", "instrument_type": "OPTSTK",
          "expiry": "2026-10-29", "strike": 100, "option_type": "CE",
-         "open": 5.5, "high": 6.5, "low": 5, "close": 6, "volume": 100,
+         "open": 5.5, "high": 6.0, "low": 5, "close": 5.8, "volume": 100,
          "underlying_price": 108},
         {"trade_date": "2026-10-29", "symbol": "AAA", "instrument_type": "OPTSTK",
          "expiry": "2026-10-29", "strike": 100, "option_type": "CE",
