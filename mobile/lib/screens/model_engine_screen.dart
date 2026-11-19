@@ -59,6 +59,33 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       _autoRefreshTimer = Timer.periodic(const Duration(minutes: 5), (_) {
         if (mounted && !_loading) _refresh();
       });
+    } else {
+      _refreshPublicPreview();
+      _autoRefreshTimer = Timer.periodic(const Duration(minutes: 5), (_) {
+        if (mounted && !_loading) _refreshPublicPreview();
+      });
+    }
+  }
+
+  Future<void> _refreshPublicPreview() async {
+    if (_authenticated || _loading) return;
+    setState(() { _loading = true; _error = null; });
+    try {
+      final result = await _api.modelEnginePublicPreview();
+      if (!mounted) return;
+      setState(() {
+        _groups = result['groups'] as Map<String, dynamic>? ?? {};
+        _strategies = result['strategies'] as Map<String, dynamic>? ?? {};
+        _counts = result['counts'] as Map<String, dynamic>? ?? {};
+        _summary = result['summary'] as Map<String, dynamic>? ?? {};
+        _breakdowns = result['breakdowns'] as Map<String, dynamic>? ?? {};
+        _dataStatus = result['data_status']?.toString() ?? 'UNKNOWN';
+        _updatedAt = result['updated_at']?.toString();
+      });
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -873,15 +900,38 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
           onPressed: !_authenticated || _loading ? null : _refresh,
           icon: const Icon(Icons.refresh_rounded))]),
       body: ListView(padding: const EdgeInsets.all(14), children: [
-        if (!_authenticated) Card(child: Padding(
-          padding: const EdgeInsets.all(16), child: Column(children: [
-            const Icon(Icons.lock_outline_rounded, size: 28),
-            const SizedBox(height: 8),
-            const Text('AIR MOBILE APPROVAL REQUIRED', style: TextStyle(fontWeight: FontWeight.w900)),
-            const SizedBox(height: 6),
-            const Text('Sign in once through the main AIR mobile approval screen. Model Engine uses that shared session and does not request a second login.', textAlign: TextAlign.center, style: TextStyle(fontSize: 11)),
-          ]),
-        )) else ...[
+        if (!_authenticated) ...[
+          Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                const Expanded(child: Text('AIR MASTER • PUBLISHED STRATEGY PREVIEW', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12))),
+                Text(_dataStatus, style: TextStyle(fontSize: 9, color: cs.primary, fontWeight: FontWeight.w800)),
+              ]),
+              const SizedBox(height: 5),
+              Text('Read-only published signals • refresh every 5 minutes • paid features remain protected',
+                style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+              const SizedBox(height: 8),
+              Text('OPEN ${_summary['open'] ?? 0} • NEW ${_summary['new'] ?? 0} • HOLD ${_summary['hold'] ?? 0} • SURVIVOR ${_summary['survivor_watch'] ?? 0}',
+                style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+              const SizedBox(height: 8),
+              Wrap(spacing: 7, runSpacing: 7, children: _sections.where((x) => !['PORTFOLIO RISK','P&L CALENDAR','PHYSICAL SETTLEMENT','SETTLEMENT UP / DOWN','COMBINED'].contains(x)).map((name) => ChoiceChip(
+                label: Text('$name  ${_tabCount(name)}', style: const TextStyle(fontSize: 10)),
+                selected: _sections[_selected] == name,
+                onSelected: (_) => setState(() => _selected = _sections.indexOf(name)),
+              )).toList()),
+            ],
+          ))),
+          const SizedBox(height: 10),
+          if (rows.isEmpty) Card(child: Padding(padding: const EdgeInsets.all(18), child: Center(
+            child: Text(_dataStatus == 'AWAITING_VERIFIED_SIGNALS'
+              ? 'No operator-published verified signals are available yet.'
+              : 'No preview records for this section.',
+              textAlign: TextAlign.center, style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant)),
+          ))) else Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal,
+            child: DataTable(columnSpacing: 14, headingRowHeight: 38,
+              dataRowMinHeight: 38, dataRowMaxHeight: 52,
+              columns: _columns, rows: rows.map(_row).toList()))),
+        ] else ...[
           Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(
             crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
