@@ -7,8 +7,10 @@ evidence.
 """
 from __future__ import annotations
 
+import csv
 from collections import defaultdict
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 from app.model_engine_expiry78 import ENGINE_VERSION as EXPIRY78_ENGINE_VERSION, evaluate_expiry78_contract
@@ -44,6 +46,97 @@ def _valid_mark(bar: dict[str, Any]) -> bool:
         return False
     return (min(op, high, low, close, quantity) > 0
             and high >= max(op, close, low) and low <= min(op, close))
+
+
+def _reconcile_october_2026_trailing_reference(trades: list[dict[str, Any]]) -> dict[str, Any]:
+    """Compare the 27-Oct-2026 trailing-stop replay with its saved 45-trade ledger."""
+    reference_path = Path(__file__).parent / "reference_data" / "expiry78_45_trailing_backtest.csv"
+    if not reference_path.is_file():
+        return {"status": "REFERENCE_UNAVAILABLE", "reference_trade_count": 0}
+    with reference_path.open("r", encoding="utf-8-sig", newline="") as handle:
+        reference = list(csv.DictReader(handle))
+    current = [item for item in trades if str(item.get("expiry"))[:10] == "2026-10-27"]
+    unmatched = list(current)
+    matched = 0
+    exit_matches = 0
+    pnl_matches = 0
+    missing_entries: list[str] = []
+    exit_mismatches: list[str] = []
+    pnl_mismatches: list[str] = []
+
+    def key(item: dict[str, Any], *, baseline: bool = False) -> tuple[Any, ...]:
+        symbol = item.get("underlying") if baseline else item.get("symbol")
+        option_type = item.get("type") if baseline else item.get("option_type")
+        return (
+            str(symbol or "").upper(),
+            str(option_type or "").upper(),
+            round(float(item.get("strike") or 0), 4),
+            str(item.get("entry_date") or "")[:10],
+            round(float(item.get("entry_price") or 0), 4),
+        )
+
+    for expected in reference:
+        expected_key = key(expected, baseline=True)
+        found_index = next((i for i, item in enumerate(unmatched) if key(item) == expected_key), None)
+        contract = str(expected.get("contract") or "")
+        if found_index is None:
+            missing_entries.append(contract)
+            continue
+        actual = unmatched.pop(found_index)
+        matched += 1
+        expected_reason = str(expected.get("exit_reason") or "").upper()
+        actual_reason = str(actual.get("exit_reason") or "").upper()
+        if expected_reason == "EXPIRY_INTRINSIC":
+            expected_reason = "EXPIRY_INTRINSIC_SETTLEMENT"
+        try:
+            expected_exit = float(expected["exit_price"])
+            actual_exit = float(actual["exit_price"])
+            exit_ok = (
+                str(actual.get("exit_date") or "")[:10] == str(expected.get("exit_date") or "")[:10]
+                and abs(actual_exit - expected_exit) <= 0.02
+                and actual_reason == expected_reason
+            )
+        except (TypeError, ValueError, KeyError):
+            exit_ok = False
+        if exit_ok:
+            exit_matches += 1
+        else:
+            exit_mismatches.append(contract)
+
+        try:
+            reference_gross = float(expected["gross_pnl"])
+            reference_quantity = float(expected["lot_size"])
+            calculated_gross = (float(actual["exit_price"]) - float(actual["entry_price"])) * reference_quantity
+            pnl_ok = abs(calculated_gross - reference_gross) <= 0.05
+        except (TypeError, ValueError, KeyError):
+            pnl_ok = False
+        if pnl_ok:
+            pnl_matches += 1
+        else:
+            pnl_mismatches.append(contract)
+
+    status = "MATCHED" if (
+        matched == len(reference) and not unmatched
+        and exit_matches == len(reference) and pnl_matches == len(reference)
+    ) else "PARTIAL" if matched else "NO_MATCH"
+    return {
+        "status": status,
+        "reference_file": "EXPIRY78_45_trailing_backtest.csv",
+        "reference_expiry": "2026-10-27",
+        "reference_trade_count": len(reference),
+        "replay_trade_count": len(current),
+        "matched_entry_count": matched,
+        "exit_match_count": exit_matches,
+        "gross_pnl_match_count": pnl_matches,
+        "missing_reference_entries": missing_entries[:25],
+        "extra_replay_entries": [
+            str(item.get("symbol")) + " " + str(item.get("option_type")) + " " + str(item.get("strike"))
+            for item in unmatched[:25]
+        ],
+        "exit_mismatches": exit_mismatches[:25],
+        "gross_pnl_mismatches": pnl_mismatches[:25],
+        "note": "Reference gross P&L uses the saved one-lot quantity in the reference file; this does not assert current customer position quantity.",
+    }
 
 
 def replay_expiry78_month(rows: list[dict[str, Any]], *, month: str,
@@ -158,8 +251,13 @@ def replay_expiry78_month(rows: list[dict[str, Any]], *, month: str,
                                   item.get("strike", 0), item.get("option_type", "")))
     counts = {label: sum(item.get("classification") == label for item in trades)
               for label in ("NEW", "HOLD", "SL", "EXPIRED", "WAIT", "UNRESOLVED")}
+    baseline_reconciliation = (
+        _reconcile_october_2026_trailing_reference(trades)
+        if basis == "expiry" and month == "2026-10" else None
+    )
     return {
         "strategy": "EXPIRY78", "strategy_version": EXPIRY78_ENGINE_VERSION,
+        "baseline_reconciliation": baseline_reconciliation,
         "status": "COMPLETED",
         "month": month, "month_basis": basis,
         "signal_month": month if basis == "signal" else None,
