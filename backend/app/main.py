@@ -923,8 +923,10 @@ async def mobile_login(body: MobileAccessRequest) -> dict:
                 if current and current["status"] == "APPROVED":
                     return {"status": "PIN_SETUP_REQUIRED",
                             "message": "Your AIR access is approved. Set your six-digit AIR PIN to continue."}
-                return {"status": "PIN_SETUP_REQUIRED" if pin_state["must_reset"] else "PIN_REQUIRED",
-                        "message": "Enter your existing six-digit AIR PIN to register this device."}
+                return {"status": "PIN_SETUP_REQUIRED" if pin_state["must_reset"] else "PIN_NOT_CONFIGURED",
+                        "message": ("An administrator reset is pending. Create a new PIN to continue."
+                            if pin_state["must_reset"] else
+                            "Your first AIR PIN must be set on the originally approved device. If it is unavailable, ask an administrator to reset your PIN.")}
             if not body.pin:
                 return {"status": "PIN_REQUIRED", "message": "Enter your six-digit AIR PIN."}
             if not access_store.verify_customer_pin(mobile, body.pin):
