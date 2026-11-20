@@ -103,7 +103,6 @@ def evaluate_deepcrash15_contract(
 
     peak_bar = max(bars, key=lambda item: float(item["high"]))
     latest = bars[-1]
-    setup_candle = bars[-2] if len(bars) >= 2 else latest
     peak = float(peak_bar["high"])
     latest_close = float(latest["close"])
     remaining = contract.get("remaining_trading_sessions")
@@ -120,7 +119,7 @@ def evaluate_deepcrash15_contract(
         "historical_peak_in_range": MIN_PEAK <= peak <= MAX_PEAK,
         "latest_close_below_50": latest_close < MAX_LATEST_CLOSE,
         "at_least_15_trading_sessions": remaining is not None and remaining >= MIN_REMAINING_SESSIONS,
-        "latest_candle_bullish": float(setup_candle["close"]) > float(setup_candle["open"]),
+        "latest_candle_bullish": latest_close > float(latest["open"]),
     }
     missing = []
     if remaining is None:
@@ -139,14 +138,19 @@ def evaluate_deepcrash15_contract(
         }
 
     expiry = str(contract.get("expiry") or "")[:10]
-    # The setup candle is followed by a separate next-session close confirmation.
-    # Six complete sessions immediately before setup define the consolidation box.
+    # If an expiry-day bar is present, evaluate the immediately preceding
+    # completed session as the breakout confirmation; otherwise use the latest
+    # available session. The setup candle is the session before confirmation.
     entry = None
     consolidation = {"status": "WAIT", "reason": "Need six consolidation sessions, a bullish setup candle and the following session"}
-    if len(bars) >= 8:
-        consolidation_bars = bars[-8:-2]
-        setup_bar = bars[-2]
-        trigger_bar = bars[-1]
+    expiry_bar = next((item for item in bars if expiry and item["date"] == expiry), None)
+    confirmation_index = len(bars) - 1
+    if expiry_bar is not None:
+        confirmation_index = bars.index(expiry_bar) - 1
+    if confirmation_index >= 7:
+        consolidation_bars = bars[confirmation_index - 7:confirmation_index - 1]
+        setup_bar = bars[confirmation_index - 1]
+        trigger_bar = bars[confirmation_index]
         range_high = max(float(item["high"]) for item in consolidation_bars)
         range_low = min(float(item["low"]) for item in consolidation_bars)
         range_width = round(range_high - range_low, 4)
@@ -175,7 +179,6 @@ def evaluate_deepcrash15_contract(
                 "entry_price": float(trigger_bar["close"]),
             }
 
-    expiry_bar = next((item for item in bars if expiry and item["date"] == expiry), None)
     position_status = "WATCH"
     exit_price = None
     exit_date = None
