@@ -63,3 +63,20 @@ def test_active_subscription_can_read_expiryscan_report(monkeypatch):
     )
     assert response.status_code == 200
     assert response.json()["data_status"] == "NO_PRESERVED_COHORT_IN_PERIOD"
+
+
+
+def test_historical_month_replay_is_free_for_approved_customer(monkeypatch):
+    import app.historical_month_replay as replay
+
+    monkeypatch.setattr(replay, "historical_month_report", lambda **kwargs: {
+        "status": "COMPLETED_WITH_LIMITATIONS", "month": kwargs["month"],
+        "strategies": [{"strategy": "EXPIRY78"}],
+    })
+    client = _client(monkeypatch, None)
+    response = client.get(
+        "/api/v1/backtest/historical-month",
+        params={"month": "2026-10", "basis": "expiry", "strategies": "EXPIRY78"},
+    )
+    assert response.status_code == 200
+    assert response.json()["month"] == "2026-10"
