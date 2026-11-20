@@ -318,7 +318,7 @@ def test_deepcrash15_qualifies_exact_contract_and_is_watch_only():
     result = evaluate_deepcrash15_contract(_deepcrash_contract())
     assert result["status"] == "QUALIFIED"
     assert result["classification"] == "WATCH"
-    assert result["position_status"] == "WATCH_ONLY_NOT_OPEN"
+    assert result["position_status"] == "WATCH"
     assert result["historical_peak_premium"] == 3400
     assert result["latest_close"] == 47
     assert result["remaining_trading_sessions"] == 16
@@ -354,3 +354,61 @@ def test_deepcrash15_scans_contracts_independently_without_changing_memberships(
     assert views["DEEPCRASH15"]["counts"]["OPEN"] == 0
     assert views["DEEPCRASH15"]["groups"]["WATCH"][0]["option_type"] == "CE"
     assert views["EXPIRY78"]["count"] == 1
+
+
+
+def _deepcrash_entry_contract():
+    contract = _deepcrash_contract()
+    contract["expiry"] = "2026-11-30"
+    contract["evidence"]["daily_option_bars"] = [
+        {"date": "2026-10-01", "open": 3200, "high": 3400, "low": 3100, "close": 3300, "quantity": 100},
+        {"date": "2026-11-10", "open": 40, "high": 45, "low": 39, "close": 42, "quantity": 100},
+        {"date": "2026-11-11", "open": 42, "high": 46, "low": 40, "close": 44, "quantity": 100},
+        {"date": "2026-11-12", "open": 43, "high": 47, "low": 41, "close": 45, "quantity": 100},
+        {"date": "2026-11-13", "open": 44, "high": 48, "low": 42, "close": 46, "quantity": 100},
+        {"date": "2026-11-16", "open": 43, "high": 46, "low": 40, "close": 44, "quantity": 100},
+        {"date": "2026-11-17", "open": 44, "high": 47, "low": 41, "close": 45, "quantity": 100},
+        {"date": "2026-11-18", "open": 45, "high": 48, "low": 44, "close": 47, "quantity": 100},
+        {"date": "2026-11-19", "open": 47, "high": 50, "low": 46, "close": 49, "quantity": 100},
+    ]
+    return contract
+
+
+def test_deepcrash15_requires_six_session_tight_range_bullish_setup_and_next_close_breakout():
+    contract = _deepcrash_entry_contract()
+    result = evaluate_deepcrash15_contract(contract)
+    assert result["status"] == "QUALIFIED"
+    assert result["consolidation"]["lookback_sessions"] == 6
+    assert result["consolidation"]["range_width"] <= 10
+    assert result["consolidation"]["setup_bullish"] is True
+    assert result["consolidation"]["next_close_above_setup_close"] is True
+    assert result["position_status"] == "OPEN"
+    assert result["entry_date"] == "2026-11-19"
+    assert result["entry_price"] == 49
+    assert result["hold_rule"] == "HOLD_TO_EXPIRY"
+
+
+def test_deepcrash15_does_not_enter_without_next_day_close_confirmation_or_tight_range():
+    contract = _deepcrash_entry_contract()
+    contract["evidence"]["daily_option_bars"][-1]["close"] = 46
+    result = evaluate_deepcrash15_contract(contract)
+    assert result["position_status"] == "WATCH"
+    assert result["entry_price"] is None
+
+    contract = _deepcrash_entry_contract()
+    for bar in contract["evidence"]["daily_option_bars"][1:7]:
+        bar["high"] += 10
+    result = evaluate_deepcrash15_contract(contract)
+    assert result["consolidation"]["range_width"] > 10
+    assert result["position_status"] == "WATCH"
+
+
+def test_deepcrash15_holds_until_verified_expiry_close():
+    contract = _deepcrash_entry_contract()
+    contract["evidence"]["daily_option_bars"].append({
+        "date": "2026-11-30", "open": 49, "high": 52, "low": 47, "close": 50, "quantity": 100,
+    })
+    result = evaluate_deepcrash15_contract(contract)
+    assert result["position_status"] == "EXPIRED"
+    assert result["exit_date"] == "2026-11-30"
+    assert result["exit_price"] == 50
