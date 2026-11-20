@@ -82,10 +82,10 @@ class _AirAccessGateState extends State<AirAccessGate> {
     }
     if (_deviceId == null) return;
     setState(() => _busy = true);
-    // Persist the identity before making the request. If the browser is closed
-    // after approval, the next visit can restore customer-level status.
-    await _storage.write(key: 'air_mobile_e164', value: mobile);
     try {
+      // Persist the identity before making the request. If the browser is closed
+      // after approval, the next visit can restore customer-level status.
+      await _storage.write(key: 'air_mobile_e164', value: mobile);
       // Always attempt the PIN-aware login, even when this device has an older
       // PENDING row. The server distinguishes a first-time customer from a
       // returning customer whose PIN has already been established elsewhere.
