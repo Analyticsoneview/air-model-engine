@@ -539,7 +539,11 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       case 'SL': return 'SL HIT';
       case 'SLHIT': return 'SL HIT';
       case 'TARGETS': return '45% TARGET HIT';
-      case 'EXPIRED': return 'EXPIRED';
+      case 'EXPIRED':
+        return _sections[_selected] == 'EXPIRY78' ? 'EXPIRY SURVIVOR' : 'EXPIRED';
+      case 'EXPIRED_WIN': return 'EXPIRY SURVIVOR • WIN';
+      case 'EXPIRED_LOSS': return 'EXPIRY SURVIVOR • LOSS';
+      case 'UNRESOLVED': return 'UNRESOLVED';
       case 'OPEN': return '📌 OPEN';
       case 'RECOVERED_WATCH':
         final outcome = (r['recovered_outcome'] ?? '').toString().toUpperCase();
