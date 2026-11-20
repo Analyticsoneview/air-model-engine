@@ -190,6 +190,17 @@ class AccessStore:
             self.db.rollback()
             raise
 
+        self.db.execute("""CREATE TABLE IF NOT EXISTS air_customer_pin_credentials(
+            customer_id TEXT PRIMARY KEY, pin_hash TEXT, failed_attempts INTEGER NOT NULL DEFAULT 0,
+            locked_until INTEGER NOT NULL DEFAULT 0, must_reset INTEGER NOT NULL DEFAULT 0,
+            suspended INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            reset_by_admin_id TEXT)""")
+        self.db.execute("""CREATE TABLE IF NOT EXISTS air_customer_pin_audit(
+            event_id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, action TEXT NOT NULL,
+            actor_admin_id TEXT, details TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+        self.db.commit()
+
     @staticmethod
     def validate_mobile(mobile_e164: str) -> str:
         value = mobile_e164.strip()
@@ -326,6 +337,114 @@ class AccessStore:
             (session_id,),
         ).fetchone()
         return bool(row and row["active"] and row["status"] == "APPROVED")
+
+    def customer_has_approved_access(self, mobile_e164: str) -> bool:
+        mobile = self.validate_mobile(mobile_e164)
+        row = self.db.execute("SELECT 1 FROM air_access_requests WHERE mobile_e164=? AND status='APPROVED' LIMIT 1",
+                              (mobile,)).fetchone()
+        return bool(row)
+
+    def customer_pin_state(self, mobile_e164: str) -> dict:
+        mobile = self.validate_mobile(mobile_e164)
+        row = self.db.execute("SELECT pin_hash,must_reset,suspended,locked_until FROM air_customer_pin_credentials WHERE customer_id=?",
+                              (mobile,)).fetchone()
+        if not row:
+            return {"pin_set": False, "must_reset": False, "suspended": False, "locked_until": 0}
+        return {"pin_set": bool(row["pin_hash"]), "must_reset": bool(row["must_reset"]),
+                "suspended": bool(row["suspended"]), "locked_until": int(row["locked_until"] or 0)}
+
+    def set_customer_pin(self, mobile_e164: str, device_id: str, pin_hash: str) -> None:
+        mobile = self.validate_mobile(mobile_e164)
+        request = self.get_request(mobile, device_id)
+        if not request or request["status"] != "APPROVED":
+            raise PermissionError("The initially approved device is required to set the first AIR PIN")
+        existing = self.db.execute("SELECT pin_hash,must_reset,suspended FROM air_customer_pin_credentials WHERE customer_id=?",
+                                   (mobile,)).fetchone()
+        if existing and existing["suspended"]:
+            raise PermissionError("AIR customer account is suspended")
+        if existing and existing["pin_hash"] and not existing["must_reset"]:
+            raise PermissionError("An AIR PIN is already configured; use administrator reset if it is forgotten")
+        with self.db:
+            self.db.execute("""INSERT INTO air_customer_pin_credentials(customer_id,pin_hash,failed_attempts,locked_until,must_reset)
+                VALUES(?,?,0,0,0) ON CONFLICT(customer_id) DO UPDATE SET pin_hash=excluded.pin_hash,
+                failed_attempts=0,locked_until=0,must_reset=0,updated_at=CURRENT_TIMESTAMP""", (mobile,pin_hash))
+            self.db.execute("INSERT INTO air_customer_pin_audit(event_id,customer_id,action,details) VALUES(?,?,?,?)",
+                            (str(uuid4()),mobile,"PIN_SET","Customer completed initial PIN setup"))
+
+    def verify_customer_pin(self, mobile_e164: str, pin: str) -> bool:
+        import time
+        from app.security import verify_pin
+        mobile = self.validate_mobile(mobile_e164)
+        row = self.db.execute("SELECT pin_hash,failed_attempts,locked_until,must_reset,suspended FROM air_customer_pin_credentials WHERE customer_id=?",
+                              (mobile,)).fetchone()
+        if not row or not row["pin_hash"] or row["must_reset"]:
+            raise LookupError("PIN_SETUP_REQUIRED")
+        now = int(time.time())
+        if row["suspended"]:
+            raise PermissionError("AIR customer account is suspended")
+        if int(row["locked_until"] or 0) > now:
+            raise PermissionError("Too many incorrect PIN attempts. Try again later.")
+        if not verify_pin(pin, row["pin_hash"]):
+            attempts = int(row["failed_attempts"] or 0) + 1
+            locked_until = now + 900 if attempts >= 5 else 0
+            with self.db:
+                self.db.execute("UPDATE air_customer_pin_credentials SET failed_attempts=?,locked_until=?,updated_at=CURRENT_TIMESTAMP WHERE customer_id=?",
+                                (attempts,locked_until,mobile))
+            return False
+        with self.db:
+            self.db.execute("UPDATE air_customer_pin_credentials SET failed_attempts=0,locked_until=0,updated_at=CURRENT_TIMESTAMP WHERE customer_id=?",
+                            (mobile,))
+        return True
+
+    def register_approved_device(self, mobile_e164: str, device_id: str):
+        mobile = self.validate_mobile(mobile_e164)
+        device = device_id.strip()
+        if not device or len(device) > 128:
+            raise ValueError("A valid device identifier is required")
+        pin_state = self.customer_pin_state(mobile)
+        if pin_state["suspended"]:
+            raise PermissionError("AIR customer account is suspended")
+        if not self.customer_has_approved_access(mobile):
+            raise PermissionError("Initial AIR administrator approval is required")
+        existing = self.get_request(mobile, device)
+        if existing:
+            if existing["status"] != "APPROVED":
+                raise PermissionError("This device is blocked or was rejected; contact AIR support")
+            return existing
+        with self.db:
+            self.db.execute("""INSERT INTO air_access_requests(request_id,mobile_e164,device_id,status,reviewer_note)
+                VALUES(?,?,?,'APPROVED','Automatically registered to an existing approved AIR customer')""",
+                (str(uuid4()),mobile,device))
+            row = self.get_request(mobile,device)
+            self.db.execute("""INSERT INTO air_customer_lifecycle(customer_id,first_registered_at)
+                VALUES(?,?) ON CONFLICT(customer_id) DO NOTHING""",(mobile,row["created_at"]))
+        return row
+
+    def reset_customer_pin(self, mobile_e164: str, admin_id: str) -> None:
+        mobile = self.validate_mobile(mobile_e164)
+        if not self.customer_has_approved_access(mobile):
+            raise LookupError("AIR customer was not found or has never been approved")
+        with self.db:
+            self.db.execute("""INSERT INTO air_customer_pin_credentials(customer_id,pin_hash,must_reset,failed_attempts,locked_until,reset_by_admin_id)
+                VALUES(?,NULL,1,0,0,?) ON CONFLICT(customer_id) DO UPDATE SET pin_hash=NULL,must_reset=1,
+                failed_attempts=0,locked_until=0,reset_by_admin_id=excluded.reset_by_admin_id,updated_at=CURRENT_TIMESTAMP""",
+                (mobile,admin_id))
+            self.db.execute("""UPDATE air_device_sessions SET active=0 WHERE request_id IN
+                (SELECT request_id FROM air_access_requests WHERE mobile_e164=?)""",(mobile,))
+            self.db.execute("INSERT INTO air_customer_pin_audit(event_id,customer_id,action,actor_admin_id,details) VALUES(?,?,?,?,?)",
+                            (str(uuid4()),mobile,"ADMIN_PIN_RESET",admin_id,"PIN reset; all customer sessions revoked"))
+
+    def suspend_customer(self, mobile_e164: str, admin_id: str, suspended: bool = True) -> None:
+        mobile = self.validate_mobile(mobile_e164)
+        with self.db:
+            self.db.execute("""INSERT INTO air_customer_pin_credentials(customer_id,suspended)
+                VALUES(?,?) ON CONFLICT(customer_id) DO UPDATE SET suspended=excluded.suspended,updated_at=CURRENT_TIMESTAMP""",
+                (mobile,int(suspended)))
+            if suspended:
+                self.db.execute("""UPDATE air_device_sessions SET active=0 WHERE request_id IN
+                    (SELECT request_id FROM air_access_requests WHERE mobile_e164=?)""",(mobile,))
+            self.db.execute("INSERT INTO air_customer_pin_audit(event_id,customer_id,action,actor_admin_id,details) VALUES(?,?,?,?,?)",
+                            (str(uuid4()),mobile,"CUSTOMER_SUSPENDED" if suspended else "CUSTOMER_REACTIVATED",admin_id,"Admin account status change"))
 
     @staticmethod
     def _subscription_datetime(value: str):
