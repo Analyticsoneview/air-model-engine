@@ -33,7 +33,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   bool _authenticated = false, _loading = false;
   Timer? _autoRefreshTimer;
   String? _error, _updatedAt;
-  String _strategyStatus = s == 'DEEPCRASH15' ? 'WATCH' : 'OPEN';
+  String _strategyStatus = 'OPEN';
   String _dataStatus = 'SIGN IN TO LOAD YOUR MODEL ENGINE LEDGER';
   Map<String, dynamic> _marketDataSource = {};
   Map<String, dynamic> _pnlCalendar = {};
