@@ -103,6 +103,7 @@ def evaluate_deepcrash15_contract(
 
     peak_bar = max(bars, key=lambda item: float(item["high"]))
     latest = bars[-1]
+    setup_candle = bars[-2] if len(bars) >= 2 else latest
     peak = float(peak_bar["high"])
     latest_close = float(latest["close"])
     remaining = contract.get("remaining_trading_sessions")
@@ -119,7 +120,7 @@ def evaluate_deepcrash15_contract(
         "historical_peak_in_range": MIN_PEAK <= peak <= MAX_PEAK,
         "latest_close_below_50": latest_close < MAX_LATEST_CLOSE,
         "at_least_15_trading_sessions": remaining is not None and remaining >= MIN_REMAINING_SESSIONS,
-        "latest_candle_bullish": float(latest["close"]) > float(latest["open"]),
+        "latest_candle_bullish": float(setup_candle["close"]) > float(setup_candle["open"]),
     }
     missing = []
     if remaining is None:
@@ -186,7 +187,6 @@ def evaluate_deepcrash15_contract(
             exit_date = expiry_bar["date"]
     return {
         "status": "QUALIFIED",
-        "classification": "WATCH",
         "position_status": position_status,
         "classification": position_status,
         "consolidation": consolidation,
