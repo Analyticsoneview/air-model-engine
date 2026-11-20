@@ -10,8 +10,8 @@ class ModelEngineScreen extends StatefulWidget {
 
 class _ModelEngineScreenState extends State<ModelEngineScreen> {
   final AirApiClient _api = AirApiClient();
-  static const _sections = ['PORTFOLIO RISK', 'P&L CALENDAR', 'HISTORICAL REPLAY', 'OPEN', 'NEW', 'HOLD', 'REENTRY', 'SURVIVOR', 'WAIT', 'UNRESOLVED', 'SLHIT', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN', 'SETTLEMENT UP / DOWN', 'PHYSICAL SETTLEMENT', 'COMBINED', 'EXPIRY78', 'RECOVERED', 'RECOVERY'];
-  static const _strategyTabs = ['EXPIRY78', 'RECOVERED', 'RECOVERY'];
+  static const _sections = ['PORTFOLIO RISK', 'P&L CALENDAR', 'HISTORICAL REPLAY', 'OPEN', 'NEW', 'HOLD', 'REENTRY', 'SURVIVOR', 'WAIT', 'UNRESOLVED', 'SLHIT', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN', 'SETTLEMENT UP / DOWN', 'PHYSICAL SETTLEMENT', 'COMBINED', 'EXPIRY78', 'RECOVERED', 'RECOVERY', 'DEEPCRASH15'];
+  static const _strategyTabs = ['EXPIRY78', 'RECOVERED', 'RECOVERY', 'DEEPCRASH15'];
 
   String _strategyKey(String section) => section == 'RECOVERED' ? 'ORIGINAL366' : section;
   Map<String, dynamic> _groups = {};
@@ -1280,7 +1280,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                 onSelected: (_) {
                   setState(() {
                     _selected = _sections.indexOf(s);
-                    _strategyStatus = 'OPEN';
+                    _strategyStatus = s == 'DEEPCRASH15' ? 'WATCH' : 'OPEN';
                   });
                   if (s == 'HISTORICAL REPLAY') _loadHistoricalReplay();
                 },
@@ -1312,7 +1312,9 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
             )),
             Wrap(spacing: 7, runSpacing: 7, children: (selectedSection == 'RECOVERED'
               ? ['OPEN', 'TARGETS', 'SLHIT', 'EXPIRED', 'WAIT']
-              : ['OPEN', 'NEW', 'HOLD', 'WAIT', 'UNRESOLVED', 'SLHIT', 'REENTRY']).map((status) => ChoiceChip(
+               : selectedSection == 'DEEPCRASH15'
+                ? ['WATCH', 'OPEN', 'EXPIRED']
+                : ['OPEN', 'NEW', 'HOLD', 'WAIT', 'UNRESOLVED', 'SLHIT', 'REENTRY']).map((status) => ChoiceChip(
               label: Text('$status  ${((strategyData?['counts'] as Map?)?[status] ?? 0)}', style: const TextStyle(fontSize: 10)),
               selected: _strategyStatus == status,
               onSelected: (_) => setState(() => _strategyStatus = status),
