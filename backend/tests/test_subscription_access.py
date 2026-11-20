@@ -126,3 +126,19 @@ def test_invalid_enterprise_license_does_not_fall_back_to_operator_override(monk
     with pytest.raises(HTTPException) as error:
         subscription_access.require_feature_entitlement("api_access")("customer-1")
     assert error.value.status_code == 403
+
+
+def test_free_plan_includes_historical_replay_but_not_live_options():
+    from app.commercial_catalogue import has_entitlement
+
+    assert has_entitlement(None, "historical_analysis")
+    assert has_entitlement(None, "historical_strategy_replay")
+    assert not has_entitlement(None, "options_analytics")
+
+
+def test_paid_options_plan_includes_historical_replay_and_options_analytics():
+    from app.commercial_catalogue import has_entitlement
+
+    subscription = {"status": "ACTIVE", "plan_code": "B2C_TRADER_ANNUAL"}
+    assert has_entitlement(subscription, "historical_strategy_replay")
+    assert has_entitlement(subscription, "options_analytics")
