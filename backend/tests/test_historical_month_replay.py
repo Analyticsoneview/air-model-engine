@@ -157,7 +157,7 @@ def test_october_trailing_reference_reports_row_level_mismatches():
             "strike": float(row["strike"]), "expiry": "2026-10-27",
             "entry_date": row["entry_date"], "entry_price": float(row["entry_price"]),
             "exit_date": row["exit_date"], "exit_price": float(row["exit_price"]),
-            "exit_reason": reason,
+            "exit_reason": reason, "lot_size": float(row["lot_size"]),
         })
     trades[0]["exit_price"] += 1.0
     result = _reconcile_october_2026_trailing_reference(trades)
