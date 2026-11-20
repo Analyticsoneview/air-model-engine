@@ -51,7 +51,7 @@ class _AirAccessGateState extends State<AirAccessGate> {
         if (token == null || token.isEmpty) {
           final savedStatus = await _api.mobileStatus(savedMobile, deviceId);
           _status = savedStatus['status']?.toString() ?? 'NEW';
-          if (_status == 'PENDING') _message = 'Your earlier access request is pending. Contact AIR support to migrate this device to the new customer access flow.';
+          if (_status == 'PENDING') _message = 'This device has a pending request. If you are a returning customer, choose CHECK ACCESS STATUS and enter your existing AIR PIN. New customers wait for the first administrator approval.';
         }
       }
       if (token != null && token.isNotEmpty) {
@@ -103,7 +103,7 @@ class _AirAccessGateState extends State<AirAccessGate> {
         _approved = true;
       }
       if (status == 'PENDING') {
-        _message = 'This device has an older pending access request. Contact AIR support to activate the new customer onboarding.';
+        _message = 'Your first-time AIR access request is awaiting administrator approval. After approval, set your six-digit AIR PIN.';
       } else if (status == 'APPROVED' && _approved) {
         _message = 'Your AIR dashboard is ready. Choose a subscription to unlock strategies.';
       } else if (status == 'REJECTED') {
