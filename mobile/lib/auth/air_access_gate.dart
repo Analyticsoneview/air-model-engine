@@ -83,19 +83,15 @@ class _AirAccessGateState extends State<AirAccessGate> {
     if (_deviceId == null) return;
     setState(() => _busy = true);
     try {
-      final result = checkOnly
-          ? await _api.mobileStatus(mobile, _deviceId!)
-          : await _api.mobileLogin(mobile, _deviceId!, pin: _pin.text.trim().isEmpty ? null : _pin.text.trim());
-      var status = result['status']?.toString() ?? 'UNKNOWN';
-      if (status == 'APPROVED' && result['access_token'] == null) {
-        final login = await _api.mobileLogin(mobile, _deviceId!);
-        status = login['status']?.toString() ?? status;
-        if (login['access_token'] is String) {
-          await _storage.write(key: 'air_access_token', value: login['access_token'] as String);
-          await _storage.write(key: 'air_mobile_e164', value: mobile);
-          _approved = true;
-        }
-      } else if (status == 'PIN_REQUIRED') {
+      // Always attempt the PIN-aware login, even when this device has an older
+      // PENDING row. The server distinguishes a first-time customer from a
+      // returning customer whose PIN has already been established elsewhere.
+      final result = await _api.mobileLogin(
+        mobile, _deviceId!,
+        pin: _pin.text.trim().isEmpty ? null : _pin.text.trim(),
+      );
+      final status = result['status']?.toString() ?? 'UNKNOWN';
+      if (status == 'PIN_REQUIRED') {
         _message = 'Enter your existing six-digit AIR PIN. The same PIN works on every device; no OTP or repeat admin approval.';
       } else if (status == 'PIN_NOT_CONFIGURED') {
         _message = 'Set your first AIR PIN on the originally approved device. If that device is unavailable, contact an AIR administrator for a PIN reset.';
