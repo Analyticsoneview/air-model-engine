@@ -174,7 +174,9 @@ class AccessStoreTests(unittest.TestCase):
             self.assertEqual(first["status"], "PENDING")
             self.assertTrue(store.review(first["request_id"], "APPROVED",
                 reviewer_admin_id="admin-1", reviewer_role="SUPER_ADMIN", totp_counter=101))
+            legacy_session = store.create_session(first["request_id"])
             store.set_customer_pin("+919876543210", "device-initial-0001", hash_pin("123456"))
+            self.assertFalse(store.is_session_active(legacy_session))
             self.assertTrue(store.verify_customer_pin("+919876543210", "123456"))
             second = store.register_approved_device("+919876543210", "device-returning-0002")
             self.assertEqual(second["status"], "APPROVED")
