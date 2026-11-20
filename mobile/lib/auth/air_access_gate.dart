@@ -97,6 +97,8 @@ class _AirAccessGateState extends State<AirAccessGate> {
         }
       } else if (status == 'PIN_REQUIRED') {
         _message = 'Enter your existing six-digit AIR PIN. The same PIN works on every device; no OTP or repeat admin approval.';
+      } else if (status == 'PIN_NOT_CONFIGURED') {
+        _message = 'Set your first AIR PIN on the originally approved device. If that device is unavailable, contact an AIR administrator for a PIN reset.';
       } else if (status == 'PIN_SETUP_REQUIRED') {
         _message = 'Your customer access is approved. Create your six-digit AIR PIN to finish setup.';
       } else if (status == 'APPROVED' && result['access_token'] is String) {
@@ -284,7 +286,7 @@ class _AirAccessGateState extends State<AirAccessGate> {
                               child: const Text('SET AIR PIN'),
                             ),
                           ],
-                          if (!pending && !approvedStatus && _status != 'PIN_SETUP_REQUIRED')
+                          if (!pending && !approvedStatus && _status != 'PIN_SETUP_REQUIRED' && _status != 'PIN_NOT_CONFIGURED')
                             FilledButton(
                               onPressed: _busy || denied ? null : () => _requestOrCheck(),
                               style: FilledButton.styleFrom(backgroundColor: const Color(0xFFE5B85C), foregroundColor: const Color(0xFF111827), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
@@ -297,7 +299,7 @@ class _AirAccessGateState extends State<AirAccessGate> {
                               label: const Text('CHECK ACCESS STATUS'),
                               style: OutlinedButton.styleFrom(foregroundColor: const Color(0xFFE5B85C), padding: const EdgeInsets.symmetric(vertical: 15), side: const BorderSide(color: Color(0x66E5B85C))),
                             ),
-                          if (pending || approvedStatus || denied || _status == 'PIN_REQUIRED' || _status == 'PIN_SETUP_REQUIRED' || _status == 'ERROR' || _status == 'INVALID')
+                          if (pending || approvedStatus || denied || _status == 'PIN_REQUIRED' || _status == 'PIN_SETUP_REQUIRED' || _status == 'PIN_NOT_CONFIGURED' || _status == 'ERROR' || _status == 'INVALID')
                             Container(
                               margin: const EdgeInsets.only(top: 16),
                               padding: const EdgeInsets.all(14),
