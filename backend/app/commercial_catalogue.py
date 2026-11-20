@@ -19,7 +19,8 @@ B2C_PLANS: tuple[dict[str, Any], ...] = (
         "currency": None,
         "price_minor": None,
         "price_status": "NOT_PUBLISHED",
-        "features": ("dashboard_basic", "watchlists_basic", "charts_basic", "screener_basic"),
+        "features": ("dashboard_basic", "watchlists_basic", "charts_basic", "screener_basic",
+            "historical_analysis", "historical_strategy_replay"),
     },
     {
         "code": "B2C_ESSENTIAL_ANNUAL",
@@ -30,6 +31,7 @@ B2C_PLANS: tuple[dict[str, Any], ...] = (
         "price_status": "NOT_PUBLISHED",
         "features": (
             "dashboard_basic", "watchlists_basic", "charts_basic", "screener_basic",
+            "historical_strategy_replay",
             "charts_advanced", "screeners_standard", "watchlists_alerts",
             "historical_analysis", "portfolio_monitoring",
         ),
@@ -43,6 +45,7 @@ B2C_PLANS: tuple[dict[str, Any], ...] = (
         "price_status": "NOT_PUBLISHED",
         "features": (
             "dashboard_basic", "watchlists_basic", "charts_basic", "screener_basic",
+            "historical_strategy_replay",
             "charts_advanced", "screeners_standard", "watchlists_alerts",
             "historical_analysis", "portfolio_monitoring", "options_analytics",
             "oi_volume_analytics", "strategy_builder", "paper_trading",
@@ -58,6 +61,7 @@ B2C_PLANS: tuple[dict[str, Any], ...] = (
         "price_status": "NOT_PUBLISHED",
         "features": (
             "dashboard_basic", "watchlists_basic", "charts_basic", "screener_basic",
+            "historical_strategy_replay",
             "charts_advanced", "screeners_standard", "watchlists_alerts",
             "historical_analysis", "portfolio_monitoring", "options_analytics",
             "oi_volume_analytics", "strategy_builder", "paper_trading",
@@ -75,6 +79,7 @@ B2C_PLANS: tuple[dict[str, Any], ...] = (
         "price_status": "NOT_PUBLISHED",
         "features": (
             "dashboard_basic", "watchlists_basic", "charts_basic", "screener_basic",
+            "historical_strategy_replay",
             "charts_advanced", "screeners_standard", "watchlists_alerts",
             "historical_analysis", "portfolio_monitoring", "options_analytics",
             "oi_volume_analytics", "strategy_builder", "paper_trading",

@@ -18,6 +18,7 @@ from app.brokers.dhan import DhanAPIError, DhanHQClient
 from app.brokers.customer_accounts import CustomerAccountDirectory
 from app.credential_vault import CredentialVault
 from app.security import require_customer
+from app.subscription_access import require_feature_entitlement
 from app.air_qoc_store import AirQocStore
 from app.air_qoc_qualification import qualify_option_observations, backtest_option_observations
 from app.air_qoc_universe import DETAILED_MASTER_URL, parse_dhan_instrument_master
@@ -34,10 +35,8 @@ def _vault() -> CredentialVault:
     return CredentialVault(os.getenv("AIR_CREDENTIAL_DB_PATH", "data/air_credentials.sqlite3"))
 
 
-def _operator(customer_id: str = Depends(require_customer)) -> str:
-    allowed = {x.strip() for x in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",") if x.strip()}
-    if customer_id not in allowed:
-        raise HTTPException(status_code=403, detail="AIR operator permission is required")
+def _operator(customer_id: str = Depends(require_feature_entitlement("options_analytics"))) -> str:
+    """Require an approved AIR session and an active plan granting options analytics."""
     return customer_id
 
 
