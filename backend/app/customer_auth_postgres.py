@@ -321,9 +321,13 @@ class PostgresAccessStore:
                     ON CONFLICT(customer_id) DO UPDATE SET pin_hash=EXCLUDED.pin_hash,
                     failed_attempts=0,locked_until=0,must_reset=false,updated_at=CURRENT_TIMESTAMP"""),
                     {"customer": mobile, "tenant": tenant_id, "hash": pin_hash})
+                conn.execute(text("""UPDATE air_device_sessions SET active=false
+                    WHERE request_id IN (SELECT request_id FROM air_access_requests WHERE mobile_e164=:mobile)"""),
+                    {"mobile": mobile})
                 conn.execute(text("""INSERT INTO air_customer_pin_audit
                     (event_id,customer_id,tenant_id,action,details)
-                    VALUES(:event,:customer,:tenant,'PIN_SET','Customer completed PIN setup')"""),
+                    VALUES(:event,:customer,:tenant,'PIN_SET',
+                    'Customer completed PIN setup; previous sessions revoked')"""),
                     {"event": str(uuid4()), "customer": mobile, "tenant": tenant_id})
 
     def verify_customer_pin(self, mobile_e164: str, pin: str) -> bool:
