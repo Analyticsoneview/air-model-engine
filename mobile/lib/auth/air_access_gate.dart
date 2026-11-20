@@ -18,6 +18,8 @@ class _AirAccessGateState extends State<AirAccessGate> {
   static const _storage = FlutterSecureStorage();
   late AirApiClient _api;
   final _mobile = TextEditingController();
+  final _pin = TextEditingController();
+  final _pinConfirm = TextEditingController();
   String? _deviceId;
   String _status = 'NEW';
   String _message = 'Enter your international mobile number to open your AIR dashboard. Strategy access is activated separately through a subscription plan.';
@@ -49,7 +51,7 @@ class _AirAccessGateState extends State<AirAccessGate> {
         if (token == null || token.isEmpty) {
           final savedStatus = await _api.mobileStatus(savedMobile, deviceId);
           _status = savedStatus['status']?.toString() ?? 'NEW';
-          if (_status == 'PENDING') _message = 'Your earlier access request is pending. Contact AIR support to migrate this device to the new customer access flow.';
+          if (_status == 'PENDING') _message = 'This device has a pending request. If you are a returning customer, choose CHECK ACCESS STATUS and enter your existing AIR PIN. New customers wait for the first administrator approval.';
         }
       }
       if (token != null && token.isNotEmpty) {
@@ -69,7 +71,7 @@ class _AirAccessGateState extends State<AirAccessGate> {
     if (mounted) setState(() => _busy = false);
   }
 
-  Future<void> _requestOrCheck({bool checkOnly = false}) async {
+  Future<void> _requestOrCheck() async {
     final mobile = _mobile.text.trim();
     if (!RegExp(r'^\+[1-9][0-9]{7,14}$').hasMatch(mobile)) {
       setState(() {
@@ -81,25 +83,27 @@ class _AirAccessGateState extends State<AirAccessGate> {
     if (_deviceId == null) return;
     setState(() => _busy = true);
     try {
-      final result = checkOnly
-          ? await _api.mobileStatus(mobile, _deviceId!)
-          : await _api.mobileLogin(mobile, _deviceId!);
-      var status = result['status']?.toString() ?? 'UNKNOWN';
-      if (status == 'APPROVED' && result['access_token'] == null) {
-        final login = await _api.mobileLogin(mobile, _deviceId!);
-        status = login['status']?.toString() ?? status;
-        if (login['access_token'] is String) {
-          await _storage.write(key: 'air_access_token', value: login['access_token'] as String);
-          await _storage.write(key: 'air_mobile_e164', value: mobile);
-          _approved = true;
-        }
+      // Always attempt the PIN-aware login, even when this device has an older
+      // PENDING row. The server distinguishes a first-time customer from a
+      // returning customer whose PIN has already been established elsewhere.
+      final result = await _api.mobileLogin(
+        mobile, _deviceId!,
+        pin: _pin.text.trim().isEmpty ? null : _pin.text.trim(),
+      );
+      final status = result['status']?.toString() ?? 'UNKNOWN';
+      if (status == 'PIN_REQUIRED') {
+        _message = 'Enter your existing six-digit AIR PIN. The same PIN works on every device; no OTP or repeat admin approval.';
+      } else if (status == 'PIN_NOT_CONFIGURED') {
+        _message = 'Set your first AIR PIN on the originally approved device. If that device is unavailable, contact an AIR administrator for a PIN reset.';
+      } else if (status == 'PIN_SETUP_REQUIRED') {
+        _message = 'Your customer access is approved. Create your six-digit AIR PIN to finish setup.';
       } else if (status == 'APPROVED' && result['access_token'] is String) {
         await _storage.write(key: 'air_access_token', value: result['access_token'] as String);
         await _storage.write(key: 'air_mobile_e164', value: mobile);
         _approved = true;
       }
       if (status == 'PENDING') {
-        _message = 'This device has an older pending access request. Contact AIR support to activate the new customer onboarding.';
+        _message = 'Your first-time AIR access request is awaiting administrator approval. After approval, set your six-digit AIR PIN.';
       } else if (status == 'APPROVED' && _approved) {
         _message = 'Your AIR dashboard is ready. Choose a subscription to unlock strategies.';
       } else if (status == 'REJECTED') {
@@ -112,7 +116,11 @@ class _AirAccessGateState extends State<AirAccessGate> {
       setState(() => _status = status);
     } on AirApiException catch (error) {
       setState(() {
-        _status = 'ERROR';
+        if (_pin.text.trim().isNotEmpty && error.message.toLowerCase().contains('incorrect air pin')) {
+          _status = 'PIN_REQUIRED';
+        } else {
+          _status = 'ERROR';
+        }
         _message = error.message;
       });
     } catch (_) {
@@ -125,9 +133,42 @@ class _AirAccessGateState extends State<AirAccessGate> {
     }
   }
 
+  Future<void> _setupPin() async {
+    final pin = _pin.text.trim();
+    if (pin.length != 6 || int.tryParse(pin) == null) {
+      setState(() { _status = 'INVALID'; _message = 'AIR PIN must contain exactly six digits.'; });
+      return;
+    }
+    if (pin != _pinConfirm.text.trim()) {
+      setState(() { _status = 'INVALID'; _message = 'The two PIN entries do not match.'; });
+      return;
+    }
+    if (_deviceId == null) return;
+    setState(() => _busy = true);
+    try {
+      final result = await _api.setupMobilePin(_mobile.text.trim(), _deviceId!, pin);
+      final token = result['access_token'];
+      if (result['status'] == 'APPROVED' && token is String) {
+        await _storage.write(key: 'air_access_token', value: token);
+        await _storage.write(key: 'air_mobile_e164', value: _mobile.text.trim());
+        if (mounted) setState(() { _approved = true; _status = 'APPROVED'; });
+      } else {
+        setState(() { _status = result['status']?.toString() ?? 'ERROR'; _message = result['message']?.toString() ?? 'PIN setup could not be completed.'; });
+      }
+    } on AirApiException catch (error) {
+      setState(() { _status = 'ERROR'; _message = error.message; });
+    } catch (_) {
+      setState(() { _status = 'ERROR'; _message = 'Could not complete AIR PIN setup. Try again.'; });
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   @override
   void dispose() {
     _mobile.dispose();
+    _pin.dispose();
+    _pinConfirm.dispose();
     _api.dispose();
     super.dispose();
   }
@@ -216,20 +257,45 @@ class _AirAccessGateState extends State<AirAccessGate> {
                             ),
                           ),
                           const SizedBox(height: 16),
-                          if (!pending && !approvedStatus)
+                          if (_status == 'PIN_REQUIRED') ...[
+                            TextField(
+                              controller: _pin, enabled: !_busy, obscureText: true,
+                              keyboardType: TextInputType.number, maxLength: 6,
+                              decoration: const InputDecoration(labelText: 'Six-digit AIR PIN', counterText: ''),
+                            ),
+                          ],
+                          if (_status == 'PIN_SETUP_REQUIRED') ...[
+                            TextField(
+                              controller: _pin, enabled: !_busy, obscureText: true,
+                              keyboardType: TextInputType.number, maxLength: 6,
+                              decoration: const InputDecoration(labelText: 'Create six-digit AIR PIN', counterText: ''),
+                            ),
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: _pinConfirm, enabled: !_busy, obscureText: true,
+                              keyboardType: TextInputType.number, maxLength: 6,
+                              decoration: const InputDecoration(labelText: 'Confirm AIR PIN', counterText: ''),
+                            ),
+                            FilledButton(
+                              onPressed: _busy ? null : _setupPin,
+                              style: FilledButton.styleFrom(backgroundColor: const Color(0xFFE5B85C), foregroundColor: const Color(0xFF111827), padding: const EdgeInsets.symmetric(vertical: 16)),
+                              child: const Text('SET AIR PIN'),
+                            ),
+                          ],
+                          if (!pending && !approvedStatus && _status != 'PIN_SETUP_REQUIRED' && _status != 'PIN_NOT_CONFIGURED')
                             FilledButton(
                               onPressed: _busy || denied ? null : () => _requestOrCheck(),
                               style: FilledButton.styleFrom(backgroundColor: const Color(0xFFE5B85C), foregroundColor: const Color(0xFF111827), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
-                              child: _busy ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('REQUEST ACCESS', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: .7)),
+                              child: _busy ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2)) : Text(_status == 'PIN_REQUIRED' ? 'SIGN IN WITH PIN' : 'REQUEST ACCESS', style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: .7)),
                             ),
                           if (pending || approvedStatus)
                             OutlinedButton.icon(
-                              onPressed: _busy ? null : () => _requestOrCheck(checkOnly: true),
+                              onPressed: _busy ? null : () => _requestOrCheck(),
                               icon: const Icon(Icons.refresh_rounded),
                               label: const Text('CHECK ACCESS STATUS'),
                               style: OutlinedButton.styleFrom(foregroundColor: const Color(0xFFE5B85C), padding: const EdgeInsets.symmetric(vertical: 15), side: const BorderSide(color: Color(0x66E5B85C))),
                             ),
-                          if (pending || approvedStatus || denied || _status == 'ERROR' || _status == 'INVALID')
+                          if (pending || approvedStatus || denied || _status == 'PIN_REQUIRED' || _status == 'PIN_SETUP_REQUIRED' || _status == 'PIN_NOT_CONFIGURED' || _status == 'ERROR' || _status == 'INVALID')
                             Container(
                               margin: const EdgeInsets.only(top: 16),
                               padding: const EdgeInsets.all(14),
@@ -266,7 +332,7 @@ class _AirAccessGateState extends State<AirAccessGate> {
                     }),
                     const Text('DASHBOARD ACCESS  •  SUBSCRIPTION-BASED STRATEGIES', textAlign: TextAlign.center, style: TextStyle(color: Color(0xFF7E8CA0), fontSize: 9, letterSpacing: 1, fontWeight: FontWeight.w700)),
                     const SizedBox(height: 8),
-                    const Text('Phone number identifies your customer profile. Verify ownership before enabling payments, broker credentials or trading permissions.', textAlign: TextAlign.center, style: TextStyle(color: Color(0xFF7E8CA0), fontSize: 10)),
+                    const Text('Initial access is approved by an AIR administrator. Subsequent logins use your six-digit PIN on any device; no customer OTP is sent.', textAlign: TextAlign.center, style: TextStyle(color: Color(0xFF7E8CA0), fontSize: 10)),
                   ],
                 ),
               ),
@@ -322,7 +388,7 @@ class _AirJourneyPanel extends StatelessWidget {
       SizedBox(height: 16),
       _AirJourneyStep(number: '02', title: 'AIR reviews your request', detail: 'Access remains pending until an AIR administrator approves it.'),
       SizedBox(height: 16),
-      _AirJourneyStep(number: '03', title: 'Explore your workspace', detail: 'Your dashboard opens after approval. Strategy features depend on your assigned subscription.'),
+      _AirJourneyStep(number: '03', title: 'Explore your workspace', detail: 'After the first approval, set your six-digit AIR PIN. Use the same PIN on every device; no repeat approval or OTP.'),
       SizedBox(height: 20),
       Divider(color: Color(0xFF344258)),
       SizedBox(height: 12),

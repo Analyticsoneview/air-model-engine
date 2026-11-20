@@ -583,6 +583,13 @@ class CustomerLogin(BaseModel):
 class MobileAccessRequest(BaseModel):
     mobile_e164: str = Field(min_length=9, max_length=16)
     device_id: str = Field(min_length=8, max_length=128)
+    pin: str | None = Field(default=None, pattern=r"^\d{6}$")
+
+
+class MobilePinSetupRequest(BaseModel):
+    mobile_e164: str = Field(min_length=9, max_length=16)
+    device_id: str = Field(min_length=8, max_length=128)
+    pin: str = Field(pattern=r"^\d{6}$")
 
 
 class SubscriptionAssignment(BaseModel):
@@ -608,6 +615,10 @@ class AccessReview(BaseModel):
     status: str = Field(pattern="^(APPROVED|REJECTED|BLOCKED)$")
     note: str = Field(default="", max_length=500)
     totp_code: str = Field(pattern=r"^\d{6}$")
+
+class AdminCustomerPinResetRequest(BaseModel):
+    totp_code: str = Field(pattern=r"^\d{6}$")
+
 
 
 class TradingAccountCreate(BaseModel):
@@ -902,19 +913,100 @@ async def trigger_nse_bhavcopy_bootstrap(
 @app.post("/api/v1/auth/mobile-login")
 async def mobile_login(body: MobileAccessRequest) -> dict:
     try:
-        request = access_store.request_access(body.mobile_e164, body.device_id)
+        mobile = access_store.validate_mobile(body.mobile_e164)
+        if access_store.customer_has_approved_access(mobile):
+            pin_state = access_store.customer_pin_state(mobile)
+            if pin_state["suspended"]:
+                raise HTTPException(status_code=403, detail="AIR customer account is suspended.")
+            if not pin_state["pin_set"] or pin_state["must_reset"]:
+                current = access_store.get_request(mobile, body.device_id)
+                if current and current["status"] == "APPROVED":
+                    return {"status": "PIN_SETUP_REQUIRED",
+                            "message": "Your AIR access is approved. Set your six-digit AIR PIN to continue."}
+                return {"status": "PIN_SETUP_REQUIRED" if pin_state["must_reset"] else "PIN_NOT_CONFIGURED",
+                        "message": ("An administrator reset is pending. Create a new PIN to continue."
+                            if pin_state["must_reset"] else
+                            "Your first AIR PIN must be set on the originally approved device. If it is unavailable, ask an administrator to reset your PIN.")}
+            if not body.pin:
+                return {"status": "PIN_REQUIRED", "message": "Enter your six-digit AIR PIN."}
+            if not access_store.verify_customer_pin(mobile, body.pin):
+                raise HTTPException(status_code=401, detail="Incorrect AIR PIN.")
+            request = access_store.register_approved_device(mobile, body.device_id)
+        else:
+            request = access_store.request_access(mobile, body.device_id)
+            if request["status"] == "PENDING":
+                return {"status": "PENDING", "message": "Your AIR access request is awaiting initial administrator approval."}
+            if request["status"] != "APPROVED":
+                return {"status": request["status"], "message": "AIR access is not currently available for this device."}
+            pin_state = access_store.customer_pin_state(mobile)
+            if not pin_state["pin_set"]:
+                return {"status": "PIN_SETUP_REQUIRED", "message": "Your AIR access is approved. Set your six-digit AIR PIN to continue."}
+            if not body.pin:
+                return {"status": "PIN_REQUIRED", "message": "Enter your six-digit AIR PIN."}
+            if not access_store.verify_customer_pin(mobile, body.pin):
+                raise HTTPException(status_code=401, detail="Incorrect AIR PIN.")
+        session_id = access_store.create_session(request["request_id"])
+    except HTTPException:
+        raise
+    except LookupError as exc:
+        if str(exc) == "PIN_SETUP_REQUIRED":
+            return {"status": "PIN_SETUP_REQUIRED", "message": "Set your six-digit AIR PIN to continue."}
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    if request["status"] == "PENDING":
-        return {"status": "PENDING", "message": "Your AIR access request is awaiting administrator approval."}
-    if request["status"] != "APPROVED":
-        return {"status": request["status"], "message": "AIR access is not currently available for this request."}
-    session_id = access_store.create_session(request["request_id"])
-    # Use the approved E.164 identity as the stable customer/operator subject.
-    # Each device still has its own revocable session (jti) in AccessStore.
-    token = create_access_token(body.mobile_e164, expires_minutes=720, session_id=session_id)
+    token = create_access_token(mobile, expires_minutes=720, session_id=session_id)
     return {"status": "APPROVED", "access_token": token, "token_type": "bearer",
-            "expires_in": 43200, "customer_id": body.mobile_e164}
+            "expires_in": 43200, "customer_id": mobile}
+
+
+@app.post("/api/v1/auth/mobile-pin/setup")
+async def setup_mobile_pin(body: MobilePinSetupRequest) -> dict:
+    from app.security import hash_pin
+    try:
+        mobile = access_store.validate_mobile(body.mobile_e164)
+        pin_hash = hash_pin(body.pin)
+        access_store.set_customer_pin(mobile, body.device_id, pin_hash)
+        request = access_store.get_request(mobile, body.device_id)
+        if not request:
+            request = access_store.register_approved_device(mobile, body.device_id)
+        if request["status"] != "APPROVED":
+            raise PermissionError("An approved AIR device is required to complete PIN setup.")
+        session_id = access_store.create_session(request["request_id"])
+        token = create_access_token(mobile, expires_minutes=720, session_id=session_id)
+        return {"status": "APPROVED", "access_token": token, "token_type": "bearer",
+                "expires_in": 43200, "customer_id": mobile}
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/admin/customers/{customer_id}/pin-reset")
+async def admin_reset_customer_pin(customer_id: str, body: AdminCustomerPinResetRequest,
+                                   admin: dict = Depends(require_admin_management)) -> dict:
+    try:
+        get_admin_auth_store().verify_action_totp(
+            admin, body.totp_code, "CUSTOMER_PIN_RESET", customer_id
+        )
+        access_store.reset_customer_pin(customer_id, admin["admin_id"])
+        return {"status": "RESET_REQUIRED", "customer_id": customer_id,
+                "message": "Customer PIN reset. All customer sessions have been revoked; a new PIN is required."}
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except (ValueError, LookupError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.put("/api/v1/admin/customers/{customer_id}/suspension")
+async def admin_set_customer_suspension(customer_id: str, suspended: bool = Query(...),
+                                         admin: dict = Depends(require_admin_management)) -> dict:
+    try:
+        access_store.suspend_customer(customer_id, admin["admin_id"], suspended)
+        return {"customer_id": customer_id, "suspended": suspended}
+    except (ValueError, LookupError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/subscription/plans")

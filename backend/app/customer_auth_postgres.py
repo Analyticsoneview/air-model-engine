@@ -165,7 +165,10 @@ class PostgresAccessStore:
                 WHERE r2.mobile_e164=r.mobile_e164 ORDER BY r2.created_at,r2.request_id LIMIT 1)
                 THEN 'NEW' ELSE 'EXISTING' END AS customer_type,
             (SELECT MIN(r3.created_at) FROM air_access_requests r3 WHERE r3.mobile_e164=r.mobile_e164)
-                AS first_registered_at FROM air_access_requests r"""
+                AS first_registered_at,
+            CASE WHEN EXISTS(SELECT 1 FROM air_access_requests ra
+                WHERE ra.mobile_e164=r.mobile_e164 AND ra.status='APPROVED')
+                THEN false ELSE true END AS requires_admin_approval FROM air_access_requests r"""
         params = {}
         if status:
             statement += " WHERE status=:status"
@@ -265,6 +268,193 @@ class PostgresAccessStore:
                 JOIN air_access_requests r ON r.request_id=s.request_id WHERE s.session_id=:sid"""),
                 {"sid": session_id}).first()
         return bool(row and row.active and row.status == "APPROVED")
+
+    def customer_has_approved_access(self, mobile_e164: str) -> bool:
+        mobile = self.validate_mobile(mobile_e164)
+        tenant_id = self.tenant_for_customer(mobile)
+        if not tenant_id:
+            return False
+        with tenant_scope(tenant_id=tenant_id, customer_id=mobile):
+            with self.engine.connect() as conn:
+                return bool(conn.execute(text("""SELECT 1 FROM air_access_requests
+                    WHERE mobile_e164=:mobile AND status='APPROVED' LIMIT 1"""),
+                    {"mobile": mobile}).first())
+
+    def customer_pin_state(self, mobile_e164: str) -> dict:
+        mobile = self.validate_mobile(mobile_e164)
+        tenant_id = self.tenant_for_customer(mobile)
+        if not tenant_id:
+            return {"pin_set": False, "must_reset": False, "suspended": False, "locked_until": 0}
+        with tenant_scope(tenant_id=tenant_id, customer_id=mobile):
+            with self.engine.connect() as conn:
+                row = conn.execute(text("""SELECT pin_hash,must_reset,suspended,locked_until
+                    FROM air_customer_pin_credentials WHERE customer_id=:customer"""),
+                    {"customer": mobile}).mappings().first()
+        if not row:
+            return {"pin_set": False, "must_reset": False, "suspended": False, "locked_until": 0}
+        return {"pin_set": bool(row["pin_hash"]), "must_reset": bool(row["must_reset"]),
+                "suspended": bool(row["suspended"]), "locked_until": int(row["locked_until"] or 0)}
+
+    def set_customer_pin(self, mobile_e164: str, device_id: str, pin_hash: str) -> None:
+        mobile = self.validate_mobile(mobile_e164)
+        tenant_id = self.tenant_for_customer(mobile)
+        if not tenant_id:
+            raise PermissionError("Initial AIR administrator approval is required")
+        with tenant_scope(tenant_id=tenant_id, customer_id=mobile):
+            with self.engine.begin() as conn:
+                request = conn.execute(text("""SELECT status FROM air_access_requests
+                    WHERE mobile_e164=:mobile AND device_id=:device"""),
+                    {"mobile": mobile, "device": device_id.strip()}).mappings().first()
+                existing = conn.execute(text("""SELECT pin_hash,must_reset,suspended
+                    FROM air_customer_pin_credentials WHERE customer_id=:customer FOR UPDATE"""),
+                    {"customer": mobile}).mappings().first()
+                reset_authorized = bool(existing and existing["must_reset"])
+                if (not request or request["status"] != "APPROVED") and not reset_authorized:
+                    raise PermissionError("The initially approved device is required to set the first AIR PIN")
+                if existing and existing["suspended"]:
+                    raise PermissionError("AIR customer account is suspended")
+                if existing and existing["pin_hash"] and not existing["must_reset"]:
+                    raise PermissionError("An AIR PIN is already configured; use administrator reset if it is forgotten")
+                conn.execute(text("""INSERT INTO air_customer_pin_credentials
+                    (customer_id,tenant_id,pin_hash,failed_attempts,locked_until,must_reset)
+                    VALUES(:customer,:tenant,:hash,0,0,false)
+                    ON CONFLICT(customer_id) DO UPDATE SET pin_hash=EXCLUDED.pin_hash,
+                    failed_attempts=0,locked_until=0,must_reset=false,updated_at=CURRENT_TIMESTAMP"""),
+                    {"customer": mobile, "tenant": tenant_id, "hash": pin_hash})
+                conn.execute(text("""UPDATE air_device_sessions SET active=false
+                    WHERE request_id IN (SELECT request_id FROM air_access_requests WHERE mobile_e164=:mobile)"""),
+                    {"mobile": mobile})
+                conn.execute(text("""INSERT INTO air_customer_pin_audit
+                    (event_id,customer_id,tenant_id,action,details)
+                    VALUES(:event,:customer,:tenant,'PIN_SET',
+                    'Customer completed PIN setup; previous sessions revoked')"""),
+                    {"event": str(uuid4()), "customer": mobile, "tenant": tenant_id})
+
+    def verify_customer_pin(self, mobile_e164: str, pin: str) -> bool:
+        import time
+        from app.security import verify_pin
+        mobile = self.validate_mobile(mobile_e164)
+        tenant_id = self.tenant_for_customer(mobile)
+        if not tenant_id:
+            raise LookupError("PIN_SETUP_REQUIRED")
+        now = int(time.time())
+        with tenant_scope(tenant_id=tenant_id, customer_id=mobile):
+            with self.engine.begin() as conn:
+                row = conn.execute(text("""SELECT pin_hash,failed_attempts,locked_until,must_reset,suspended
+                    FROM air_customer_pin_credentials WHERE customer_id=:customer FOR UPDATE"""),
+                    {"customer": mobile}).mappings().first()
+                if not row or not row["pin_hash"] or row["must_reset"]:
+                    raise LookupError("PIN_SETUP_REQUIRED")
+                if row["suspended"]:
+                    raise PermissionError("AIR customer account is suspended")
+                if int(row["locked_until"] or 0) > now:
+                    raise PermissionError("Too many incorrect PIN attempts. Try again later.")
+                if not verify_pin(pin, row["pin_hash"]):
+                    attempts = int(row["failed_attempts"] or 0) + 1
+                    conn.execute(text("""UPDATE air_customer_pin_credentials SET failed_attempts=:attempts,
+                        locked_until=:locked,updated_at=CURRENT_TIMESTAMP WHERE customer_id=:customer"""),
+                        {"attempts": attempts, "locked": now + 900 if attempts >= 5 else 0, "customer": mobile})
+                    return False
+                conn.execute(text("""UPDATE air_customer_pin_credentials SET failed_attempts=0,
+                    locked_until=0,updated_at=CURRENT_TIMESTAMP WHERE customer_id=:customer"""),
+                    {"customer": mobile})
+                return True
+
+    def register_approved_device(self, mobile_e164: str, device_id: str):
+        mobile = self.validate_mobile(mobile_e164)
+        device = device_id.strip()
+        if not device or len(device) > 128:
+            raise ValueError("A valid device identifier is required")
+        tenant_id = self.tenant_for_customer(mobile)
+        if not tenant_id:
+            raise PermissionError("Initial AIR administrator approval is required")
+        state = self.customer_pin_state(mobile)
+        if state["suspended"]:
+            raise PermissionError("AIR customer account is suspended")
+        with tenant_scope(tenant_id=tenant_id, customer_id=mobile):
+            with self.engine.begin() as conn:
+                row = conn.execute(text("""SELECT request_id,mobile_e164,device_id,status,created_at,
+                    reviewed_at,reviewer_note FROM air_access_requests
+                    WHERE mobile_e164=:mobile AND device_id=:device FOR UPDATE"""),
+                    {"mobile": mobile, "device": device}).mappings().first()
+                if row:
+                    if row["status"] == "PENDING":
+                        conn.execute(text("""UPDATE air_access_requests SET status='APPROVED',
+                            reviewed_at=CURRENT_TIMESTAMP,
+                            reviewer_note='Authenticated with the existing customer AIR PIN; returning device auto-approved'
+                            WHERE request_id=:id AND status='PENDING'"""), {"id": row["request_id"]})
+                        conn.execute(text("""INSERT INTO air_customer_pin_audit
+                            (event_id,customer_id,tenant_id,action,details)
+                            VALUES(:event,:customer,:tenant,'DEVICE_AUTO_APPROVED',
+                            'Existing pending device authenticated with customer PIN')"""),
+                            {"event": str(uuid4()), "customer": mobile, "tenant": tenant_id})
+                        row = conn.execute(text("""SELECT request_id,mobile_e164,device_id,status,created_at,
+                            reviewed_at,reviewer_note FROM air_access_requests
+                            WHERE request_id=:id"""), {"id": row["request_id"]}).mappings().one()
+                        return dict(row)
+                    if row["status"] != "APPROVED":
+                        raise PermissionError("This device is blocked or rejected; contact AIR support")
+                    return dict(row)
+                request_id = str(uuid4())
+                conn.execute(text("""INSERT INTO air_access_requests
+                    (request_id,mobile_e164,device_id,status,reviewed_at,reviewer_note)
+                    VALUES(:id,:mobile,:device,'APPROVED',CURRENT_TIMESTAMP,
+                    'Automatically registered to an existing approved AIR customer')"""),
+                    {"id": request_id, "mobile": mobile, "device": device})
+                conn.execute(text("""INSERT INTO air_customer_pin_audit
+                    (event_id,customer_id,tenant_id,action,details)
+                    VALUES(:event,:customer,:tenant,'DEVICE_AUTO_APPROVED',
+                    'New device authenticated with customer PIN')"""),
+                    {"event": str(uuid4()), "customer": mobile, "tenant": tenant_id})
+                row = conn.execute(text("""SELECT request_id,mobile_e164,device_id,status,created_at,
+                    reviewed_at,reviewer_note FROM air_access_requests WHERE request_id=:id"""),
+                    {"id": request_id}).mappings().one()
+        return dict(row)
+
+    @_admin_scoped
+    def reset_customer_pin(self, mobile_e164: str, admin_id: str) -> None:
+        mobile = self.validate_mobile(mobile_e164)
+        tenant_id = self.tenant_for_customer(mobile)
+        if not tenant_id:
+            raise LookupError("AIR customer was not found or has never been approved")
+        with tenant_scope(tenant_id=tenant_id, customer_id=mobile):
+            with self.engine.begin() as conn:
+                conn.execute(text("""INSERT INTO air_customer_pin_credentials
+                    (customer_id,tenant_id,pin_hash,must_reset,failed_attempts,locked_until,reset_by_admin_id)
+                    VALUES(:customer,:tenant,NULL,true,0,0,:admin)
+                    ON CONFLICT(customer_id) DO UPDATE SET pin_hash=NULL,must_reset=true,
+                    failed_attempts=0,locked_until=0,reset_by_admin_id=:admin,updated_at=CURRENT_TIMESTAMP"""),
+                    {"customer": mobile, "tenant": tenant_id, "admin": admin_id})
+                conn.execute(text("""UPDATE air_device_sessions SET active=false
+                    WHERE request_id IN (SELECT request_id FROM air_access_requests WHERE mobile_e164=:mobile)"""),
+                    {"mobile": mobile})
+                conn.execute(text("""INSERT INTO air_customer_pin_audit
+                    (event_id,customer_id,tenant_id,action,actor_admin_id,details)
+                    VALUES(:event,:customer,:tenant,'ADMIN_PIN_RESET',:admin,
+                    'PIN reset; all customer sessions revoked')"""),
+                    {"event": str(uuid4()), "customer": mobile, "tenant": tenant_id, "admin": admin_id})
+
+    @_admin_scoped
+    def suspend_customer(self, mobile_e164: str, admin_id: str, suspended: bool = True) -> None:
+        mobile = self.validate_mobile(mobile_e164)
+        tenant_id = self.tenant_for_customer(mobile)
+        if not tenant_id:
+            raise LookupError("AIR customer was not found")
+        with tenant_scope(tenant_id=tenant_id, customer_id=mobile):
+            with self.engine.begin() as conn:
+                conn.execute(text("""INSERT INTO air_customer_pin_credentials
+                    (customer_id,tenant_id,suspended) VALUES(:customer,:tenant,:suspended)
+                    ON CONFLICT(customer_id) DO UPDATE SET suspended=:suspended,updated_at=CURRENT_TIMESTAMP"""),
+                    {"customer": mobile, "tenant": tenant_id, "suspended": suspended})
+                if suspended:
+                    conn.execute(text("""UPDATE air_device_sessions SET active=false
+                        WHERE request_id IN (SELECT request_id FROM air_access_requests WHERE mobile_e164=:mobile)"""),
+                        {"mobile": mobile})
+                conn.execute(text("""INSERT INTO air_customer_pin_audit
+                    (event_id,customer_id,tenant_id,action,actor_admin_id,details)
+                    VALUES(:event,:customer,:tenant,:action,:admin,'Admin account status change')"""),
+                    {"event": str(uuid4()), "customer": mobile, "tenant": tenant_id,
+                     "action": "CUSTOMER_SUSPENDED" if suspended else "CUSTOMER_REACTIVATED", "admin": admin_id})
 
     @_admin_scoped
     def assign_subscription(self, customer_id: str, plan_code: str, starts_at: str, expires_at: str, assigned_by_admin_id: str | None = None):

@@ -55,6 +55,21 @@ def hash_password(password: str) -> str:
     return _password_hash.hash(password)
 
 
+def hash_pin(pin: str) -> str:
+    if not isinstance(pin, str) or not pin.isdigit() or len(pin) != 6:
+        raise ValueError("AIR PIN must be exactly six digits")
+    return _password_hash.hash(pin)
+
+
+def verify_pin(pin: str, encoded: str) -> bool:
+    if not isinstance(pin, str) or not pin.isdigit() or len(pin) != 6:
+        return False
+    try:
+        return _password_hash.verify(pin, encoded)
+    except Exception:
+        return False
+
+
 def verify_password(password: str, encoded: str) -> bool:
     try:
         return _password_hash.verify(password, encoded)

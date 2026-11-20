@@ -193,7 +193,9 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     } catch (e) {
       _error = e.toString();
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() => _busy = false);
+      }
     }
   }
 
@@ -466,7 +468,9 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
       final report = await _request('POST', '/api/v1/admin/monthly-pd/scan');
       if (mounted) setState(() => _monthlyPdReport = report);
     } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
+      if (mounted) {
+        setState(() => _error = error.toString());
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -601,6 +605,49 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     )),
   );
 
+  Future<void> _resetCustomerPin(String customerId) async {
+    final codeController = TextEditingController();
+    final code = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Reset customer AIR PIN?'),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('This revokes all active sessions for $customerId. The customer must create a new six-digit PIN at next login. No customer OTP will be sent.'),
+          const SizedBox(height: 12),
+          TextField(
+            controller: codeController,
+            keyboardType: TextInputType.number,
+            maxLength: 6,
+            obscureText: true,
+            decoration: const InputDecoration(labelText: 'Your current administrator authenticator code', counterText: ''),
+          ),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('CANCEL')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, codeController.text.trim()), child: const Text('RESET PIN')),
+        ],
+      ),
+    );
+    codeController.dispose();
+    if (code == null || code.length != 6) {
+      return;
+    }
+    setState(() { _busy = true; _error = null; });
+    try {
+      await _request('POST', '/api/v1/admin/customers/${Uri.encodeComponent(customerId)}/pin-reset',
+          body: {'totp_code': code});
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('PIN reset. All customer sessions revoked; new PIN setup required.')),
+        );
+      }
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Widget _customerRegistry() {
     final segments = const [
       ('ALL', 'All customers'),
@@ -718,6 +765,14 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
             Align(alignment: Alignment.centerLeft, child: Text('Expiry: ${customer['subscription_expires_at_ist'] ?? customer['subscription_expires_at'] ?? '—'}')),
             Align(alignment: Alignment.centerLeft, child: Text('Marketing: ${customer['marketing_status'] ?? 'NOT_GRANTED'}')),
             Align(alignment: Alignment.centerLeft, child: Text('Consent date: ${customer['consent_updated_at'] ?? '—'}')),
+            Align(alignment: Alignment.centerLeft, child: Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: OutlinedButton.icon(
+                onPressed: _busy ? null : () => _resetCustomerPin(customer['customer_id']?.toString() ?? ''),
+                icon: const Icon(Icons.lock_reset_rounded),
+                label: const Text('RESET CUSTOMER PIN'),
+              ),
+            )),
           ],
         )),
     ]);
@@ -948,7 +1003,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     return ListView(padding: const EdgeInsets.all(16), children: [
       const Text('CUSTOMER DEVICE ACCESS', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: .6)),
       const SizedBox(height: 5),
-      const Text('Review customer requests, inspect device identity and manage access. Blocking revokes active sessions for the selected device.'),
+      const Text('Approve first-time customers once. Returning devices are registered after the customer enters their existing AIR PIN. Blocking revokes only the selected device session.'),
       const SizedBox(height: 14),
       Wrap(spacing: 10, runSpacing: 10, crossAxisAlignment: WrapCrossAlignment.center, children: [
         SizedBox(width: 220, child: DropdownButtonFormField<String>(
@@ -994,8 +1049,12 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
           if (_role != 'RESEARCH_ADMIN' && (r['status'] == 'PENDING' || r['status'] == 'APPROVED')) ...[
             const SizedBox(height: 12),
             Wrap(spacing: 8, runSpacing: 6, children: [
-              if (r['status'] == 'PENDING') FilledButton.tonalIcon(onPressed: _busy ? null : () => _review(r, 'APPROVED'), icon: const Icon(Icons.check_circle_outline), label: const Text('APPROVE')),
-              OutlinedButton.icon(onPressed: _busy ? null : () => _review(r, 'REJECTED'), icon: const Icon(Icons.cancel_outlined), label: const Text('REJECT')),
+              if (r['status'] == 'PENDING' && r['requires_admin_approval'] != false && r['requires_admin_approval'] != 0)
+                FilledButton.tonalIcon(onPressed: _busy ? null : () => _review(r, 'APPROVED'), icon: const Icon(Icons.check_circle_outline), label: const Text('APPROVE FIRST-TIME CUSTOMER')),
+              if (r['status'] == 'PENDING' && (r['requires_admin_approval'] == false || r['requires_admin_approval'] == 0))
+                const Chip(avatar: Icon(Icons.pin_outlined, size: 16), label: Text('RETURNING DEVICE · PIN LOGIN REQUIRED · NO REAPPROVAL')),
+              if (r['status'] == 'PENDING' && r['requires_admin_approval'] != false && r['requires_admin_approval'] != 0)
+                OutlinedButton.icon(onPressed: _busy ? null : () => _review(r, 'REJECTED'), icon: const Icon(Icons.cancel_outlined), label: const Text('REJECT')),
               OutlinedButton.icon(style: OutlinedButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
                 onPressed: _busy ? null : () => _review(r, 'BLOCKED'), icon: const Icon(Icons.block), label: const Text('BLOCK DEVICE')),
             ]),

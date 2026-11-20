@@ -22,6 +22,7 @@ from app.scripts.migrate_customer_sqlite_to_postgres import migrate
 
 
 TABLES = (
+    "air_customer_pin_audit", "air_customer_pin_credentials",
     "air_access_decision_history", "air_customer_subscription_history", "air_tenant_objects",
     "air_customer_lifecycle", "air_marketing_audit", "air_marketing_offers",
     "air_customer_marketing_preferences", "air_customer_subscriptions",
@@ -636,3 +637,38 @@ def test_postgres_tenant_isolation_survives_pool_reuse_and_concurrent_requests(c
             assert future_b.result(timeout=30) == [customer_b] * 20
     finally:
         concurrent_engine.dispose()
+
+
+
+def test_postgres_customer_pin_registers_returning_device_without_second_approval(customer_store):
+    from app.security import hash_pin
+    first = customer_store.request_access("+919876543250", "pg-device-first-0001")
+    assert first["status"] == "PENDING"
+    assert customer_store.review(first["request_id"], "APPROVED", "First approval",
+        reviewer_admin_id="admin-pin", reviewer_role="SUPER_ADMIN", totp_counter=75000001)
+    legacy_session = customer_store.create_session(first["request_id"])
+    customer_store.set_customer_pin("+919876543250", "pg-device-first-0001", hash_pin("123789"))
+    with tenant_scope(tenant_id=customer_store.tenant_for_customer("+919876543250"),
+                      customer_id="+919876543250"):
+        assert not customer_store.is_session_active(legacy_session)
+    assert customer_store.verify_customer_pin("+919876543250", "123789")
+    second = customer_store.register_approved_device("+919876543250", "pg-device-second-0002")
+    assert second["status"] == "APPROVED"
+    with tenant_scope(is_admin=True):
+        customers = customer_store.list_marketing_customers(search="+919876543250")
+    assert len(customers) == 1
+    assert customers[0]["device_count"] == 2
+
+
+def test_postgres_customer_pin_reset_revokes_all_sessions(customer_store):
+    from app.security import hash_pin
+    first = customer_store.request_access("+919876543251", "pg-device-reset-0001")
+    customer_store.review(first["request_id"], "APPROVED", "First approval",
+        reviewer_admin_id="admin-pin", reviewer_role="SUPER_ADMIN", totp_counter=75000002)
+    customer_store.set_customer_pin("+919876543251", "pg-device-reset-0001", hash_pin("123789"))
+    session = customer_store.create_session(first["request_id"])
+    customer_store.reset_customer_pin("+919876543251", "admin-pin")
+    with tenant_scope(tenant_id=customer_store.tenant_for_customer("+919876543251"),
+                      customer_id="+919876543251"):
+        assert not customer_store.is_session_active(session)
+    assert customer_store.customer_pin_state("+919876543251")["must_reset"]
