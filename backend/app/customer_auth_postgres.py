@@ -371,15 +371,34 @@ class PostgresAccessStore:
                     WHERE mobile_e164=:mobile AND device_id=:device FOR UPDATE"""),
                     {"mobile": mobile, "device": device}).mappings().first()
                 if row:
+                    if row["status"] == "PENDING":
+                        conn.execute(text("""UPDATE air_access_requests SET status='APPROVED',
+                            reviewed_at=CURRENT_TIMESTAMP,
+                            reviewer_note='Authenticated with the existing customer AIR PIN; returning device auto-approved'
+                            WHERE request_id=:id AND status='PENDING'"""), {"id": row["request_id"]})
+                        conn.execute(text("""INSERT INTO air_customer_pin_audit
+                            (event_id,customer_id,tenant_id,action,details)
+                            VALUES(:event,:customer,:tenant,'DEVICE_AUTO_APPROVED',
+                            'Existing pending device authenticated with customer PIN')"""),
+                            {"event": str(uuid4()), "customer": mobile, "tenant": tenant_id})
+                        row = conn.execute(text("""SELECT request_id,mobile_e164,device_id,status,created_at,
+                            reviewed_at,reviewer_note FROM air_access_requests
+                            WHERE request_id=:id"""), {"id": row["request_id"]}).mappings().one()
+                        return dict(row)
                     if row["status"] != "APPROVED":
                         raise PermissionError("This device is blocked or rejected; contact AIR support")
                     return dict(row)
                 request_id = str(uuid4())
                 conn.execute(text("""INSERT INTO air_access_requests
-                    (request_id,mobile_e164,device_id,status,reviewer_note)
-                    VALUES(:id,:mobile,:device,'APPROVED',
+                    (request_id,mobile_e164,device_id,status,reviewed_at,reviewer_note)
+                    VALUES(:id,:mobile,:device,'APPROVED',CURRENT_TIMESTAMP,
                     'Automatically registered to an existing approved AIR customer')"""),
                     {"id": request_id, "mobile": mobile, "device": device})
+                conn.execute(text("""INSERT INTO air_customer_pin_audit
+                    (event_id,customer_id,tenant_id,action,details)
+                    VALUES(:event,:customer,:tenant,'DEVICE_AUTO_APPROVED',
+                    'New device authenticated with customer PIN')"""),
+                    {"event": str(uuid4()), "customer": mobile, "tenant": tenant_id})
                 row = conn.execute(text("""SELECT request_id,mobile_e164,device_id,status,created_at,
                     reviewed_at,reviewer_note FROM air_access_requests WHERE request_id=:id"""),
                     {"id": request_id}).mappings().one()
