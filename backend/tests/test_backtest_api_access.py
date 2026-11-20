@@ -25,11 +25,11 @@ def _client(monkeypatch, subscription):
     {"status": "EXPIRED", "plan_code": "MONTHLY"},
     {"status": "CANCELLED", "plan_code": "MONTHLY"},
 ])
-def test_backtest_strategy_catalog_rejects_non_active_subscription(monkeypatch, subscription):
+def test_backtest_strategy_catalog_is_free_for_approved_customers(monkeypatch, subscription):
     client = _client(monkeypatch, subscription)
     response = client.get("/api/v1/backtest/strategies")
-    assert response.status_code == 403
-    assert "active AIR subscription" in response.json()["detail"]
+    assert response.status_code == 200
+    assert "EXPIRY78" in response.json()["daily_candle_eligible"]
 
 
 @pytest.mark.parametrize("subscription", [
@@ -38,14 +38,14 @@ def test_backtest_strategy_catalog_rejects_non_active_subscription(monkeypatch, 
     {"status": "EXPIRED", "plan_code": "MONTHLY"},
     {"status": "CANCELLED", "plan_code": "MONTHLY"},
 ])
-def test_expiryscan_report_rejects_non_active_subscription(monkeypatch, subscription):
+def test_expiryscan_historical_report_is_free_for_approved_customers(monkeypatch, subscription):
     client = _client(monkeypatch, subscription)
     response = client.get(
         "/api/v1/backtest/expiryscan",
         params={"start_date": "2026-11-01", "end_date": "2026-11-02"},
     )
-    assert response.status_code == 403
-    assert "active AIR subscription" in response.json()["detail"]
+    assert response.status_code == 200
+    assert response.json()["data_status"] == "NO_PRESERVED_COHORT_IN_PERIOD"
 
 
 def test_active_subscription_can_read_strategy_catalog(monkeypatch):
