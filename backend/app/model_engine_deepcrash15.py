@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-ENGINE_VERSION = "DEEPCRASH15_DAILY_OHLC_V1"
+ENGINE_VERSION = "DEEPCRASH15_DAILY_OHLC_V2"
 MIN_PEAK = 3000.0
 MAX_PEAK = 3500.0
 MAX_LATEST_CLOSE = 50.0
@@ -22,7 +22,10 @@ RULES = {
     "expiry_shelf_life": "At least 15 remaining NSE FO trading sessions, sourced from the exchange trading calendar; missing session count is not inferred",
     "latest_candle": "Most recent completed valid daily candle must close above its open",
     "scope": "CE and PE contracts evaluated independently; historical bars must belong to the same exact contract",
-    "execution": "Research watchlist only; no automatic entry, position, alert or broker order is created",
+    "consolidation": "The six completed sessions immediately before the bullish setup candle must have a combined HIGH-to-LOW range no wider than 10 premium points",
+    "entry": "After the six-session consolidation and a bullish setup candle (CLOSE > OPEN), enter at the next completed session CLOSE only when that CLOSE is greater than the setup candle CLOSE",
+    "holding": "After entry, hold the option position through expiry; use the verified option CLOSE on the expiry date as the recorded exit value. Do not synthesize a missing expiry valuation",
+    "execution": "Modelled entry/hold lifecycle only; no broker order is placed",
 }
 
 
@@ -135,10 +138,63 @@ def evaluate_deepcrash15_contract(
         }
 
     expiry = str(contract.get("expiry") or "")[:10]
+    # The setup candle is followed by a separate next-session close confirmation.
+    # Six complete sessions immediately before setup define the consolidation box.
+    entry = None
+    consolidation = {"status": "WAIT", "reason": "Need six consolidation sessions, a bullish setup candle and the following session"}
+    if len(bars) >= 8:
+        consolidation_bars = bars[-8:-2]
+        setup_bar = bars[-2]
+        trigger_bar = bars[-1]
+        range_high = max(float(item["high"]) for item in consolidation_bars)
+        range_low = min(float(item["low"]) for item in consolidation_bars)
+        range_width = round(range_high - range_low, 4)
+        bullish_setup = float(setup_bar["close"]) > float(setup_bar["open"])
+        next_close_confirmed = float(trigger_bar["close"]) > float(setup_bar["close"])
+        consolidation = {
+            "status": "QUALIFIED" if range_width <= 10.0 and bullish_setup else "REJECTED",
+            "lookback_sessions": 6,
+            "lookback_start": consolidation_bars[0]["date"],
+            "lookback_end": consolidation_bars[-1]["date"],
+            "range_high": round(range_high, 4),
+            "range_low": round(range_low, 4),
+            "range_width": range_width,
+            "max_range_points": 10.0,
+            "setup_date": setup_bar["date"],
+            "setup_open": float(setup_bar["open"]),
+            "setup_close": float(setup_bar["close"]),
+            "setup_bullish": bullish_setup,
+            "confirmation_date": trigger_bar["date"],
+            "confirmation_close": float(trigger_bar["close"]),
+            "next_close_above_setup_close": next_close_confirmed,
+        }
+        if range_width <= 10.0 and bullish_setup and next_close_confirmed:
+            entry = {
+                "entry_date": trigger_bar["date"],
+                "entry_price": float(trigger_bar["close"]),
+            }
+
+    expiry_bar = next((item for item in bars if expiry and item["date"] == expiry), None)
+    position_status = "WATCH"
+    exit_price = None
+    exit_date = None
+    if entry:
+        position_status = "OPEN"
+        if expiry_bar and expiry_bar["date"] >= entry["entry_date"]:
+            position_status = "EXPIRED"
+            exit_price = float(expiry_bar["close"])
+            exit_date = expiry_bar["date"]
     return {
         "status": "QUALIFIED",
         "classification": "WATCH",
-        "position_status": "WATCH_ONLY_NOT_OPEN",
+        "position_status": position_status,
+        "classification": position_status,
+        "consolidation": consolidation,
+        "entry_date": entry["entry_date"] if entry else None,
+        "entry_price": round(entry["entry_price"], 4) if entry else None,
+        "exit_date": exit_date,
+        "exit_price": round(exit_price, 4) if exit_price is not None else None,
+        "hold_rule": "HOLD_TO_EXPIRY",
         "strategy": "DEEPCRASH15",
         "strategy_version": ENGINE_VERSION,
         "signal_date": latest["date"],
@@ -156,7 +212,7 @@ def evaluate_deepcrash15_contract(
         "remaining_trading_sessions": remaining,
         "checks": checks,
         "rules": RULES,
-        "reason": "All four DEEPCRASH15 qualification rules passed; watchlist only, not an entry instruction",
+        "reason": ("Entry confirmed on next-session close; hold through verified expiry close" if entry else "Premium-crash qualification passed; waiting for six-session consolidation and next-close confirmation"),
     }
 
 
