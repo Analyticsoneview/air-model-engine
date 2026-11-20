@@ -33,7 +33,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   bool _authenticated = false, _loading = false;
   Timer? _autoRefreshTimer;
   String? _error, _updatedAt;
-  String _strategyStatus = 'OPEN';
+  String _strategyStatus = s == 'DEEPCRASH15' ? 'WATCH' : 'OPEN';
   String _dataStatus = 'SIGN IN TO LOAD YOUR MODEL ENGINE LEDGER';
   Map<String, dynamic> _marketDataSource = {};
   Map<String, dynamic> _pnlCalendar = {};
@@ -1199,7 +1199,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     final strategySelected = _strategyTabs.contains(selectedSection);
     final strategyData = _strategies[_strategyKey(selectedSection)] as Map<String, dynamic>?;
     final strategyGroups = strategyData?['groups'] as Map<String, dynamic>?;
-    final strategyRows = strategyGroups == null ? null : strategyGroups[selectedSection == 'DEEPCRASH15' ? 'WATCH' : _strategyStatus];
+    final strategyRows = strategyGroups == null ? null : strategyGroups[_strategyStatus];
     final selectedRows = strategySelected ? strategyRows : _groups[selectedSection];
     final rows = (selectedRows as List<dynamic>? ?? const [])
         .whereType<Map<String, dynamic>>().toList();
@@ -1312,7 +1312,9 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
             )),
             Wrap(spacing: 7, runSpacing: 7, children: (selectedSection == 'RECOVERED'
               ? ['OPEN', 'TARGETS', 'SLHIT', 'EXPIRED', 'WAIT']
-              : ['OPEN', 'NEW', 'HOLD', 'WAIT', 'UNRESOLVED', 'SLHIT', 'REENTRY']).map((status) => ChoiceChip(
+               : selectedSection == 'DEEPCRASH15'
+                ? ['WATCH', 'OPEN', 'EXPIRED']
+                : ['OPEN', 'NEW', 'HOLD', 'WAIT', 'UNRESOLVED', 'SLHIT', 'REENTRY']).map((status) => ChoiceChip(
               label: Text('$status  ${((strategyData?['counts'] as Map?)?[status] ?? 0)}', style: const TextStyle(fontSize: 10)),
               selected: _strategyStatus == status,
               onSelected: (_) => setState(() => _strategyStatus = status),
