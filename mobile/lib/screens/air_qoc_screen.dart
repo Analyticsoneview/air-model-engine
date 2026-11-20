@@ -11,8 +11,6 @@ class AirQocScreen extends StatefulWidget {
 
 class _AirQocScreenState extends State<AirQocScreen> {
   final AirApiClient _api = AirApiClient();
-  final _email = TextEditingController();
-  final _password = TextEditingController();
   final _scrip = TextEditingController(text: '13');
   final _segment = TextEditingController(text: 'IDX_I');
   List<Map<String, dynamic>> _accounts = [];
@@ -35,9 +33,18 @@ class _AirQocScreenState extends State<AirQocScreen> {
   bool _loading = false;
 
   @override
+  void initState() {
+    super.initState();
+    _authenticated = _api.isAuthenticated;
+    if (_authenticated) {
+      _loadCustomerAccounts();
+    } else {
+      _status = 'Sign in to AIR using your approved mobile-number session. No second AIR login is required here.';
+    }
+  }
+
+  @override
   void dispose() {
-    _email.dispose();
-    _password.dispose();
     _scrip.dispose();
     _segment.dispose();
     _api.dispose();
@@ -55,8 +62,10 @@ class _AirQocScreenState extends State<AirQocScreen> {
     }
   }
 
-  Future<void> _login() => _run(() async {
-    await _api.login(_email.text, _password.text);
+  Future<void> _loadCustomerAccounts() => _run(() async {
+    if (!_api.isAuthenticated) {
+      throw const AirApiException('Your AIR session is not active. Sign in from the main AIR application first.');
+    }
     final accounts = await _api.accounts();
     final dhan = accounts.where((a) => a['broker'] == 'dhan').toList();
     if (!mounted) return;
@@ -65,10 +74,9 @@ class _AirQocScreenState extends State<AirQocScreen> {
       _authenticated = true;
       _accountId = dhan.isNotEmpty ? dhan.first['account_id'] as String : null;
       _status = dhan.isEmpty
-          ? 'No Dhan account registered. Add one under AIR Connections.'
-          : 'Signed in. Discovering the complete F&O universe…';
+          ? 'AIR session verified. Dhan is optional: connect or ask an administrator to assign a Dhan account under More → Broker Connections. Historical NSE replay does not need Dhan.'
+          : 'AIR session verified. Dhan option-chain retrieval requires a plan with Options Analytics.';
     });
-    if (dhan.isNotEmpty) await _loadUniverse();
   });
 
   int? get _underlyingScrip =>
@@ -257,19 +265,21 @@ class _AirQocScreenState extends State<AirQocScreen> {
                 const Text('READ-ONLY DATA CONNECTION',
                     style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
                 const SizedBox(height: 5),
-                Text('Connect to AIR, choose a Dhan account, then retrieve an expiry and option chain. This screen does not place orders.',
+                Text('Uses your existing approved AIR mobile-number session. Dhan is an optional read-only data provider for premium Options Analytics; it is not required for free NSE historical replay. This screen never places orders.',
                     style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant)),
                 if (!_authenticated) ...[
                   const SizedBox(height: 12),
-                  TextField(controller: _email, keyboardType: TextInputType.emailAddress,
-                      decoration: const InputDecoration(labelText: 'AIR email', border: OutlineInputBorder())),
-                  const SizedBox(height: 9),
-                  TextField(controller: _password, obscureText: true,
-                      decoration: const InputDecoration(labelText: 'AIR password', border: OutlineInputBorder())),
-                  const SizedBox(height: 10),
-                  FilledButton(onPressed: _loading ? null : _login,
-                      child: const Text('SIGN IN TO AIR')),
+                  const Text('No active AIR session detected. Return to the main AIR application and sign in with your approved mobile number. Do not enter your AIR credentials again here.',
+                      style: TextStyle(fontSize: 11)),
                 ] else ...[
+                  const SizedBox(height: 8),
+                  const Chip(avatar: Icon(Icons.verified_user_outlined, size: 16), label: Text('Existing AIR session connected')),
+                  if (_accounts.isEmpty && !_loading)
+                    OutlinedButton.icon(
+                      onPressed: _loading ? null : _loadCustomerAccounts,
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('REFRESH ASSIGNED DHAN ACCOUNTS'),
+                    ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
                     initialValue: _accountId,
