@@ -193,7 +193,9 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     } catch (e) {
       _error = e.toString();
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() => _busy = false);
+      }
     }
   }
 
@@ -466,7 +468,9 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
       final report = await _request('POST', '/api/v1/admin/monthly-pd/scan');
       if (mounted) setState(() => _monthlyPdReport = report);
     } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
+      if (mounted) {
+        setState(() => _error = error.toString());
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -632,9 +636,11 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     try {
       await _request('POST', '/api/v1/admin/customers/${Uri.encodeComponent(customerId)}/pin-reset',
           body: {'totp_code': code});
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('PIN reset. All customer sessions revoked; new PIN setup required.')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('PIN reset. All customer sessions revoked; new PIN setup required.')),
+        );
+      }
     } catch (error) {
       if (mounted) setState(() => _error = error.toString());
     } finally {
