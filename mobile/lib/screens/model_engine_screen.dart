@@ -1280,7 +1280,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
                 onSelected: (_) {
                   setState(() {
                     _selected = _sections.indexOf(s);
-                    _strategyStatus = 'OPEN';
+                    _strategyStatus = s == 'DEEPCRASH15' ? 'WATCH' : 'OPEN';
                   });
                   if (s == 'HISTORICAL REPLAY') _loadHistoricalReplay();
                 },
