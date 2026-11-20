@@ -166,5 +166,62 @@ class AccessStoreTests(unittest.TestCase):
             store.close()
 
 
+    def test_customer_pin_allows_returning_device_without_second_admin_approval(self):
+        from app.security import hash_pin
+        with tempfile.TemporaryDirectory() as temp:
+            store = AccessStore(str(Path(temp) / "auth.sqlite3"))
+            first = store.request_access("+919876543210", "device-initial-0001")
+            self.assertEqual(first["status"], "PENDING")
+            self.assertTrue(store.review(first["request_id"], "APPROVED",
+                reviewer_admin_id="admin-1", reviewer_role="SUPER_ADMIN", totp_counter=101))
+            store.set_customer_pin("+919876543210", "device-initial-0001", hash_pin("123456"))
+            self.assertTrue(store.verify_customer_pin("+919876543210", "123456"))
+            second = store.register_approved_device("+919876543210", "device-returning-0002")
+            self.assertEqual(second["status"], "APPROVED")
+            self.assertIn("Automatically registered", second["reviewer_note"])
+            self.assertEqual(len(store.list_marketing_customers(search="+919876543210")), 1)
+            self.assertEqual(store.list_marketing_customers(search="+919876543210")[0]["device_count"], 2)
+            store.close()
+
+    def test_pending_duplicate_device_is_auto_approved_after_valid_pin(self):
+        from app.security import hash_pin
+        with tempfile.TemporaryDirectory() as temp:
+            store = AccessStore(str(Path(temp) / "auth.sqlite3"))
+            first = store.request_access("+919876543211", "device-first-0001")
+            second = store.request_access("+919876543211", "device-second-0002")
+            store.review(first["request_id"], "APPROVED", reviewer_admin_id="admin-1",
+                         reviewer_role="SUPER_ADMIN", totp_counter=102)
+            store.set_customer_pin("+919876543211", "device-first-0001", hash_pin("654321"))
+            self.assertTrue(store.verify_customer_pin("+919876543211", "654321"))
+            returning = store.register_approved_device("+919876543211", "device-second-0002")
+            self.assertEqual(returning["request_id"], second["request_id"])
+            self.assertEqual(returning["status"], "APPROVED")
+            self.assertIn("Authenticated with", returning["reviewer_note"])
+            store.close()
+
+    def test_customer_pin_lockout_and_admin_reset_revoke_sessions(self):
+        from app.security import hash_pin
+        with tempfile.TemporaryDirectory() as temp:
+            store = AccessStore(str(Path(temp) / "auth.sqlite3"))
+            request = store.request_access("+919876543212", "device-reset-0001")
+            store.review(request["request_id"], "APPROVED", reviewer_admin_id="admin-1",
+                         reviewer_role="SUPER_ADMIN", totp_counter=103)
+            store.set_customer_pin("+919876543212", "device-reset-0001", hash_pin("111222"))
+            session = store.create_session(request["request_id"])
+            for _ in range(5):
+                self.assertFalse(store.verify_customer_pin("+919876543212", "999999"))
+            with self.assertRaises(PermissionError):
+                store.verify_customer_pin("+919876543212", "111222")
+            store.reset_customer_pin("+919876543212", "admin-1")
+            self.assertFalse(store.is_session_active(session))
+            self.assertTrue(store.customer_pin_state("+919876543212")["must_reset"])
+            store.set_customer_pin("+919876543212", "device-new-reset-0002", hash_pin("333444"))
+            new_device = store.register_approved_device("+919876543212", "device-new-reset-0002")
+            self.assertEqual(new_device["status"], "APPROVED")
+            self.assertTrue(store.verify_customer_pin("+919876543212", "333444"))
+            store.close()
+
+
+
 if __name__ == "__main__":
     unittest.main()
