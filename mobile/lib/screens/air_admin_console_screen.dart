@@ -1041,8 +1041,12 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
           if (_role != 'RESEARCH_ADMIN' && (r['status'] == 'PENDING' || r['status'] == 'APPROVED')) ...[
             const SizedBox(height: 12),
             Wrap(spacing: 8, runSpacing: 6, children: [
-              if (r['status'] == 'PENDING') FilledButton.tonalIcon(onPressed: _busy ? null : () => _review(r, 'APPROVED'), icon: const Icon(Icons.check_circle_outline), label: const Text('APPROVE')),
-              OutlinedButton.icon(onPressed: _busy ? null : () => _review(r, 'REJECTED'), icon: const Icon(Icons.cancel_outlined), label: const Text('REJECT')),
+              if (r['status'] == 'PENDING' && r['requires_admin_approval'] != false && r['requires_admin_approval'] != 0)
+                FilledButton.tonalIcon(onPressed: _busy ? null : () => _review(r, 'APPROVED'), icon: const Icon(Icons.check_circle_outline), label: const Text('APPROVE FIRST-TIME CUSTOMER')),
+              if (r['status'] == 'PENDING' && (r['requires_admin_approval'] == false || r['requires_admin_approval'] == 0))
+                const Chip(avatar: Icon(Icons.pin_outlined, size: 16), label: Text('RETURNING DEVICE · PIN LOGIN REQUIRED · NO REAPPROVAL')),
+              if (r['status'] == 'PENDING' && r['requires_admin_approval'] != false && r['requires_admin_approval'] != 0)
+                OutlinedButton.icon(onPressed: _busy ? null : () => _review(r, 'REJECTED'), icon: const Icon(Icons.cancel_outlined), label: const Text('REJECT')),
               OutlinedButton.icon(style: OutlinedButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
                 onPressed: _busy ? null : () => _review(r, 'BLOCKED'), icon: const Icon(Icons.block), label: const Text('BLOCK DEVICE')),
             ]),
