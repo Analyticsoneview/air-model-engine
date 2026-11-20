@@ -410,14 +410,21 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
     # DEEPCRASH15 is an independent daily-bar watchlist, not an inferred lifecycle
     # membership or a new position. It is deliberately isolated from existing tabs.
     deepcrash_rows = evaluate_deepcrash15_rows(rows)
+    deepcrash_groups = {
+        "WATCH": [item for item in deepcrash_rows if item.get("position_status") == "WATCH"],
+        "OPEN": [item for item in deepcrash_rows if item.get("position_status") == "OPEN"],
+        "EXPIRED": [item for item in deepcrash_rows if item.get("position_status") == "EXPIRED"],
+    }
     result["DEEPCRASH15"] = {
         "rules": STRATEGY_RULES["DEEPCRASH15"],
         "count": len(deepcrash_rows),
-        "counts": {"WATCH": len(deepcrash_rows), "OPEN": 0, "NEW": 0, "HOLD": 0},
-        "groups": {"WATCH": deepcrash_rows, "OPEN": [], "NEW": [], "HOLD": []},
+        "counts": {key: len(value) for key, value in deepcrash_groups.items()},
+        "groups": deepcrash_groups,
         "audit": {
             "membership_source": "Independent scan of verified contract-specific daily_option_bars; no existing strategy membership is changed",
-            "execution_status": "WATCH_ONLY_NO_ENTRY_OR_ORDER",
+            "execution_status": "MODELLED_ENTRY_HOLD_TO_EXPIRY_NO_BROKER_ORDER",
+            "entry_rule": "Six prior sessions HIGH-to-LOW range <= 10 points; setup candle CLOSE > OPEN; next session CLOSE > setup CLOSE; entry at next-session CLOSE",
+            "exit_rule": "Hold entered contracts until verified expiry-date option CLOSE; missing expiry valuation remains OPEN/UNVALUED",
         },
     }
     return result
