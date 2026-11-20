@@ -249,7 +249,7 @@ class _AirAccessGateState extends State<AirAccessGate> {
                           const SizedBox(height: 8),
                           const Text('Your AIR access', style: TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.w800)),
                           const SizedBox(height: 8),
-                          const Text('Use your international mobile number to request or restore access on this device.', style: TextStyle(color: Color(0xFFB6C2D2), fontSize: 12, height: 1.4)),
+                          const Text('Enter your international mobile number and select CONTINUE. AIR will check your approval and show the right next step.', style: TextStyle(color: Color(0xFFB6C2D2), fontSize: 12, height: 1.4)),
                           const SizedBox(height: 18),
                           TextField(
                             controller: _mobile,
