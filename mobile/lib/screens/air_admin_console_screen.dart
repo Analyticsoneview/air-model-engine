@@ -602,21 +602,34 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
   );
 
   Future<void> _resetCustomerPin(String customerId) async {
-    final confirmed = await showDialog<bool>(
+    final codeController = TextEditingController();
+    final code = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Reset customer AIR PIN?'),
-        content: Text('This revokes all active sessions for $customerId. The customer must create a new six-digit PIN at next login. No OTP will be sent.'),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('This revokes all active sessions for $customerId. The customer must create a new six-digit PIN at next login. No customer OTP will be sent.'),
+          const SizedBox(height: 12),
+          TextField(
+            controller: codeController,
+            keyboardType: TextInputType.number,
+            maxLength: 6,
+            obscureText: true,
+            decoration: const InputDecoration(labelText: 'Your current administrator authenticator code', counterText: ''),
+          ),
+        ]),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('CANCEL')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('RESET PIN')),
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('CANCEL')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, codeController.text.trim()), child: const Text('RESET PIN')),
         ],
       ),
     );
-    if (confirmed != true) return;
+    codeController.dispose();
+    if (code == null || code.length != 6) return;
     setState(() { _busy = true; _error = null; });
     try {
-      await _request('POST', '/api/v1/admin/customers/${Uri.encodeComponent(customerId)}/pin-reset');
+      await _request('POST', '/api/v1/admin/customers/${Uri.encodeComponent(customerId)}/pin-reset',
+          body: {'totp_code': code});
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('PIN reset. All customer sessions revoked; new PIN setup required.')),
       );
