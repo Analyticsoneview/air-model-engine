@@ -136,7 +136,7 @@ class _AirAccessGateState extends State<AirAccessGate> {
         return;
       }
       await _storage.write(key: _deviceAuthKey, value: 'true');
-      if (mounted) setState(() {
+      setState(() {
         _deviceAuthEnabled = true;
         _message = 'Device unlock is enabled on this device. Your AIR PIN remains your fallback.';
       });
