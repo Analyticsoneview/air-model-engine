@@ -241,12 +241,14 @@ class _AirAccessGateState extends State<AirAccessGate> {
                           const SizedBox(height: 8),
                           const Text('Your AIR access', style: TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.w800)),
                           const SizedBox(height: 8),
-                          const Text('Use your international mobile number to request or restore access on this device.', style: TextStyle(color: Color(0xFFB6C2D2), fontSize: 12, height: 1.4)),
+                          const Text('Enter your mobile number and select CONTINUE. AIR will identify whether your access is pending or approved.', style: TextStyle(color: Color(0xFFB6C2D2), fontSize: 12, height: 1.4)),
                           const SizedBox(height: 18),
                           TextField(
                             controller: _mobile,
                             enabled: !_busy && !denied,
                             keyboardType: TextInputType.phone,
+                            textInputAction: TextInputAction.go,
+                            onSubmitted: (_) => _requestOrCheck(),
                             style: const TextStyle(color: Colors.white, fontSize: 16),
                             decoration: InputDecoration(
                               labelText: 'International mobile number',
@@ -264,6 +266,8 @@ class _AirAccessGateState extends State<AirAccessGate> {
                             TextField(
                               controller: _pin, enabled: !_busy, obscureText: true,
                               keyboardType: TextInputType.number, maxLength: 6,
+                              textInputAction: TextInputAction.go,
+                              onSubmitted: (_) => _requestOrCheck(),
                               decoration: const InputDecoration(labelText: 'Six-digit AIR PIN', counterText: ''),
                             ),
                           ],
@@ -271,33 +275,34 @@ class _AirAccessGateState extends State<AirAccessGate> {
                             TextField(
                               controller: _pin, enabled: !_busy, obscureText: true,
                               keyboardType: TextInputType.number, maxLength: 6,
+                              textInputAction: TextInputAction.next,
                               decoration: const InputDecoration(labelText: 'Create six-digit AIR PIN', counterText: ''),
                             ),
                             const SizedBox(height: 10),
                             TextField(
                               controller: _pinConfirm, enabled: !_busy, obscureText: true,
                               keyboardType: TextInputType.number, maxLength: 6,
+                              textInputAction: TextInputAction.go,
+                              onSubmitted: (_) => _setupPin(),
                               decoration: const InputDecoration(labelText: 'Confirm AIR PIN', counterText: ''),
                             ),
-                            FilledButton(
-                              onPressed: _busy ? null : _setupPin,
-                              style: FilledButton.styleFrom(backgroundColor: const Color(0xFFE5B85C), foregroundColor: const Color(0xFF111827), padding: const EdgeInsets.symmetric(vertical: 16)),
-                              child: const Text('SET AIR PIN'),
-                            ),
                           ],
-                          if (!pending && !approvedStatus && _status != 'PIN_SETUP_REQUIRED' && _status != 'PIN_NOT_CONFIGURED')
-                            FilledButton(
-                              onPressed: _busy || denied ? null : () => _requestOrCheck(),
-                              style: FilledButton.styleFrom(backgroundColor: const Color(0xFFE5B85C), foregroundColor: const Color(0xFF111827), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
-                              child: _busy ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2)) : Text(_status == 'PIN_REQUIRED' ? 'SIGN IN WITH PIN' : 'CHECK STATUS / CONTINUE', style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: .7)),
+                          FilledButton(
+                            onPressed: _busy || denied
+                                ? null
+                                : () => (_status == 'PIN_SETUP_REQUIRED' || _status == 'PIN_NOT_CONFIGURED')
+                                    ? _setupPin()
+                                    : _requestOrCheck(),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFFE5B85C),
+                              foregroundColor: const Color(0xFF111827),
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                             ),
-                          if (pending || approvedStatus)
-                            OutlinedButton.icon(
-                              onPressed: _busy ? null : () => _requestOrCheck(),
-                              icon: const Icon(Icons.refresh_rounded),
-                              label: const Text('CHECK ACCESS STATUS'),
-                              style: OutlinedButton.styleFrom(foregroundColor: const Color(0xFFE5B85C), padding: const EdgeInsets.symmetric(vertical: 15), side: const BorderSide(color: Color(0x66E5B85C))),
-                            ),
+                            child: _busy
+                                ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                                : const Text('CONTINUE', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: .7)),
+                          ),
                           if (pending || approvedStatus || denied || _status == 'PIN_REQUIRED' || _status == 'PIN_SETUP_REQUIRED' || _status == 'PIN_NOT_CONFIGURED' || _status == 'ERROR' || _status == 'INVALID')
                             Container(
                               margin: const EdgeInsets.only(top: 16),
