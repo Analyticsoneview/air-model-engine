@@ -372,8 +372,10 @@ class AccessStore:
             self.db.execute("""INSERT INTO air_customer_pin_credentials(customer_id,pin_hash,failed_attempts,locked_until,must_reset)
                 VALUES(?,?,0,0,0) ON CONFLICT(customer_id) DO UPDATE SET pin_hash=excluded.pin_hash,
                 failed_attempts=0,locked_until=0,must_reset=0,updated_at=CURRENT_TIMESTAMP""", (mobile,pin_hash))
+            self.db.execute("""UPDATE air_device_sessions SET active=0 WHERE request_id IN
+                (SELECT request_id FROM air_access_requests WHERE mobile_e164=?)""", (mobile,))
             self.db.execute("INSERT INTO air_customer_pin_audit(event_id,customer_id,action,details) VALUES(?,?,?,?)",
-                            (str(uuid4()),mobile,"PIN_SET","Customer completed initial PIN setup"))
+                            (str(uuid4()),mobile,"PIN_SET","Customer completed PIN setup; previous sessions revoked"))
 
     def verify_customer_pin(self, mobile_e164: str, pin: str) -> bool:
         import time
