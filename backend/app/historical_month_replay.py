@@ -60,9 +60,11 @@ def _reconcile_october_2026_trailing_reference(trades: list[dict[str, Any]]) -> 
     matched = 0
     exit_matches = 0
     pnl_matches = 0
+    lot_size_matches = 0
     missing_entries: list[str] = []
     exit_mismatches: list[str] = []
     pnl_mismatches: list[str] = []
+    lot_size_mismatches: list[str] = []
 
     def key(item: dict[str, Any], *, baseline: bool = False) -> tuple[Any, ...]:
         symbol = item.get("underlying") if baseline else item.get("symbol")
@@ -104,9 +106,20 @@ def _reconcile_october_2026_trailing_reference(trades: list[dict[str, Any]]) -> 
             exit_mismatches.append(contract)
 
         try:
-            reference_gross = float(expected["gross_pnl"])
             reference_quantity = float(expected["lot_size"])
-            calculated_gross = (float(actual["exit_price"]) - float(actual["entry_price"])) * reference_quantity
+            actual_quantity = float(actual["lot_size"])
+            quantity_ok = abs(actual_quantity - reference_quantity) <= 1e-9
+        except (TypeError, ValueError, KeyError):
+            quantity_ok = False
+        if quantity_ok:
+            lot_size_matches += 1
+        else:
+            lot_size_mismatches.append(contract)
+
+        try:
+            reference_gross = float(expected["gross_pnl"])
+            actual_quantity = float(actual["lot_size"])
+            calculated_gross = (float(actual["exit_price"]) - float(actual["entry_price"])) * actual_quantity
             pnl_ok = abs(calculated_gross - reference_gross) <= 0.05
         except (TypeError, ValueError, KeyError):
             pnl_ok = False
@@ -117,7 +130,9 @@ def _reconcile_october_2026_trailing_reference(trades: list[dict[str, Any]]) -> 
 
     status = "MATCHED" if (
         matched == len(reference) and not unmatched
-        and exit_matches == len(reference) and pnl_matches == len(reference)
+        and exit_matches == len(reference)
+        and lot_size_matches == len(reference)
+        and pnl_matches == len(reference)
     ) else "PARTIAL" if matched else "NO_MATCH"
     return {
         "status": status,
@@ -128,6 +143,8 @@ def _reconcile_october_2026_trailing_reference(trades: list[dict[str, Any]]) -> 
         "matched_entry_count": matched,
         "exit_match_count": exit_matches,
         "gross_pnl_match_count": pnl_matches,
+        "lot_size_match_count": lot_size_matches,
+        "lot_size_mismatches": lot_size_mismatches[:25],
         "missing_reference_entries": missing_entries[:25],
         "extra_replay_entries": [
             str(item.get("symbol")) + " " + str(item.get("option_type")) + " " + str(item.get("strike"))
