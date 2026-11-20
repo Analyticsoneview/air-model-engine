@@ -583,13 +583,13 @@ class CustomerLogin(BaseModel):
 class MobileAccessRequest(BaseModel):
     mobile_e164: str = Field(min_length=9, max_length=16)
     device_id: str = Field(min_length=8, max_length=128)
-    pin: str | None = Field(default=None, pattern=r"^\\d{6}$")
+    pin: str | None = Field(default=None, pattern=r"^\d{6}$")
 
 
 class MobilePinSetupRequest(BaseModel):
     mobile_e164: str = Field(min_length=9, max_length=16)
     device_id: str = Field(min_length=8, max_length=128)
-    pin: str = Field(pattern=r"^\\d{6}$")
+    pin: str = Field(pattern=r"^\d{6}$")
 
 
 class SubscriptionAssignment(BaseModel):
@@ -963,7 +963,9 @@ async def setup_mobile_pin(body: MobilePinSetupRequest) -> dict:
         pin_hash = hash_pin(body.pin)
         access_store.set_customer_pin(mobile, body.device_id, pin_hash)
         request = access_store.get_request(mobile, body.device_id)
-        if not request or request["status"] != "APPROVED":
+        if not request:
+            request = access_store.register_approved_device(mobile, body.device_id)
+        if request["status"] != "APPROVED":
             raise PermissionError("An approved AIR device is required to complete PIN setup.")
         session_id = access_store.create_session(request["request_id"])
         token = create_access_token(mobile, expires_minutes=720, session_id=session_id)
