@@ -799,10 +799,6 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
                 label: const Text('RESET CUSTOMER PIN'),
               ),
             ])),
-            Align(alignment: Alignment.centerLeft, child: Padding(
-              padding: const EdgeInsets.only(top: 10),
-              child: const SizedBox.shrink(),
-            )),
           ],
         )),
     ]);
