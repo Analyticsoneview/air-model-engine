@@ -182,7 +182,7 @@ def test_original366_post_stop_close_is_added_to_recovered_open_lifecycle():
         "symbol": "TESTCO",
         "instrument_type": "STOCK",
         "option_type": "CE",
-        "expiry": "2026-11-20",
+        "expiry": (date.today() + timedelta(days=30)).isoformat(),
         "strike": 100,
         "entry_price": 8.0,
         "remaining_trading_sessions": 13,
