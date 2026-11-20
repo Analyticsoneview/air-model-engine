@@ -1,6 +1,8 @@
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:local_auth/local_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../services/air_api_client.dart';
@@ -16,6 +18,8 @@ class AirAccessGate extends StatefulWidget {
 
 class _AirAccessGateState extends State<AirAccessGate> {
   static const _storage = FlutterSecureStorage();
+  static final LocalAuthentication _localAuth = LocalAuthentication();
+  static const _deviceAuthKey = 'air_device_auth_enabled';
   late AirApiClient _api;
   final _mobile = TextEditingController();
   final _pin = TextEditingController();
@@ -26,6 +30,7 @@ class _AirAccessGateState extends State<AirAccessGate> {
   bool _busy = true;
   bool _approved = false;
   bool _showGuestPreview = false;
+  bool _deviceAuthEnabled = false;
 
   @override
   void initState() {
@@ -54,21 +59,90 @@ class _AirAccessGateState extends State<AirAccessGate> {
           _message = savedStatus['message']?.toString() ?? _message;
         }
       }
+      _deviceAuthEnabled = !kIsWeb && await _storage.read(key: _deviceAuthKey) == 'true';
       if (token != null && token.isNotEmpty) {
-        AirApiClient.setAccessToken(token);
-        try {
-          await _api.me();
-          _approved = true;
-        } on AirApiException {
+        if (kIsWeb || !_deviceAuthEnabled) {
+          // Web always uses the AIR PIN. Native apps require explicit device
+          // authentication enrolment before a stored session can be restored.
           AirApiClient.setAccessToken(null);
           await _storage.delete(key: 'air_access_token');
-          _message = 'Your saved access is no longer active. Check your approval status.';
+          _status = 'PIN_REQUIRED';
+          _message = 'Enter your six-digit AIR PIN to securely continue.';
+        } else {
+          AirApiClient.setAccessToken(token);
+          try {
+            final unlocked = await _authenticateOnDevice();
+            if (!unlocked) {
+              AirApiClient.setAccessToken(null);
+              _status = 'PIN_REQUIRED';
+              _message = 'Device authentication was not completed. Enter your six-digit AIR PIN to continue.';
+            } else {
+              await _api.me();
+              _approved = true;
+            }
+          } on AirApiException {
+            AirApiClient.setAccessToken(null);
+            await _storage.delete(key: 'air_access_token');
+            await _storage.delete(key: _deviceAuthKey);
+            _deviceAuthEnabled = false;
+            _status = 'PIN_REQUIRED';
+            _message = 'Your saved AIR session is no longer active. Sign in with your six-digit PIN.';
+          } catch (_) {
+            AirApiClient.setAccessToken(null);
+            _status = 'PIN_REQUIRED';
+            _message = 'Device authentication is unavailable. Enter your six-digit AIR PIN.';
+          }
         }
       }
     } catch (_) {
       _message = 'Unable to restore your AIR session. Please try again.';
     }
     if (mounted) setState(() => _busy = false);
+  }
+
+  Future<bool> _authenticateOnDevice() async {
+    if (kIsWeb) return false;
+    try {
+      if (!await _localAuth.isDeviceSupported()) return false;
+      return await _localAuth.authenticate(
+        localizedReason: 'Unlock your AIR account on this device',
+        biometricOnly: false,
+        persistAcrossBackgrounding: true,
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _offerDeviceAuthEnrollment() async {
+    if (!mounted || kIsWeb || _deviceAuthEnabled) return;
+    try {
+      if (!await _localAuth.isDeviceSupported() || !mounted) return;
+      final enable = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: const Text('Enable device unlock?'),
+          content: const Text('Use your fingerprint, Face ID or device screen lock for quicker access on this device. Your six-digit AIR PIN remains available as a fallback.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('NOT NOW')),
+            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('ENABLE')),
+          ],
+        ),
+      );
+      if (enable != true || !mounted) return;
+      final verified = await _authenticateOnDevice();
+      if (!verified || !mounted) {
+        return;
+      }
+      await _storage.write(key: _deviceAuthKey, value: 'true');
+      setState(() {
+        _deviceAuthEnabled = true;
+        _message = 'Device unlock is enabled on this device. Your AIR PIN remains your fallback.';
+      });
+    } catch (_) {
+      // Keep PIN login available if native device authentication is unavailable.
+    }
   }
 
   Future<void> _requestOrCheck() async {
@@ -103,7 +177,8 @@ class _AirAccessGateState extends State<AirAccessGate> {
       } else if (status == 'APPROVED' && result['access_token'] is String) {
         await _storage.write(key: 'air_access_token', value: result['access_token'] as String);
         await _storage.write(key: 'air_mobile_e164', value: mobile);
-        _approved = true;
+        await _offerDeviceAuthEnrollment();
+        if (mounted) setState(() => _approved = true);
       }
       if (status == 'PENDING') {
         _message = 'Your first-time AIR access request is awaiting administrator approval. After approval, set your six-digit AIR PIN.';
@@ -154,7 +229,9 @@ class _AirAccessGateState extends State<AirAccessGate> {
       if (result['status'] == 'APPROVED' && token is String) {
         await _storage.write(key: 'air_access_token', value: token);
         await _storage.write(key: 'air_mobile_e164', value: _mobile.text.trim());
-        if (mounted) setState(() { _approved = true; _status = 'APPROVED'; });
+        if (mounted) setState(() => _status = 'APPROVED');
+        await _offerDeviceAuthEnrollment();
+        if (mounted) setState(() => _approved = true);
       } else {
         setState(() { _status = result['status']?.toString() ?? 'ERROR'; _message = result['message']?.toString() ?? 'PIN setup could not be completed.'; });
       }
