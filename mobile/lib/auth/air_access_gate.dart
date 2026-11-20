@@ -118,7 +118,11 @@ class _AirAccessGateState extends State<AirAccessGate> {
       setState(() => _status = status);
     } on AirApiException catch (error) {
       setState(() {
-        _status = 'ERROR';
+        if (_pin.text.trim().isNotEmpty && error.message.toLowerCase().contains('incorrect air pin')) {
+          _status = 'PIN_REQUIRED';
+        } else {
+          _status = 'ERROR';
+        }
         _message = error.message;
       });
     } catch (_) {
@@ -330,7 +334,7 @@ class _AirAccessGateState extends State<AirAccessGate> {
                     }),
                     const Text('DASHBOARD ACCESS  •  SUBSCRIPTION-BASED STRATEGIES', textAlign: TextAlign.center, style: TextStyle(color: Color(0xFF7E8CA0), fontSize: 9, letterSpacing: 1, fontWeight: FontWeight.w700)),
                     const SizedBox(height: 8),
-                    const Text('Phone number identifies your customer profile. Verify ownership before enabling payments, broker credentials or trading permissions.', textAlign: TextAlign.center, style: TextStyle(color: Color(0xFF7E8CA0), fontSize: 10)),
+                    const Text('Initial access is approved by an AIR administrator. Subsequent logins use your six-digit PIN on any device; no customer OTP is sent.', textAlign: TextAlign.center, style: TextStyle(color: Color(0xFF7E8CA0), fontSize: 10)),
                   ],
                 ),
               ),
@@ -386,7 +390,7 @@ class _AirJourneyPanel extends StatelessWidget {
       SizedBox(height: 16),
       _AirJourneyStep(number: '02', title: 'AIR reviews your request', detail: 'Access remains pending until an AIR administrator approves it.'),
       SizedBox(height: 16),
-      _AirJourneyStep(number: '03', title: 'Explore your workspace', detail: 'Your dashboard opens after approval. Strategy features depend on your assigned subscription.'),
+      _AirJourneyStep(number: '03', title: 'Explore your workspace', detail: 'After the first approval, set your six-digit AIR PIN. Use the same PIN on every device; no repeat approval or OTP.'),
       SizedBox(height: 20),
       Divider(color: Color(0xFF344258)),
       SizedBox(height: 12),
