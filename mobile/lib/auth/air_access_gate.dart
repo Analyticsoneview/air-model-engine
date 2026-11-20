@@ -132,7 +132,9 @@ class _AirAccessGateState extends State<AirAccessGate> {
       );
       if (enable != true || !mounted) return;
       final verified = await _authenticateOnDevice();
-      if (!verified) return;
+      if (!verified || !mounted) {
+        return;
+      }
       await _storage.write(key: _deviceAuthKey, value: 'true');
       if (mounted) setState(() {
         _deviceAuthEnabled = true;
