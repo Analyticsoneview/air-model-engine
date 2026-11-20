@@ -20,7 +20,7 @@ RULES = {
     "historical_peak_premium": "Maximum verified daily option HIGH across retained history must be ₹3,000–₹3,500 inclusive",
     "latest_premium": "Most recent completed valid daily option CLOSE must be below ₹50",
     "expiry_shelf_life": "At least 15 remaining NSE FO trading sessions, sourced from the exchange trading calendar; missing session count is not inferred",
-    "latest_candle": "Most recent completed valid daily candle must close above its open",
+    "latest_candle": "The bullish setup candle immediately before next-session confirmation must close above its open; with insufficient setup history, use the latest completed candle",
     "scope": "CE and PE contracts evaluated independently; historical bars must belong to the same exact contract",
     "consolidation": "The six completed sessions immediately before the bullish setup candle must have a combined HIGH-to-LOW range no wider than 10 premium points",
     "entry": "After the six-session consolidation and a bullish setup candle (CLOSE > OPEN), enter at the next completed session CLOSE only when that CLOSE is greater than the setup candle CLOSE",
@@ -119,11 +119,16 @@ def evaluate_deepcrash15_contract(
     except (TypeError, ValueError):
         remaining = None
 
+    # When a full setup/confirmation sequence exists, bullishness belongs to
+    # the setup candle (the session immediately before confirmation), not the
+    # confirmation candle. A valid breakout confirmation may itself be red,
+    # provided its CLOSE remains above the bullish setup CLOSE.
+    bullish_reference = bars[-2] if len(bars) >= 8 and expiry_bar is None else latest
     checks = {
         "historical_peak_in_range": MIN_PEAK <= peak <= MAX_PEAK,
         "latest_close_below_50": latest_close < MAX_LATEST_CLOSE,
         "at_least_15_trading_sessions": remaining is not None and remaining >= MIN_REMAINING_SESSIONS,
-        "latest_candle_bullish": latest_close > float(latest["open"]),
+        "latest_candle_bullish": float(bullish_reference["close"]) > float(bullish_reference["open"]),
     }
     missing = []
     if remaining is None:
