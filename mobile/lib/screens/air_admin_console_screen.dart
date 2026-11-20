@@ -995,7 +995,7 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     return ListView(padding: const EdgeInsets.all(16), children: [
       const Text('CUSTOMER DEVICE ACCESS', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: .6)),
       const SizedBox(height: 5),
-      const Text('Review customer requests, inspect device identity and manage access. Blocking revokes active sessions for the selected device.'),
+      const Text('Approve first-time customers once. Returning devices are registered after the customer enters their existing AIR PIN. Blocking revokes only the selected device session.'),
       const SizedBox(height: 14),
       Wrap(spacing: 10, runSpacing: 10, crossAxisAlignment: WrapCrossAlignment.center, children: [
         SizedBox(width: 220, child: DropdownButtonFormField<String>(
