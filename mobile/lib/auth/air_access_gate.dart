@@ -31,7 +31,6 @@ class _AirAccessGateState extends State<AirAccessGate> {
   bool _approved = false;
   bool _showGuestPreview = false;
   bool _deviceAuthEnabled = false;
-  bool _deviceAuthBusy = false;
 
   @override
   void initState() {
@@ -118,7 +117,7 @@ class _AirAccessGateState extends State<AirAccessGate> {
   Future<void> _offerDeviceAuthEnrollment() async {
     if (!mounted || kIsWeb || _deviceAuthEnabled) return;
     try {
-      if (!await _localAuth.isDeviceSupported()) return;
+      if (!await _localAuth.isDeviceSupported() || !mounted) return;
       final enable = await showDialog<bool>(
         context: context,
         barrierDismissible: false,
@@ -176,8 +175,8 @@ class _AirAccessGateState extends State<AirAccessGate> {
       } else if (status == 'APPROVED' && result['access_token'] is String) {
         await _storage.write(key: 'air_access_token', value: result['access_token'] as String);
         await _storage.write(key: 'air_mobile_e164', value: mobile);
-        _approved = true;
         await _offerDeviceAuthEnrollment();
+        if (mounted) setState(() => _approved = true);
       }
       if (status == 'PENDING') {
         _message = 'Your first-time AIR access request is awaiting administrator approval. After approval, set your six-digit AIR PIN.';
@@ -228,8 +227,9 @@ class _AirAccessGateState extends State<AirAccessGate> {
       if (result['status'] == 'APPROVED' && token is String) {
         await _storage.write(key: 'air_access_token', value: token);
         await _storage.write(key: 'air_mobile_e164', value: _mobile.text.trim());
-        if (mounted) setState(() { _approved = true; _status = 'APPROVED'; });
+        if (mounted) setState(() => _status = 'APPROVED');
         await _offerDeviceAuthEnrollment();
+        if (mounted) setState(() => _approved = true);
       } else {
         setState(() { _status = result['status']?.toString() ?? 'ERROR'; _message = result['message']?.toString() ?? 'PIN setup could not be completed.'; });
       }
