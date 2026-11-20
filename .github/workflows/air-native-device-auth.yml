@@ -1,0 +1,78 @@
+name: AIR Native Device Authentication
+
+on:
+  pull_request:
+    paths:
+      - "mobile/**"
+      - ".github/workflows/air-native-device-auth.yml"
+  push:
+    branches: [main]
+    paths:
+      - "mobile/**"
+      - ".github/workflows/air-native-device-auth.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  android-and-ios:
+    runs-on: macos-15
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.9"
+          channel: stable
+          cache: true
+
+      - name: Generate native platform projects
+        run: flutter create . --platforms=android,ios,web --org com.analyticalstocks
+
+      - name: Configure Android fragment activity for local_auth
+        shell: bash
+        run: |
+          MAIN_ACTIVITY="android/app/src/main/kotlin/com/analyticalstocks/air_model_engine/MainActivity.kt"
+          if [ ! -f "$MAIN_ACTIVITY" ]; then
+            echo "Expected generated MainActivity not found: $MAIN_ACTIVITY"
+            find android/app/src/main -name 'MainActivity.*' -print
+            exit 1
+          fi
+          cat > "$MAIN_ACTIVITY" <<'EOF'
+          package com.analyticalstocks.air_model_engine
+
+          import io.flutter.embedding.android.FlutterFragmentActivity
+
+          class MainActivity : FlutterFragmentActivity()
+          EOF
+
+      - name: Configure Face ID usage description
+        run: |
+          /usr/libexec/PlistBuddy -c "Add :NSFaceIDUsageDescription string Use Face ID or your device passcode to securely unlock your AIR account." ios/Runner/Info.plist
+          if [ -f ios/Podfile ]; then
+            sed -i '' "s/platform :ios, '.*'/platform :ios, '13.0'/" ios/Podfile
+          fi
+
+      - name: Resolve packages
+        run: flutter pub get
+
+      - name: Analyze Flutter app
+        run: flutter analyze --no-pub
+
+      - name: Run Flutter tests
+        run: flutter test --no-pub
+
+      - name: Build Android ARM64 APK
+        run: flutter build apk --release --target-platform android-arm64
+
+      - name: Build iOS simulator app
+        run: flutter build ios --simulator --no-codesign
+
+      - name: Verify web remains PIN-only buildable
+        run: flutter build web --release
