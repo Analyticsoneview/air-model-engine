@@ -291,3 +291,66 @@ def test_strategy_views_sort_signal_date_desc_then_entry_price_ascending():
     assert [item["signal_id"] for item in ordered] == [
         "recovery-cheaper", "recovery-expensive",
     ]
+
+
+from app.model_engine_deepcrash15 import evaluate_deepcrash15_contract, evaluate_deepcrash15_rows
+
+
+def _deepcrash_contract():
+    return {
+        "signal_id": "deepcrash-test",
+        "symbol": "TESTCO",
+        "instrument_type": "STOCK",
+        "option_type": "CE",
+        "strike": 100,
+        "expiry": "2027-01-15",
+        "remaining_trading_sessions": 16,
+        "evidence": {
+            "daily_option_bars": [
+                {"date": "2026-10-01", "open": 3200, "high": 3400, "low": 3100, "close": 3300, "quantity": 100},
+                {"date": "2026-11-20", "open": 42, "high": 48, "low": 40, "close": 47, "quantity": 200},
+            ]
+        },
+    }
+
+
+def test_deepcrash15_qualifies_exact_contract_and_is_watch_only():
+    result = evaluate_deepcrash15_contract(_deepcrash_contract())
+    assert result["status"] == "QUALIFIED"
+    assert result["classification"] == "WATCH"
+    assert result["position_status"] == "WATCH_ONLY_NOT_OPEN"
+    assert result["historical_peak_premium"] == 3400
+    assert result["latest_close"] == 47
+    assert result["remaining_trading_sessions"] == 16
+    assert result["checks"] == {
+        "historical_peak_in_range": True,
+        "latest_close_below_50": True,
+        "at_least_15_trading_sessions": True,
+        "latest_candle_bullish": True,
+    }
+
+
+def test_deepcrash15_rejects_non_bullish_latest_candle_and_missing_shelf_evidence():
+    contract = _deepcrash_contract()
+    contract["evidence"]["daily_option_bars"][-1]["close"] = 41
+    result = evaluate_deepcrash15_contract(contract)
+    assert result["status"] == "REJECTED"
+    assert result["checks"]["latest_candle_bullish"] is False
+
+    contract = _deepcrash_contract()
+    contract.pop("remaining_trading_sessions")
+    result = evaluate_deepcrash15_contract(contract)
+    assert result["status"] == "WAIT"
+    assert "remaining_trading_sessions" in result["missing_evidence"][0]
+
+
+def test_deepcrash15_scans_contracts_independently_without_changing_memberships():
+    from app.model_engine_strategies import build_strategy_views
+
+    contract = _deepcrash_contract()
+    contract["evidence"]["strategy_memberships"] = ["EXPIRY78"]
+    views = build_strategy_views([contract])
+    assert views["DEEPCRASH15"]["counts"]["WATCH"] == 1
+    assert views["DEEPCRASH15"]["counts"]["OPEN"] == 0
+    assert views["DEEPCRASH15"]["groups"]["WATCH"][0]["option_type"] == "CE"
+    assert views["EXPIRY78"]["count"] == 1
