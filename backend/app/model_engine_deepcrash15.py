@@ -102,7 +102,11 @@ def evaluate_deepcrash15_contract(
         return {"status": "WAIT", "reason": "No verified daily option OHLC bars available"}
 
     peak_bar = max(bars, key=lambda item: float(item["high"]))
-    latest = bars[-1]
+    expiry = str(contract.get("expiry") or "")[:10]
+    expiry_bar = next((item for item in bars if expiry and item["date"] == expiry), None)
+    # Once the expiry bar exists, qualification and entry remain anchored to
+    # the last pre-expiry signal session, not the settlement candle.
+    latest = bars[-2] if expiry_bar is not None and bars[-1]["date"] == expiry_bar["date"] and len(bars) >= 2 else bars[-1]
     peak = float(peak_bar["high"])
     latest_close = float(latest["close"])
     remaining = contract.get("remaining_trading_sessions")
@@ -137,13 +141,11 @@ def evaluate_deepcrash15_contract(
             "rules": RULES,
         }
 
-    expiry = str(contract.get("expiry") or "")[:10]
     # If an expiry-day bar is present, evaluate the immediately preceding
     # completed session as the breakout confirmation; otherwise use the latest
     # available session. The setup candle is the session before confirmation.
     entry = None
     consolidation = {"status": "WAIT", "reason": "Need six consolidation sessions, a bullish setup candle and the following session"}
-    expiry_bar = next((item for item in bars if expiry and item["date"] == expiry), None)
     confirmation_index = len(bars) - 1
     if expiry_bar is not None:
         confirmation_index = bars.index(expiry_bar) - 1
