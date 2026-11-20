@@ -534,7 +534,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   String _classificationLabel(Map<String, dynamic> r) {
     switch ((r['classification'] ?? '').toString().toUpperCase()) {
       case 'NEW': return '🆕 NEW';
-      case 'HOLD': return '📌 HOLD';
+      case 'HOLD': return 'HOLD / CARRY-FORWARD';
       case 'RE-ENTRY': return '🔁 RE-ENTRY';
       case 'SL': return 'SL HIT';
       case 'SLHIT': return 'SL HIT';
