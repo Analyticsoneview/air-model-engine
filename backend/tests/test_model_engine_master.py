@@ -412,3 +412,7 @@ def test_deepcrash15_holds_until_verified_expiry_close():
     assert result["position_status"] == "EXPIRED"
     assert result["exit_date"] == "2026-11-30"
     assert result["exit_price"] == 50
+    # Expiry settlement must not replace the pre-expiry qualification/entry candle.
+    assert result["latest_close"] == 49
+    assert result["entry_date"] == "2026-11-19"
+    assert result["entry_price"] == 49
