@@ -356,10 +356,11 @@ class AccessStore:
     def set_customer_pin(self, mobile_e164: str, device_id: str, pin_hash: str) -> None:
         mobile = self.validate_mobile(mobile_e164)
         request = self.get_request(mobile, device_id)
-        if not request or request["status"] != "APPROVED":
-            raise PermissionError("The initially approved device is required to set the first AIR PIN")
         existing = self.db.execute("SELECT pin_hash,must_reset,suspended FROM air_customer_pin_credentials WHERE customer_id=?",
                                    (mobile,)).fetchone()
+        reset_authorized = bool(existing and existing["must_reset"])
+        if (not request or request["status"] != "APPROVED") and not reset_authorized:
+            raise PermissionError("The initially approved device is required to set the first AIR PIN")
         if existing and existing["suspended"]:
             raise PermissionError("AIR customer account is suspended")
         if existing and existing["pin_hash"] and not existing["must_reset"]:
