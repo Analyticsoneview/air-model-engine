@@ -967,6 +967,17 @@ async def setup_mobile_pin(body: MobilePinSetupRequest) -> dict:
     try:
         mobile = access_store.validate_mobile(body.mobile_e164)
         pin_hash = hash_pin(body.pin)
+        # The initial admin approval belongs to the customer identity. If the
+        # customer returns after browser storage/device ID changed, register
+        # this device against that already-approved identity before first PIN
+        # setup (or an administrator-authorized PIN reset). Never do this for
+        # an unapproved customer or overwrite an already-configured PIN.
+        if access_store.customer_has_approved_access(mobile):
+            pin_state = access_store.customer_pin_state(mobile)
+            if pin_state["suspended"]:
+                raise PermissionError("AIR customer account is suspended.")
+            if not pin_state["pin_set"] or pin_state["must_reset"]:
+                access_store.register_approved_device(mobile, body.device_id)
         access_store.set_customer_pin(mobile, body.device_id, pin_hash)
         request = access_store.get_request(mobile, body.device_id)
         if not request:

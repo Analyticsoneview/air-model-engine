@@ -250,5 +250,21 @@ class AccessStoreTests(unittest.TestCase):
             store.close()
 
 
+    def test_first_pin_setup_can_resume_after_browser_device_id_changes(self):
+        from app.security import hash_pin
+        with tempfile.TemporaryDirectory() as temp:
+            store = AccessStore(str(Path(temp) / "auth.sqlite3"))
+            first = store.request_access("+919876543212", "first-browser-device-0001")
+            self.assertTrue(store.review(first["request_id"], "APPROVED"))
+            state = store.customer_pin_state("+919876543212")
+            self.assertFalse(state["pin_set"])
+            # Browser storage was cleared, so the customer now has a new device ID.
+            resumed = store.register_approved_device("+919876543212", "replacement-browser-0002")
+            self.assertEqual(resumed["status"], "APPROVED")
+            store.set_customer_pin("+919876543212", "replacement-browser-0002", hash_pin("123456"))
+            self.assertTrue(store.verify_customer_pin("+919876543212", "123456"))
+            store.close()
+
+
 if __name__ == "__main__":
     unittest.main()

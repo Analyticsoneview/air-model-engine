@@ -672,3 +672,17 @@ def test_postgres_customer_pin_reset_revokes_all_sessions(customer_store):
                       customer_id="+919876543251"):
         assert not customer_store.is_session_active(session)
     assert customer_store.customer_pin_state("+919876543251")["must_reset"]
+
+
+def test_first_pin_setup_can_resume_after_browser_device_id_changes(customer_store):
+    from app.security import hash_pin, verify_pin
+    first = customer_store.request_access("+919876543212", "first-browser-device-0001")
+    assert customer_store.review(first["request_id"], "APPROVED",
+        reviewer_admin_id="admin-test", reviewer_role="SUPER_ADMIN", totp_counter=60000123)
+    state = customer_store.customer_pin_state("+919876543212")
+    assert not state["pin_set"]
+    resumed = customer_store.register_approved_device("+919876543212", "replacement-browser-0002")
+    assert resumed["status"] == "APPROVED"
+    customer_store.set_customer_pin("+919876543212", "replacement-browser-0002", hash_pin("123456"))
+    assert customer_store.verify_customer_pin("+919876543212", "123456")
+
