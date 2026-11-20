@@ -507,7 +507,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
 
   List<DataColumn> get _columns => [
     DataColumn(label: Text('MODEL SIGNAL DATE')),
-    DataColumn(label: Text('ENTRY DATE')),
+    DataColumn(label: Text('ACTUAL ENTRY DATE')),
     DataColumn(label: Text('CLASSIFICATION')),
     DataColumn(label: Text('INSTRUMENT')),
     DataColumn(label: Text('SYMBOL')),
@@ -522,10 +522,10 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     DataColumn(label: Text('TARGETS')),
     DataColumn(label: Text('CURRENT P&L')),
     DataColumn(label: Text('DAYS TO EXPIRY')),
-    DataColumn(label: Text('STATUS')),
+    DataColumn(label: Text('POSITION STATUS')),
+    const DataColumn(label: Text('LATEST EVIDENCE')),
     if (_sections[_selected] == 'EXPIRY78') const DataColumn(label: Text('DELIVERY ALERT • ENTRY / LIVE')),
     if (_sections[_selected] == 'EXPIRY78') const DataColumn(label: Text('PHYSICAL SETTLEMENT FORECAST')),
-    const DataColumn(label: Text('LATEST EVIDENCE')),
   ];
 
   bool _isSurvivor(Map<String, dynamic> r) =>
@@ -582,7 +582,16 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   String _targets(Map<String, dynamic> r) {
     final values = [r['target_1'], r['target_2'], r['target_3']]
         .where((value) => value != null).map((value) => value.toString()).toList();
-    return values.isEmpty ? '—' : values.join(' / ');
+    if (values.isNotEmpty) return values.join(' / ');
+    final trail = r['trail_history'];
+    if (trail is List) {
+      final milestones = trail.whereType<Map>()
+          .map((item) => item['milestone_gain_pct'])
+          .where((value) => value != null)
+          .map((value) => '+$value%').toList();
+      if (milestones.isNotEmpty) return 'Trail-stop milestones: ${milestones.join(', ')}';
+    }
+    return '—';
   }
 
   String _pnlDisplay(Map<String, dynamic> r) {
@@ -659,7 +668,12 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     final survivor = _isSurvivor(r);
     final dte = r['days_to_expiry'];
     final status = _v(r, 'position_status');
-    final instrument = (r['instrument_type'] ?? '—').toString().toUpperCase();
+    final instrumentCode = (r['instrument_type'] ?? '').toString().toUpperCase();
+    final instrument = ['OPTSTK', 'STK', 'STOCK', 'STOCK_OPTION', 'EQUITY'].contains(instrumentCode)
+        ? 'STOCK'
+        : ['OPTIDX', 'IDX', 'INDEX', 'INDEX_OPTION'].contains(instrumentCode)
+            ? 'INDEX'
+            : instrumentCode.isEmpty ? '—' : instrumentCode;
     final cells = [
       _cell(_v(r, 'signal_date')),
       _cell(_v(r, 'entry_date')),
@@ -678,9 +692,9 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       _cell(_pnlDisplay(r)),
       _cell(dte == null ? '—' : '$dte calendar days'),
       _cell(status),
+      _cell(_evidenceDisplay(r)),
       if (_sections[_selected] == 'EXPIRY78') _cell(_physicalDeliveryAlertDisplay(r)),
       if (_sections[_selected] == 'EXPIRY78') _cell(_physicalForecastDisplay(r)),
-      _cell(_evidenceDisplay(r)),
     ];
     final deliveryCurrent = r['physical_delivery_current'];
     final deliveryCritical = deliveryCurrent is Map && deliveryCurrent['status'] == 'CRITICAL';
