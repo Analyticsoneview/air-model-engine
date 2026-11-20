@@ -42,6 +42,39 @@ def _valid_bar(bar: dict[str, Any]) -> bool:
                 and high >= max(op, close, low) and low <= min(op, close))
 
 
+
+def _remaining_fo_sessions(as_of_text: str, expiry_text: str) -> int | None:
+    """Count future FO sessions using persisted NSE FO holiday masters only."""
+    try:
+        start = date.fromisoformat(as_of_text[:10])
+        expiry = date.fromisoformat(expiry_text[:10])
+    except (TypeError, ValueError):
+        return None
+    if expiry <= start:
+        return 0
+    try:
+        from app.nse_bhavcopy import _get_store
+        store = _get_store()
+        holidays: set[str] = set()
+        for year in range(start.year, expiry.year + 1):
+            calendar = store.get_meta(f"trading_calendar_{year}")
+            if not isinstance(calendar, dict):
+                return None
+            fo = (calendar.get("segments") or {}).get("FO")
+            if not isinstance(fo, list):
+                return None
+            holidays.update(str(item.get("date"))[:10] for item in fo if isinstance(item, dict) and item.get("date"))
+    except Exception:
+        return None
+    sessions = 0
+    current = date.fromordinal(start.toordinal() + 1)
+    while current <= expiry:
+        if current.weekday() < 5 and current.isoformat() not in holidays:
+            sessions += 1
+        current = date.fromordinal(current.toordinal() + 1)
+    return sessions
+
+
 def evaluate_deepcrash15_contract(
     contract: dict[str, Any], *, as_of: str | None = None
 ) -> dict[str, Any]:
@@ -72,6 +105,8 @@ def evaluate_deepcrash15_contract(
     remaining = contract.get("remaining_trading_sessions")
     if remaining is None:
         remaining = evidence.get("remaining_trading_sessions")
+    if remaining is None and contract.get("expiry"):
+        remaining = _remaining_fo_sessions(latest["date"], str(contract.get("expiry")))
     try:
         remaining = int(remaining) if remaining is not None else None
     except (TypeError, ValueError):
