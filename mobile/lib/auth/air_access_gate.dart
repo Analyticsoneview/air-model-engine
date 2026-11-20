@@ -255,11 +255,36 @@ class _AirAccessGateState extends State<AirAccessGate> {
                             ),
                           ),
                           const SizedBox(height: 16),
-                          if (!pending && !approvedStatus)
+                          if (_status == 'PIN_REQUIRED') ...[
+                            TextField(
+                              controller: _pin, enabled: !_busy, obscureText: true,
+                              keyboardType: TextInputType.number, maxLength: 6,
+                              decoration: const InputDecoration(labelText: 'Six-digit AIR PIN', counterText: ''),
+                            ),
+                          ],
+                          if (_status == 'PIN_SETUP_REQUIRED') ...[
+                            TextField(
+                              controller: _pin, enabled: !_busy, obscureText: true,
+                              keyboardType: TextInputType.number, maxLength: 6,
+                              decoration: const InputDecoration(labelText: 'Create six-digit AIR PIN', counterText: ''),
+                            ),
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: _pinConfirm, enabled: !_busy, obscureText: true,
+                              keyboardType: TextInputType.number, maxLength: 6,
+                              decoration: const InputDecoration(labelText: 'Confirm AIR PIN', counterText: ''),
+                            ),
+                            FilledButton(
+                              onPressed: _busy ? null : _setupPin,
+                              style: FilledButton.styleFrom(backgroundColor: const Color(0xFFE5B85C), foregroundColor: const Color(0xFF111827), padding: const EdgeInsets.symmetric(vertical: 16)),
+                              child: const Text('SET AIR PIN'),
+                            ),
+                          ],
+                          if (!pending && !approvedStatus && _status != 'PIN_SETUP_REQUIRED')
                             FilledButton(
                               onPressed: _busy || denied ? null : () => _requestOrCheck(),
                               style: FilledButton.styleFrom(backgroundColor: const Color(0xFFE5B85C), foregroundColor: const Color(0xFF111827), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
-                              child: _busy ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('REQUEST ACCESS', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: .7)),
+                              child: _busy ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2)) : Text(_status == 'PIN_REQUIRED' ? 'SIGN IN WITH PIN' : 'REQUEST ACCESS', style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: .7)),
                             ),
                           if (pending || approvedStatus)
                             OutlinedButton.icon(
@@ -268,7 +293,7 @@ class _AirAccessGateState extends State<AirAccessGate> {
                               label: const Text('CHECK ACCESS STATUS'),
                               style: OutlinedButton.styleFrom(foregroundColor: const Color(0xFFE5B85C), padding: const EdgeInsets.symmetric(vertical: 15), side: const BorderSide(color: Color(0x66E5B85C))),
                             ),
-                          if (pending || approvedStatus || denied || _status == 'ERROR' || _status == 'INVALID')
+                          if (pending || approvedStatus || denied || _status == 'PIN_REQUIRED' || _status == 'PIN_SETUP_REQUIRED' || _status == 'ERROR' || _status == 'INVALID')
                             Container(
                               margin: const EdgeInsets.only(top: 16),
                               padding: const EdgeInsets.all(14),
