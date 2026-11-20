@@ -646,7 +646,11 @@ def test_postgres_customer_pin_registers_returning_device_without_second_approva
     assert first["status"] == "PENDING"
     assert customer_store.review(first["request_id"], "APPROVED", "First approval",
         reviewer_admin_id="admin-pin", reviewer_role="SUPER_ADMIN", totp_counter=75000001)
+    legacy_session = customer_store.create_session(first["request_id"])
     customer_store.set_customer_pin("+919876543250", "pg-device-first-0001", hash_pin("123789"))
+    with tenant_scope(tenant_id=customer_store.tenant_for_customer("+919876543250"),
+                      customer_id="+919876543250"):
+        assert not customer_store.is_session_active(legacy_session)
     assert customer_store.verify_customer_pin("+919876543250", "123789")
     second = customer_store.register_approved_device("+919876543250", "pg-device-second-0002")
     assert second["status"] == "APPROVED"
