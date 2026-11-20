@@ -601,6 +601,32 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     )),
   );
 
+  Future<void> _resetCustomerPin(String customerId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Reset customer AIR PIN?'),
+        content: Text('This revokes all active sessions for $customerId. The customer must create a new six-digit PIN at next login. No OTP will be sent.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('CANCEL')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('RESET PIN')),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    setState(() { _busy = true; _error = null; });
+    try {
+      await _request('POST', '/api/v1/admin/customers/${Uri.encodeComponent(customerId)}/pin-reset');
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('PIN reset. All customer sessions revoked; new PIN setup required.')),
+      );
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Widget _customerRegistry() {
     final segments = const [
       ('ALL', 'All customers'),
@@ -718,6 +744,14 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
             Align(alignment: Alignment.centerLeft, child: Text('Expiry: ${customer['subscription_expires_at_ist'] ?? customer['subscription_expires_at'] ?? '—'}')),
             Align(alignment: Alignment.centerLeft, child: Text('Marketing: ${customer['marketing_status'] ?? 'NOT_GRANTED'}')),
             Align(alignment: Alignment.centerLeft, child: Text('Consent date: ${customer['consent_updated_at'] ?? '—'}')),
+            Align(alignment: Alignment.centerLeft, child: Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: OutlinedButton.icon(
+                onPressed: _busy ? null : () => _resetCustomerPin(customer['customer_id']?.toString() ?? ''),
+                icon: const Icon(Icons.lock_reset_rounded),
+                label: const Text('RESET CUSTOMER PIN'),
+              ),
+            )),
           ],
         )),
     ]);
