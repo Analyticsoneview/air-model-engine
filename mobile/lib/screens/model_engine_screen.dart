@@ -10,8 +10,8 @@ class ModelEngineScreen extends StatefulWidget {
 
 class _ModelEngineScreenState extends State<ModelEngineScreen> {
   final AirApiClient _api = AirApiClient();
-  static const _sections = ['PORTFOLIO RISK', 'P&L CALENDAR', 'HISTORICAL REPLAY', 'OPEN', 'NEW', 'HOLD', 'REENTRY', 'SURVIVOR', 'WAIT', 'UNRESOLVED', 'SLHIT', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN', 'SETTLEMENT UP / DOWN', 'PHYSICAL SETTLEMENT', 'COMBINED', 'EXPIRY78', 'RECOVERED', 'RECOVERY'];
-  static const _strategyTabs = ['EXPIRY78', 'RECOVERED', 'RECOVERY'];
+  static const _sections = ['PORTFOLIO RISK', 'P&L CALENDAR', 'HISTORICAL REPLAY', 'OPEN', 'NEW', 'HOLD', 'REENTRY', 'SURVIVOR', 'WAIT', 'UNRESOLVED', 'SLHIT', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN', 'SETTLEMENT UP / DOWN', 'PHYSICAL SETTLEMENT', 'COMBINED', 'EXPIRY78', 'RECOVERED', 'RECOVERY', 'DEEPCRASH15'];
+  static const _strategyTabs = ['EXPIRY78', 'RECOVERED', 'RECOVERY', 'DEEPCRASH15'];
 
   String _strategyKey(String section) => section == 'RECOVERED' ? 'ORIGINAL366' : section;
   Map<String, dynamic> _groups = {};
@@ -1199,7 +1199,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     final strategySelected = _strategyTabs.contains(selectedSection);
     final strategyData = _strategies[_strategyKey(selectedSection)] as Map<String, dynamic>?;
     final strategyGroups = strategyData?['groups'] as Map<String, dynamic>?;
-    final strategyRows = strategyGroups == null ? null : strategyGroups[_strategyStatus];
+    final strategyRows = strategyGroups == null ? null : strategyGroups[selectedSection == 'DEEPCRASH15' ? 'WATCH' : _strategyStatus];
     final selectedRows = strategySelected ? strategyRows : _groups[selectedSection];
     final rows = (selectedRows as List<dynamic>? ?? const [])
         .whereType<Map<String, dynamic>>().toList();
