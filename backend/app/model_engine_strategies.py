@@ -92,19 +92,6 @@ def _memberships(row: dict[str, Any]) -> set[str]:
     single = evidence.get("strategy") or row.get("strategy")
     if single:
         result.add(str(single).upper().replace(" ", ""))
-    # DEEPCRASH15 is an independent daily-bar watchlist, not an inferred lifecycle
-    # membership or a new position. It is deliberately isolated from existing tabs.
-    deepcrash_rows = evaluate_deepcrash15_rows(rows)
-    result["DEEPCRASH15"] = {
-        "rules": STRATEGY_RULES["DEEPCRASH15"],
-        "count": len(deepcrash_rows),
-        "counts": {"WATCH": len(deepcrash_rows), "OPEN": 0, "NEW": 0, "HOLD": 0},
-        "groups": {"WATCH": deepcrash_rows, "OPEN": [], "NEW": [], "HOLD": []},
-        "audit": {
-            "membership_source": "Independent scan of verified contract-specific daily_option_bars; no existing strategy membership is changed",
-            "execution_status": "WATCH_ONLY_NO_ENTRY_OR_ORDER",
-        },
-    }
     return result
 
 
@@ -420,4 +407,17 @@ def build_strategy_views(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 str(item.get("classification") or "").upper() in {"NEW", "HOLD", "WAIT", "RE-ENTRY", "REENTRY"}
             )
             item["physical_delivery_icon"] = current.get("icon", "⚪")
+    # DEEPCRASH15 is an independent daily-bar watchlist, not an inferred lifecycle
+    # membership or a new position. It is deliberately isolated from existing tabs.
+    deepcrash_rows = evaluate_deepcrash15_rows(rows)
+    result["DEEPCRASH15"] = {
+        "rules": STRATEGY_RULES["DEEPCRASH15"],
+        "count": len(deepcrash_rows),
+        "counts": {"WATCH": len(deepcrash_rows), "OPEN": 0, "NEW": 0, "HOLD": 0},
+        "groups": {"WATCH": deepcrash_rows, "OPEN": [], "NEW": [], "HOLD": []},
+        "audit": {
+            "membership_source": "Independent scan of verified contract-specific daily_option_bars; no existing strategy membership is changed",
+            "execution_status": "WATCH_ONLY_NO_ENTRY_OR_ORDER",
+        },
+    }
     return result
