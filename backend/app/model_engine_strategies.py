@@ -10,6 +10,7 @@ from typing import Any
 
 from app.model_engine_expiry78 import ENGINE_VERSION as EXPIRY78_ENGINE_VERSION, evaluate_expiry78_rows
 from app.model_engine_original366 import evaluate_original366_rows
+from app.model_engine_deepcrash15 import RULES as DEEPCRASH15_RULES, evaluate_deepcrash15_rows
 from app.model_engine_physical_forecast import forecast_physical_settlement, physical_settlement_early_warning
 
 STOCK_ENTRY_MIN = 1.0
@@ -44,6 +45,14 @@ STRATEGY_RULES = {
         "stock_entry_filter": "Reference cohort was filtered using actual entry premium ₹1–₹10 for stock CE/PE; index options exempt; shelf_sessions at least 10",
         "qualification": "Display the 366 full-expiry-coverage records selected from the original 534-entry population. Preserve original 5% SLHIT history. After SL, a verified daily option CLOSE above original entry adds a RECOVERED watch. Evaluate that watch retrospectively from the SAME ORIGINAL entry price using 10% SL and 45% target; target/stop are checked chronologically and same-candle ambiguity is stop-first. This is not a new fill, re-entry or order.",
         "candidate_filter_stage": "NEW_CANDIDATE_QUALIFICATION",
+    },
+    "DEEPCRASH15": {
+        "name": "DEEPCRASH15 — Deep-Crash Option Recovery Watch",
+        "membership": "INDEPENDENT_DAILY_BAR_SCREEN",
+        "version": "DEEPCRASH15_DAILY_OHLC_V1",
+        "qualification": "Historical maximum option HIGH ₹3,000–₹3,500 inclusive; latest completed option CLOSE below ₹50; at least 15 remaining NSE FO trading sessions from verified exchange calendar; latest completed candle CLOSE > OPEN. CE and PE are evaluated independently. Qualified records are WATCH only, never open positions or order instructions.",
+        "candidate_filter_stage": "DAILY_OPTION_CONTRACT_SCREEN",
+        "rules": DEEPCRASH15_RULES,
     },
     "RECOVERY": {
         "name": "RECOVERY",
@@ -83,6 +92,19 @@ def _memberships(row: dict[str, Any]) -> set[str]:
     single = evidence.get("strategy") or row.get("strategy")
     if single:
         result.add(str(single).upper().replace(" ", ""))
+    # DEEPCRASH15 is an independent daily-bar watchlist, not an inferred lifecycle
+    # membership or a new position. It is deliberately isolated from existing tabs.
+    deepcrash_rows = evaluate_deepcrash15_rows(rows)
+    result["DEEPCRASH15"] = {
+        "rules": STRATEGY_RULES["DEEPCRASH15"],
+        "count": len(deepcrash_rows),
+        "counts": {"WATCH": len(deepcrash_rows), "OPEN": 0, "NEW": 0, "HOLD": 0},
+        "groups": {"WATCH": deepcrash_rows, "OPEN": [], "NEW": [], "HOLD": []},
+        "audit": {
+            "membership_source": "Independent scan of verified contract-specific daily_option_bars; no existing strategy membership is changed",
+            "execution_status": "WATCH_ONLY_NO_ENTRY_OR_ORDER",
+        },
+    }
     return result
 
 
