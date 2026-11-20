@@ -625,7 +625,9 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
       ),
     );
     codeController.dispose();
-    if (code == null || code.length != 6) return;
+    if (code == null || code.length != 6) {
+      return;
+    }
     setState(() { _busy = true; _error = null; });
     try {
       await _request('POST', '/api/v1/admin/customers/${Uri.encodeComponent(customerId)}/pin-reset',
