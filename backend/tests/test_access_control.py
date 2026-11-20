@@ -191,6 +191,8 @@ class AccessStoreTests(unittest.TestCase):
             second = store.request_access("+919876543211", "device-second-0002")
             store.review(first["request_id"], "APPROVED", reviewer_admin_id="admin-1",
                          reviewer_role="SUPER_ADMIN", totp_counter=102)
+            pending_row = next(row for row in store.list_requests("PENDING") if row["request_id"] == second["request_id"])
+            self.assertEqual(pending_row["requires_admin_approval"], 0)
             store.set_customer_pin("+919876543211", "device-first-0001", hash_pin("654321"))
             self.assertTrue(store.verify_customer_pin("+919876543211", "654321"))
             returning = store.register_approved_device("+919876543211", "device-second-0002")
