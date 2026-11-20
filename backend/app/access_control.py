@@ -249,7 +249,10 @@ class AccessStore:
                 WHERE r2.mobile_e164=r.mobile_e164 ORDER BY r2.created_at,r2.request_id LIMIT 1)
                 THEN 'NEW' ELSE 'EXISTING' END AS customer_type,
             (SELECT MIN(r3.created_at) FROM air_access_requests r3 WHERE r3.mobile_e164=r.mobile_e164)
-                AS first_registered_at
+                AS first_registered_at,
+            CASE WHEN EXISTS(SELECT 1 FROM air_access_requests ra
+                WHERE ra.mobile_e164=r.mobile_e164 AND ra.status='APPROVED')
+                THEN 0 ELSE 1 END AS requires_admin_approval
             FROM air_access_requests r""" + where + " ORDER BY r.created_at DESC,r.request_id", params).fetchall()
 
     def get_request_by_id(self, request_id: str):
