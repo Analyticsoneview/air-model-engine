@@ -80,11 +80,11 @@ class AirApiClient {
     return data;
   }
 
-  Future<Map<String, dynamic>> mobileLogin(String mobileE164, String deviceId) async {
+  Future<Map<String, dynamic>> mobileLogin(String mobileE164, String deviceId, {String? pin}) async {
     final response = await _client.post(
       Uri.parse('$baseUrl/api/v1/auth/mobile-login'),
       headers: _headers,
-      body: jsonEncode({'mobile_e164': mobileE164.trim(), 'device_id': deviceId}),
+      body: jsonEncode({'mobile_e164': mobileE164.trim(), 'device_id': deviceId, if (pin != null && pin.isNotEmpty) 'pin': pin}),
     );
     final data = _decode(response);
     final token = data['access_token'];
@@ -92,6 +92,25 @@ class AirApiClient {
       _sharedAccessToken = token;
     } else {
       _sharedAccessToken = null;
+    }
+    return data;
+  }
+
+  Future<Map<String, dynamic>> setupMobilePin(
+      String mobileE164, String deviceId, String pin) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/api/v1/auth/mobile-pin/setup'),
+      headers: _headers,
+      body: jsonEncode({
+        'mobile_e164': mobileE164.trim(),
+        'device_id': deviceId,
+        'pin': pin,
+      }),
+    );
+    final data = _decode(response);
+    final token = data['access_token'];
+    if (data['status'] == 'APPROVED' && token is String && token.isNotEmpty) {
+      _sharedAccessToken = token;
     }
     return data;
   }
