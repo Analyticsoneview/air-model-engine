@@ -71,7 +71,7 @@ class _AirAccessGateState extends State<AirAccessGate> {
     if (mounted) setState(() => _busy = false);
   }
 
-  Future<void> _requestOrCheck({bool checkOnly = false}) async {
+  Future<void> _requestOrCheck() async {
     final mobile = _mobile.text.trim();
     if (!RegExp(r'^\+[1-9][0-9]{7,14}$').hasMatch(mobile)) {
       setState(() {
@@ -290,7 +290,7 @@ class _AirAccessGateState extends State<AirAccessGate> {
                             ),
                           if (pending || approvedStatus)
                             OutlinedButton.icon(
-                              onPressed: _busy ? null : () => _requestOrCheck(checkOnly: true),
+                              onPressed: _busy ? null : () => _requestOrCheck(),
                               icon: const Icon(Icons.refresh_rounded),
                               label: const Text('CHECK ACCESS STATUS'),
                               style: OutlinedButton.styleFrom(foregroundColor: const Color(0xFFE5B85C), padding: const EdgeInsets.symmetric(vertical: 15), side: const BorderSide(color: Color(0x66E5B85C))),
