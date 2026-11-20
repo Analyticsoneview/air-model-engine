@@ -8,13 +8,13 @@ from app.backtest_registry import registered_backtest_strategies
 from app.expiry_case_study_27oct2026 import (
     COHORT_ID, EXPIRY, SOURCE_WORKBOOK, historical_expired_contracts,
 )
-from app.subscription_access import require_strategy_access
+from app.security import require_customer
 
 router = APIRouter(prefix="/api/v1/backtest", tags=["AIR Historical Backtest"])
 
 
 @router.get("/strategies")
-async def list_backtest_strategies(customer_id: str = Depends(require_strategy_access)) -> dict:
+async def list_backtest_strategies(customer_id: str = Depends(require_customer)) -> dict:
     """List existing AIR strategies only for customers with active entitlement."""
     strategies = registered_backtest_strategies()
     return {
