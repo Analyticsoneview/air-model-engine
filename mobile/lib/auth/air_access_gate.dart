@@ -51,7 +51,7 @@ class _AirAccessGateState extends State<AirAccessGate> {
         if (token == null || token.isEmpty) {
           final savedStatus = await _api.mobileStatus(savedMobile, deviceId);
           _status = savedStatus['status']?.toString() ?? 'NEW';
-          if (_status == 'PENDING') _message = 'This device has a pending request. If you are a returning customer, choose CHECK ACCESS STATUS and enter your existing AIR PIN. New customers wait for the first administrator approval.';
+          _message = savedStatus['message']?.toString() ?? _message;
         }
       }
       if (token != null && token.isNotEmpty) {
@@ -83,6 +83,9 @@ class _AirAccessGateState extends State<AirAccessGate> {
     if (_deviceId == null) return;
     setState(() => _busy = true);
     try {
+      // Persist the identity before making the request. If the browser is closed
+      // after approval, the next visit can restore customer-level status.
+      await _storage.write(key: 'air_mobile_e164', value: mobile);
       // Always attempt the PIN-aware login, even when this device has an older
       // PENDING row. The server distinguishes a first-time customer from a
       // returning customer whose PIN has already been established elsewhere.
@@ -264,7 +267,7 @@ class _AirAccessGateState extends State<AirAccessGate> {
                               decoration: const InputDecoration(labelText: 'Six-digit AIR PIN', counterText: ''),
                             ),
                           ],
-                          if (_status == 'PIN_SETUP_REQUIRED') ...[
+                          if (_status == 'PIN_SETUP_REQUIRED' || _status == 'PIN_NOT_CONFIGURED') ...[
                             TextField(
                               controller: _pin, enabled: !_busy, obscureText: true,
                               keyboardType: TextInputType.number, maxLength: 6,
@@ -286,7 +289,7 @@ class _AirAccessGateState extends State<AirAccessGate> {
                             FilledButton(
                               onPressed: _busy || denied ? null : () => _requestOrCheck(),
                               style: FilledButton.styleFrom(backgroundColor: const Color(0xFFE5B85C), foregroundColor: const Color(0xFF111827), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
-                              child: _busy ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2)) : Text(_status == 'PIN_REQUIRED' ? 'SIGN IN WITH PIN' : 'REQUEST ACCESS', style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: .7)),
+                              child: _busy ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2)) : Text(_status == 'PIN_REQUIRED' ? 'SIGN IN WITH PIN' : 'CHECK STATUS / CONTINUE', style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: .7)),
                             ),
                           if (pending || approvedStatus)
                             OutlinedButton.icon(

@@ -562,6 +562,11 @@ class AccessStore:
                 "SELECT promotional_consent,consent_updated_at FROM air_customer_marketing_preferences WHERE customer_id=?",
                 (customer_id,),
             ).fetchone()
+            pin_state = self.db.execute(
+                "SELECT suspended FROM air_customer_pin_credentials WHERE customer_id=?",
+                (customer_id,),
+            ).fetchone()
+            suspended = bool(pin_state and pin_state["suspended"])
             consent = bool(pref and pref["promotional_consent"])
             item = {
                 "customer_id": customer_id,
@@ -569,6 +574,7 @@ class AccessStore:
                 "last_device_request_at": row["last_device_request_at"],
                 "device_count": row["device_count"],
                 "access_status": row["access_status"],
+                "suspended": suspended,
                 "subscription_status": subscription_status,
                 "plan_code": subscription["plan_code"] if subscription else None,
                 "subscription_expires_at": subscription["expires_at"] if subscription else None,

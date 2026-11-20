@@ -227,5 +227,28 @@ class AccessStoreTests(unittest.TestCase):
 
 
 
+    def test_approved_customer_identity_survives_a_new_browser_device(self):
+        from app.security import hash_pin
+        with tempfile.TemporaryDirectory() as temp:
+            store = AccessStore(str(Path(temp) / "auth.sqlite3"))
+            first = store.request_access("+919876543211", "original-device-0001")
+            self.assertTrue(store.review(first["request_id"], "APPROVED"))
+            self.assertTrue(store.customer_has_approved_access("+919876543211"))
+            state = store.customer_pin_state("+919876543211")
+            self.assertFalse(state["pin_set"])
+            store.set_customer_pin("+919876543211", "original-device-0001", hash_pin("654321"))
+            state = store.customer_pin_state("+919876543211")
+            self.assertTrue(state["pin_set"])
+            self.assertTrue(store.verify_customer_pin("+919876543211", "654321"))
+            # A new browser/device has no request row yet, but the customer identity
+            # and PIN remain valid and can be used to register that device.
+            self.assertIsNone(store.get_request("+919876543211", "fresh-browser-device-0002"))
+            self.assertTrue(store.verify_customer_pin("+919876543211", "654321"))
+            registered = store.register_approved_device("+919876543211", "fresh-browser-device-0002")
+            self.assertEqual(registered["status"], "APPROVED")
+            self.assertTrue(store.customer_has_approved_access("+919876543211"))
+            store.close()
+
+
 if __name__ == "__main__":
     unittest.main()

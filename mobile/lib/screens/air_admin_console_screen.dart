@@ -648,6 +648,26 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
     }
   }
 
+  Future<void> _setCustomerSuspension(String customerId, bool suspended) async {
+    setState(() { _busy = true; _error = null; });
+    try {
+      await _request('PUT',
+          '/api/v1/admin/customers/${Uri.encodeComponent(customerId)}/suspension?suspended=${suspended ? 'true' : 'false'}');
+      await _load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(suspended
+              ? 'Customer suspended. All customer sessions have been revoked.'
+              : 'Customer reactivated. Existing approval is preserved; customer can sign in with their PIN.'),
+        ));
+      }
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Widget _customerRegistry() {
     final segments = const [
       ('ALL', 'All customers'),
@@ -765,14 +785,20 @@ class _AirAdminConsoleScreenState extends State<AirAdminConsoleScreen> {
             Align(alignment: Alignment.centerLeft, child: Text('Expiry: ${customer['subscription_expires_at_ist'] ?? customer['subscription_expires_at'] ?? '—'}')),
             Align(alignment: Alignment.centerLeft, child: Text('Marketing: ${customer['marketing_status'] ?? 'NOT_GRANTED'}')),
             Align(alignment: Alignment.centerLeft, child: Text('Consent date: ${customer['consent_updated_at'] ?? '—'}')),
-            Align(alignment: Alignment.centerLeft, child: Padding(
-              padding: const EdgeInsets.only(top: 10),
-              child: OutlinedButton.icon(
+            Align(alignment: Alignment.centerLeft, child: Text('Account: ${customer['suspended'] == true ? 'SUSPENDED' : 'ACTIVE'}')),
+            Align(alignment: Alignment.centerLeft, child: Wrap(spacing: 8, runSpacing: 8, children: [
+              OutlinedButton.icon(
+                onPressed: _busy ? null : () => _setCustomerSuspension(
+                  customer['customer_id']?.toString() ?? '', customer['suspended'] != true),
+                icon: Icon(customer['suspended'] == true ? Icons.lock_open_rounded : Icons.block_rounded),
+                label: Text(customer['suspended'] == true ? 'REACTIVATE CUSTOMER' : 'SUSPEND CUSTOMER'),
+              ),
+              OutlinedButton.icon(
                 onPressed: _busy ? null : () => _resetCustomerPin(customer['customer_id']?.toString() ?? ''),
                 icon: const Icon(Icons.lock_reset_rounded),
                 label: const Text('RESET CUSTOMER PIN'),
               ),
-            )),
+            ])),
           ],
         )),
     ]);

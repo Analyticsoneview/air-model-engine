@@ -555,6 +555,9 @@ class PostgresAccessStore:
                 if needle and needle not in customer_id.lower():
                     continue
                 subscription, pref = self._subscription_and_preference(conn, customer_id)
+                pin_state = conn.execute(text("""SELECT suspended FROM air_customer_pin_credentials
+                    WHERE customer_id=:customer"""), {"customer": customer_id}).mappings().first()
+                suspended = bool(pin_state and pin_state["suspended"])
                 sub_status = subscription["status"] if subscription else "NEVER_SUBSCRIBED"
                 consent = bool(pref and pref["promotional_consent"])
                 marketing_status = "OPTED_IN" if consent else ("OPTED_OUT" if pref else "NOT_GRANTED")
@@ -562,7 +565,7 @@ class PostgresAccessStore:
                     "customer_id": customer_id, "registered_at": row["registered_at"],
                     "last_device_request_at": row["last_device_request_at"],
                     "device_count": row["device_count"], "access_status": row["access_status"],
-                    "subscription_status": sub_status,
+                    "suspended": suspended, "subscription_status": sub_status,
                     "plan_code": subscription["plan_code"] if subscription else None,
                     "subscription_expires_at": subscription["expires_at"] if subscription else None,
                     "first_approved_at": row["first_approved_at"], "first_rejected_at": row["first_rejected_at"], "first_plan_availed_at": row["first_plan_availed_at"],

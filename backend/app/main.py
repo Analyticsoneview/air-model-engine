@@ -1156,14 +1156,31 @@ async def update_customer_marketing_preferences(
 @app.get("/api/v1/auth/mobile-status")
 async def mobile_access_status(mobile_e164: str = Query(min_length=9, max_length=16),
                                device_id: str = Query(min_length=8, max_length=128)) -> dict:
+    """Resolve onboarding from the customer identity, not only this browser's device row.
+
+    A browser may lose its local device ID/storage after approval. That must never
+    turn an already-approved customer back into a first-time registration.
+    """
     try:
-        request = access_store.get_request(access_store.validate_mobile(mobile_e164), device_id)
+        mobile = access_store.validate_mobile(mobile_e164)
+        request = access_store.get_request(mobile, device_id)
+        if access_store.customer_has_approved_access(mobile):
+            pin_state = access_store.customer_pin_state(mobile)
+            if pin_state["suspended"]:
+                return {"status": "BLOCKED", "customer_approved": True,
+                        "message": "This AIR customer account is suspended. Contact an AIR administrator."}
+            if not pin_state["pin_set"] or pin_state["must_reset"]:
+                return {"status": "PIN_SETUP_REQUIRED", "customer_approved": True,
+                        "message": "Your AIR access is already approved. Create your six-digit AIR PIN to continue."}
+            return {"status": "PIN_REQUIRED", "customer_approved": True,
+                    "message": "Your AIR access is approved. Enter your existing six-digit AIR PIN."}
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if request is None:
-        return {"status": "NOT_SUBMITTED"}
-    return {"status": request["status"], "message": (
-        "Your AIR access request is awaiting administrator approval."
+        return {"status": "NOT_SUBMITTED", "customer_approved": False,
+                "message": "No access request exists for this device."}
+    return {"status": request["status"], "customer_approved": False, "message": (
+        "Your first-time AIR access request is awaiting administrator approval."
         if request["status"] == "PENDING" else "AIR access request status: " + request["status"]
     )}
 
