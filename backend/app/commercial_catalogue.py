@@ -31,7 +31,7 @@ B2C_PLANS: tuple[dict[str, Any], ...] = (
         "price_status": "NOT_PUBLISHED",
         "features": (
             "dashboard_basic", "watchlists_basic", "charts_basic", "screener_basic",
-            "historical_analysis", "historical_strategy_replay",
+            "historical_strategy_replay",
             "charts_advanced", "screeners_standard", "watchlists_alerts",
             "historical_analysis", "portfolio_monitoring",
         ),
@@ -45,7 +45,7 @@ B2C_PLANS: tuple[dict[str, Any], ...] = (
         "price_status": "NOT_PUBLISHED",
         "features": (
             "dashboard_basic", "watchlists_basic", "charts_basic", "screener_basic",
-            "historical_analysis", "historical_strategy_replay",
+            "historical_strategy_replay",
             "charts_advanced", "screeners_standard", "watchlists_alerts",
             "historical_analysis", "portfolio_monitoring", "options_analytics",
             "oi_volume_analytics", "strategy_builder", "paper_trading",
@@ -61,7 +61,7 @@ B2C_PLANS: tuple[dict[str, Any], ...] = (
         "price_status": "NOT_PUBLISHED",
         "features": (
             "dashboard_basic", "watchlists_basic", "charts_basic", "screener_basic",
-            "historical_analysis", "historical_strategy_replay",
+            "historical_strategy_replay",
             "charts_advanced", "screeners_standard", "watchlists_alerts",
             "historical_analysis", "portfolio_monitoring", "options_analytics",
             "oi_volume_analytics", "strategy_builder", "paper_trading",
@@ -79,7 +79,7 @@ B2C_PLANS: tuple[dict[str, Any], ...] = (
         "price_status": "NOT_PUBLISHED",
         "features": (
             "dashboard_basic", "watchlists_basic", "charts_basic", "screener_basic",
-            "historical_analysis", "historical_strategy_replay",
+            "historical_strategy_replay",
             "charts_advanced", "screeners_standard", "watchlists_alerts",
             "historical_analysis", "portfolio_monitoring", "options_analytics",
             "oi_volume_analytics", "strategy_builder", "paper_trading",
