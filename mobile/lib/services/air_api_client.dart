@@ -606,6 +606,21 @@ class AirApiClient {
     return _decode(await _client.get(uri, headers: _headers));
   }
 
+  Future<Map<String, dynamic>> historicalMonthReplay({
+    required String month,
+    required List<String> strategies,
+    String basis = 'expiry',
+  }) async {
+    // FastAPI list query parameters are repeated, not comma-separated.
+    final uri = Uri.parse('$baseUrl/api/v1/backtest/historical-month')
+        .replace(queryParameters: {
+      'month': month,
+      'strategies': strategies,
+      'basis': basis,
+    });
+    return _decode(await _client.get(uri, headers: _headers));
+  }
+
   Future<Map<String, dynamic>> reportEmail() async => _decode(await _client.get(
     Uri.parse('$baseUrl/api/v1/customer/reports/email'), headers: _headers));
 

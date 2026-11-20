@@ -40,3 +40,13 @@ All historical runs are research-only and must never submit broker orders.
 - The strategy catalogue exposes `available_for_historical_report=true` separately from `available_for_daily_backtest=false`. EXPIRYSCAN is selectable for its historical cohort report but is not misrepresented as a complete daily-candle replay.
 - The referenced `AIR_EXPIRYSCAN_EXPIRED_27Oct2026_11Contracts_DailyDetail.xlsx` is not present in this repository branch. Therefore this endpoint reports contract-level summary evidence and explicitly marks daily-detail rows pending. It does not reconstruct OHLC/qualification chronology or infer bid/ask liquidity from daily candles.
 - No rupee P&L is claimed without verified quantity, lot-size treatment, charges and slippage. No broker orders are submitted.
+
+
+## Month replay and shared lifecycle rules
+
+- The historical month endpoint supports both signal-month and expiry-month selection. Signal-month replay includes eligible contracts expiring in the selected month or later, so a signal is not dropped because its contract expires in a future month.
+- EXPIRY78 historical replay calls the same `evaluate_expiry78_contract` function used by the live strategy view. The strategy formula is not forked for historical reporting.
+- A daily bar where the assumed entry touch and initial stop are both reached on the entry date is `UNRESOLVED`, not a confirmed stop-loss: daily OHLC does not prove intraday ordering.
+- Trade ledger marks are per trade. Closed positions use their own exit/settlement price; open or unresolved positions use the latest retained valid EOD mark. Days to expiry is measured from the modelled entry date.
+- The historical adapter labels daily-low fills as modelled, not broker-confirmed executions. It does not infer sector, entered quantity/lots, or rupee P&L without source evidence.
+- Other strategy tabs are only replayable when their own existing evaluator and required historical evidence are connected; unsupported strategies remain explicitly `NOT_REPLAYED`.

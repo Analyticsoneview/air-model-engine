@@ -10,7 +10,7 @@ class ModelEngineScreen extends StatefulWidget {
 
 class _ModelEngineScreenState extends State<ModelEngineScreen> {
   final AirApiClient _api = AirApiClient();
-  static const _sections = ['PORTFOLIO RISK', 'P&L CALENDAR', 'OPEN', 'NEW', 'HOLD', 'REENTRY', 'SURVIVOR', 'WAIT', 'SLHIT', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN', 'SETTLEMENT UP / DOWN', 'PHYSICAL SETTLEMENT', 'COMBINED', 'EXPIRY78', 'RECOVERED', 'RECOVERY'];
+  static const _sections = ['PORTFOLIO RISK', 'P&L CALENDAR', 'HISTORICAL REPLAY', 'OPEN', 'NEW', 'HOLD', 'REENTRY', 'SURVIVOR', 'WAIT', 'UNRESOLVED', 'SLHIT', 'TARGETS', 'EXPIRED', 'EXPIRYSCAN', 'SETTLEMENT UP / DOWN', 'PHYSICAL SETTLEMENT', 'COMBINED', 'EXPIRY78', 'RECOVERED', 'RECOVERY'];
   static const _strategyTabs = ['EXPIRY78', 'RECOVERED', 'RECOVERY'];
 
   String _strategyKey(String section) => section == 'RECOVERED' ? 'ORIGINAL366' : section;
@@ -39,6 +39,14 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   Map<String, dynamic> _pnlCalendar = {};
   DateTime _calendarMonth = DateTime(DateTime.now().year, DateTime.now().month);
   bool _calendarLoading = false;
+  DateTime _historicalMonth = DateTime(DateTime.now().year, DateTime.now().month - 1);
+  Map<String, dynamic> _historicalReplay = {};
+  bool _historicalLoading = false;
+  final Set<String> _historicalStrategies = {'EXPIRY78'};
+  String _historicalBasis = 'expiry';
+  static const _historicalStrategyOptions = [
+    'EXPIRY78', 'ORIGINAL366', 'RECOVERY', 'EXPIRYSCAN', 'ORB_MORNING', 'ORB_AFTERNOON',
+  ];
   final TextEditingController _reportEmailController = TextEditingController();
   final TextEditingController _reportCodeController = TextEditingController();
   Map<String, dynamic> _reportRecipient = {};
@@ -499,7 +507,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
 
   List<DataColumn> get _columns => [
     DataColumn(label: Text('MODEL SIGNAL DATE')),
-    DataColumn(label: Text('ENTRY DATE')),
+    DataColumn(label: Text('ACTUAL ENTRY DATE')),
     DataColumn(label: Text('CLASSIFICATION')),
     DataColumn(label: Text('INSTRUMENT')),
     DataColumn(label: Text('SYMBOL')),
@@ -514,10 +522,10 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     DataColumn(label: Text('TARGETS')),
     DataColumn(label: Text('CURRENT P&L')),
     DataColumn(label: Text('DAYS TO EXPIRY')),
-    DataColumn(label: Text('STATUS')),
+    DataColumn(label: Text('POSITION STATUS')),
+    const DataColumn(label: Text('LATEST EVIDENCE')),
     if (_sections[_selected] == 'EXPIRY78') const DataColumn(label: Text('DELIVERY ALERT • ENTRY / LIVE')),
     if (_sections[_selected] == 'EXPIRY78') const DataColumn(label: Text('PHYSICAL SETTLEMENT FORECAST')),
-    const DataColumn(label: Text('LATEST EVIDENCE')),
   ];
 
   bool _isSurvivor(Map<String, dynamic> r) =>
@@ -526,12 +534,16 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   String _classificationLabel(Map<String, dynamic> r) {
     switch ((r['classification'] ?? '').toString().toUpperCase()) {
       case 'NEW': return '🆕 NEW';
-      case 'HOLD': return '📌 HOLD';
+      case 'HOLD': return 'HOLD / CARRY-FORWARD';
       case 'RE-ENTRY': return '🔁 RE-ENTRY';
       case 'SL': return 'SL HIT';
       case 'SLHIT': return 'SL HIT';
       case 'TARGETS': return '45% TARGET HIT';
-      case 'EXPIRED': return 'EXPIRED';
+      case 'EXPIRED':
+        return _sections[_selected] == 'EXPIRY78' ? 'EXPIRY SURVIVOR' : 'EXPIRED';
+      case 'EXPIRED_WIN': return 'EXPIRY SURVIVOR • WIN';
+      case 'EXPIRED_LOSS': return 'EXPIRY SURVIVOR • LOSS';
+      case 'UNRESOLVED': return 'UNRESOLVED';
       case 'OPEN': return '📌 OPEN';
       case 'RECOVERED_WATCH':
         final outcome = (r['recovered_outcome'] ?? '').toString().toUpperCase();
@@ -574,7 +586,16 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   String _targets(Map<String, dynamic> r) {
     final values = [r['target_1'], r['target_2'], r['target_3']]
         .where((value) => value != null).map((value) => value.toString()).toList();
-    return values.isEmpty ? '—' : values.join(' / ');
+    if (values.isNotEmpty) return values.join(' / ');
+    final trail = r['trail_history'];
+    if (trail is List) {
+      final milestones = trail.whereType<Map>()
+          .map((item) => item['milestone_gain_pct'])
+          .where((value) => value != null)
+          .map((value) => '+$value%').toList();
+      if (milestones.isNotEmpty) return 'Trail-stop milestones: ${milestones.join(', ')}';
+    }
+    return '—';
   }
 
   String _pnlDisplay(Map<String, dynamic> r) {
@@ -651,7 +672,12 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     final survivor = _isSurvivor(r);
     final dte = r['days_to_expiry'];
     final status = _v(r, 'position_status');
-    final instrument = (r['instrument_type'] ?? '—').toString().toUpperCase();
+    final instrumentCode = (r['instrument_type'] ?? '').toString().toUpperCase();
+    final instrument = ['OPTSTK', 'STK', 'STOCK', 'STOCK_OPTION', 'EQUITY'].contains(instrumentCode)
+        ? 'STOCK'
+        : ['OPTIDX', 'IDX', 'INDEX', 'INDEX_OPTION'].contains(instrumentCode)
+            ? 'INDEX'
+            : instrumentCode.isEmpty ? '—' : instrumentCode;
     final cells = [
       _cell(_v(r, 'signal_date')),
       _cell(_v(r, 'entry_date')),
@@ -670,9 +696,9 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
       _cell(_pnlDisplay(r)),
       _cell(dte == null ? '—' : '$dte calendar days'),
       _cell(status),
+      _cell(_evidenceDisplay(r)),
       if (_sections[_selected] == 'EXPIRY78') _cell(_physicalDeliveryAlertDisplay(r)),
       if (_sections[_selected] == 'EXPIRY78') _cell(_physicalForecastDisplay(r)),
-      _cell(_evidenceDisplay(r)),
     ];
     final deliveryCurrent = r['physical_delivery_current'];
     final deliveryCritical = deliveryCurrent is Map && deliveryCurrent['status'] == 'CRITICAL';
@@ -703,6 +729,289 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
     } finally {
       if (mounted) setState(() => _calendarLoading = false);
     }
+  }
+
+  String get _historicalMonthKey =>
+      '${_historicalMonth.year.toString().padLeft(4, '0')}-${_historicalMonth.month.toString().padLeft(2, '0')}';
+
+  Future<void> _loadHistoricalReplay({DateTime? month}) async {
+    final selected = month ?? _historicalMonth;
+    setState(() {
+      _historicalMonth = DateTime(selected.year, selected.month);
+      _historicalLoading = true;
+      _error = null;
+    });
+    try {
+      final result = await _api.historicalMonthReplay(
+        month: _historicalMonthKey,
+        strategies: _historicalStrategies.toList()..sort(),
+        basis: _historicalBasis,
+      );
+      if (mounted) setState(() => _historicalReplay = result);
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Historical replay: $e');
+    } finally {
+      if (mounted) setState(() => _historicalLoading = false);
+    }
+  }
+
+  Future<void> _changeHistoricalMonth(int delta) async {
+    final next = DateTime(_historicalMonth.year, _historicalMonth.month + delta);
+    final now = DateTime.now();
+    if (_historicalBasis == 'signal' && next.isAfter(DateTime(now.year, now.month))) return;
+    if (next.isAfter(DateTime(now.year + 2, now.month))) return;
+    await _loadHistoricalReplay(month: next);
+  }
+
+  Future<void> _chooseHistoricalMonth() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime(_historicalMonth.year, _historicalMonth.month, 1),
+      firstDate: DateTime(2000, 1, 1),
+      lastDate: _historicalBasis == 'expiry'
+          ? DateTime(now.year + 2, 12, 31)
+          : DateTime(now.year, now.month, now.day),
+      helpText: 'SELECT A DATE IN THE CALENDAR MONTH',
+      fieldLabelText: 'Calendar month',
+    );
+    if (picked != null) await _loadHistoricalReplay(month: picked);
+  }
+
+  Widget _historicalMonthView() {
+    final results = (_historicalReplay['strategies'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>().toList();
+    final dataRange = (_historicalReplay['data_available'] ?? _historicalReplay['available_data']) as Map<String, dynamic>? ?? {};
+    final limitations = (_historicalReplay['limitations'] as List<dynamic>? ?? const []);
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('HISTORICAL MONTH STRATEGY REPLAY',
+              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
+          const SizedBox(height: 5),
+          const Text('Choose a calendar month and select whether it represents signal month or contract expiry month. Signal-month mode includes qualifying signals in that month even when the option expires later.',
+              style: TextStyle(fontSize: 10)),
+          const SizedBox(height: 10),
+          Row(children: [
+            IconButton(onPressed: _historicalLoading ? null : () => _changeHistoricalMonth(-1),
+                icon: const Icon(Icons.chevron_left)),
+            Expanded(child: Text(_historicalMonthKey, textAlign: TextAlign.center,
+                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17))),
+            IconButton(onPressed: _historicalLoading ? null : () => _changeHistoricalMonth(1),
+                icon: const Icon(Icons.chevron_right)),
+            IconButton(onPressed: _historicalLoading ? null : () => _loadHistoricalReplay(),
+                icon: const Icon(Icons.refresh_rounded), tooltip: 'Reload selected expiry month'),
+          ]),
+          SizedBox(width: double.infinity, child: OutlinedButton.icon(
+            onPressed: _historicalLoading ? null : _chooseHistoricalMonth,
+            icon: const Icon(Icons.calendar_month_rounded),
+            label: const Text('SELECT DATE / CALENDAR MONTH'),
+          )),
+          const SizedBox(height: 7),
+          Wrap(spacing: 6, children: [
+            ChoiceChip(label: const Text('SIGNAL MONTH'), selected: _historicalBasis == 'signal',
+              onSelected: _historicalLoading ? null : (_) { setState(() => _historicalBasis = 'signal'); _loadHistoricalReplay(); }),
+            ChoiceChip(label: const Text('EXPIRY MONTH'), selected: _historicalBasis == 'expiry',
+              onSelected: _historicalLoading ? null : (_) { setState(() => _historicalBasis = 'expiry'); _loadHistoricalReplay(); }),
+          ]),
+          const SizedBox(height: 7),
+          const Text('STRATEGIES TO REPLAY', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900)),
+          Wrap(spacing: 6, runSpacing: 4, children: _historicalStrategyOptions.map((strategy) => FilterChip(
+            label: Text(strategy, style: const TextStyle(fontSize: 9)),
+            selected: _historicalStrategies.contains(strategy),
+            onSelected: _historicalLoading ? null : (selected) {
+              setState(() {
+                if (selected) { _historicalStrategies.add(strategy); }
+                else if (_historicalStrategies.length > 1) { _historicalStrategies.remove(strategy); }
+              });
+              _loadHistoricalReplay();
+            },
+          )).toList()),
+          if (_historicalLoading) const LinearProgressIndicator(),
+          if (_historicalReplay.isNotEmpty) ...[
+            const Divider(),
+            Text('REPORT: ${_historicalReplay['status'] ?? '—'} • SOURCE: ${_historicalReplay['source'] ?? '—'}',
+                style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800)),
+            Text('RETAINED NSE FO DATA: ${dataRange['first_date'] ?? '—'} to ${dataRange['last_date'] ?? '—'} • SOURCE ROWS: ${_historicalReplay['source_rows'] ?? 0}',
+                style: const TextStyle(fontSize: 9)),
+            if (_historicalReplay['note'] != null)
+              Text(_historicalReplay['note'].toString(), style: const TextStyle(fontSize: 10)),
+          ],
+        ],
+      ))),
+      if (_historicalReplay.isEmpty && !_historicalLoading)
+        Card(child: Padding(padding: const EdgeInsets.all(14), child: Text(
+          'Select a calendar month and tap refresh to load historical strategy qualifications.',
+          style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant)))),
+      ...results.map((result) {
+        final trades = (result['trades'] as List<dynamic>? ?? const [])
+            .whereType<Map<String, dynamic>>().toList();
+        final counts = result['classification_counts'] as Map<String, dynamic>? ?? {};
+        final baseline = result['baseline_reconciliation'] as Map<String, dynamic>?;
+        return Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Expanded(child: Text(result['strategy']?.toString() ?? 'STRATEGY',
+                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12))),
+              Text(result['status']?.toString() ?? '—',
+                  style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900,
+                    color: result['status'] == 'COMPLETED' ? Colors.green : Theme.of(context).colorScheme.error)),
+            ]),
+            if (result['strategy_version'] != null)
+              Text('RULESET: ${result['strategy_version']}', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700)),
+            if (baseline != null) ...[
+              const SizedBox(height: 5),
+              Text('27-OCT TRAILING REFERENCE: ${baseline['status']} • Entries ${baseline['matched_entry_count'] ?? 0}/${baseline['reference_trade_count'] ?? 0} • Exit matches ${baseline['exit_match_count'] ?? 0} • P&L matches ${baseline['gross_pnl_match_count'] ?? 0}',
+                  style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w900)),
+              if (baseline['note'] != null)
+                Text(baseline['note'].toString(), style: const TextStyle(fontSize: 9)),
+            ],
+            if (result['reason'] != null) Text(result['reason'].toString(), style: const TextStyle(fontSize: 10)),
+            if (result['rules'] != null) Text(result['rules'].toString(), style: const TextStyle(fontSize: 9)),
+            Wrap(spacing: 8, runSpacing: 6, children: [
+              _settlementMetric('CONTRACTS CHECKED', result['contracts_examined'] ?? '—'),
+              _settlementMetric('QUALIFIED CONTRACTS', result['contracts_with_qualifying_entries'] ?? '—'),
+              _settlementMetric('QUALIFYING ENTRIES', result['trade_count'] ?? trades.length),
+              ...counts.entries.map((entry) => _settlementMetric(entry.key, entry.value)),
+            ]),
+            if (trades.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              const Text('COMMON STRATEGY LEDGER • ALL 18 AGREED FIELDS',
+                  style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900)),
+              SingleChildScrollView(scrollDirection: Axis.horizontal, child: DataTable(
+                columns: const [
+                  DataColumn(label: Text('MODEL SIGNAL DATE')),
+                  DataColumn(label: Text('ACTUAL ENTRY DATE')),
+                  DataColumn(label: Text('CLASSIFICATION')),
+                  DataColumn(label: Text('INSTRUMENT')),
+                  DataColumn(label: Text('SYMBOL')),
+                  DataColumn(label: Text('SECTOR')),
+                  DataColumn(label: Text('CE/PE')),
+                  DataColumn(label: Text('STRIKE')),
+                  DataColumn(label: Text('EXPIRY')),
+                  DataColumn(label: Text('ENTRY PRICE')),
+                  DataColumn(label: Text('LATEST PRICE')),
+                  DataColumn(label: Text('QUANTITY / LOTS')),
+                  DataColumn(label: Text('STOP LOSS')),
+                  DataColumn(label: Text('TARGETS')),
+                  DataColumn(label: Text('CURRENT P&L')),
+                  DataColumn(label: Text('DAYS TO EXPIRY')),
+                  DataColumn(label: Text('POSITION STATUS')),
+                  DataColumn(label: Text('LATEST EVIDENCE')),
+                ],
+                rows: trades.map((trade) {
+                  final expiry = DateTime.tryParse(trade['expiry']?.toString() ?? '');
+                  final asOf = DateTime.tryParse(result['as_of']?.toString() ?? '');
+                  final daysToExpiry = trade['days_to_expiry']?.toString() ??
+                      (expiry == null || asOf == null
+                          ? '—'
+                          : expiry.difference(DateTime(asOf.year, asOf.month, asOf.day)).inDays.toString());
+                  final trail = trade['trail_history'] as List<dynamic>? ?? const [];
+                  final targets = trail.isEmpty
+                      ? 'No fixed target configured'
+                      : 'Trail-stop milestones: ${trail.map((item) {
+                          final milestone = item is Map ? item['milestone_gain_pct'] : null;
+                          return milestone == null ? null : '+$milestone%';
+                        }).whereType<String>().join(', ')}';
+                  final pnlPoints = double.tryParse(trade['current_pnl_points']?.toString() ?? '');
+                  final entryPremium = double.tryParse(trade['entry_price']?.toString() ?? '');
+                  final pnlPercent = pnlPoints != null && entryPremium != null && entryPremium > 0
+                      ? pnlPoints / entryPremium * 100
+                      : null;
+                  final pnl = [
+                    if (trade['current_pnl_rupees'] != null) '₹${trade['current_pnl_rupees']}',
+                    if (pnlPoints != null) '${pnlPoints.toStringAsFixed(2)} pts',
+                    if (pnlPercent != null) '${pnlPercent.toStringAsFixed(1)}%',
+                  ].join(' • ');
+
+                  final instrumentCode = (trade['instrument_type']?.toString() ?? '').toUpperCase();
+                  final instrument = instrumentCode == 'OPTSTK' || instrumentCode == 'STK'
+                      ? 'STOCK'
+                      : instrumentCode == 'OPTIDX' || instrumentCode == 'IDX'
+                          ? 'INDEX'
+                          : instrumentCode.isEmpty ? '—' : instrumentCode;
+                  final evidence = [
+                    trade['reason'] ?? trade['exit_reason'],
+                    if (trade['latest_price_date'] != null) 'Mark: ${trade['latest_price_date']}',
+                    if (trade['exit_date'] != null) 'Exit: ${trade['exit_date']}',
+                  ].where((value) => value != null).join(' • ');
+                  final values = [
+                    trade['signal_date']?.toString() ?? '—',
+                    trade['entry_date']?.toString() ?? '—',
+                    trade['classification_label']?.toString() ?? trade['classification']?.toString() ?? '—',
+                    instrument,
+                    trade['symbol']?.toString() ?? '—',
+                    '—',
+                    trade['option_type']?.toString() ?? '—',
+                    trade['strike']?.toString() ?? '—',
+                    trade['expiry']?.toString() ?? '—',
+                    trade['entry_price']?.toString() ?? '—',
+                    trade['latest_price']?.toString() ?? '—',
+                    'Not available',
+                    trade['stop_loss']?.toString() ?? '—',
+                    targets,
+                    pnl,
+                    daysToExpiry,
+                    trade['position_status']?.toString() ?? '—',
+                    evidence.isEmpty ? '—' : evidence,
+                  ];
+                  return DataRow(cells: values.map((value) => DataCell(
+                    Text(value, style: const TextStyle(fontSize: 10)),
+                  )).toList());
+                }).toList(),
+              )),
+              const Padding(
+                padding: EdgeInsets.only(top: 5),
+                child: Text('— means verified sector and entered position quantity/lots are not available in this source. Entry date is a modelled daily-low touch, not a broker execution. Latest Price is trade-specific: exit/settlement for closed trades, latest retained EOD mark for open/unresolved trades. Trailing-stop milestones are not fixed targets.',
+                    style: TextStyle(fontSize: 9, fontStyle: FontStyle.italic)),
+              ),
+              ...trades.map((trade) {
+                final trail = trade['trail_history'] as List<dynamic>? ?? const [];
+                return ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  title: Text('${trade['symbol'] ?? 'Contract'} • STRATEGY EVIDENCE',
+                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
+                  children: [
+                    Wrap(spacing: 12, runSpacing: 6, children: [
+                      _settlementMetric('INITIAL STOP', trade['initial_stop_loss'] ?? '—'),
+                      _settlementMetric('TRAILING STOP', trade['trailing_stop'] ?? '—'),
+                      _settlementMetric('PEAK PREMIUM', trade['peak_premium'] ?? '—'),
+                      _settlementMetric('LATEST EOD MARK', trade['latest_price'] ?? '—'),
+                      _settlementMetric('LATEST MARK DATE', trade['latest_price_date'] ?? '—'),
+                      _settlementMetric('EXCHANGE LOT SIZE', trade['lot_size'] ?? '—'),
+                      _settlementMetric('ENTRY-DAY TRADED QTY', trade['entry_day_quantity'] ?? '—'),
+                      _settlementMetric('EXIT DATE', trade['exit_date'] ?? '—'),
+                      _settlementMetric('EXIT / INTRINSIC ₹', trade['exit_price'] ?? trade['intrinsic_value'] ?? '—'),
+                      _settlementMetric('EXPIRY UNDERLYING ₹', trade['expiry_underlying_close'] ?? '—'),
+                      _settlementMetric('GROSS P&L ₹', trade['gross_pnl_rupees'] ?? 'Not evidenced'),
+                      _settlementMetric('CHARGES ₹', trade['charges_rupees'] ?? 'Not evidenced'),
+                      _settlementMetric('NET P&L ₹', trade['net_pnl_rupees'] ?? 'Not evidenced'),
+                    ]),
+                    if (trail.isNotEmpty)
+                      ...trail.map((item) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Text(item.toString(), style: const TextStyle(fontSize: 9)),
+                      )),
+                    if (trade['reason'] != null)
+                      Align(alignment: Alignment.centerLeft, child: Text(
+                        'Evidence: ${trade['reason']}',
+                        style: const TextStyle(fontSize: 9))),
+                  ],
+                );
+              }),
+            ] else if (result['status'] == 'COMPLETED')
+              const Padding(padding: EdgeInsets.only(top: 8), child: Text('No qualifying entries were found for this strategy in the selected expiry month.', style: TextStyle(fontSize: 10))),
+          ],
+        )));
+      }),
+      if (limitations.isNotEmpty) Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('REPLAY LIMITATIONS', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 10)),
+          ...limitations.map((item) => Padding(padding: const EdgeInsets.only(top: 4),
+              child: Text('• $item', style: const TextStyle(fontSize: 9)))),
+        ],
+      ))),
+    ]);
   }
 
   void _showPnlDate(DateTime date) {
@@ -914,7 +1223,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
               Text('OPEN ${_summary['open'] ?? 0} • NEW ${_summary['new'] ?? 0} • HOLD ${_summary['hold'] ?? 0} • SURVIVOR ${_summary['survivor_watch'] ?? 0}',
                 style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
               const SizedBox(height: 8),
-              Wrap(spacing: 7, runSpacing: 7, children: _sections.where((x) => !['PORTFOLIO RISK','P&L CALENDAR','PHYSICAL SETTLEMENT','SETTLEMENT UP / DOWN','COMBINED'].contains(x)).map((name) => ChoiceChip(
+              Wrap(spacing: 7, runSpacing: 7, children: _sections.where((x) => !['PORTFOLIO RISK','P&L CALENDAR','HISTORICAL REPLAY','PHYSICAL SETTLEMENT','SETTLEMENT UP / DOWN','COMBINED'].contains(x)).map((name) => ChoiceChip(
                 label: Text('$name  ${_tabCount(name)}', style: const TextStyle(fontSize: 10)),
                 selected: _sections[_selected] == name,
                 onSelected: (_) => setState(() => _selected = _sections.indexOf(name)),
@@ -968,16 +1277,20 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
               Wrap(spacing: 7, runSpacing: 7, children: _sections.map((s) => ChoiceChip(
                 label: Text('$s  ${_tabCount(s)}', style: const TextStyle(fontSize: 10)),
                 selected: _sections[_selected] == s,
-                onSelected: (_) => setState(() {
-                  _selected = _sections.indexOf(s);
-                  _strategyStatus = s == 'RECOVERED' ? 'OPEN' : 'OPEN';
-                }),
+                onSelected: (_) {
+                  setState(() {
+                    _selected = _sections.indexOf(s);
+                    _strategyStatus = 'OPEN';
+                  });
+                  if (s == 'HISTORICAL REPLAY') _loadHistoricalReplay();
+                },
               )).toList()),
             ],
           ))),
           const SizedBox(height: 10),
           if (portfolioSelected) _portfolioRiskView(),
           if (pnlSelected) ...[_pnlCalendarView(), _accountReportsView()],
+          if (selectedSection == 'HISTORICAL REPLAY') _historicalMonthView(),
           if (settlementComparisonSelected) _settlementComparisonView(),
           if (strategySelected) ...[
             if (strategyData?['rules'] is Map) Card(child: Padding(
@@ -999,7 +1312,7 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
             )),
             Wrap(spacing: 7, runSpacing: 7, children: (selectedSection == 'RECOVERED'
               ? ['OPEN', 'TARGETS', 'SLHIT', 'EXPIRED', 'WAIT']
-              : ['OPEN', 'NEW', 'HOLD', 'WAIT', 'SLHIT', 'REENTRY']).map((status) => ChoiceChip(
+              : ['OPEN', 'NEW', 'HOLD', 'WAIT', 'UNRESOLVED', 'SLHIT', 'REENTRY']).map((status) => ChoiceChip(
               label: Text('$status  ${((strategyData?['counts'] as Map?)?[status] ?? 0)}', style: const TextStyle(fontSize: 10)),
               selected: _strategyStatus == status,
               onSelected: (_) => setState(() => _strategyStatus = status),

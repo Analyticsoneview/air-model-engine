@@ -113,13 +113,14 @@ async def expiryscan_historical_report(
 
 @router.get("/historical-month")
 async def historical_month_strategy_report(
-    month: str = Query(..., pattern=r"^\d{4}-\d{2}$", description="Selected option expiry month YYYY-MM"),
+    month: str = Query(..., pattern=r"^\d{4}-\d{2}$", description="Selected calendar month YYYY-MM"),
     strategies: list[str] = Query(default=["EXPIRY78"], description="One or more strategy IDs"),
+    basis: str = Query("expiry", pattern="^(expiry|signal)$", description="Whether month selects signal date or option expiry date"),
     customer_id: str = Depends(require_strategy_access),
 ) -> dict:
     """Replay supported strategies against retained historical option evidence."""
     from app.historical_month_replay import historical_month_report
     try:
-        return historical_month_report(month=month, strategies=strategies)
+        return historical_month_report(month=month, strategies=strategies, basis=basis)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

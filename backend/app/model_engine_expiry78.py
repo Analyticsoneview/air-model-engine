@@ -8,13 +8,15 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
+ENGINE_VERSION = "EXPIRY78_DAILY_OHLCV_V2_UNRESOLVED_SAME_SESSION"
+
 RULES = {
     "valid_ohlcv": "O/H/L/C and quantity must be positive; high/low must contain open and close",
     "bullish_engulfing": "Current bullish candle body engulfs the previous bearish candle body",
     "entry_limit": "40% of the bullish-engulfing candle HIGH (high * 0.40)",
     "entry_fill": "A later daily LOW must touch or cross the limit before expiry; fill at the limit",
     "minimums": "Entry premium >= ₹1 and entry-day quantity >= 10; stock CE/PE entry premium must also be ₹1–₹10; index options are exempt from the ₹10 cap",
-    "stop_loss": "Initial 5% stop; after each +20% premium gain, ratchet stop to the prior +20% milestone (+20% locks entry, +40% locks +20%, etc.). Test active stop against daily LOW; a later gap below stop exits at observed OPEN. New milestone applies from the next daily observation.",
+    "stop_loss": "Initial 5% stop; after each +20% premium gain, ratchet stop to the prior +20% milestone (+20% locks entry, +40% locks +20%, etc.). Test active stop against daily LOW; a later gap below stop exits at observed OPEN. If entry-day LOW also touches the initial stop, classify UNRESOLVED because daily OHLC cannot establish whether entry preceded the stop. New milestone applies from the next daily observation.",
     "expiry_survivor": "Only a trade that never hit SL and reaches expiry with verified underlying expiry close/intrinsic valuation is an EXPIRY78 survivor",
 }
 
@@ -132,10 +134,16 @@ def evaluate_expiry78_contract(
                 continue
             if float(bar["low"]) <= active_stop:
                 exit_day = bar["date"]
-                exit_price = (float(bar["open"]) if day > entry_day and float(bar["open"]) < active_stop else active_stop)
-                exit_reason = "SAME_DAY_STOP" if day == entry_day else (
-                    "GAP_THROUGH_STOP" if float(bar["open"]) < active_stop else "TRAILING_STOP" if trail_history else "STOP_LOSS"
-                )
+                if day == entry_day:
+                    # Daily OHLC cannot prove whether the assumed limit fill
+                    # happened before or after the stop was crossed.
+                    exit_reason = "ENTRY_DAY_SEQUENCE_UNRESOLVED"
+                else:
+                    exit_price = (float(bar["open"]) if float(bar["open"]) < active_stop else active_stop)
+                    exit_reason = (
+                        "GAP_THROUGH_STOP" if float(bar["open"]) < active_stop
+                        else "TRAILING_STOP" if trail_history else "STOP_LOSS"
+                    )
                 break
             if day >= expiry_day:
                 break
@@ -182,7 +190,13 @@ def evaluate_expiry78_contract(
             "charges_rupees": None,
             "net_pnl_rupees": None,
         }
-        if exit_reason:
+        if exit_reason == "ENTRY_DAY_SEQUENCE_UNRESOLVED":
+            trade.update({
+                "classification": "UNRESOLVED",
+                "position_status": "UNRESOLVED",
+                "reason": "Entry limit and initial stop were both touched in the same daily bar; intraday sequence is unavailable",
+            })
+        elif exit_reason:
             trade.update({"classification": "SL", "position_status": "EXITED",
                           "reason": exit_reason,
                           "pnl_points": round(exit_price - entry_price, 4)})
@@ -232,6 +246,7 @@ def evaluate_expiry78_contract(
         status = "WAIT"
         reason = "No qualifying bullish-engulfing setup with a subsequent limit touch before expiry"
     return {
+        "strategy_version": ENGINE_VERSION,
         "status": status,
         "reason": reason,
         "trades": trades,

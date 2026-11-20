@@ -47,13 +47,15 @@ def test_open_trade_transitions_to_hold_after_entry_session():
     assert result["trades"][0]["classification"] == "HOLD"
 
 
-def test_same_day_low_breach_is_conservatively_counted_as_stop():
+def test_same_day_entry_and_stop_touch_is_unresolved_without_intraday_sequence():
     bars = base_bars()[:2] + [bar("2026-11-05", 9, 10, 7.5, 8.5)]
     result = evaluate_expiry78_contract(contract(bars=bars), as_of="2026-11-05")
     trade = result["trades"][0]
-    assert trade["classification"] == "SL"
-    assert trade["exit_reason"] == "SAME_DAY_STOP"
-    assert trade["exit_price"] == 7.6
+    assert trade["classification"] == "UNRESOLVED"
+    assert trade["position_status"] == "UNRESOLVED"
+    assert trade["exit_reason"] == "ENTRY_DAY_SEQUENCE_UNRESOLVED"
+    assert trade["exit_price"] is None
+    assert trade["pnl_points"] is None
 
 
 def test_gap_through_stop_exits_at_observed_open():
@@ -154,6 +156,7 @@ def test_expiry78_strategy_tab_uses_engine_replay_results():
     })
     views = build_strategy_views([item])
     assert views["EXPIRY78"]["audit"]["engine"] == "AIR_EXPIRY78_SEVEN_RULES"
+    assert views["EXPIRY78"]["audit"]["strategy_version"] == "EXPIRY78_DAILY_OHLCV_V2_UNRESOLVED_SAME_SESSION"
     assert views["EXPIRY78"]["counts"]["NEW"] == 1
     assert views["EXPIRY78"]["counts"]["OPEN"] == 1
     assert views["EXPIRY78"]["groups"]["NEW"][0]["entry_price"] == 8.0
@@ -200,3 +203,21 @@ def test_trailing_stop_gap_exits_at_observed_open():
     assert trade["exit_reason"] == "GAP_THROUGH_STOP"
     assert trade["exit_price"] == 9.2
     assert trade["stop_loss"] == 9.6
+
+
+
+def test_unresolved_expiry78_trade_remains_visible_in_strategy_tab():
+    from app.model_engine_strategies import build_strategy_views
+
+    item = contract(bars=base_bars()[:2] + [
+        bar("2026-11-05", 9, 10, 7.5, 8.5),
+    ])
+    item.update({
+        "signal_id": "ambiguous-entry-stop",
+        "classification": "WAIT",
+        "signal_date": "2026-11-04",
+    })
+    views = build_strategy_views([item])
+    assert views["EXPIRY78"]["counts"]["UNRESOLVED"] == 1
+    trade = views["EXPIRY78"]["groups"]["UNRESOLVED"][0]
+    assert trade["position_status"] == "UNRESOLVED"
