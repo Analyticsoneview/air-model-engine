@@ -62,9 +62,16 @@ class _AirAccessGateState extends State<AirAccessGate> {
       }
       _deviceAuthEnabled = !kIsWeb && await _storage.read(key: _deviceAuthKey) == 'true';
       if (token != null && token.isNotEmpty) {
-        AirApiClient.setAccessToken(token);
-        try {
-          if (_deviceAuthEnabled) {
+        if (kIsWeb || !_deviceAuthEnabled) {
+          // Web always uses the AIR PIN. Native apps require explicit device
+          // authentication enrolment before a stored session can be restored.
+          AirApiClient.setAccessToken(null);
+          await _storage.delete(key: 'air_access_token');
+          _status = 'PIN_REQUIRED';
+          _message = 'Enter your six-digit AIR PIN to securely continue.';
+        } else {
+          AirApiClient.setAccessToken(token);
+          try {
             final unlocked = await _authenticateOnDevice();
             if (!unlocked) {
               AirApiClient.setAccessToken(null);
@@ -74,21 +81,18 @@ class _AirAccessGateState extends State<AirAccessGate> {
               await _api.me();
               _approved = true;
             }
-          } else {
-            await _api.me();
-            _approved = true;
+          } on AirApiException {
+            AirApiClient.setAccessToken(null);
+            await _storage.delete(key: 'air_access_token');
+            await _storage.delete(key: _deviceAuthKey);
+            _deviceAuthEnabled = false;
+            _status = 'PIN_REQUIRED';
+            _message = 'Your saved AIR session is no longer active. Sign in with your six-digit PIN.';
+          } catch (_) {
+            AirApiClient.setAccessToken(null);
+            _status = 'PIN_REQUIRED';
+            _message = 'Device authentication is unavailable. Enter your six-digit AIR PIN.';
           }
-        } on AirApiException {
-          AirApiClient.setAccessToken(null);
-          await _storage.delete(key: 'air_access_token');
-          await _storage.delete(key: _deviceAuthKey);
-          _deviceAuthEnabled = false;
-          _status = 'PIN_REQUIRED';
-          _message = 'Your saved AIR session is no longer active. Sign in with your six-digit PIN.';
-        } catch (_) {
-          AirApiClient.setAccessToken(null);
-          _status = 'PIN_REQUIRED';
-          _message = 'Device authentication is unavailable. Enter your six-digit AIR PIN.';
         }
       }
     } catch (_) {
