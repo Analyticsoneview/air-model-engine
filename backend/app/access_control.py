@@ -408,17 +408,27 @@ class AccessStore:
         if not self.customer_has_approved_access(mobile):
             raise PermissionError("Initial AIR administrator approval is required")
         existing = self.get_request(mobile, device)
-        if existing:
-            if existing["status"] != "APPROVED":
-                raise PermissionError("This device is blocked or was rejected; contact AIR support")
-            return existing
         with self.db:
-            self.db.execute("""INSERT INTO air_access_requests(request_id,mobile_e164,device_id,status,reviewer_note)
-                VALUES(?,?,?,'APPROVED','Automatically registered to an existing approved AIR customer')""",
+            if existing:
+                if existing["status"] == "PENDING":
+                    self.db.execute("""UPDATE air_access_requests SET status='APPROVED',
+                        reviewed_at=CURRENT_TIMESTAMP,
+                        reviewer_note='Authenticated with the existing customer AIR PIN; returning device auto-approved'
+                        WHERE request_id=? AND status='PENDING'""", (existing["request_id"],))
+                    self.db.execute("""INSERT INTO air_customer_pin_audit(event_id,customer_id,action,details)
+                        VALUES(?,?,?,?)""",(str(uuid4()),mobile,"DEVICE_AUTO_APPROVED","Existing pending device authenticated with customer PIN"))
+                    return self.get_request(mobile,device)
+                if existing["status"] != "APPROVED":
+                    raise PermissionError("This device is blocked or was rejected; contact AIR support")
+                return existing
+            self.db.execute("""INSERT INTO air_access_requests(request_id,mobile_e164,device_id,status,reviewed_at,reviewer_note)
+                VALUES(?,?,?,'APPROVED',CURRENT_TIMESTAMP,'Automatically registered to an existing approved AIR customer')""",
                 (str(uuid4()),mobile,device))
             row = self.get_request(mobile,device)
             self.db.execute("""INSERT INTO air_customer_lifecycle(customer_id,first_registered_at)
                 VALUES(?,?) ON CONFLICT(customer_id) DO NOTHING""",(mobile,row["created_at"]))
+            self.db.execute("""INSERT INTO air_customer_pin_audit(event_id,customer_id,action,details)
+                VALUES(?,?,?,?)""",(str(uuid4()),mobile,"DEVICE_AUTO_APPROVED","New device authenticated with customer PIN"))
         return row
 
     def reset_customer_pin(self, mobile_e164: str, admin_id: str) -> None:
