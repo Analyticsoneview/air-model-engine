@@ -616,6 +616,10 @@ class AccessReview(BaseModel):
     note: str = Field(default="", max_length=500)
     totp_code: str = Field(pattern=r"^\d{6}$")
 
+class AdminCustomerPinResetRequest(BaseModel):
+    totp_code: str = Field(pattern=r"^\d{6}$")
+
+
 
 class TradingAccountCreate(BaseModel):
     broker: str = Field(min_length=2, max_length=40)
@@ -978,11 +982,17 @@ async def setup_mobile_pin(body: MobilePinSetupRequest) -> dict:
 
 
 @app.post("/api/v1/admin/customers/{customer_id}/pin-reset")
-async def admin_reset_customer_pin(customer_id: str, admin: dict = Depends(require_admin_management)) -> dict:
+async def admin_reset_customer_pin(customer_id: str, body: AdminCustomerPinResetRequest,
+                                   admin: dict = Depends(require_admin_management)) -> dict:
     try:
+        get_admin_auth_store().verify_action_totp(
+            admin, body.totp_code, "CUSTOMER_PIN_RESET", customer_id
+        )
         access_store.reset_customer_pin(customer_id, admin["admin_id"])
         return {"status": "RESET_REQUIRED", "customer_id": customer_id,
                 "message": "Customer PIN reset. All customer sessions have been revoked; a new PIN is required."}
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except (ValueError, LookupError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
