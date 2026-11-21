@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from app.db_compat import PostgresConnection, read_database_url
@@ -22,6 +23,8 @@ class MarketInstrumentDirectory:
             try:
                 self.db.execute("SELECT 1 FROM market_instruments LIMIT 0")
                 self.db.execute("SELECT 1 FROM market_master_refresh LIMIT 0")
+                self.db.execute("SELECT 1 FROM market_instrument_lot_size_history LIMIT 0")
+                self.db.execute("SELECT 1 FROM market_equity_sector_history LIMIT 0")
             except Exception as exc:
                 self.db.close()
                 raise RuntimeError("PostgreSQL instrument-master schema is missing; run Alembic migrations first") from exc
@@ -61,6 +64,34 @@ class MarketInstrumentDirectory:
                 CREATE INDEX IF NOT EXISTS idx_market_instruments_symbol
                 ON market_instruments(provider, account_id, symbol)
             """)
+            self.db.execute("""
+                CREATE TABLE IF NOT EXISTS market_instrument_lot_size_history (
+                    provider TEXT NOT NULL, account_id TEXT NOT NULL, effective_date TEXT NOT NULL,
+                    exchange TEXT NOT NULL, symbol TEXT NOT NULL, underlying_symbol TEXT,
+                    token TEXT NOT NULL, segment TEXT NOT NULL, expiry TEXT, strike TEXT,
+                    option_type TEXT, lot_size INTEGER, instrument_type TEXT, source TEXT,
+                    captured_at TEXT NOT NULL,
+                    PRIMARY KEY(provider,account_id,effective_date,token),
+                    CHECK(lot_size IS NULL OR lot_size > 0)
+                )
+            """)
+            self.db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_lot_size_history_contract_date
+                ON market_instrument_lot_size_history(symbol,expiry,strike,option_type,effective_date)
+            """)
+            self.db.execute("""
+                CREATE TABLE IF NOT EXISTS market_equity_sector_history (
+                    exchange TEXT NOT NULL, symbol TEXT NOT NULL, sector TEXT NOT NULL,
+                    effective_from TEXT NOT NULL, effective_through TEXT,
+                    source TEXT NOT NULL, source_reference TEXT, verified_at TEXT NOT NULL,
+                    PRIMARY KEY(exchange,symbol,effective_from),
+                    CHECK(effective_through IS NULL OR effective_through >= effective_from)
+                )
+            """)
+            self.db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_equity_sector_symbol_effective
+                ON market_equity_sector_history(exchange,symbol,effective_from)
+            """)
             self.db.commit()
 
     def upsert(self, provider: str, account_id: str, *, exchange: str,
@@ -90,7 +121,8 @@ class MarketInstrumentDirectory:
         return self.get(provider, account_id, values[4]) or {}
 
     def replace_snapshot(self, provider: str, account_id: str,
-                         instruments: list[dict]) -> int:
+                         instruments: list[dict], *, effective_date: str | None = None,
+                         source: str | None = None) -> int:
         """Replace one provider/account master atomically after caller validation."""
         provider, account_id = provider.strip().lower(), account_id.strip()
         if not provider or not account_id or not instruments:
@@ -110,8 +142,16 @@ class MarketInstrumentDirectory:
                 token, str(item["segment"]).upper(), item.get("expiry"), item.get("strike"),
                 item.get("option_type"), item.get("lot_size"), item.get("instrument_type"),
                 item.get("tick_size")))
-        stamp = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+        stamp = datetime.now(timezone.utc).isoformat()
+        effective = date.fromisoformat(effective_date).isoformat() if effective_date else date.today().isoformat()
         with self.db:
+            self.db.executemany("""
+                INSERT INTO market_instrument_lot_size_history(
+                    provider,account_id,effective_date,exchange,symbol,underlying_symbol,
+                    token,segment,expiry,strike,option_type,lot_size,instrument_type,source,captured_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(provider,account_id,effective_date,token) DO NOTHING
+            """, [(*row[:13], source, stamp) for row in values])
             self.db.execute("DELETE FROM market_instruments WHERE provider=? AND account_id=?",
                             (provider, account_id))
             self.db.executemany("""
@@ -181,3 +221,51 @@ class MarketInstrumentDirectory:
 
     def close(self) -> None:
         self.db.close()
+
+
+    def lot_size_as_of(self, provider: str, account_id: str, *, symbol: str,
+                       expiry: str | None, strike: str | None,
+                       option_type: str | None, as_of: str) -> dict | None:
+        row = self.db.execute("""
+            SELECT * FROM market_instrument_lot_size_history
+            WHERE provider=? AND account_id=? AND upper(symbol)=? AND expiry=?
+              AND strike=? AND upper(option_type)=? AND effective_date<=?
+              AND lot_size IS NOT NULL AND lot_size>0
+            ORDER BY effective_date DESC LIMIT 1
+        """, (provider.lower(), account_id, symbol.upper(), expiry, strike,
+              (option_type or "").upper(), as_of[:10])).fetchone()
+        return dict(row) if row else None
+
+    def upsert_sector(self, *, exchange: str, symbol: str, sector: str,
+                      effective_from: str, source: str,
+                      source_reference: str | None = None,
+                      effective_through: str | None = None) -> dict:
+        exchange, symbol, sector = exchange.strip().upper(), symbol.strip().upper(), sector.strip()
+        if not all((exchange, symbol, sector, source.strip())):
+            raise ValueError("Exchange, symbol, sector and source are required")
+        start = date.fromisoformat(effective_from).isoformat()
+        end = date.fromisoformat(effective_through).isoformat() if effective_through else None
+        if end and end < start:
+            raise ValueError("effective_through cannot precede effective_from")
+        verified = datetime.now(timezone.utc).isoformat()
+        with self.db:
+            self.db.execute("""
+                INSERT INTO market_equity_sector_history(
+                    exchange,symbol,sector,effective_from,effective_through,
+                    source,source_reference,verified_at
+                ) VALUES(?,?,?,?,?,?,?,?)
+                ON CONFLICT(exchange,symbol,effective_from) DO UPDATE SET
+                    sector=excluded.sector,effective_through=excluded.effective_through,
+                    source=excluded.source,source_reference=excluded.source_reference,
+                    verified_at=excluded.verified_at
+            """, (exchange, symbol, sector, start, end, source.strip(), source_reference, verified))
+        return self.sector_as_of(exchange, symbol, start) or {}
+
+    def sector_as_of(self, exchange: str, symbol: str, as_of: str) -> dict | None:
+        row = self.db.execute("""
+            SELECT * FROM market_equity_sector_history
+            WHERE exchange=? AND upper(symbol)=? AND effective_from<=?
+              AND (effective_through IS NULL OR effective_through>=?)
+            ORDER BY effective_from DESC LIMIT 1
+        """, (exchange.upper(), symbol.upper(), as_of[:10], as_of[:10])).fetchone()
+        return dict(row) if row else None
