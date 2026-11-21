@@ -74,6 +74,12 @@ jobs:
         working-directory: backend
         run: python -m alembic upgrade head
 
+      - name: Verify sector migration 0035 upgrade/downgrade on disposable PostgreSQL
+        working-directory: backend
+        env:
+          AIR_RUN_SECTOR_MIGRATION_ROUNDTRIP: "1"
+        run: python -m pytest -q tests/test_sector_migration_0035_roundtrip.py
+
       - name: Create least-privilege usage RLS test role
         env:
           PGPASSWORD: air_test
