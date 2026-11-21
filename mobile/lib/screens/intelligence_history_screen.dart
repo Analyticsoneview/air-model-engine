@@ -4,6 +4,7 @@
 
 import 'package:flutter/material.dart';
 import '../services/air_api_client.dart';
+import '../history_accounting.dart';
 
 class IntelligenceHistoryScreen extends StatefulWidget {
   const IntelligenceHistoryScreen({super.key});
@@ -79,37 +80,16 @@ class _IntelligenceHistoryScreenState extends State<IntelligenceHistoryScreen> {
     return items.fold<double>(0, (sum, row) => sum + value(row)!);
   }
 
-  double? _number(dynamic value) {
-    if (value is num) return value.toDouble();
-    return value == null ? null : double.tryParse(value.toString());
-  }
+  double? _grossPnl(Map<String, dynamic> row) => HistoryAccounting.grossPnl(row);
 
-  double? _canonicalNumber(Map<String, dynamic> row, String field) =>
-      _number(row[field]);
+  double? _netPnl(Map<String, dynamic> row) => HistoryAccounting.netPnl(row);
 
-  double? _grossPnl(Map<String, dynamic> row) => _canonicalNumber(row, 'gross_pnl');
+  double? _chargesTotal(Map<String, dynamic> row) => HistoryAccounting.chargesTotal(row);
 
-  double? _netPnl(Map<String, dynamic> row) => _canonicalNumber(row, 'net_pnl');
+  String _chargeBasis(Map<String, dynamic> row) => HistoryAccounting.chargeBasis(row);
 
-  double? _chargesTotal(Map<String, dynamic> row) {
-    final charges = row['charges'];
-    return charges is Map ? _number(charges['total']) : null;
-  }
-
-  String _chargeBasis(Map<String, dynamic> row) {
-    final charges = row['charges'];
-    if (charges is! Map) return 'PENDING';
-    final basis = (charges['basis'] ?? '').toString();
-    if (basis == 'ACTUAL_SOURCE_BREAKDOWN' ||
-        basis == 'ACTUAL_REPORTED_TOTAL_BREAKDOWN_UNAVAILABLE') return 'ACTUAL';
-    if (basis.startsWith('ESTIMATED')) return 'ESTIMATED';
-    return 'PENDING';
-  }
-
-  int? _recordedQuantity(Map<String, dynamic> row) {
-    final quantity = _number(row['quantity']);
-    return quantity == null ? null : quantity.round();
-  }
+  int? _recordedQuantity(Map<String, dynamic> row) =>
+      HistoryAccounting.recordedQuantity(row);
 
   String _outcome(Map<String, dynamic> row) =>
       (row['expiry_outcome'] ?? 'EXPIRED_PNL_PENDING').toString();
@@ -282,10 +262,10 @@ class _IntelligenceHistoryScreenState extends State<IntelligenceHistoryScreen> {
                   DataCell(Text((row['option_type'] ?? '—').toString())),
                   DataCell(Text((row['strike'] ?? '—').toString())),
                   DataCell(Text(_date(row['expiry']))),
-                  DataCell(Text(_number(row['entry_price'])?.toStringAsFixed(2) ?? '—')),
-                  DataCell(Text(_number(row['exit_price'])?.toStringAsFixed(2) ?? 'PENDING')),
+                  DataCell(Text((row['entry_price'] is num ? (row['entry_price'] as num).toDouble() : double.tryParse('${row['entry_price']}'))?.toStringAsFixed(2) ?? '—')),
+                  DataCell(Text((row['exit_price'] is num ? (row['exit_price'] as num).toDouble() : double.tryParse('${row['exit_price']}'))?.toStringAsFixed(2) ?? 'PENDING')),
                   DataCell(Text(_recordedQuantity(row)?.toString() ?? 'PENDING')),
-                  DataCell(Text(_number(row['lot_size'])?.toStringAsFixed(0) ?? '—')),
+                  DataCell(Text((row['lot_size'] is num ? (row['lot_size'] as num).toDouble() : double.tryParse('${row['lot_size']}'))?.toStringAsFixed(0) ?? '—')),
                   DataCell(Text(_money(_grossPnl(row)))),
                   DataCell(Text(_money(_netPnl(row)))),
                   DataCell(Text(outcome, style: TextStyle(fontSize: 9, color: color, fontWeight: FontWeight.w800))),
