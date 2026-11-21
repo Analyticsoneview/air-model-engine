@@ -358,6 +358,7 @@ class ModelEngineLedger:
                                 "effective_date": historical["effective_date"],
                                 "source": historical.get("source"),
                             }
+                            row["lot_size"] = int(historical["lot_size"])
                             lots += 1
                             changed = True
                         break
