@@ -356,7 +356,14 @@ async def get_model_engine_master(
     # case-study cohort in EXPIRED. Merge into matching ledger rows rather than
     # duplicating a contract. This is independent of generic EXPIRYSCAN expiry
     # transitions and all DTE/session-count subsets.
-    for case in historical_expired_contracts():
+    # Historical case-study rows are appended after the initial ledger
+    # hydration above, so run the same SQLite-only reference enrichment on
+    # that cohort before merging it into MASTER. max_contracts=0 prevents
+    # additional broker history retrieval; this step only resolves references.
+    historical_cases = await customer_service.hydrate_strategy_rows(
+        historical_expired_contracts(), max_contracts=0
+    )
+    for case in historical_cases:
         match = next((row for row in rows
                       if str(row.get("symbol") or "").upper() == case["symbol"]
                       and str(row.get("option_type") or "").upper() == case["option_type"]
