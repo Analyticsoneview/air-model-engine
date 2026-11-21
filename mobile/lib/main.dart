@@ -122,6 +122,14 @@ class AirShell extends StatefulWidget {
 class _AirShellState extends State<AirShell> {
   int tab = 0;
 
+  static const _desktopDestinations = <({IconData icon, String label})>[
+    (icon: Icons.grid_view_rounded, label: 'Home'),
+    (icon: Icons.analytics_rounded, label: 'Intelligence'),
+    (icon: Icons.history_rounded, label: 'Intelligence History'),
+    (icon: Icons.radar_rounded, label: 'AIR QOC'),
+    (icon: Icons.apps_rounded, label: 'More'),
+  ];
+
   @override
   Widget build(BuildContext context) {
     final pages = [
@@ -138,47 +146,75 @@ class _AirShellState extends State<AirShell> {
         child: Row(
           children: [
             if (wide)
-              NavigationRail(
-                selectedIndex: tab,
-                onDestinationSelected: (value) => setState(() => tab = value),
-                extended: MediaQuery.sizeOf(context).width >= 1200,
-                labelType: NavigationRailLabelType.all,
-                leading: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 20),
-                  child: Column(
-                    children: [
-                      Container(
-                        width: 42,
-                        height: 42,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.primary.withValues(alpha: .14),
-                          borderRadius: BorderRadius.circular(13),
-                        ),
-                        child: Text(
-                          'AIR',
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.primary,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: .8,
+              SizedBox(
+                width: 236,
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 20, 18, 18),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 42,
+                            height: 42,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.primary.withValues(alpha: .14),
+                              borderRadius: BorderRadius.circular(13),
+                            ),
+                            child: Text(
+                              'AIR',
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.primary,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: .8,
+                              ),
+                            ),
                           ),
-                        ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'INVESTMENT\\nINTELLIGENCE',
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: .5,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                      if (MediaQuery.sizeOf(context).width >= 1200) ...[
-                        const SizedBox(height: 8),
-                        const Text('INVESTMENT\nINTELLIGENCE', textAlign: TextAlign.center,
-                          style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: .5)),
-                      ],
-                    ],
-                  ),
+                    ),
+                    Expanded(
+                      child: ListView(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        children: [
+                          for (var index = 0; index < _desktopDestinations.length; index++)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 5),
+                              child: ListTile(
+                                selected: tab == index,
+                                onTap: () => setState(() => tab = index),
+                                leading: Icon(_desktopDestinations[index].icon),
+                                title: Text(
+                                  _desktopDestinations[index].label,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                                ),
+                                selectedTileColor: Theme.of(context).colorScheme.primary.withValues(alpha: .12),
+                                selectedColor: Theme.of(context).colorScheme.primary,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+                                visualDensity: const VisualDensity(vertical: -1),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-                destinations: const [
-                  NavigationRailDestination(icon: Icon(Icons.grid_view_rounded), label: Text('Home')),
-                  NavigationRailDestination(icon: Icon(Icons.analytics_rounded), label: Text('Intelligence')),
-                  NavigationRailDestination(icon: Icon(Icons.history_rounded), label: Text('Intelligence History')),
-                  NavigationRailDestination(icon: Icon(Icons.radar_rounded), label: Text('AIR QOC')),
-                  NavigationRailDestination(icon: Icon(Icons.apps_rounded), label: Text('More')),
-                ],
               ),
             if (wide)
               const VerticalDivider(width: 1, thickness: 1),
