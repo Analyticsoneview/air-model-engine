@@ -699,13 +699,25 @@ async def get_model_engine_pnl_calendar(
     """Calendar P&L with separate entry-capital and exit-realization dates."""
     from app.model_engine_pnl_calendar import build_pnl_calendar
     from app.model_engine_physical_settlement import build_physical_settlement_review
-    customer_service = await _customer_market_data_service(customer_id)
-    rows = await customer_service.hydrate_strategy_rows(_strategy_rows_for_customer(customer_id, limit), max_contracts=2000)
-    master = build_master(rows)
+    # History is expiry-date driven and reads persisted strategy rows directly.
+    # Do not hydrate this screen from live/historical market-data providers.
+    rows = _strategy_rows_for_customer(customer_id, limit)
+    # Preserve the pinned, source-attributed 27-Oct-2026 historical case-study cohort.
+    by_id = {str(row.get("signal_id")): row for row in rows}
+    for case in historical_expired_contracts():
+        by_id.setdefault(str(case.get("signal_id")), case)
+    history_rows = list(by_id.values())
+    master = build_master(history_rows)
     physical_review = build_physical_settlement_review()
-    result = build_pnl_calendar(master.get("strategies") or {},
-                                 physical_review=physical_review, year=year, month=month)
-    result["market_data_source"] = await get_customer_market_data_status(customer_id)
+    result = build_pnl_calendar(
+        master.get("strategies") or {},
+        physical_review=physical_review,
+        history_rows=history_rows,
+        year=year,
+        month=month,
+    )
+    result["history_source"] = "PERSISTED_STRATEGY_LEDGER_PLUS_PINNED_HISTORICAL_COHORT"
+    result["history_selection"] = "expiry_date <= server_as_of_date; no market-data hydration"
     return result
 
 
