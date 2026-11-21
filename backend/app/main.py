@@ -851,8 +851,8 @@ async def customer_market_intelligence_pulse(customer_id: str = Depends(require_
 
 
 @app.get("/api/v1/nse-data/status")
-async def nse_bhavcopy_status(customer_id: str = Depends(require_customer)) -> dict:
-    """Expose shared NSE ingestion progress to authenticated, approved AIR customers."""
+async def nse_bhavcopy_status(admin: dict = Depends(require_admin_management)) -> dict:
+    """Expose shared NSE ingestion progress to authorized AIR administrators only."""
     return nse_data_status()
 
 
@@ -865,7 +865,7 @@ async def nse_bhavcopy_rows(
     end_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     instrument_type: str | None = Query(default=None, max_length=30),
     limit: int = Query(default=100, ge=1, le=500),
-    customer_id: str = Depends(require_customer),
+    admin: dict = Depends(require_admin_management),
 ) -> dict:
     if start_date and end_date and start_date > end_date:
         raise HTTPException(status_code=422, detail="start_date must be before or equal to end_date")
@@ -876,12 +876,6 @@ async def nse_bhavcopy_rows(
     payload = {"market": market, "count": len(rows), "rows": rows,
                "source": "NSE official UDiFF bhavcopy", "data_type": "EOD"}
     download_bytes = len(json.dumps(payload, separators=(",", ":"), default=str).encode("utf-8"))
-    usage = record_licensed_data_download(
-        customer_id, account_directory.get_customer_commercial_type(customer_id),
-        download_bytes, request.headers.get("Idempotency-Key", ""),
-        metadata={"market": market, "symbol": symbol, "row_count": len(rows)},
-    )
-    payload["download_usage"] = usage
     return payload
 
 
