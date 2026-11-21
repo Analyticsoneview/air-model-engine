@@ -116,6 +116,39 @@ async def upsert_sector_mapping(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+class ReferenceBackfillRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    provider: str = Field(min_length=2, max_length=32)
+    account_id: str = Field(min_length=1, max_length=128)
+    limit: int = Field(default=2000, ge=1, le=2000)
+
+
+@router.post("/reference/backfill")
+async def backfill_reference_masters(
+    body: ReferenceBackfillRequest,
+    customer_id: str = Depends(_operator),
+) -> dict:
+    """Persist missing historical sector and lot-size values for the operator ledger."""
+    publishers = [
+        value.strip() for value in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",")
+        if value.strip()
+    ]
+    publisher_id = publishers[0] if publishers else customer_id
+    accounts = CustomerAccountDirectory()
+    try:
+        owned = {(item.broker, item.account_id) for item in accounts.list_for_customer(customer_id)}
+    finally:
+        accounts.close()
+    if (body.provider.lower(), body.account_id) not in owned:
+        raise HTTPException(status_code=403, detail="Selected broker account is not assigned to this operator")
+    result = _ledger.backfill_reference_fields(
+        publisher_id, market_data_instruments, provider=body.provider.lower(),
+        account_id=body.account_id, limit=body.limit,
+    )
+    return {"customer_id": publisher_id, "status": "COMPLETED_WITH_UNRESOLVED" if result["unresolved"] else "COMPLETED",
+            **result}
+
+
 @router.get("/reference/sectors")
 async def get_sector_mapping(
     exchange: str = Query(default="NSE", min_length=2, max_length=16),
