@@ -221,3 +221,14 @@ def test_unresolved_expiry78_trade_remains_visible_in_strategy_tab():
     assert views["EXPIRY78"]["counts"]["UNRESOLVED"] == 1
     trade = views["EXPIRY78"]["groups"]["UNRESOLVED"][0]
     assert trade["position_status"] == "UNRESOLVED"
+
+
+def test_nse_udiff_sto_instrument_type_obeys_existing_stock_premium_cap():
+    stock_bars = [
+        bar("2026-11-03", 20, 22, 18, 19),
+        bar("2026-11-04", 18, 30, 17, 25),
+        bar("2026-11-05", 13, 15, 11, 12),
+    ]
+    item = contract(instrument="STO", bars=stock_bars)
+    result = evaluate_expiry78_contract(item, as_of="2026-11-05")
+    assert result["trade_count"] == 0
