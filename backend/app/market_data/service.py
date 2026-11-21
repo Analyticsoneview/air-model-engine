@@ -513,9 +513,13 @@ class MarketDataService:
                     )
                 except Exception:
                     historical_lot = None
+            # Never backdate today's current contract master onto an older ledger row.
+            # Historical rows require a dated snapshot; current-master fallback is limited
+            # to same-day rows while the daily snapshot is being captured.
+            current_day_fallback = signal_as_of >= date.today().isoformat()
             resolved_lot_size = (
                 int(historical_lot["lot_size"]) if historical_lot and historical_lot.get("lot_size")
-                else lot_size if lot_size and lot_size > 0 else None
+                else lot_size if current_day_fallback and lot_size and lot_size > 0 else None
             )
             if resolved_lot_size:
                 row["lot_size"] = resolved_lot_size
