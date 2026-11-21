@@ -172,7 +172,15 @@ void main() {
         'Bearer admin-totp-access-token',
         'Bearer rotated-admin-access-token',
       ]);
-      expect(AirApiClient.isAuthenticated, isTrue);
+      final customerClient = AirApiClient(
+        baseUrl: 'https://air.example',
+        client: MockClient((request) async {
+          expect(request.headers['Authorization'], 'Bearer customer-mobile-pin-token');
+          return http.Response(jsonEncode({'customer_id': 'customer-1'}), 200);
+        }),
+      );
+      await customerClient.me();
+      customerClient.dispose();
       client.dispose();
       AirApiClient.setAccessToken(null);
     });
