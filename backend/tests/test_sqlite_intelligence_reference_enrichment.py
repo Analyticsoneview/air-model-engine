@@ -122,3 +122,33 @@ def test_hydrate_historical_case_with_latest_available_constituent_snapshot(tmp_
     assert row["pnl_pct"] == 150.0
     assert row["classification"] == "EXPIRED"
     assert row["position_status"] == "EXPIRED"
+
+def test_lot_size_lookup_matches_exact_strike_beyond_first_hundred_rows(tmp_path, monkeypatch):
+    bhavcopy = tmp_path / "nse_bhavcopy.sqlite3"
+    with sqlite3.connect(bhavcopy) as db:
+        db.execute("""
+            CREATE TABLE nse_bhavcopy (
+                market TEXT, trade_date TEXT, symbol TEXT, expiry TEXT,
+                strike REAL, option_type TEXT, lot_size REAL
+            )
+        """)
+        # More than 100 strikes precede the requested strike in the old
+        # symbol-level LIMIT query. The exact-contract lookup must still find it.
+        db.executemany(
+            "INSERT INTO nse_bhavcopy VALUES ('FO','2026-10-26','ABC','2026-10-27',?,'CE',125)",
+            [(float(strike),) for strike in range(100, 220)],
+        )
+    monkeypatch.setenv("AIR_NSE_DB_PATH", str(bhavcopy))
+    monkeypatch.setenv("AIR_NSE_UNIVERSE_DB_PATH", str(tmp_path / "missing-universe.sqlite3"))
+
+    service = MarketDataService(EmptyRouter(), None, None)
+    rows = asyncio.run(service.hydrate_strategy_rows([{
+        "signal_id": "abc-ce-219", "symbol": "ABC",
+        "signal_date": "2026-10-12", "entry_date": "2026-10-12",
+        "expiry": "2026-10-27", "strike": 219, "option_type": "CE",
+        "lot_size": None, "evidence": {"preserve": True},
+    }], max_contracts=0))
+
+    assert rows[0]["lot_size"] == 125
+    assert rows[0]["evidence"]["nse_bhavcopy_reference"]["trade_date"] == "2026-10-26"
+    assert rows[0]["evidence"]["preserve"] is True
