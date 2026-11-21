@@ -38,6 +38,7 @@ jobs:
               - '.github/workflows/**'
             android:
               - 'mobile/**'
+              - '.github/workflows/air-pr-validation-automerge.yml'
 
   backend:
     needs: changes
