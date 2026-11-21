@@ -35,8 +35,10 @@ def test_stock_option_entry_limit_is_40_percent_of_engulfing_high_and_new_same_d
     assert trade["entry_limit"] == 8.0
     assert trade["entry_price"] == 8.0
     assert trade["initial_stop_loss"] == 7.6
-    assert trade["stop_loss"] == 8.0
+    assert trade["stop_loss"] == 7.6
     assert trade["classification"] == "NEW"
+    assert trade["trail_history"] == []
+    assert trade["peak_premium"] == trade["entry_price"]
     assert trade["entry_day_quantity"] == 100
     assert trade["gross_pnl_rupees"] is None  # position size is deliberately not inferred
 
@@ -221,3 +223,23 @@ def test_unresolved_expiry78_trade_remains_visible_in_strategy_tab():
     assert views["EXPIRY78"]["counts"]["UNRESOLVED"] == 1
     trade = views["EXPIRY78"]["groups"]["UNRESOLVED"][0]
     assert trade["position_status"] == "UNRESOLVED"
+
+ 
+def test_entry_day_high_is_excluded_from_trailing_stop_to_avoid_lookahead():
+    bars = [
+        bar("2026-11-03", 12, 13, 8, 9),        # prior bearish candle
+        bar("2026-11-04", 9, 15, 8.5, 14),      # bullish engulfing; limit=6
+        bar("2026-11-05", 6.5, 20, 5.9, 7),     # fill touch; high may predate fill
+        bar("2026-11-06", 6.2, 6.5, 6.1, 6.3),  # no +20% post-entry milestone
+        bar("2026-11-10", 6.3, 6.6, 6.1, 6.4, underlying_close=110),
+    ]
+    result = evaluate_expiry78_contract(
+        contract(bars=bars), as_of="2026-11-10"
+    )
+    trade = result["trades"][0]
+    assert trade["entry_date"] == "2026-11-05"
+    assert trade["entry_price"] == 6.0
+    assert trade["trail_history"] == []
+    assert trade["peak_premium"] == 6.0
+    assert trade["classification"] == "EXPIRED"
+    assert trade["exit_price"] == 10.0
