@@ -315,14 +315,24 @@ class ModelEngineLedger:
                 as_of = str(row.get("entry_date") or row.get("signal_date") or "")[:10]
                 symbol = str(row.get("symbol") or "").upper()
                 changed = False
-                if as_of and not evidence.get("sector"):
+                if as_of and (not evidence.get("sector") or not evidence.get("sector_master")):
                     sector = instruments.sector_as_of("NSE", symbol, as_of)
                     if sector:
                         evidence["sector"] = sector["sector"]
                         evidence["sector_master"] = {
-                            "exchange": "NSE", "symbol": symbol, "sector": sector["sector"],
-                            "effective_from": sector["effective_from"], "source": sector["source"],
+                            "exchange": "NSE",
+                            "symbol": symbol,
+                            "company_name": sector.get("company_name"),
+                            "macro_sector": sector.get("macro_sector"),
+                            "sector": sector["sector"],
+                            "industry": sector.get("industry"),
+                            "basic_industry": sector.get("basic_industry"),
+                            "classification_status": sector.get("classification_status", "UNVERIFIED"),
+                            "effective_from": sector["effective_from"],
+                            "effective_through": sector.get("effective_through"),
+                            "source": sector["source"],
                             "source_reference": sector.get("source_reference"),
+                            "verified_at": sector.get("verified_at"),
                         }
                         sectors += 1
                         changed = True

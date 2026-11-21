@@ -9,9 +9,9 @@ EXPECTED_SHARED_SCHEMAS = {"market_ref", "ingestion", "research"}
 
 def test_market_data_schema_migration_is_latest_linear_revision():
     script = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert script.get_heads() == ["0034_market_reference_history"]
-    revision = script.get_revision("0034_market_reference_history")
-    assert revision.down_revision == "0033_customer_pin_auth"
+    assert script.get_heads() == ["0035_equity_sector_levels"]
+    revision = script.get_revision("0035_equity_sector_levels")
+    assert revision.down_revision == "0034_market_reference_history"
     assert len(revision.revision) <= 32
 
 
