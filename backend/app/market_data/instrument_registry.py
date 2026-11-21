@@ -85,7 +85,7 @@ class MarketInstrumentDirectory:
                     effective_from TEXT NOT NULL, effective_through TEXT,
                     source TEXT NOT NULL, source_reference TEXT, verified_at TEXT NOT NULL,
                     company_name TEXT, macro_sector TEXT, industry TEXT, basic_industry TEXT,
-                    classification_status TEXT NOT NULL DEFAULT 'VERIFIED',
+                    classification_status TEXT NOT NULL DEFAULT 'UNVERIFIED',
                     PRIMARY KEY(exchange,symbol,effective_from),
                     CHECK(effective_through IS NULL OR effective_through >= effective_from),
                     CHECK(classification_status IN ('VERIFIED','UNVERIFIED','PROVISIONAL'))
@@ -99,7 +99,7 @@ class MarketInstrumentDirectory:
                 ("macro_sector", "TEXT"),
                 ("industry", "TEXT"),
                 ("basic_industry", "TEXT"),
-                ("classification_status", "TEXT NOT NULL DEFAULT 'VERIFIED'"),
+                ("classification_status", "TEXT NOT NULL DEFAULT 'UNVERIFIED'"),
             ):
                 if column not in sector_columns:
                     self.db.execute(
