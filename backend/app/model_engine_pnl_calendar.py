@@ -139,6 +139,7 @@ def _trade_record(row: dict[str, Any], strategy: str) -> dict[str, Any] | None:
 
 
 def build_pnl_calendar(strategy_views: dict[str, Any], *, physical_review: dict[str, Any] | None = None,
+                       history_rows: list[dict[str, Any]] | None = None,
                        year: int | None = None, month: int | None = None) -> dict[str, Any]:
     """Aggregate distinct strategy backtests; physical-delivery view is excluded."""
     selected: list[dict[str, Any]] = []
@@ -175,6 +176,69 @@ def build_pnl_calendar(strategy_views: dict[str, Any], *, physical_review: dict[
                 else:
                     item["accounting_basis"] = "RECOVERY_STRATEGY_REPLAY"
                 selected.append(item)
+
+    # Expiry history is selected from persisted records by contract expiry,
+    # independently of current lifecycle labels and without market-data hydration.
+    expiry_history: list[dict[str, Any]] = []
+    selected_ids = {str(item.get("signal_id")) for item in selected if item.get("signal_id")}
+    as_of = date.today()
+    seen_history: set[tuple] = set()
+    for row in history_rows or []:
+        if not isinstance(row, dict):
+            continue
+        expiry_day = _date(row.get("expiry"))
+        if not expiry_day or date.fromisoformat(expiry_day) > as_of:
+            continue
+        signal_id = str(row.get("signal_id") or "")
+        contract_key = (
+            signal_id or str(row.get("symbol") or ""),
+            str(row.get("option_type") or "").upper(),
+            str(row.get("strike") or ""),
+            expiry_day,
+        )
+        if contract_key in seen_history:
+            continue
+        seen_history.add(contract_key)
+        if signal_id and signal_id in selected_ids:
+            continue
+        evidence = row.get("evidence") if isinstance(row.get("evidence"), dict) else {}
+        memberships = evidence.get("strategy_memberships") or evidence.get("strategies") or []
+        if isinstance(memberships, str):
+            memberships = [memberships]
+        strategy_name = str(evidence.get("strategy") or row.get("strategy") or
+                            (memberships[0] if memberships else "HISTORICAL_LEDGER")).upper()
+        entry_price = _num(row.get("entry_price") or row.get("entry_limit"))
+        quantity = _num(row.get("position_quantity") or row.get("quantity"))
+        pnl_points = _num(row.get("pnl_points"))
+        gross = round(pnl_points * quantity, 2) if pnl_points is not None and quantity is not None else None
+        expiry_history.append({
+            "strategy": strategy_name,
+            "signal_id": row.get("signal_id"),
+            "symbol": row.get("symbol"),
+            "instrument_type": row.get("instrument_type"),
+            "option_type": row.get("option_type"),
+            "strike": row.get("strike"),
+            "expiry": expiry_day,
+            "signal_date": _date(row.get("signal_date")),
+            "entry_date": _date(row.get("entry_date")),
+            "entry_price": entry_price,
+            "quantity": quantity,
+            "capital_deployed": round(entry_price * quantity, 2) if entry_price is not None and quantity is not None else None,
+            "exit_date": _date(row.get("exit_date")),
+            "exit_price": _num(row.get("exit_price")),
+            "classification": "EXPIRED_BY_CONTRACT_DATE",
+            "pnl_points": pnl_points,
+            "gross_pnl": gross,
+            "charges": None,
+            "net_pnl": None,
+            "expiry_outcome": ("EXPIRED_WIN" if gross > 0 else "EXPIRED_LOSS" if gross < 0 else
+                               "EXPIRED_BREAKEVEN" if gross == 0 else "EXPIRED_PNL_PENDING"),
+            "pnl_status": "PENDING_VERIFICATION" if gross is None else "SOURCE_PNL_POINTS_ONLY",
+            "capital_status": "KNOWN" if entry_price is not None and quantity is not None else "QUANTITY_REQUIRED",
+            "source": "VERIFIED_REPLAY_OR_LEDGER",
+            "history_basis": "EXPIRY_DATE",
+            "evidence": evidence,
+        })
 
     def blank():
         return {"trade_count": 0, "realized_trade_count": 0, "gross_pnl": 0.0,
@@ -356,13 +420,14 @@ def build_pnl_calendar(strategy_views: dict[str, Any], *, physical_review: dict[
         "physical_settlement": {"summary": physical_summary, "rows": physical_rows},
         "days": day_items, "months": month_items,
         "trades": selected,
-        "expired_trades": [trade for trade in selected if trade.get("expiry_outcome")],
+        "expired_trades": ([trade for trade in selected if trade.get("expiry_outcome")] + expiry_history),
+        "expiry_history_count": len(expiry_history),
         "expired_trade_summary": {
-            "count": sum(1 for trade in selected if trade.get("expiry_outcome")),
-            "wins": sum(1 for trade in selected if trade.get("expiry_outcome") == "EXPIRED_WIN"),
-            "losses": sum(1 for trade in selected if trade.get("expiry_outcome") == "EXPIRED_LOSS"),
-            "breakeven": sum(1 for trade in selected if trade.get("expiry_outcome") == "EXPIRED_BREAKEVEN"),
-            "pnl_pending": sum(1 for trade in selected if trade.get("expiry_outcome") == "EXPIRED_PNL_PENDING"),
+            "count": sum(1 for trade in selected if trade.get("expiry_outcome")) + len(expiry_history),
+            "wins": sum(1 for trade in selected if trade.get("expiry_outcome") == "EXPIRED_WIN") + sum(1 for trade in expiry_history if trade.get("expiry_outcome") == "EXPIRED_WIN"),
+            "losses": sum(1 for trade in selected if trade.get("expiry_outcome") == "EXPIRED_LOSS") + sum(1 for trade in expiry_history if trade.get("expiry_outcome") == "EXPIRED_LOSS"),
+            "breakeven": sum(1 for trade in selected if trade.get("expiry_outcome") == "EXPIRED_BREAKEVEN") + sum(1 for trade in expiry_history if trade.get("expiry_outcome") == "EXPIRED_BREAKEVEN"),
+            "pnl_pending": sum(1 for trade in selected if trade.get("expiry_outcome") == "EXPIRED_PNL_PENDING") + sum(1 for trade in expiry_history if trade.get("expiry_outcome") == "EXPIRED_PNL_PENDING"),
         },
         "charge_model": {
             "basis": "Indicative NSE equity-options model; broker-specific tariff/actual contract note overrides estimate",
