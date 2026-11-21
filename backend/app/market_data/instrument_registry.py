@@ -261,7 +261,7 @@ class MarketInstrumentDirectory:
                       macro_sector: str | None = None,
                       industry: str | None = None,
                       basic_industry: str | None = None,
-                      classification_status: str = "VERIFIED") -> dict:
+                      classification_status: str = "UNVERIFIED") -> dict:
         """Store symbol-keyed, effective-dated company classification."""
         exchange, symbol, sector = exchange.strip().upper(), symbol.strip().upper(), sector.strip()
         status = classification_status.strip().upper()
