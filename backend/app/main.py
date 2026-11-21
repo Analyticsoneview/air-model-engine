@@ -851,8 +851,8 @@ async def customer_market_intelligence_pulse(customer_id: str = Depends(require_
 
 
 @app.get("/api/v1/nse-data/status")
-async def nse_bhavcopy_status(admin: dict = Depends(require_admin)) -> dict:
-    """Expose shared NSE ingestion health to authenticated AIR administrators."""
+async def nse_bhavcopy_status(customer_id: str = Depends(require_customer)) -> dict:
+    """Expose shared NSE ingestion progress to authenticated, approved AIR customers."""
     return nse_data_status()
 
 
