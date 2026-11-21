@@ -508,6 +508,25 @@ class MarketDataService:
                                LIMIT 1""",
                             (symbol, as_of),
                         ).fetchone()
+                        # Historical rows may predate the oldest retained
+                        # constituent snapshot. In that case use the latest
+                        # available official snapshot, but record that it is
+                        # later than the row's as-of date (never imply it was
+                        # historically effective).
+                        snapshot_temporal_status = "ON_OR_BEFORE_AS_OF"
+                        if member is None:
+                            member = db.execute(
+                                """SELECT c.snapshot_date, c.company_name, c.industry, c.isin,
+                                          c.source_url, c.index_code
+                                   FROM nse_index_constituent_snapshots c
+                                   WHERE upper(c.symbol)=?
+                                     AND c.company_name<>'' AND c.industry<>''
+                                   ORDER BY c.snapshot_date DESC, c.index_code
+                                   LIMIT 1""",
+                                (symbol,),
+                            ).fetchone()
+                            if member is not None:
+                                snapshot_temporal_status = "LATEST_AVAILABLE_AFTER_AS_OF"
                     if member:
                         # Keep the exchange's industry label distinct; sector is
                         # a compatibility display field when no canonical sector
@@ -527,6 +546,8 @@ class MarketDataService:
                                 "snapshot_date": member["snapshot_date"],
                                 "industry": member["industry"],
                                 "source_url": member["source_url"],
+                                "as_of_date": as_of,
+                                "temporal_status": snapshot_temporal_status,
                                 "source": "NSE_OFFICIAL_INDEX_CONSTITUENTS_SQLITE",
                             },
                         }

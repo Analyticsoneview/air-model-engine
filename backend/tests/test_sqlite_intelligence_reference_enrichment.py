@@ -78,3 +78,47 @@ def test_hydrate_strategy_rows_preserves_existing_reference_values(tmp_path, mon
     assert rows[0]["industry"] == "Existing Industry"
     assert rows[0]["company_name"] == "Existing Name"
     assert rows[0]["evidence"] == {"keep": True}
+
+def test_hydrate_historical_case_with_latest_available_constituent_snapshot(tmp_path, monkeypatch):
+    universe = tmp_path / "nse_universe.sqlite3"
+    with sqlite3.connect(universe) as db:
+        db.execute("""
+            CREATE TABLE nse_index_constituent_snapshots (
+                index_code TEXT, snapshot_date TEXT, symbol TEXT,
+                company_name TEXT, industry TEXT, isin TEXT, source_url TEXT
+            )
+        """)
+        db.execute("""
+            INSERT INTO nse_index_constituent_snapshots
+            VALUES ('NIFTY100','2026-11-20','ABC','ABC Industries Ltd',
+                    'Chemicals','INE000A01000','https://nse.example/constituents.csv')
+        """)
+    monkeypatch.setenv("AIR_NSE_UNIVERSE_DB_PATH", str(universe))
+    monkeypatch.setenv("AIR_NSE_DB_PATH", str(tmp_path / "missing-bhavcopy.sqlite3"))
+
+    service = MarketDataService(EmptyRouter(), None, None)
+    # Mirrors the historical MASTER cohort: case rows are hydrated after
+    # being appended, without requesting broker-history enrichment.
+    rows = asyncio.run(service.hydrate_strategy_rows([{
+        "signal_id": "historical-abc", "symbol": "ABC",
+        "signal_date": "2026-10-12", "entry_date": "2026-10-12",
+        "expiry": "2026-10-27", "strike": 100, "option_type": "CE",
+        "entry_price": 10.0, "latest_price": 25.0, "pnl_pct": 150.0,
+        "classification": "EXPIRED", "position_status": "EXPIRED",
+        "evidence": {"source": "HISTORICAL_CASE", "keep": "yes"},
+    }], max_contracts=0))
+
+    row = rows[0]
+    assert row["sector"] == "Chemicals"
+    assert row["industry"] == "Chemicals"
+    assert row["company_name"] == "ABC Industries Ltd"
+    assert row["evidence"]["nse_universe_reference"]["snapshot_date"] == "2026-11-20"
+    assert row["evidence"]["nse_universe_reference"]["as_of_date"] == "2026-10-12"
+    assert row["evidence"]["nse_universe_reference"]["temporal_status"] == "LATEST_AVAILABLE_AFTER_AS_OF"
+    assert row["evidence"]["source"] == "HISTORICAL_CASE"
+    assert row["evidence"]["keep"] == "yes"
+    assert row["entry_price"] == 10.0
+    assert row["latest_price"] == 25.0
+    assert row["pnl_pct"] == 150.0
+    assert row["classification"] == "EXPIRED"
+    assert row["position_status"] == "EXPIRED"
