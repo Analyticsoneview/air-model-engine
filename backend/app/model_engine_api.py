@@ -149,6 +149,29 @@ async def backfill_reference_masters(
             **result}
 
 
+class SectorMappingBatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    rows: list[SectorMappingRecord] = Field(min_length=1, max_length=10000)
+
+
+@router.post("/reference/sectors/bulk", status_code=201)
+async def import_sector_mappings(
+    body: SectorMappingBatch,
+    customer_id: str = Depends(_operator),
+) -> dict:
+    """Bulk import official/source-attributed sector rows without guessing missing symbols."""
+    imported = 0
+    errors = []
+    for index, item in enumerate(body.rows):
+        try:
+            market_data_instruments.upsert_sector(**item.model_dump())
+            imported += 1
+        except (ValueError, TypeError) as exc:
+            errors.append({"row": index, "error": str(exc)})
+    return {"status": "COMPLETED" if not errors else "COMPLETED_WITH_ERRORS",
+            "imported": imported, "rejected": len(errors), "errors": errors}
+
+
 @router.get("/reference/sectors")
 async def get_sector_mapping(
     exchange: str = Query(default="NSE", min_length=2, max_length=16),
