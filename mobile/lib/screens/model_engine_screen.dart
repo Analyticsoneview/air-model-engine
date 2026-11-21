@@ -558,12 +558,13 @@ class _ModelEngineScreenState extends State<ModelEngineScreen> {
   String _quantityLots(Map<String, dynamic> r) {
     final quantity = r['quantity'];
     final lotSize = r['lot_size'];
-    if (quantity == null) return '—';
-    if (lotSize is num && lotSize > 0 && quantity is num) {
-      final lots = quantity / lotSize;
-      return '$quantity qty / ${lots.toStringAsFixed(lots % 1 == 0 ? 0 : 2)} lots';
+    if (lotSize is num && lotSize > 0) {
+      final effectiveQuantity = quantity is num && quantity > 0 ? quantity : lotSize;
+      final lots = effectiveQuantity / lotSize;
+      return 'Lot $lotSize / $effectiveQuantity qty / ${lots.toStringAsFixed(lots % 1 == 0 ? 0 : 2)} lots';
     }
-    return '$quantity qty';
+    if (quantity is num && quantity > 0) return '$quantity qty • lot size pending';
+    return 'Lot size pending';
   }
 
   String _stopDisplay(Map<String, dynamic> r) {
