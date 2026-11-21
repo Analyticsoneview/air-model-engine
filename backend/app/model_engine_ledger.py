@@ -297,5 +297,81 @@ class ModelEngineLedger:
             "daily_bars_attached": attached_bars,
         }
 
+    def backfill_reference_fields(self, customer_id: str, instruments, *,
+                                  provider: str, account_id: str,
+                                  limit: int = 2000) -> dict[str, int]:
+        """Backfill only missing sector/lot-size fields from dated reference masters."""
+        rows = self.db.execute("""
+            SELECT signal_id, signal_date, entry_date, symbol, option_type, expiry,
+                   strike, lot_size, evidence_json
+            FROM model_signals WHERE customer_id=?
+            ORDER BY signal_date, signal_id LIMIT ?
+        """, (customer_id, max(1, min(limit, 2000)))).fetchall()
+        updated = sectors = lots = unresolved = 0
+        with self.db:
+            for raw in rows:
+                row = dict(raw)
+                evidence = json.loads(row.get("evidence_json") or "{}")
+                as_of = str(row.get("entry_date") or row.get("signal_date") or "")[:10]
+                symbol = str(row.get("symbol") or "").upper()
+                changed = False
+                if as_of and not evidence.get("sector"):
+                    sector = instruments.sector_as_of("NSE", symbol, as_of)
+                    if sector:
+                        evidence["sector"] = sector["sector"]
+                        evidence["sector_master"] = {
+                            "exchange": "NSE", "symbol": symbol, "sector": sector["sector"],
+                            "effective_from": sector["effective_from"], "source": sector["source"],
+                            "source_reference": sector.get("source_reference"),
+                        }
+                        sectors += 1
+                        changed = True
+                if (not row.get("lot_size") and as_of and row.get("option_type")
+                        and row.get("expiry") and row.get("strike") is not None):
+                    candidates = instruments.search(provider, account_id, symbol, 500)
+                    for candidate in candidates:
+                        if str(candidate.get("underlying_symbol") or candidate.get("symbol") or "").upper() != symbol:
+                            continue
+                        if str(candidate.get("option_type") or "").upper() != str(row["option_type"]).upper():
+                            continue
+                        if str(candidate.get("expiry") or "")[:10] != str(row["expiry"])[:10]:
+                            continue
+                        try:
+                            if float(candidate.get("strike")) != float(row["strike"]):
+                                continue
+                        except (TypeError, ValueError):
+                            continue
+                        historical = instruments.lot_size_as_of(
+                            provider, account_id, symbol=str(candidate["symbol"]),
+                            expiry=str(row["expiry"])[:10], strike=str(candidate.get("strike")),
+                            option_type=str(row["option_type"]), as_of=as_of,
+                        )
+                        if historical and int(historical["lot_size"]) > 0:
+                            self.db.execute("""
+                                UPDATE model_signals SET lot_size=? WHERE signal_id=?
+                                  AND customer_id=? AND (lot_size IS NULL OR lot_size<=0)
+                            """, (int(historical["lot_size"]), row["signal_id"], customer_id))
+                            evidence["contract_master"] = {
+                                "provider": provider, "account_id": account_id,
+                                "token": str(candidate.get("token") or ""),
+                                "lot_size": int(historical["lot_size"]),
+                                "effective_date": historical["effective_date"],
+                                "source": historical.get("source"),
+                            }
+                            lots += 1
+                            changed = True
+                        break
+                if changed:
+                    self.db.execute("""
+                        UPDATE model_signals SET evidence_json=?, updated_at=?
+                        WHERE signal_id=? AND customer_id=?
+                    """, (json.dumps(evidence, default=str), datetime.now(timezone.utc).isoformat(),
+                          row["signal_id"], customer_id))
+                    updated += 1
+                if not evidence.get("sector") or not row.get("lot_size"):
+                    unresolved += 1
+        return {"scanned": len(rows), "updated": updated, "sector_backfilled": sectors,
+                "lot_size_backfilled": lots, "unresolved": unresolved}
+
     def close(self) -> None:
         self.db.close()
