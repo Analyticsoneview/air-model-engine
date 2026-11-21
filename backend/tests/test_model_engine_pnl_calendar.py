@@ -102,3 +102,35 @@ def test_recovery_strategy_is_included_in_pnl_and_expired_trade_history():
     assert result["summary"]["overall"]["gross_pnl"] == -1000
     assert result["expired_trades"][0]["strategy"] == "RECOVERY"
     assert result["expired_trades"][0]["expiry_outcome"] == "EXPIRED_LOSS"
+
+
+
+def test_expiry_history_uses_contract_expiry_even_when_lifecycle_is_stale():
+    stale_open = _trade("STALE-OPEN", "EXPIRY78", "2026-10-01", None, 5, None, 100, None)
+    stale_open.update({
+        "expiry": "2026-10-29",
+        "classification": "HOLD",
+        "exit_date": None,
+        "exit_price": None,
+        "pnl_points": None,
+    })
+    future = _trade("FUTURE", "EXPIRY78", "2026-11-01", None, 5, None, 100, None)
+    future.update({"expiry": "2026-12-31", "classification": "HOLD"})
+    result = build_pnl_calendar(
+        {},
+        history_rows=[stale_open, future],
+    )
+    assert [row["signal_id"] for row in result["expired_trades"]] == ["STALE-OPEN"]
+    assert result["expired_trades"][0]["expiry_outcome"] == "EXPIRED_PNL_PENDING"
+    assert result["expired_trades"][0]["pnl_status"] == "PENDING_VERIFICATION"
+    assert result["expired_trade_summary"]["pnl_pending"] == 1
+
+
+def test_expiry_history_keeps_source_pnl_points_but_does_not_fabricate_rupee_pnl():
+    row = _trade("HIST-POINTS", "EXPIRY78", "2026-10-01", None, 5, None, None, 2.5)
+    row.update({"expiry": "2026-10-29", "classification": "NEW"})
+    result = build_pnl_calendar({}, history_rows=[row])
+    item = result["expired_trades"][0]
+    assert item["pnl_points"] == 2.5
+    assert item["gross_pnl"] is None
+    assert item["expiry_outcome"] == "EXPIRED_PNL_PENDING"
