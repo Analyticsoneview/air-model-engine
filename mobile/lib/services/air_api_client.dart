@@ -35,12 +35,16 @@ class AirApiClient {
     return normalized;
   }
 
-  AirApiClient({http.Client? client, String? baseUrl})
+  AirApiClient({http.Client? client, String? baseUrl, String? Function()? accessTokenProvider})
       : _client = client ?? http.Client(),
-        _baseUrlOverride = baseUrl == null ? null : _normalizeBaseUrl(baseUrl);
+        _baseUrlOverride = baseUrl == null ? null : _normalizeBaseUrl(baseUrl),
+        _accessTokenProvider = accessTokenProvider;
 
   final http.Client _client;
   final String? _baseUrlOverride;
+  // Admin screens can supply their own refreshed administrator token without
+  // overwriting the customer application's shared mobile/PIN session.
+  final String? Function()? _accessTokenProvider;
   String get baseUrl => _normalizeBaseUrl(
         _baseUrlOverride ??
             (_runtimeBaseUrl ?? (_configuredBaseUrl.isEmpty
@@ -48,7 +52,8 @@ class AirApiClient {
                 : _configuredBaseUrl)),
       );
   static String? _sharedAccessToken;
-  String? get _accessToken => _sharedAccessToken;
+  String? get _accessToken =>
+      _accessTokenProvider != null ? _accessTokenProvider() : _sharedAccessToken;
 
   static void setAccessToken(String? token) => _sharedAccessToken = token;
 
