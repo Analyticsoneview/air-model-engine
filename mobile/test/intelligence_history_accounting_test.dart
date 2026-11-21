@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:air/mobile/history_accounting.dart';
+import 'package:air_model_engine/history_accounting.dart';
 
 void main() {
   group('HistoryAccounting', () {
