@@ -102,6 +102,11 @@ class SectorMappingRecord(BaseModel):
     effective_through: str | None = None
     source: str = Field(min_length=3, max_length=500)
     source_reference: str | None = Field(default=None, max_length=1000)
+    company_name: str | None = Field(default=None, max_length=256)
+    macro_sector: str | None = Field(default=None, max_length=128)
+    industry: str | None = Field(default=None, max_length=128)
+    basic_industry: str | None = Field(default=None, max_length=160)
+    classification_status: str = Field(default="UNVERIFIED", min_length=1, max_length=24)
 
 
 @router.post("/reference/sectors", status_code=201)
