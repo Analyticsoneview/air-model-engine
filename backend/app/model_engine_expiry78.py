@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-ENGINE_VERSION = "EXPIRY78_DAILY_OHLCV_V2_UNRESOLVED_SAME_SESSION"
+ENGINE_VERSION = "EXPIRY78_DAILY_OHLCV_V3_ENTRY_DAY_HIGH_EXCLUDED"
 
 RULES = {
     "valid_ohlcv": "O/H/L/C and quantity must be positive; high/low must contain open and close",
@@ -16,7 +16,7 @@ RULES = {
     "entry_limit": "40% of the bullish-engulfing candle HIGH (high * 0.40)",
     "entry_fill": "A later daily LOW must touch or cross the limit before expiry; fill at the limit",
     "minimums": "Entry premium >= ₹1 and entry-day quantity >= 10; stock CE/PE entry premium must also be ₹1–₹10; index options are exempt from the ₹10 cap",
-    "stop_loss": "Initial 5% stop; after each +20% premium gain, ratchet stop to the prior +20% milestone (+20% locks entry, +40% locks +20%, etc.). Test active stop against daily LOW; a later gap below stop exits at observed OPEN. If entry-day LOW also touches the initial stop, classify UNRESOLVED because daily OHLC cannot establish whether entry preceded the stop. New milestone applies from the next daily observation.",
+    "stop_loss": "Initial 5% stop; after each +20% premium gain, ratchet stop to the prior +20% milestone (+20% locks entry, +40% locks +20%, etc.). Test active stop against daily LOW; a later gap below stop exits at observed OPEN. If entry-day LOW also touches the initial stop, classify UNRESOLVED because daily OHLC cannot establish whether entry preceded the stop. Ignore the entry-day HIGH because its intraday sequence relative to the modelled fill is unknown; trail milestones use subsequent daily observations only.",
     "expiry_survivor": "Only a trade that never hit SL and reaches expiry with verified underlying expiry close/intrinsic valuation is an EXPIRY78 survivor",
 }
 
@@ -145,6 +145,12 @@ def evaluate_expiry78_contract(
                         else "TRAILING_STOP" if trail_history else "STOP_LOSS"
                     )
                 break
+            # The entry is a modelled touch of the daily LOW, not a timestamped fill.
+            # The same session's HIGH may have occurred before that fill, so using
+            # it to ratchet a stop would introduce look-ahead bias. Keep the
+            # entry-day stop ambiguity check above, but start trailing next session.
+            if day == entry_day:
+                continue
             if day >= expiry_day:
                 break
             peak_premium = max(peak_premium, float(bar["high"]))
