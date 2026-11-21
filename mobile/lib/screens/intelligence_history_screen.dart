@@ -30,11 +30,12 @@ class _IntelligenceHistoryScreenState extends State<IntelligenceHistoryScreen> {
   String _identity(Map<String, dynamic> row) {
     final id = row['signal_id']?.toString();
     if (id != null && id.isNotEmpty) return 'ID:' + id;
+    final expiry = (row['expiry'] ?? '').toString();
     return [
       (row['symbol'] ?? '').toString().toUpperCase(),
       (row['option_type'] ?? '').toString().toUpperCase(),
       (row['strike'] ?? '').toString(),
-      (row['expiry'] ?? '').toString().substring(0, (row['expiry'] ?? '').toString().length.clamp(0, 10)),
+      expiry.length >= 10 ? expiry.substring(0, 10) : expiry,
     ].join('|');
   }
 
