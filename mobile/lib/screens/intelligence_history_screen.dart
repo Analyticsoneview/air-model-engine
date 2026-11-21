@@ -186,6 +186,14 @@ class _IntelligenceHistoryScreenState extends State<IntelligenceHistoryScreen> {
     return gross - (charges['total'] as num).toDouble();
   }
 
+  String _outcome(Map<String, dynamic> row) {
+    final gross = _grossPnl(row);
+    if (gross == null) return 'PNL PENDING';
+    if (gross > 0) return 'WIN';
+    if (gross < 0) return 'LOSS';
+    return 'BREAKEVEN';
+  }
+
   String _money(dynamic value) => value is num ? '₹' + value.toStringAsFixed(2) : 'PENDING';
   String _date(dynamic value) {
     if (value == null) return '—';
@@ -240,10 +248,6 @@ class _IntelligenceHistoryScreenState extends State<IntelligenceHistoryScreen> {
     final pending = rows.where((r) => _exitPrice(r) == null).length;
     final grossTotal = _sumPnl(rows, _grossPnl);
     final netTotal = _sumPnl(rows, _netPnl);
-    final charges = rows.fold<double>(0, (sum, row) {
-      final charge = row['charges'];
-      return sum + (charge is Map && charge['total'] is num ? (charge['total'] as num).toDouble() : 0);
-    });
     return Scaffold(
       appBar: AppBar(title: const Text('INTELLIGENCE HISTORY'),
         actions: [IconButton(tooltip: 'Refresh history', onPressed: _loading ? null : _load,
@@ -349,9 +353,9 @@ class _IntelligenceHistoryScreenState extends State<IntelligenceHistoryScreen> {
                 DataColumn(label: Text('OUTCOME')),
               ],
               rows: rows.map((row) {
-                final outcome = (row['expiry_outcome'] ?? 'PENDING').toString();
-                final color = outcome == 'EXPIRED_WIN' ? Colors.green :
-                  outcome == 'EXPIRED_LOSS' ? Theme.of(context).colorScheme.error :
+                final outcome = _outcome(row);
+                final color = outcome == 'WIN' ? Colors.green :
+                  outcome == 'LOSS' ? Theme.of(context).colorScheme.error :
                   Theme.of(context).colorScheme.onSurfaceVariant;
                 return DataRow(cells: [
                   DataCell(Text((row['strategy'] ?? '—').toString(), style: const TextStyle(fontSize: 9))),
@@ -364,7 +368,7 @@ class _IntelligenceHistoryScreenState extends State<IntelligenceHistoryScreen> {
                   DataCell(Text(_quantity(row)?.toString() ?? 'PENDING')),
                   DataCell(Text(_money(_grossPnl(row)))),
                   DataCell(Text(_money(_netPnl(row)))),
-                  DataCell(Text(outcome.replaceAll('EXPIRED_', ''), style: TextStyle(fontSize: 9, color: color, fontWeight: FontWeight.w800))),
+                  DataCell(Text(outcome, style: TextStyle(fontSize: 9, color: color, fontWeight: FontWeight.w800))),
                 ]);
               }).toList(),
             ))),
