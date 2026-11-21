@@ -12,6 +12,7 @@ class EquitySectorMasterTests(unittest.TestCase):
                 macro_sector="Industrials", sector="Capital Goods",
                 industry="Electrical Equipment", basic_industry="Heavy Electrical Equipment",
                 effective_from="2025-01-01", source="NSE Indices classification",
+                classification_status="VERIFIED",
                 source_reference="https://www.niftyindices.com/resources/industry-classification",
             )
             old = directory.sector_as_of("NSE", "ABC", "2025-06-01")
