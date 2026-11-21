@@ -10,7 +10,7 @@ class HistoryAccounting {
   /// Quantity is the recorded trade quantity. Lot size is never used as a fallback.
   static int? recordedQuantity(Map<String, dynamic> row) {
     final quantity = _number(row['quantity']);
-    return quantity == null ? null : quantity.round();
+    return quantity?.round();
   }
 
   /// These values are supplied by the canonical P&L calendar projection.
@@ -27,7 +27,9 @@ class HistoryAccounting {
     if (charges is! Map) return 'PENDING';
     final basis = (charges['basis'] ?? '').toString();
     if (basis == 'ACTUAL_SOURCE_BREAKDOWN' ||
-        basis == 'ACTUAL_REPORTED_TOTAL_BREAKDOWN_UNAVAILABLE') return 'ACTUAL';
+        basis == 'ACTUAL_REPORTED_TOTAL_BREAKDOWN_UNAVAILABLE') {
+      return 'ACTUAL';
+    }
     if (basis.startsWith('ESTIMATED')) return 'ESTIMATED';
     return 'PENDING';
   }
