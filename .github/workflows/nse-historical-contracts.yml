@@ -1,0 +1,85 @@
+name: NSE historical contract-master retrieval
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/nse-historical-contracts.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  retrieve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Retrieve dated NSE FO contract masters
+        shell: bash
+        run: |
+          python - <<'PY'
+          import csv, gzip, hashlib, json, os, pathlib, time
+          from datetime import date
+          import requests
+
+          dates = [
+            "04092026","07092026","08092026","09092026","10092026","11092026",
+            "15092026","16092026","17092026","18092026","21092026","22092026",
+            "23092026","24092026","25092026","28092026","29092026","30092026",
+            "01102026","05102026","06102026","07102026","08102026","14102026",
+            "15102026","16102026","21102026","22102026"
+          ]
+          out = pathlib.Path("nse-raw")
+          out.mkdir(exist_ok=True)
+          session = requests.Session()
+          session.headers.update({
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126 Safari/537.36",
+            "Accept": "*/*",
+            "Referer": "https://www.nseindia.com/all-reports-derivatives",
+            "Accept-Language": "en-US,en;q=0.9"
+          })
+          report = {"source_page":"https://www.nseindia.com/all-reports-derivatives","retrieval_date_utc":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"files":[]}
+          urls = [
+            "https://nsearchives.nseindia.com/content/fo/NSE_FO_contract_{d}.csv.gz",
+            "https://www.nseindia.com/content/fo/NSE_FO_contract_{d}.csv.gz",
+            "https://www.nse.in/content/fo/NSE_FO_contract_{d}.csv.gz"
+          ]
+          for d in dates:
+            entry={"trade_date":date(int(d[4:]),int(d[2:4]),int(d[:2])).isoformat(),"filename":f"NSE_FO_contract_{d}.csv.gz","attempts":[]}
+            for template in urls:
+              url=template.format(d=d)
+              try:
+                r=session.get(url,timeout=35)
+                item={"url":url,"status":r.status_code,"content_type":r.headers.get("Content-Type"),"bytes":len(r.content)}
+                if r.status_code==200 and len(r.content)>100 and r.content[:2]==b"\\x1f\\x8b":
+                  path=out/entry["filename"]
+                  path.write_bytes(r.content)
+                  with gzip.open(path,"rb") as f:
+                    head=f.read(4096)
+                  item.update({"accepted":True,"sha256":hashlib.sha256(r.content).hexdigest(),"decompressed_header_sample":head[:1000].decode("utf-8","replace")})
+                  entry["attempts"].append(item)
+                  entry["downloaded"]=True
+                  entry["sha256"]=item["sha256"]
+                  break
+                item["body_sample"]=r.text[:180].replace("\\n"," ")
+                entry["attempts"].append(item)
+              except Exception as e:
+                entry["attempts"].append({"url":url,"error":repr(e)})
+            report["files"].append(entry)
+            time.sleep(0.4)
+          (out/"retrieval_manifest.json").write_text(json.dumps(report,indent=2))
+          ok=sum(bool(x.get("downloaded")) for x in report["files"])
+          print(f"Downloaded {ok}/{len(dates)} dated NSE FO contract masters")
+          print(json.dumps(report,indent=2))
+          if ok == 0:
+            raise SystemExit("No valid gzip contract masters retrieved; refusing to proceed.")
+          PY
+      - name: Upload raw files and retrieval manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: nse-fo-contract-masters-2026-09-04_to_2026-10-22
+          path: nse-raw/
+          if-no-files-found: error
+          retention-days: 30
