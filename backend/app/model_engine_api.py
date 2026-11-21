@@ -25,7 +25,7 @@ from app.subscription_access import (
 from app.brokers.customer_accounts import CustomerAccountDirectory
 from app.security import require_customer
 from app.telegram_notifications import notify_candidates, send_telegram_message
-from app.market_data.runtime import execution_policy
+from app.market_data.runtime import execution_policy, market_data_instruments
 from app.market_data.customer_runtime import get_customer_market_data_service, get_customer_market_data_status
 from app.workflow_events import build_idempotency_key, emit_workflow_event
 
@@ -91,6 +91,99 @@ async def _notify_operator_candidates(
     if not _is_operator_customer(customer_id):
         return {"configured": False, "attempted": 0, "sent": 0}
     return await notify_candidates(strategy, rows)
+
+
+class SectorMappingRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    exchange: str = Field(default="NSE", min_length=2, max_length=16)
+    symbol: str = Field(min_length=1, max_length=128)
+    sector: str = Field(min_length=1, max_length=96)
+    effective_from: str
+    effective_through: str | None = None
+    source: str = Field(min_length=3, max_length=500)
+    source_reference: str | None = Field(default=None, max_length=1000)
+
+
+@router.post("/reference/sectors", status_code=201)
+async def upsert_sector_mapping(
+    body: SectorMappingRecord,
+    customer_id: str = Depends(_operator),
+) -> dict:
+    """Operator-only import of source-attributed, effective-dated stock sectors."""
+    try:
+        return market_data_instruments.upsert_sector(**body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+class ReferenceBackfillRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    provider: str = Field(min_length=2, max_length=32)
+    account_id: str = Field(min_length=1, max_length=128)
+    limit: int = Field(default=2000, ge=1, le=2000)
+
+
+@router.post("/reference/backfill")
+async def backfill_reference_masters(
+    body: ReferenceBackfillRequest,
+    customer_id: str = Depends(_operator),
+) -> dict:
+    """Persist missing historical sector and lot-size values for the operator ledger."""
+    publishers = [
+        value.strip() for value in os.getenv("AIR_OPERATOR_CUSTOMER_IDS", "").split(",")
+        if value.strip()
+    ]
+    publisher_id = publishers[0] if publishers else customer_id
+    accounts = CustomerAccountDirectory()
+    try:
+        owned = {(item.broker, item.account_id) for item in accounts.list_for_customer(customer_id)}
+    finally:
+        accounts.close()
+    if (body.provider.lower(), body.account_id) not in owned:
+        raise HTTPException(status_code=403, detail="Selected broker account is not assigned to this operator")
+    result = _ledger.backfill_reference_fields(
+        publisher_id, market_data_instruments, provider=body.provider.lower(),
+        account_id=body.account_id, limit=body.limit,
+    )
+    return {"customer_id": publisher_id, "status": "COMPLETED_WITH_UNRESOLVED" if result["unresolved"] else "COMPLETED",
+            **result}
+
+
+class SectorMappingBatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    rows: list[SectorMappingRecord] = Field(min_length=1, max_length=10000)
+
+
+@router.post("/reference/sectors/bulk", status_code=201)
+async def import_sector_mappings(
+    body: SectorMappingBatch,
+    customer_id: str = Depends(_operator),
+) -> dict:
+    """Bulk import official/source-attributed sector rows without guessing missing symbols."""
+    imported = 0
+    errors = []
+    for index, item in enumerate(body.rows):
+        try:
+            market_data_instruments.upsert_sector(**item.model_dump())
+            imported += 1
+        except (ValueError, TypeError) as exc:
+            errors.append({"row": index, "error": str(exc)})
+    return {"status": "COMPLETED" if not errors else "COMPLETED_WITH_ERRORS",
+            "imported": imported, "rejected": len(errors), "errors": errors}
+
+
+@router.get("/reference/sectors")
+async def get_sector_mapping(
+    exchange: str = Query(default="NSE", min_length=2, max_length=16),
+    symbol: str = Query(min_length=1, max_length=128),
+    as_of: str = Query(min_length=10, max_length=10),
+    customer_id: str = Depends(_operator),
+) -> dict:
+    try:
+        value = market_data_instruments.sector_as_of(exchange, symbol, as_of)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"mapping": value, "status": "MAPPED" if value else "UNMAPPED"}
 
 
 class SignalRecord(BaseModel):

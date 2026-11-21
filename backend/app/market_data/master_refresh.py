@@ -188,7 +188,10 @@ class BrokerMasterRefresher:
         if len(rows) < 100:
             raise ValueError(f"{provider} combined master validation failed: only {len(rows)} normalized rows")
         # Validate all URLs before atomically replacing the previous snapshot.
-        imported = self.directory.replace_snapshot(provider, account_id, rows)
+        imported = self.directory.replace_snapshot(
+            provider, account_id, rows,
+            effective_date=date.today().isoformat(), source=";".join(urls),
+        )
         return {"provider": provider, "account_id": account_id, "status": "REFRESHED",
                 "rows": imported, "sources": urls,
                 "refreshed_at": datetime.now(timezone.utc).isoformat()}

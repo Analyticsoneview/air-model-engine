@@ -12,6 +12,7 @@ import 'screens/air_support_screen.dart';
 import 'screens/air_server_setup_screen.dart';
 import 'screens/air_qoc_screen.dart';
 import 'screens/model_engine_screen.dart';
+import 'screens/intelligence_history_screen.dart';
 import 'screens/orb_strategy_screen.dart';
 import 'screens/air_market_pulse_card.dart';
 import 'services/air_api_client.dart';
@@ -126,6 +127,7 @@ class _AirShellState extends State<AirShell> {
     final pages = [
       AirDashboard(look: widget.look, onLookChanged: widget.onLookChanged),
       const ModelEngineScreen(),
+      const IntelligenceHistoryScreen(),
       const AirQocScreen(),
       const AirMoreScreen(),
     ];
@@ -173,6 +175,7 @@ class _AirShellState extends State<AirShell> {
                 destinations: const [
                   NavigationRailDestination(icon: Icon(Icons.grid_view_rounded), label: Text('Home')),
                   NavigationRailDestination(icon: Icon(Icons.analytics_rounded), label: Text('Intelligence')),
+                  NavigationRailDestination(icon: Icon(Icons.history_rounded), label: Text('Intelligence History')),
                   NavigationRailDestination(icon: Icon(Icons.radar_rounded), label: Text('AIR QOC')),
                   NavigationRailDestination(icon: Icon(Icons.apps_rounded), label: Text('More')),
                 ],
@@ -191,6 +194,7 @@ class _AirShellState extends State<AirShell> {
               destinations: const [
                 NavigationDestination(icon: Icon(Icons.grid_view_rounded), label: 'Home'),
                 NavigationDestination(icon: Icon(Icons.analytics_rounded), label: 'Intelligence'),
+                NavigationDestination(icon: Icon(Icons.history_rounded), label: 'History'),
                 NavigationDestination(icon: Icon(Icons.radar_rounded), label: 'AIR QOC'),
                 NavigationDestination(icon: Icon(Icons.apps_rounded), label: 'More'),
               ],

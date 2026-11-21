@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 
 from app.model_engine_ledger import ModelEngineLedger
+from app.market_data.instrument_registry import MarketInstrumentDirectory
 
 
 def record(**overrides):

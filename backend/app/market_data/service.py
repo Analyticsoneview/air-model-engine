@@ -493,6 +493,67 @@ class MarketDataService:
             if not chosen:
                 return
             item = chosen[0]
+            # The official instrument master is the single source of truth for
+            # contract lot size. Expose it on every hydrated ledger row so
+            # MASTER, Intelligence and History consume the same value.
+            raw_lot_size = item.get("lot_size")
+            try:
+                lot_size = int(raw_lot_size) if raw_lot_size not in (None, "") else None
+            except (TypeError, ValueError):
+                lot_size = None
+            evidence_for_lot = row.get("evidence") if isinstance(row.get("evidence"), dict) else {}
+            signal_as_of = str(row.get("entry_date") or row.get("signal_date") or date.today().isoformat())[:10]
+            historical_lot = None
+            if option_type and expiry and strike is not None:
+                try:
+                    historical_lot = self.instruments.lot_size_as_of(
+                        provider, account_id, symbol=str(item.get("symbol") or symbol),
+                        expiry=expiry, strike=str(item.get("strike")), option_type=option_type,
+                        as_of=signal_as_of,
+                    )
+                except Exception:
+                    historical_lot = None
+            # Never backdate today's current contract master onto an older ledger row.
+            # Historical rows require a dated snapshot; current-master fallback is limited
+            # to same-day rows while the daily snapshot is being captured.
+            current_day_fallback = signal_as_of >= date.today().isoformat()
+            resolved_lot_size = (
+                int(historical_lot["lot_size"]) if historical_lot and historical_lot.get("lot_size")
+                else lot_size if current_day_fallback and lot_size and lot_size > 0 else None
+            )
+            if resolved_lot_size:
+                row["lot_size"] = resolved_lot_size
+                row["evidence"] = {
+                    **evidence_for_lot,
+                    "contract_master": {
+                        **(evidence_for_lot.get("contract_master", {})
+                           if isinstance(evidence_for_lot.get("contract_master"), dict) else {}),
+                        "provider": provider, "account_id": account_id,
+                        "token": str(item.get("token") or ""),
+                        "lot_size": resolved_lot_size,
+                        "effective_date": historical_lot.get("effective_date") if historical_lot else None,
+                        "source": historical_lot.get("source") if historical_lot else "CURRENT_MASTER_FALLBACK",
+                        "resolved_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                }
+            sector = None
+            try:
+                sector_record = self.instruments.sector_as_of(
+                    str(item.get("exchange") or "NSE"), symbol, signal_as_of
+                )
+                sector = sector_record.get("sector") if sector_record else None
+            except Exception:
+                sector_record = None
+            if sector:
+                row["sector"] = sector
+                row["evidence"] = {
+                    **(row.get("evidence") if isinstance(row.get("evidence"), dict) else {}),
+                    "sector_master": {
+                        "exchange": sector_record["exchange"], "symbol": symbol,
+                        "sector": sector, "effective_from": sector_record["effective_from"],
+                        "source": sector_record["source"],
+                    },
+                }
             instrument = MarketInstrument(
                 exchange=item["exchange"], symbol=item["symbol"], token=str(item["token"]),
                 segment=item["segment"], expiry=item.get("expiry"),
