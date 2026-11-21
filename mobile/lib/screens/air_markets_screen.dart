@@ -3,14 +3,19 @@ import 'package:flutter/material.dart';
 import '../services/air_api_client.dart';
 
 class AirMarketsScreen extends StatefulWidget {
-  const AirMarketsScreen({super.key});
+  const AirMarketsScreen({super.key, this.apiBase, this.accessTokenProvider, this.ensureAdminSession, this.adminMode = false});
+
+  final String? apiBase;
+  final String? Function()? accessTokenProvider;
+  final Future<void> Function()? ensureAdminSession;
+  final bool adminMode;
 
   @override
   State<AirMarketsScreen> createState() => _AirMarketsScreenState();
 }
 
 class _AirMarketsScreenState extends State<AirMarketsScreen> {
-  final AirApiClient _api = AirApiClient();
+  late final AirApiClient _api;
   final TextEditingController _search = TextEditingController();
   String _market = 'CM';
   bool _loading = true;
@@ -23,6 +28,7 @@ class _AirMarketsScreenState extends State<AirMarketsScreen> {
   @override
   void initState() {
     super.initState();
+    _api = AirApiClient(baseUrl: widget.apiBase, accessTokenProvider: widget.accessTokenProvider);
     _load();
   }
 
@@ -36,18 +42,17 @@ class _AirMarketsScreenState extends State<AirMarketsScreen> {
   Future<void> _load() async {
     if (mounted) setState(() { _loading = true; _error = null; });
     try {
-      final results = await Future.wait([
-        _api.nseDataStatus(),
-        _api.customerMarketDataAccess(),
-        _api.nseDataRows(market: _market, symbol: _search.text, limit: 150),
-      ]);
+      await widget.ensureAdminSession?.call();
+      final status = await _api.nseDataStatus();
+      final access = widget.adminMode ? status : await _api.customerMarketDataAccess();
+      final rowsData = await _api.nseDataRows(market: _market, symbol: _search.text, limit: 150);
       if (!mounted) return;
-      final rows = (results[2]['rows'] as List<dynamic>? ?? const [])
+      final rows = (rowsData['rows'] as List<dynamic>? ?? const [])
           .whereType<Map<String, dynamic>>()
           .toList(growable: false);
       setState(() {
-        _status = results[0];
-        _access = results[1];
+        _status = status;
+        _access = access;
         _rows = rows;
         _lastLoaded = DateTime.now();
       });

@@ -38,14 +38,21 @@ def test_nse_bootstrap_can_be_triggered_by_admin(nse_admin_client):
     assert response.json()["status"] == "QUEUED"
 
 
-def test_nse_status_is_available_to_authenticated_customer():
+def test_nse_status_rejects_customer_only_token():
     main.app.dependency_overrides.clear()
-    main.nse_data_status = lambda: {"bootstrap": {"status": "RUNNING"}, "markets": {}}
     main.app.dependency_overrides[require_customer] = lambda: "+919876543210"
     client = TestClient(main.app)
     response = client.get("/api/v1/nse-data/status")
-    assert response.status_code == 200
-    assert response.json()["bootstrap"]["status"] == "RUNNING"
+    assert response.status_code == 401
+    client.app.dependency_overrides.clear()
+
+
+def test_nse_rows_reject_customer_only_token():
+    main.app.dependency_overrides.clear()
+    main.app.dependency_overrides[require_customer] = lambda: "+919876543210"
+    client = TestClient(main.app)
+    response = client.get("/api/v1/nse-data/rows?market=CM&limit=10")
+    assert response.status_code == 401
     client.app.dependency_overrides.clear()
 
 

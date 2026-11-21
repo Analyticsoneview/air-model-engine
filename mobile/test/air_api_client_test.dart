@@ -148,6 +148,43 @@ void main() {
       AirApiClient.setAccessToken(null);
     });
 
+    test('administrator token provider stays isolated from customer shared session', () async {
+      AirApiClient.setAccessToken('customer-mobile-pin-token');
+      var currentAdminToken = 'admin-totp-access-token';
+      final authorizationHeaders = <String?>[];
+      final client = AirApiClient(
+        baseUrl: 'https://air.example',
+        accessTokenProvider: () => currentAdminToken,
+        client: MockClient((request) async {
+          expect(request.url.path, '/api/v1/nse-data/status');
+          authorizationHeaders.add(request.headers['Authorization']);
+          return http.Response(jsonEncode({'status': 'READY'}), 200);
+        }),
+      );
+
+      expect(client.isAuthenticated, isTrue);
+      final result = await client.nseDataStatus();
+      expect(result['status'], 'READY');
+
+      currentAdminToken = 'rotated-admin-access-token';
+      await client.nseDataStatus();
+      expect(authorizationHeaders, [
+        'Bearer admin-totp-access-token',
+        'Bearer rotated-admin-access-token',
+      ]);
+      final customerClient = AirApiClient(
+        baseUrl: 'https://air.example',
+        client: MockClient((request) async {
+          expect(request.headers['Authorization'], 'Bearer customer-mobile-pin-token');
+          return http.Response(jsonEncode({'customer_id': 'customer-1'}), 200);
+        }),
+      );
+      await customerClient.me();
+      customerClient.dispose();
+      client.dispose();
+      AirApiClient.setAccessToken(null);
+    });
+
     test('status check does not require a token', () async {
       final client = AirApiClient(
         baseUrl: 'https://air.example',
