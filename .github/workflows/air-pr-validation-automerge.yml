@@ -155,11 +155,18 @@ jobs:
           $manifest = Join-Path $PWD 'android/app/src/main/AndroidManifest.xml'
           if (-not (Test-Path -LiteralPath $manifest)) { throw "Android manifest missing: $manifest" }
           $xml = Get-Content -LiteralPath $manifest -Raw
+          # Android needs INTERNET permission in the merged release manifest.
+          if ($xml -notmatch 'android\.permission\.INTERNET') {
+            $xml = [regex]::Replace($xml, '<application(?=\s|>)', '    <uses-permission android:name="android.permission.INTERNET" />' + [Environment]::NewLine + '    <application', 1)
+          }
+          # Permit cleartext HTTP only in this trusted-LAN lab APK; staging/production must use HTTPS.
           if ($xml -notmatch 'usesCleartextTraffic') {
             $xml = [regex]::Replace($xml, '<application(?=\s|>)', '<application android:usesCleartextTraffic="true"', 1)
           }
           Set-Content -LiteralPath $manifest -Value $xml -Encoding utf8
-          if ((Get-Content -LiteralPath $manifest -Raw) -notmatch 'android:usesCleartextTraffic="true"') { throw 'Lab HTTP traffic setting was not applied.' }
+          $verified = Get-Content -LiteralPath $manifest -Raw
+          if ($verified -notmatch 'android\.permission\.INTERNET') { throw 'Android INTERNET permission was not applied.' }
+          if ($verified -notmatch 'android:usesCleartextTraffic="true"') { throw 'Lab HTTP traffic setting was not applied.' }
       - name: Resolve packages
         working-directory: mobile
         run: |
