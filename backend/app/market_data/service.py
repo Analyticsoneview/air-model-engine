@@ -4,6 +4,8 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta, timezone
 import asyncio
 import copy
+import os
+import sqlite3
 from decimal import Decimal
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
@@ -444,6 +446,96 @@ class MarketDataService:
         Existing verified bars take precedence; missing dates are filled only.
         """
         result = [copy.deepcopy(row) for row in rows]
+
+        # Resolve exchange reference fields directly from the persistent NSE
+        # SQLite stores before any broker/provider lookup. This keeps screens
+        # populated when account-scoped PostgreSQL instrument masters are empty.
+        def sqlite_reference(row: dict) -> None:
+            symbol = str(row.get("symbol") or "").strip().upper()
+            if not symbol:
+                return
+            as_of = str(row.get("entry_date") or row.get("signal_date") or date.today().isoformat())[:10]
+            evidence = row.get("evidence") if isinstance(row.get("evidence"), dict) else {}
+
+            if not row.get("lot_size") and str(row.get("option_type") or "").upper() in {"CE", "PE"}:
+                expiry = str(row.get("expiry") or "")[:10]
+                strike = row.get("strike")
+                if expiry and strike is not None:
+                    path = os.getenv("AIR_NSE_DB_PATH", "data/nse_bhavcopy.sqlite3")
+                    try:
+                        with sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5) as db:
+                            db.row_factory = sqlite3.Row
+                            candidates = db.execute(
+                                """SELECT trade_date, lot_size, expiry, strike, option_type
+                                   FROM nse_bhavcopy
+                                   WHERE market='FO' AND upper(symbol)=? AND trade_date<=?
+                                     AND expiry=? AND upper(option_type)=?
+                                     AND lot_size IS NOT NULL AND lot_size>0
+                                   ORDER BY trade_date DESC LIMIT 100""",
+                                (symbol, as_of, expiry, str(row.get("option_type")).upper()),
+                            ).fetchall()
+                        wanted_strike = Decimal(str(strike))
+                        match = next((item for item in candidates
+                                      if item["strike"] is not None
+                                      and Decimal(str(item["strike"])) == wanted_strike), None)
+                        if match:
+                            row["lot_size"] = int(match["lot_size"])
+                            row["evidence"] = {
+                                **evidence,
+                                "nse_bhavcopy_reference": {
+                                    "market": "FO", "trade_date": match["trade_date"],
+                                    "expiry": match["expiry"], "strike": match["strike"],
+                                    "option_type": match["option_type"],
+                                    "lot_size": int(match["lot_size"]),
+                                    "source": "NSE_UDIFF_FO_BHAVCOPY_SQLITE",
+                                },
+                            }
+                    except (sqlite3.Error, OSError, ValueError, TypeError):
+                        pass
+
+            if not row.get("sector") or not row.get("industry") or not row.get("company_name"):
+                path = os.getenv("AIR_NSE_UNIVERSE_DB_PATH", "data/nse_universe.sqlite3")
+                try:
+                    with sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5) as db:
+                        db.row_factory = sqlite3.Row
+                        member = db.execute(
+                            """SELECT c.snapshot_date, c.company_name, c.industry, c.isin,
+                                      c.source_url, c.index_code
+                               FROM nse_index_constituent_snapshots c
+                               WHERE upper(c.symbol)=? AND c.snapshot_date<=?
+                                 AND c.company_name<>'' AND c.industry<>''
+                               ORDER BY c.snapshot_date DESC, c.index_code
+                               LIMIT 1""",
+                            (symbol, as_of),
+                        ).fetchone()
+                    if member:
+                        # Keep the exchange's industry label distinct; sector is
+                        # a compatibility display field when no canonical sector
+                        # value was already supplied by the signal.
+                        if not row.get("industry"):
+                            row["industry"] = member["industry"]
+                        if not row.get("company_name"):
+                            row["company_name"] = member["company_name"]
+                        if not row.get("isin"):
+                            row["isin"] = member["isin"]
+                        if not row.get("sector"):
+                            row["sector"] = member["industry"]
+                        row["evidence"] = {
+                            **(row.get("evidence") if isinstance(row.get("evidence"), dict) else {}),
+                            "nse_universe_reference": {
+                                "index_code": member["index_code"],
+                                "snapshot_date": member["snapshot_date"],
+                                "industry": member["industry"],
+                                "source_url": member["source_url"],
+                                "source": "NSE_OFFICIAL_INDEX_CONSTITUENTS_SQLITE",
+                            },
+                        }
+                except (sqlite3.Error, OSError):
+                    pass
+
+        for item in result:
+            sqlite_reference(item)
+
         source = self.router.resolve("historical")
         if not source:
             return result
@@ -544,7 +636,7 @@ class MarketDataService:
                 sector = sector_record.get("sector") if sector_record else None
             except Exception:
                 sector_record = None
-            if sector:
+            if sector and not row.get("sector"):
                 row["sector"] = sector
                 row["evidence"] = {
                     **(row.get("evidence") if isinstance(row.get("evidence"), dict) else {}),
