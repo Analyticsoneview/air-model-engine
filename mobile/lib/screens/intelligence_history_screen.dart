@@ -17,7 +17,6 @@ class _IntelligenceHistoryScreenState extends State<IntelligenceHistoryScreen> {
   String? _error;
   String _period = 'MONTHLY';
   String _strategy = 'ALL';
-  int _lots = 1;
   List<Map<String, dynamic>> _rows = [];
 
   @override
@@ -51,41 +50,18 @@ class _IntelligenceHistoryScreenState extends State<IntelligenceHistoryScreen> {
     }
     setState(() { _loading = true; _error = null; });
     try {
-      // MASTER is the canonical full lifecycle ledger. The P&L calendar
-      // enriches rows where verified replay/exit accounting is available.
-      final results = await Future.wait([
-        _api.modelEngineMaster(),
-        _api.modelEnginePnlCalendar(),
-      ]);
-      final master = results[0];
-      final calendar = results[1];
-      final groups = master['groups'] as Map<String, dynamic>? ?? const {};
-      final ledgerExpired = (groups['EXPIRED'] as List<dynamic>? ?? const [])
-          .whereType<Map<String, dynamic>>().toList();
+      // The P&L calendar is the canonical accounting projection. Do not
+      // overlay MASTER rows or reconstruct missing prices, quantities or P&L.
+      final calendar = await _api.modelEnginePnlCalendar();
       final pnlExpired = (calendar['expired_trades'] as List<dynamic>? ?? const [])
-          .whereType<Map<String, dynamic>>().toList();
-      final pnlByIdentity = <String, Map<String, dynamic>>{};
+          .whereType<Map<String, dynamic>>()
+          .where((row) => row['source'] == 'VERIFIED_REPLAY_OR_LEDGER')
+          .toList();
+      final unique = <String, Map<String, dynamic>>{};
       for (final row in pnlExpired) {
-        pnlByIdentity[_identity(row)] = row;
+        unique[_identity(row)] = Map<String, dynamic>.from(row);
       }
-      final merged = <String, Map<String, dynamic>>{};
-      for (final row in ledgerExpired) {
-        final enriched = pnlByIdentity[_identity(row)];
-        final evidence = row['evidence'] is Map ? row['evidence'] as Map : const {};
-        final strategyName = row['strategy'] ?? evidence['strategy'] ?? 'AIR MASTER';
-        merged[_identity(row)] = {
-          ...row,
-          if (enriched != null) ...enriched,
-          'strategy': enriched?['strategy'] ?? strategyName,
-          'expiry_outcome': enriched?['expiry_outcome'] ?? 'EXPIRED_PNL_PENDING',
-        };
-      }
-      // Keep verified P&L expiry records even if a legacy ledger response
-      // does not include their corresponding master group row.
-      for (final row in pnlExpired) {
-        merged.putIfAbsent(_identity(row), () => row);
-      }
-      if (mounted) setState(() => _rows = merged.values.toList()
+      if (mounted) setState(() => _rows = unique.values.toList()
         ..sort((a, b) => (b['expiry'] ?? '').toString().compareTo((a['expiry'] ?? '').toString())));
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
@@ -108,115 +84,35 @@ class _IntelligenceHistoryScreenState extends State<IntelligenceHistoryScreen> {
     return value == null ? null : double.tryParse(value.toString());
   }
 
-  int? _quantity(Map<String, dynamic> row) {
-    final lotSize = _number(row['lot_size']);
-    final recorded = _number(row['quantity'] ?? row['position_quantity']);
-    if (lotSize != null && lotSize > 0) return lotSize.round() * _lots;
-    if (recorded != null && recorded > 0) return recorded.round();
-    return null;
+  double? _canonicalNumber(Map<String, dynamic> row, String field) =>
+      _number(row[field]);
+
+  double? _grossPnl(Map<String, dynamic> row) => _canonicalNumber(row, 'gross_pnl');
+
+  double? _netPnl(Map<String, dynamic> row) => _canonicalNumber(row, 'net_pnl');
+
+  double? _chargesTotal(Map<String, dynamic> row) {
+    final charges = row['charges'];
+    return charges is Map ? _number(charges['total']) : null;
   }
 
-  double? _exitPrice(Map<String, dynamic> row) {
-    final recorded = _number(row['exit_price']);
-    if (recorded != null) return recorded;
-    final evidence = row['evidence'];
-    if (evidence is! Map) return null;
-    final bars = evidence['daily_option_bars'] ?? evidence['daily_bars'];
-    if (bars is! List) return null;
-    final expiry = _date(row['expiry']);
-    for (final item in bars) {
-      if (item is! Map || _date(item['date']) != expiry) continue;
-      final underlying = _number(item['underlying_close']);
-      final strike = _number(row['strike']);
-      if (underlying == null || strike == null) return null;
-      final type = (row['option_type'] ?? '').toString().toUpperCase();
-      if (type == 'CE') return (underlying - strike).clamp(0, double.infinity).toDouble();
-      if (type == 'PE') return (strike - underlying).clamp(0, double.infinity).toDouble();
-    }
-    return null;
+  String _chargeBasis(Map<String, dynamic> row) {
+    final charges = row['charges'];
+    if (charges is! Map) return 'PENDING';
+    final basis = (charges['basis'] ?? '').toString();
+    if (basis == 'ACTUAL_SOURCE_BREAKDOWN' ||
+        basis == 'ACTUAL_REPORTED_TOTAL_BREAKDOWN_UNAVAILABLE') return 'ACTUAL';
+    if (basis.startsWith('ESTIMATED')) return 'ESTIMATED';
+    return 'PENDING';
   }
 
-  double? _entryPrice(Map<String, dynamic> row) => _number(row['entry_price'] ?? row['entry_limit']);
-
-  double? _grossPnl(Map<String, dynamic> row) {
-    final entry = _entryPrice(row);
-    final exit = _exitPrice(row);
-    final qty = _quantity(row);
-    if (entry == null || exit == null || qty == null) return null;
-    return (exit - entry) * qty;
+  int? _recordedQuantity(Map<String, dynamic> row) {
+    final quantity = _number(row['quantity']);
+    return quantity == null ? null : quantity.round();
   }
 
-  Map<String, dynamic>? _estimatedCharges(Map<String, dynamic> row) {
-    final evidence = row['evidence'];
-    final supplied = evidence is Map ? evidence['charges_breakdown'] : null;
-    if (supplied is Map) {
-      final components = <String, double>{};
-      supplied.forEach((key, value) {
-        final amount = _number(value);
-        if (amount != null) components[key.toString()] = amount;
-      });
-      return {
-        'total': components.values.fold<double>(0, (a, b) => a + b),
-        'components': components,
-        'basis': 'ACTUAL_SOURCE_BREAKDOWN',
-      };
-    }
-    final reported = _number(
-      (evidence is Map ? evidence['charges_rupees'] : null) ?? row['charges_rupees'],
-    );
-    if (reported != null) {
-      return {
-        'total': reported,
-        'components': {'broker_reported_total': reported},
-        'basis': 'ACTUAL_REPORTED_TOTAL_BREAKDOWN_UNAVAILABLE',
-      };
-    }
-    final entry = _entryPrice(row);
-    final exit = _exitPrice(row);
-    final qty = _quantity(row);
-    final exitDate = DateTime.tryParse(_date(row['exit_date'] ?? row['expiry']));
-    if (entry == null || exit == null || qty == null || exitDate == null) return null;
-    final expirySettlement = row['exit_date'] == null ||
-        (row['exit_reason'] ?? '').toString().toUpperCase().startsWith('EXPIRY');
-    final buyTurnover = entry * qty;
-    final sellTurnover = expirySettlement ? 0.0 : exit * qty;
-    final turnover = buyTurnover + sellTurnover;
-    const brokeragePerOrder = 20.0;
-    const exchangeRate = 0.0003553;
-    const sebiRate = 0.000001;
-    const stampRate = 0.00003;
-    const gstRate = 0.18;
-    final brokerage = (expirySettlement ? 1 : 2) * brokeragePerOrder;
-    final exchange = turnover * exchangeRate;
-    final sebi = turnover * sebiRate;
-    final stamp = buyTurnover * stampRate;
-    final afterCutoff = !exitDate.isBefore(DateTime(2026, 4, 1));
-    final stt = expirySettlement
-        ? (exit > 0 ? exit * qty * (afterCutoff ? 0.0015 : 0.00125) : 0.0)
-        : sellTurnover * (afterCutoff ? 0.0015 : 0.001);
-    final gst = (brokerage + exchange + sebi) * gstRate;
-    final components = <String, double>{
-      'brokerage': brokerage, 'exchange_transaction_charges_nse_estimate': exchange,
-      'sebi_turnover_fee': sebi, 'stamp_duty_buy_side': stamp, 'stt': stt, 'gst': gst,
-    };
-    final total = components.values.fold<double>(0, (a, b) => a + b);
-    return {'total': total, 'components': components, 'basis': 'ESTIMATED_NSE_OPTIONS_ROUND_TRIP'};
-  }
-
-  double? _netPnl(Map<String, dynamic> row) {
-    final gross = _grossPnl(row);
-    final charges = _estimatedCharges(row);
-    if (gross == null || charges == null) return null;
-    return gross - (charges['total'] as num).toDouble();
-  }
-
-  String _outcome(Map<String, dynamic> row) {
-    final gross = _grossPnl(row);
-    if (gross == null) return 'PNL PENDING';
-    if (gross > 0) return 'WIN';
-    if (gross < 0) return 'LOSS';
-    return 'BREAKEVEN';
-  }
+  String _outcome(Map<String, dynamic> row) =>
+      (row['expiry_outcome'] ?? 'EXPIRED_PNL_PENDING').toString();
 
   String _money(dynamic value) => value is num ? '₹' + value.toStringAsFixed(2) : 'PENDING';
   String _date(dynamic value) {
@@ -269,9 +165,13 @@ class _IntelligenceHistoryScreenState extends State<IntelligenceHistoryScreen> {
     final losses = rows.where((r) => r['expiry_outcome'] == 'EXPIRED_LOSS').length;
     final grossPending = rows.where((r) => _grossPnl(r) == null).length;
     final netPending = rows.where((r) => _netPnl(r) == null).length;
-    final pending = rows.where((r) => _exitPrice(r) == null).length;
+    final pending = rows.where((r) => r['exit_price'] == null).length;
+    final chargePending = rows.where((r) => _chargesTotal(r) == null).length;
+    final estimatedCharges = rows.where((r) => _chargeBasis(r) == 'ESTIMATED').length;
+    final actualCharges = rows.where((r) => _chargeBasis(r) == 'ACTUAL').length;
     final grossTotal = _sumPnl(rows, _grossPnl);
     final netTotal = _sumPnl(rows, _netPnl);
+    final chargesTotal = _sumPnl(rows, _chargesTotal);
     return Scaffold(
       appBar: AppBar(title: const Text('INTELLIGENCE HISTORY'),
         actions: [IconButton(tooltip: 'Refresh history', onPressed: _loading ? null : _load,
@@ -312,14 +212,6 @@ class _IntelligenceHistoryScreenState extends State<IntelligenceHistoryScreen> {
                 onChanged: (v) => setState(() => _period = v ?? 'MONTHLY'),
               ),
               const SizedBox(height: 8),
-              DropdownButtonFormField<int>(
-                value: _lots,
-                decoration: const InputDecoration(labelText: 'Position size (lots)', border: OutlineInputBorder(), isDense: true),
-                items: const [1, 2, 3, 5, 10].map((n) =>
-                  DropdownMenuItem(value: n, child: Text('$n lot${n == 1 ? '' : 's'}'))).toList(),
-                onChanged: (v) => setState(() => _lots = v ?? 1),
-              ),
-              const SizedBox(height: 8),
               DropdownButtonFormField<String>(
                 value: _strategy,
                 decoration: const InputDecoration(labelText: 'Strategy', border: OutlineInputBorder(), isDense: true),
@@ -354,9 +246,12 @@ class _IntelligenceHistoryScreenState extends State<IntelligenceHistoryScreen> {
             ],
           ))),
           Row(children: [
-            _metric('EST. / ACTUAL CHARGES', _money(rows.isNotEmpty && grossTotal != null && netTotal != null ? grossTotal - netTotal : null)),
+            _metric('RECORDED CHARGES', _money(chargePending == 0 ? chargesTotal : null)),
             _metric('P&L PENDING', pending.toString()),
           ]),
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 5), child: Text(
+            'Charges: $actualCharges actual / broker-reported, $estimatedCharges estimated, $chargePending pending. Estimates are not broker-confirmed.',
+            style: TextStyle(fontSize: 9, color: Theme.of(context).colorScheme.onSurfaceVariant))),
           if (grossPending > 0 || netPending > 0)
             Padding(padding: const EdgeInsets.all(5), child: Text(
               'Available values only: ' + grossPending.toString() + ' gross and ' +
@@ -373,13 +268,13 @@ class _IntelligenceHistoryScreenState extends State<IntelligenceHistoryScreen> {
                 DataColumn(label: Text('CE/PE')), DataColumn(label: Text('STRIKE')),
                 DataColumn(label: Text('EXPIRY')), DataColumn(label: Text('ENTRY')),
                 DataColumn(label: Text('EXIT')), DataColumn(label: Text('QTY')),
-                DataColumn(label: Text('GROSS P&L')), DataColumn(label: Text('NET P&L')),
+                DataColumn(label: Text('LOT SIZE')), DataColumn(label: Text('GROSS P&L')), DataColumn(label: Text('NET P&L')),
                 DataColumn(label: Text('OUTCOME')),
               ],
               rows: rows.map((row) {
                 final outcome = _outcome(row);
-                final color = outcome == 'WIN' ? Colors.green :
-                  outcome == 'LOSS' ? Theme.of(context).colorScheme.error :
+                final color = outcome == 'EXPIRED_WIN' ? Colors.green :
+                  outcome == 'EXPIRED_LOSS' ? Theme.of(context).colorScheme.error :
                   Theme.of(context).colorScheme.onSurfaceVariant;
                 return DataRow(cells: [
                   DataCell(Text((row['strategy'] ?? '—').toString(), style: const TextStyle(fontSize: 9))),
@@ -387,9 +282,10 @@ class _IntelligenceHistoryScreenState extends State<IntelligenceHistoryScreen> {
                   DataCell(Text((row['option_type'] ?? '—').toString())),
                   DataCell(Text((row['strike'] ?? '—').toString())),
                   DataCell(Text(_date(row['expiry']))),
-                  DataCell(Text(_entryPrice(row)?.toStringAsFixed(2) ?? '—')),
-                  DataCell(Text(_exitPrice(row)?.toStringAsFixed(2) ?? 'PENDING')),
-                  DataCell(Text(_quantity(row)?.toString() ?? 'PENDING')),
+                  DataCell(Text(_number(row['entry_price'])?.toStringAsFixed(2) ?? '—')),
+                  DataCell(Text(_number(row['exit_price'])?.toStringAsFixed(2) ?? 'PENDING')),
+                  DataCell(Text(_recordedQuantity(row)?.toString() ?? 'PENDING')),
+                  DataCell(Text(_number(row['lot_size'])?.toStringAsFixed(0) ?? '—')),
                   DataCell(Text(_money(_grossPnl(row)))),
                   DataCell(Text(_money(_netPnl(row)))),
                   DataCell(Text(outcome, style: TextStyle(fontSize: 9, color: color, fontWeight: FontWeight.w800))),
@@ -402,7 +298,7 @@ class _IntelligenceHistoryScreenState extends State<IntelligenceHistoryScreen> {
           if (_error != null) Card(child: Padding(padding: const EdgeInsets.all(12),
             child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 11)))),
           const SizedBox(height: 8),
-          Text('P&L uses verified AIR strategy replay and ledger records. Charges are identified as estimated or broker-reported. RECOVERED is a retrospective alternative-model simulation, not an additional broker position. Physical-settlement amounts are excluded to prevent double counting.',
+          Text('Displayed quantity, exit price and P&L come directly from the canonical verified replay/ledger P&L record. Lot size is reference metadata only. Charges retain their source basis (actual, estimated or pending). No expiry value or missing P&L is reconstructed in this screen. RECOVERED is a retrospective alternative-model simulation, not an additional broker position. Physical-settlement amounts are excluded to prevent double counting.',
             style: TextStyle(fontSize: 9, height: 1.4, color: Theme.of(context).colorScheme.onSurfaceVariant)),
         ]),
       ),
