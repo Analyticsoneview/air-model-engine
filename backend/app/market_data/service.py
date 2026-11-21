@@ -501,19 +501,53 @@ class MarketDataService:
                 lot_size = int(raw_lot_size) if raw_lot_size not in (None, "") else None
             except (TypeError, ValueError):
                 lot_size = None
-            if lot_size is not None and lot_size > 0:
-                row["lot_size"] = lot_size
-                evidence_for_lot = row.get("evidence") if isinstance(row.get("evidence"), dict) else {}
+            evidence_for_lot = row.get("evidence") if isinstance(row.get("evidence"), dict) else {}
+            signal_as_of = str(row.get("entry_date") or row.get("signal_date") or date.today().isoformat())[:10]
+            historical_lot = None
+            if option_type and expiry and strike is not None:
+                try:
+                    historical_lot = self.instruments.lot_size_as_of(
+                        provider, account_id, symbol=str(item.get("symbol") or symbol),
+                        expiry=expiry, strike=str(item.get("strike")), option_type=option_type,
+                        as_of=signal_as_of,
+                    )
+                except Exception:
+                    historical_lot = None
+            resolved_lot_size = (
+                int(historical_lot["lot_size"]) if historical_lot and historical_lot.get("lot_size")
+                else lot_size if lot_size and lot_size > 0 else None
+            )
+            if resolved_lot_size:
+                row["lot_size"] = resolved_lot_size
                 row["evidence"] = {
                     **evidence_for_lot,
                     "contract_master": {
                         **(evidence_for_lot.get("contract_master", {})
                            if isinstance(evidence_for_lot.get("contract_master"), dict) else {}),
-                        "provider": provider,
-                        "account_id": account_id,
+                        "provider": provider, "account_id": account_id,
                         "token": str(item.get("token") or ""),
-                        "lot_size": lot_size,
+                        "lot_size": resolved_lot_size,
+                        "effective_date": historical_lot.get("effective_date") if historical_lot else None,
+                        "source": historical_lot.get("source") if historical_lot else "CURRENT_MASTER_FALLBACK",
                         "resolved_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                }
+            sector = None
+            try:
+                sector_record = self.instruments.sector_as_of(
+                    str(item.get("exchange") or "NSE"), symbol, signal_as_of
+                )
+                sector = sector_record.get("sector") if sector_record else None
+            except Exception:
+                sector_record = None
+            if sector:
+                row["sector"] = sector
+                row["evidence"] = {
+                    **(row.get("evidence") if isinstance(row.get("evidence"), dict) else {}),
+                    "sector_master": {
+                        "exchange": sector_record["exchange"], "symbol": symbol,
+                        "sector": sector, "effective_from": sector_record["effective_from"],
+                        "source": sector_record["source"],
                     },
                 }
             instrument = MarketInstrument(
