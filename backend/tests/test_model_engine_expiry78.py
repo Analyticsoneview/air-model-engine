@@ -158,7 +158,7 @@ def test_expiry78_strategy_tab_uses_engine_replay_results():
     })
     views = build_strategy_views([item])
     assert views["EXPIRY78"]["audit"]["engine"] == "AIR_EXPIRY78_SEVEN_RULES"
-    assert views["EXPIRY78"]["audit"]["strategy_version"] == "EXPIRY78_DAILY_OHLCV_V2_UNRESOLVED_SAME_SESSION"
+    assert views["EXPIRY78"]["audit"]["strategy_version"] == "EXPIRY78_DAILY_OHLCV_V3_ENTRY_DAY_HIGH_EXCLUDED"
     assert views["EXPIRY78"]["counts"]["NEW"] == 1
     assert views["EXPIRY78"]["counts"]["OPEN"] == 1
     assert views["EXPIRY78"]["groups"]["NEW"][0]["entry_price"] == 8.0
