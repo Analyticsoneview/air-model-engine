@@ -465,19 +465,21 @@ class MarketDataService:
                     try:
                         with sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5) as db:
                             db.row_factory = sqlite3.Row
-                            candidates = db.execute(
+                            wanted_strike = Decimal(str(strike))
+                            # Match the full option identity in SQL. Limiting
+                            # symbol-level rows before filtering strike can
+                            # omit valid contracts with many listed strikes.
+                            match = db.execute(
                                 """SELECT trade_date, lot_size, expiry, strike, option_type
                                    FROM nse_bhavcopy
-                                   WHERE market='FO' AND upper(symbol)=? AND trade_date<=?
-                                     AND expiry=? AND upper(option_type)=?
+                                   WHERE market='FO' AND upper(symbol)=?
+                                     AND trade_date<=? AND expiry=?
+                                     AND upper(option_type)=? AND strike=?
                                      AND lot_size IS NOT NULL AND lot_size>0
-                                   ORDER BY trade_date DESC LIMIT 100""",
-                                (symbol, as_of, expiry, str(row.get("option_type")).upper()),
-                            ).fetchall()
-                        wanted_strike = Decimal(str(strike))
-                        match = next((item for item in candidates
-                                      if item["strike"] is not None
-                                      and Decimal(str(item["strike"])) == wanted_strike), None)
+                                   ORDER BY trade_date DESC LIMIT 1""",
+                                (symbol, expiry, expiry,
+                                 str(row.get("option_type")).upper(), float(wanted_strike)),
+                            ).fetchone()
                         if match:
                             row["lot_size"] = int(match["lot_size"])
                             row["evidence"] = {
