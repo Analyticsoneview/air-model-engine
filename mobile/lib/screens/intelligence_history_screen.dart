@@ -147,6 +147,30 @@ class _IntelligenceHistoryScreenState extends State<IntelligenceHistoryScreen> {
   }
 
   Map<String, dynamic>? _estimatedCharges(Map<String, dynamic> row) {
+    final evidence = row['evidence'];
+    final supplied = evidence is Map ? evidence['charges_breakdown'] : null;
+    if (supplied is Map) {
+      final components = <String, double>{};
+      supplied.forEach((key, value) {
+        final amount = _number(value);
+        if (amount != null) components[key.toString()] = amount;
+      });
+      return {
+        'total': components.values.fold<double>(0, (a, b) => a + b),
+        'components': components,
+        'basis': 'ACTUAL_SOURCE_BREAKDOWN',
+      };
+    }
+    final reported = _number(
+      (evidence is Map ? evidence['charges_rupees'] : null) ?? row['charges_rupees'],
+    );
+    if (reported != null) {
+      return {
+        'total': reported,
+        'components': {'broker_reported_total': reported},
+        'basis': 'ACTUAL_REPORTED_TOTAL_BREAKDOWN_UNAVAILABLE',
+      };
+    }
     final entry = _entryPrice(row);
     final exit = _exitPrice(row);
     final qty = _quantity(row);
