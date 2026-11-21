@@ -327,7 +327,7 @@ class ModelEngineLedger:
                             "sector": sector["sector"],
                             "industry": sector.get("industry"),
                             "basic_industry": sector.get("basic_industry"),
-                            "classification_status": sector.get("classification_status", "VERIFIED"),
+                            "classification_status": sector.get("classification_status", "UNVERIFIED"),
                             "effective_from": sector["effective_from"],
                             "effective_through": sector.get("effective_through"),
                             "source": sector["source"],
