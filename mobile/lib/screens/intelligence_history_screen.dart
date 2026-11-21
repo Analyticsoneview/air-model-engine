@@ -292,7 +292,7 @@ class _IntelligenceHistoryScreenState extends State<IntelligenceHistoryScreen> {
                 value: _lots,
                 decoration: const InputDecoration(labelText: 'Position size (lots)', border: OutlineInputBorder(), isDense: true),
                 items: const [1, 2, 3, 5, 10].map((n) =>
-                  DropdownMenuItem(value: n, child: Text('${n} lot${n == 1 ? '' : 's'}'))).toList(),
+                  DropdownMenuItem(value: n, child: Text('$n lot${n == 1 ? '' : 's'}'))).toList(),
                 onChanged: (v) => setState(() => _lots = v ?? 1),
               ),
               const SizedBox(height: 8),
