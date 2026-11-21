@@ -636,7 +636,7 @@ class MarketDataService:
                 sector = sector_record.get("sector") if sector_record else None
             except Exception:
                 sector_record = None
-            if sector:
+            if sector and not row.get("sector"):
                 row["sector"] = sector
                 row["evidence"] = {
                     **(row.get("evidence") if isinstance(row.get("evidence"), dict) else {}),
