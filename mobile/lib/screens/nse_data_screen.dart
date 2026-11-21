@@ -5,14 +5,18 @@ import 'package:flutter/material.dart';
 import '../services/air_api_client.dart';
 
 class NseDataScreen extends StatefulWidget {
-  const NseDataScreen({super.key});
+  const NseDataScreen({super.key, this.apiBase, this.accessTokenProvider, this.ensureAdminSession});
+
+  final String? apiBase;
+  final String? Function()? accessTokenProvider;
+  final Future<void> Function()? ensureAdminSession;
 
   @override
   State<NseDataScreen> createState() => _NseDataScreenState();
 }
 
 class _NseDataScreenState extends State<NseDataScreen> {
-  final AirApiClient _api = AirApiClient();
+  late final AirApiClient _api;
   final TextEditingController _search = TextEditingController();
   Timer? _poller;
   Map<String, dynamic> _status = {};
@@ -26,6 +30,7 @@ class _NseDataScreenState extends State<NseDataScreen> {
   @override
   void initState() {
     super.initState();
+    _api = AirApiClient(baseUrl: widget.apiBase, accessTokenProvider: widget.accessTokenProvider);
     _load();
     _poller = Timer.periodic(const Duration(seconds: 15), (_) => _refreshStatus());
   }
@@ -50,6 +55,7 @@ class _NseDataScreenState extends State<NseDataScreen> {
       _error = null;
     });
     try {
+      await widget.ensureAdminSession?.call();
       final status = await _api.nseDataStatus();
       final data = await _api.nseDataRows(
         market: _market,
@@ -74,6 +80,7 @@ class _NseDataScreenState extends State<NseDataScreen> {
     if (_statusLoading) return;
     _statusLoading = true;
     try {
+      await widget.ensureAdminSession?.call();
       final status = await _api.nseDataStatus();
       if (!mounted) return;
       final oldCount = _recordsFor(_market);
@@ -96,6 +103,7 @@ class _NseDataScreenState extends State<NseDataScreen> {
 
   Future<void> _loadRows() async {
     try {
+      await widget.ensureAdminSession?.call();
       final data = await _api.nseDataRows(
         market: _market,
         symbol: _search.text,
