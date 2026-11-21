@@ -180,7 +180,10 @@ def build_pnl_calendar(strategy_views: dict[str, Any], *, physical_review: dict[
     # Expiry history is selected from persisted records by contract expiry,
     # independently of current lifecycle labels and without market-data hydration.
     expiry_history: list[dict[str, Any]] = []
-    selected_ids = {str(item.get("signal_id")) for item in selected if item.get("signal_id")}
+    selected_expired_ids = {
+        str(item.get("signal_id")) for item in selected
+        if item.get("signal_id") and item.get("expiry_outcome")
+    }
     as_of = date.today()
     seen_history: set[tuple] = set()
     for row in history_rows or []:
@@ -199,7 +202,7 @@ def build_pnl_calendar(strategy_views: dict[str, Any], *, physical_review: dict[
         if contract_key in seen_history:
             continue
         seen_history.add(contract_key)
-        if signal_id and signal_id in selected_ids:
+        if signal_id and signal_id in selected_expired_ids:
             continue
         evidence = row.get("evidence") if isinstance(row.get("evidence"), dict) else {}
         memberships = evidence.get("strategy_memberships") or evidence.get("strategies") or []
