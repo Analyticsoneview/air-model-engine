@@ -151,7 +151,7 @@ class MarketInstrumentDirectory:
                     token,segment,expiry,strike,option_type,lot_size,instrument_type,source,captured_at
                 ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(provider,account_id,effective_date,token) DO NOTHING
-            """, [(*row[:13], source, stamp) for row in values])
+            """, [(*row[:2], effective, *row[2:12], source, stamp) for row in values])
             self.db.execute("DELETE FROM market_instruments WHERE provider=? AND account_id=?",
                             (provider, account_id))
             self.db.executemany("""
