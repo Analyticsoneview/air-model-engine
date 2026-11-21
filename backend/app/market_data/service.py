@@ -493,6 +493,29 @@ class MarketDataService:
             if not chosen:
                 return
             item = chosen[0]
+            # The official instrument master is the single source of truth for
+            # contract lot size. Expose it on every hydrated ledger row so
+            # MASTER, Intelligence and History consume the same value.
+            raw_lot_size = item.get("lot_size")
+            try:
+                lot_size = int(raw_lot_size) if raw_lot_size not in (None, "") else None
+            except (TypeError, ValueError):
+                lot_size = None
+            if lot_size is not None and lot_size > 0:
+                row["lot_size"] = lot_size
+                evidence_for_lot = row.get("evidence") if isinstance(row.get("evidence"), dict) else {}
+                row["evidence"] = {
+                    **evidence_for_lot,
+                    "contract_master": {
+                        **(evidence_for_lot.get("contract_master", {})
+                           if isinstance(evidence_for_lot.get("contract_master"), dict) else {}),
+                        "provider": provider,
+                        "account_id": account_id,
+                        "token": str(item.get("token") or ""),
+                        "lot_size": lot_size,
+                        "resolved_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                }
             instrument = MarketInstrument(
                 exchange=item["exchange"], symbol=item["symbol"], token=str(item["token"]),
                 segment=item["segment"], expiry=item.get("expiry"),
