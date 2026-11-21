@@ -18,7 +18,7 @@ def upgrade() -> None:
     op.add_column("market_equity_sector_history", sa.Column("industry", sa.String(128)))
     op.add_column("market_equity_sector_history", sa.Column("basic_industry", sa.String(160)))
     op.add_column("market_equity_sector_history", sa.Column(
-        "classification_status", sa.String(24), nullable=False, server_default="VERIFIED"
+        "classification_status", sa.String(24), nullable=False, server_default="UNVERIFIED"
     ))
     op.create_check_constraint(
         "ck_equity_sector_classification_status",
