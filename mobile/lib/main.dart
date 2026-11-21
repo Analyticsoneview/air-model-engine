@@ -122,6 +122,14 @@ class AirShell extends StatefulWidget {
 class _AirShellState extends State<AirShell> {
   int tab = 0;
 
+  static const _desktopDestinations = <({IconData icon, String label})>[
+    (icon: Icons.grid_view_rounded, label: 'Home'),
+    (icon: Icons.analytics_rounded, label: 'Intelligence'),
+    (icon: Icons.history_rounded, label: 'Intelligence History'),
+    (icon: Icons.radar_rounded, label: 'AIR QOC'),
+    (icon: Icons.apps_rounded, label: 'More'),
+  ];
+
   @override
   Widget build(BuildContext context) {
     final pages = [
@@ -182,33 +190,15 @@ class _AirShellState extends State<AirShell> {
                       child: ListView(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         children: [
-                          for (final destination in <({IconData icon, String label})>[
-                            (icon: Icons.grid_view_rounded, label: 'Home'),
-                            (icon: Icons.analytics_rounded, label: 'Intelligence'),
-                            (icon: Icons.history_rounded, label: 'Intelligence History'),
-                            (icon: Icons.radar_rounded, label: 'AIR QOC'),
-                            (icon: Icons.apps_rounded, label: 'More'),
-                          ])
+                          for (var index = 0; index < _desktopDestinations.length; index++)
                             Padding(
                               padding: const EdgeInsets.only(bottom: 5),
                               child: ListTile(
-                                selected: tab == <({IconData icon, String label})>[
-                                  (icon: Icons.grid_view_rounded, label: 'Home'),
-                                  (icon: Icons.analytics_rounded, label: 'Intelligence'),
-                                  (icon: Icons.history_rounded, label: 'Intelligence History'),
-                                  (icon: Icons.radar_rounded, label: 'AIR QOC'),
-                                  (icon: Icons.apps_rounded, label: 'More'),
-                                ].indexOf(destination),
-                                onTap: () => setState(() => tab = <({IconData icon, String label})>[
-                                  (icon: Icons.grid_view_rounded, label: 'Home'),
-                                  (icon: Icons.analytics_rounded, label: 'Intelligence'),
-                                  (icon: Icons.history_rounded, label: 'Intelligence History'),
-                                  (icon: Icons.radar_rounded, label: 'AIR QOC'),
-                                  (icon: Icons.apps_rounded, label: 'More'),
-                                ].indexOf(destination)),
-                                leading: Icon(destination.icon),
+                                selected: tab == index,
+                                onTap: () => setState(() => tab = index),
+                                leading: Icon(_desktopDestinations[index].icon),
                                 title: Text(
-                                  destination.label,
+                                  _desktopDestinations[index].label,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
@@ -228,7 +218,6 @@ class _AirShellState extends State<AirShell> {
               ),
             if (wide)
               const VerticalDivider(width: 1, thickness: 1),
-(width: 1, thickness: 1),
             Expanded(child: pages[tab]),
           ],
         ),
