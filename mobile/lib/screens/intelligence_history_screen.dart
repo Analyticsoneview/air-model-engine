@@ -27,6 +27,17 @@ class _IntelligenceHistoryScreenState extends State<IntelligenceHistoryScreen> {
     super.dispose();
   }
 
+  String _identity(Map<String, dynamic> row) {
+    final id = row['signal_id']?.toString();
+    if (id != null && id.isNotEmpty) return 'ID:' + id;
+    return [
+      (row['symbol'] ?? '').toString().toUpperCase(),
+      (row['option_type'] ?? '').toString().toUpperCase(),
+      (row['strike'] ?? '').toString(),
+      (row['expiry'] ?? '').toString().substring(0, (row['expiry'] ?? '').toString().length.clamp(0, 10)),
+    ].join('|');
+  }
+
   Future<void> _load() async {
     if (!_api.isAuthenticated) {
       setState(() => _error = 'Sign in with an active strategy subscription to view expired contract history.');
@@ -34,12 +45,42 @@ class _IntelligenceHistoryScreenState extends State<IntelligenceHistoryScreen> {
     }
     setState(() { _loading = true; _error = null; });
     try {
-      final result = await _api.modelEnginePnlCalendar();
-      final expired = (result['expired_trades'] as List<dynamic>? ?? const [])
-          .whereType<Map<String, dynamic>>()
-          .where((row) => row['expiry_outcome'] != null)
-          .toList(growable: false);
-      if (mounted) setState(() => _rows = expired);
+      // MASTER is the canonical full lifecycle ledger. The P&L calendar
+      // enriches rows where verified replay/exit accounting is available.
+      final results = await Future.wait([
+        _api.modelEngineMaster(),
+        _api.modelEnginePnlCalendar(),
+      ]);
+      final master = results[0];
+      final calendar = results[1];
+      final groups = master['groups'] as Map<String, dynamic>? ?? const {};
+      final ledgerExpired = (groups['EXPIRED'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>().toList();
+      final pnlExpired = (calendar['expired_trades'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>().toList();
+      final pnlByIdentity = <String, Map<String, dynamic>>{};
+      for (final row in pnlExpired) {
+        pnlByIdentity[_identity(row)] = row;
+      }
+      final merged = <String, Map<String, dynamic>>{};
+      for (final row in ledgerExpired) {
+        final enriched = pnlByIdentity[_identity(row)];
+        final evidence = row['evidence'] is Map ? row['evidence'] as Map : const {};
+        final strategyName = row['strategy'] ?? evidence['strategy'] ?? 'AIR MASTER';
+        merged[_identity(row)] = {
+          ...row,
+          if (enriched != null) ...enriched,
+          'strategy': enriched?['strategy'] ?? strategyName,
+          'expiry_outcome': enriched?['expiry_outcome'] ?? 'EXPIRED_PNL_PENDING',
+        };
+      }
+      // Keep verified P&L expiry records even if a legacy ledger response
+      // does not include their corresponding master group row.
+      for (final row in pnlExpired) {
+        merged.putIfAbsent(_identity(row), () => row);
+      }
+      if (mounted) setState(() => _rows = merged.values.toList()
+        ..sort((a, b) => (b['expiry'] ?? '').toString().compareTo((a['expiry'] ?? '').toString())));
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
