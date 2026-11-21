@@ -84,10 +84,27 @@ class MarketInstrumentDirectory:
                     exchange TEXT NOT NULL, symbol TEXT NOT NULL, sector TEXT NOT NULL,
                     effective_from TEXT NOT NULL, effective_through TEXT,
                     source TEXT NOT NULL, source_reference TEXT, verified_at TEXT NOT NULL,
+                    company_name TEXT, macro_sector TEXT, industry TEXT, basic_industry TEXT,
+                    classification_status TEXT NOT NULL DEFAULT 'VERIFIED',
                     PRIMARY KEY(exchange,symbol,effective_from),
-                    CHECK(effective_through IS NULL OR effective_through >= effective_from)
+                    CHECK(effective_through IS NULL OR effective_through >= effective_from),
+                    CHECK(classification_status IN ('VERIFIED','UNVERIFIED','PROVISIONAL'))
                 )
             """)
+            sector_columns = {row["name"] for row in self.db.execute(
+                "PRAGMA table_info(market_equity_sector_history)"
+            )}
+            for column, definition in (
+                ("company_name", "TEXT"),
+                ("macro_sector", "TEXT"),
+                ("industry", "TEXT"),
+                ("basic_industry", "TEXT"),
+                ("classification_status", "TEXT NOT NULL DEFAULT 'VERIFIED'"),
+            ):
+                if column not in sector_columns:
+                    self.db.execute(
+                        f"ALTER TABLE market_equity_sector_history ADD COLUMN {column} {definition}"
+                    )
             self.db.execute("""
                 CREATE INDEX IF NOT EXISTS idx_equity_sector_symbol_effective
                 ON market_equity_sector_history(exchange,symbol,effective_from)
@@ -239,10 +256,19 @@ class MarketInstrumentDirectory:
     def upsert_sector(self, *, exchange: str, symbol: str, sector: str,
                       effective_from: str, source: str,
                       source_reference: str | None = None,
-                      effective_through: str | None = None) -> dict:
+                      effective_through: str | None = None,
+                      company_name: str | None = None,
+                      macro_sector: str | None = None,
+                      industry: str | None = None,
+                      basic_industry: str | None = None,
+                      classification_status: str = "VERIFIED") -> dict:
+        """Store symbol-keyed, effective-dated company classification."""
         exchange, symbol, sector = exchange.strip().upper(), symbol.strip().upper(), sector.strip()
+        status = classification_status.strip().upper()
         if not all((exchange, symbol, sector, source.strip())):
             raise ValueError("Exchange, symbol, sector and source are required")
+        if status not in {"VERIFIED", "UNVERIFIED", "PROVISIONAL"}:
+            raise ValueError("Invalid classification_status")
         start = date.fromisoformat(effective_from).isoformat()
         end = date.fromisoformat(effective_through).isoformat() if effective_through else None
         if end and end < start:
@@ -252,13 +278,18 @@ class MarketInstrumentDirectory:
             self.db.execute("""
                 INSERT INTO market_equity_sector_history(
                     exchange,symbol,sector,effective_from,effective_through,
-                    source,source_reference,verified_at
-                ) VALUES(?,?,?,?,?,?,?,?)
+                    source,source_reference,verified_at,company_name,macro_sector,
+                    industry,basic_industry,classification_status
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(exchange,symbol,effective_from) DO UPDATE SET
                     sector=excluded.sector,effective_through=excluded.effective_through,
                     source=excluded.source,source_reference=excluded.source_reference,
-                    verified_at=excluded.verified_at
-            """, (exchange, symbol, sector, start, end, source.strip(), source_reference, verified))
+                    verified_at=excluded.verified_at,company_name=excluded.company_name,
+                    macro_sector=excluded.macro_sector,industry=excluded.industry,
+                    basic_industry=excluded.basic_industry,
+                    classification_status=excluded.classification_status
+            """, (exchange, symbol, sector, start, end, source.strip(), source_reference,
+                  verified, company_name, macro_sector, industry, basic_industry, status))
         return self.sector_as_of(exchange, symbol, start) or {}
 
     def sector_as_of(self, exchange: str, symbol: str, as_of: str) -> dict | None:
