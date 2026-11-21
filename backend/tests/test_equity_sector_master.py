@@ -30,7 +30,6 @@ class EquitySectorMasterTests(unittest.TestCase):
             row = directory.upsert_sector(
                 exchange="NSE", symbol="XYZ", sector="UNVERIFIED",
                 effective_from="2026-01-01", source="Pending source verification",
-                classification_status="UNVERIFIED",
             )
             self.assertEqual(row["classification_status"], "UNVERIFIED")
         finally:
