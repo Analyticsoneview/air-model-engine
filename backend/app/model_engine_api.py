@@ -374,6 +374,14 @@ async def get_model_engine_master(
             rows.append(case)
         else:
             prior_evidence = match.get("evidence") if isinstance(match.get("evidence"), dict) else {}
+            # Merge only missing exchange reference fields from the
+            # enriched pinned case. The matching ledger row remains the source
+            # of its existing verified values; reference enrichment must not
+            # overwrite a non-empty lot size, sector, industry, company or ISIN.
+            reference_fields = ("lot_size", "sector", "industry", "company_name", "isin")
+            for field in reference_fields:
+                if not match.get(field) and case.get(field) not in (None, ""):
+                    match[field] = case[field]
             match.update({
                 "classification": "EXPIRED",
                 "position_status": "EXPIRED",
