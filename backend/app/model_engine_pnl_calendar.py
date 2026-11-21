@@ -234,8 +234,9 @@ def build_pnl_calendar(strategy_views: dict[str, Any], *, physical_review: dict[
             "gross_pnl": gross,
             "charges": None,
             "net_pnl": None,
-            "expiry_outcome": ("EXPIRED_WIN" if gross > 0 else "EXPIRED_LOSS" if gross < 0 else
-                               "EXPIRED_BREAKEVEN" if gross == 0 else "EXPIRED_PNL_PENDING"),
+            "expiry_outcome": ("EXPIRED_PNL_PENDING" if gross is None else
+                               "EXPIRED_WIN" if gross > 0 else "EXPIRED_LOSS" if gross < 0 else
+                               "EXPIRED_BREAKEVEN"),
             "pnl_status": "PENDING_VERIFICATION" if gross is None else "SOURCE_PNL_POINTS_ONLY",
             "capital_status": "KNOWN" if entry_price is not None and quantity is not None else "QUANTITY_REQUIRED",
             "source": "VERIFIED_REPLAY_OR_LEDGER",
